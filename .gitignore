@@ -93,16 +93,21 @@ infra/secrets/keys/*.key
 # Docker
 .dockerignore
 
-# Terraform
-infra/terraform/.terraform/
-infra/terraform/.terraform.lock.hcl
-infra/terraform/terraform.tfstate
-infra/terraform/terraform.tfstate.backup
-infra/terraform/*.tfvars
-!infra/terraform/terraform.tfvars.example
-infra/terraform/crash.log
-infra/terraform/.terraformrc
-infra/terraform/terraform.rc
+# Terraform State Files (Sensitive)
+terraform.tfstate
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# Terraform Variables (Secrets)
+terraform.tfvars
+*.auto.tfvars
+terraform.tfvars.json
+
+# Terraform Plan Files
+*.tfplan
+.plan.cache
 
 # Ansible
 infra/ansible/*.retry
