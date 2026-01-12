@@ -1,0 +1,21 @@
+# Hill90 API Service Dockerfile (Development)
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies for development
+RUN npm install -g tsx
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev)
+RUN npm install
+
+# Copy source code
+COPY . .
+
+EXPOSE 3000
+
+CMD ["npm", "run", "dev"]

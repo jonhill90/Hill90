@@ -1,0 +1,59 @@
+---
+# Tailscale Installation Playbook
+# Installs and configures Tailscale for secure admin access
+
+- name: Add Tailscale repository
+  yum_repository:
+    name: tailscale-stable
+    description: Tailscale stable
+    baseurl: https://pkgs.tailscale.com/stable/rhel/9/x86_64
+    enabled: yes
+    gpgcheck: yes
+    gpgkey: https://pkgs.tailscale.com/stable/rhel/9/x86_64/repo.gpg
+    repo_gpgcheck: yes
+
+- name: Install Tailscale
+  dnf:
+    name: tailscale
+    state: present
+
+- name: Enable and start Tailscale
+  systemd:
+    name: tailscaled
+    enabled: yes
+    state: started
+
+- name: Check if Tailscale is already authenticated
+  command: tailscale status
+  register: tailscale_status
+  changed_when: false
+  failed_when: false
+
+- name: Authenticate Tailscale
+  command: >
+    tailscale up
+    --authkey={{ tailscale_auth_key }}
+    --hostname={{ vps_hostname }}
+    --accept-routes
+    --ssh
+  when: "'Logged out' in tailscale_status.stdout or tailscale_status.rc != 0"
+  register: tailscale_auth
+  failed_when: tailscale_auth.rc != 0 and 'already logged in' not in tailscale_auth.stderr
+
+- name: Display Tailscale status
+  command: tailscale status
+  register: tailscale_final_status
+  changed_when: false
+
+- name: Show Tailscale configuration
+  debug:
+    var: tailscale_final_status.stdout_lines
+
+- name: Get Tailscale IP
+  command: tailscale ip -4
+  register: tailscale_ip
+  changed_when: false
+
+- name: Display Tailscale IP
+  debug:
+    msg: "Tailscale IP: {{ tailscale_ip.stdout }}"

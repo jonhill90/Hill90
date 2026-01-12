@@ -1,0 +1,44 @@
+# Global variables for all hosts
+
+# User configuration
+deploy_user: deploy
+deploy_user_groups:
+  - docker
+  - wheel
+deploy_home: /home/deploy
+app_directory: /opt/hill90
+
+# Docker configuration
+docker_edition: ce
+docker_version: latest
+docker_compose_version: v2.24.0
+
+# SSH hardening
+ssh_port: 22
+ssh_permit_root_login: no
+ssh_password_authentication: no
+ssh_max_auth_tries: 3
+ssh_client_alive_interval: 300
+ssh_client_alive_count_max: 2
+
+# Firewall configuration
+firewall_allowed_ports:
+  - 22/tcp    # SSH
+  - 80/tcp    # HTTP
+  - 443/tcp   # HTTPS
+
+# Tailscale configuration
+tailscale_auth_key: "{{ lookup('env', 'TAILSCALE_AUTH_KEY') }}"
+tailscale_tags:
+  - tag:server
+  - tag:hill90
+
+# SOPS/age configuration
+age_key_path: "{{ app_directory }}/secrets/keys"
+sops_version: 3.8.1
+age_version: 1.1.1
+
+# Application settings
+app_name: hill90
+app_repo: "https://github.com/yourusername/Hill90.git"
+app_branch: main

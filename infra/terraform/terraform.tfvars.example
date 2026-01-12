@@ -1,0 +1,35 @@
+# Hill90 VPS Configuration
+# Copy this file to terraform.tfvars and fill in your values
+# Alternatively, set variables via environment variables: TF_VAR_variable_name
+
+# Environment
+environment = "prod"
+
+# VPS Configuration
+hostname = "hill90-vps.yourdomain.com"
+
+# Datacenter (0 = auto-select, or specific ID from data source)
+datacenter_id = 0
+
+# VPS Plan (empty = auto-select KVM2, or specific plan ID)
+vps_plan = ""
+
+# Root Password (leave empty for auto-generated)
+# IMPORTANT: Store securely, don't commit to git
+# root_password = ""
+
+# SSH Public Key (optional, recommended for security)
+# Get your public key with: cat ~/.ssh/id_ed25519.pub
+# ssh_public_key = "ssh-ed25519 AAAAC3... user@host"
+
+# Post-Install Script (optional)
+create_post_install_script = false
+
+# Payment Method (null = use default)
+payment_method_id = null
+
+# Hostinger API Token
+# IMPORTANT: Never commit this to git!
+# Set via environment variable: export TF_VAR_hostinger_api_token="your_token"
+# Get from: https://hpanel.hostinger.com/profile/api
+# hostinger_api_token = ""

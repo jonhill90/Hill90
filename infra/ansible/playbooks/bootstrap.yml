@@ -1,0 +1,49 @@
+---
+# Hill90 VPS Bootstrap Playbook
+# This playbook sets up a fresh AlmaLinux VPS for Hill90 deployment
+
+- name: Bootstrap Hill90 VPS
+  hosts: vps
+  become: yes
+  gather_facts: yes
+
+  vars_files:
+    - ../inventory/group_vars/all.yml
+
+  pre_tasks:
+    - name: Display bootstrap start message
+      debug:
+        msg: "Starting Hill90 VPS bootstrap for {{ inventory_hostname }}"
+
+  tasks:
+    - name: Import user setup playbook
+      import_tasks: 01-user-setup.yml
+
+    - name: Import Docker installation playbook
+      import_tasks: 02-docker-install.yml
+
+    - name: Import firewall configuration playbook
+      import_tasks: 03-firewall.yml
+
+    - name: Import SSH hardening playbook
+      import_tasks: 04-ssh-hardening.yml
+
+    - name: Import Tailscale installation playbook
+      import_tasks: 05-tailscale.yml
+
+    - name: Import secrets setup playbook
+      import_tasks: 06-secrets-setup.yml
+
+  post_tasks:
+    - name: Display bootstrap completion message
+      debug:
+        msg: "Hill90 VPS bootstrap completed successfully!"
+
+    - name: Display next steps
+      debug:
+        msg:
+          - "Bootstrap completed! Next steps:"
+          - "1. Exit and reconnect via Tailscale or SSH as deploy user"
+          - "2. Clone Hill90 repository to {{ app_directory }}/app"
+          - "3. Configure DNS records for api.hill90.com, ai.hill90.com, hill90.com"
+          - "4. Run: make deploy"

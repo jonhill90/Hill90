@@ -1,0 +1,5 @@
+# Placeholder lock file
+# Run 'poetry lock' to generate actual lock file
+[[package]]
+name = "placeholder"
+version = "0.0.0"

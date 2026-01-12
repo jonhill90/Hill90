@@ -1,0 +1,22 @@
+# Hill90 AI Service Dockerfile (Development)
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install Poetry
+RUN pip install --no-cache-dir poetry==1.7.1
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock ./
+
+# Install dependencies
+RUN poetry config virtualenvs.create false && \
+    poetry install --no-interaction --no-ansi
+
+# Copy source code
+COPY . .
+
+EXPOSE 8000
+
+CMD ["poetry", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

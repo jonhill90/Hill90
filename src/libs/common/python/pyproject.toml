@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "hill90-common"
+version = "0.1.0"
+description = "Hill90 Common Python Utilities"
+authors = ["Hill90 Team"]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+structlog = "^24.1.0"
+pydantic = "^2.5.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,97 @@
+---
+# Docker Installation Playbook
+# Installs Docker Engine and Docker Compose v2
+
+- name: Remove old Docker versions
+  dnf:
+    name:
+      - docker
+      - docker-client
+      - docker-client-latest
+      - docker-common
+      - docker-latest
+      - docker-latest-logrotate
+      - docker-logrotate
+      - docker-engine
+      - podman
+      - runc
+    state: absent
+
+- name: Install required packages
+  dnf:
+    name:
+      - dnf-plugins-core
+      - yum-utils
+    state: present
+
+- name: Add Docker repository
+  command: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+  args:
+    creates: /etc/yum.repos.d/docker-ce.repo
+
+- name: Install Docker Engine
+  dnf:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Ensure Docker daemon configuration directory exists
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+- name: Configure Docker daemon
+  copy:
+    dest: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2"
+      }
+    mode: '0644'
+  notify: restart docker
+
+- name: Enable and start Docker service
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
+
+- name: Add deploy user to docker group
+  user:
+    name: "{{ deploy_user }}"
+    groups: docker
+    append: yes
+
+- name: Test Docker installation
+  command: docker --version
+  register: docker_version
+  changed_when: false
+
+- name: Display Docker version
+  debug:
+    msg: "Docker installed: {{ docker_version.stdout }}"
+
+- name: Test Docker Compose installation
+  command: docker compose version
+  register: compose_version
+  changed_when: false
+
+- name: Display Docker Compose version
+  debug:
+    msg: "Docker Compose installed: {{ compose_version.stdout }}"
+
+handlers:
+  - name: restart docker
+    systemd:
+      name: docker
+      state: restarted

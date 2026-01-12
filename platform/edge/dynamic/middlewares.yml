@@ -1,0 +1,66 @@
+# Traefik Dynamic Configuration - Middlewares
+# https://doc.traefik.io/traefik/middlewares/overview/
+
+http:
+  middlewares:
+    # Security Headers
+    security-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
+        customFrameOptionsValue: "SAMEORIGIN"
+        customResponseHeaders:
+          X-Robots-Tag: "none,noarchive,nosnippet,notranslate,noimageindex"
+          Server: ""
+
+    # Rate Limiting
+    rate-limit:
+      rateLimit:
+        average: 100
+        period: 1s
+        burst: 50
+
+    # Basic Auth for Traefik Dashboard
+    auth:
+      basicAuth:
+        users:
+          - "${TRAEFIK_ADMIN_PASSWORD_HASH}"
+
+    # MCP Authentication (forward to auth service)
+    mcp-auth:
+      forwardAuth:
+        address: "http://auth:3001/validate"
+        trustForwardHeader: true
+        authResponseHeaders:
+          - "X-User-Id"
+          - "X-User-Email"
+
+    # Strip /mcp prefix for MCP service
+    mcp-strip:
+      stripPrefix:
+        prefixes:
+          - "/mcp"
+
+    # Compression
+    compress:
+      compress: {}
+
+    # CORS (if needed)
+    cors:
+      headers:
+        accessControlAllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - PATCH
+        accessControlAllowOriginList:
+          - "https://hill90.com"
+          - "https://www.hill90.com"
+        accessControlMaxAge: 100
+        addVaryHeader: true

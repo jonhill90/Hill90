@@ -1,0 +1,7 @@
+# This file is a placeholder
+# Run 'poetry lock' to generate the actual lock file
+# This is just to satisfy Docker build requirements
+
+[[package]]
+name = "placeholder"
+version = "0.0.0"

@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "hill90-ai"
+version = "0.1.0"
+description = "Hill90 AI Service with LangChain/LangGraph"
+authors = ["Hill90 Team"]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+langchain = "^0.1.0"
+langgraph = "^0.0.20"
+httpx = "^0.26.0"
+structlog = "^24.1.0"
+anthropic = "^0.18.0"
+openai = "^1.12.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.23.0"
+pytest-cov = "^4.1.0"
+black = "^24.1.0"
+ruff = "^0.1.0"
+mypy = "^1.8.0"
+
+[tool.black]
+line-length = 100
+target-version = ['py312']
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

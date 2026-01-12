@@ -1,0 +1,89 @@
+version: '3.9'
+
+# Development Docker Compose Configuration
+# Simplified setup for local development
+
+networks:
+  dev:
+    driver: bridge
+    name: hill90_dev
+
+volumes:
+  postgres-dev-data:
+
+services:
+  # API Service (Development)
+  api:
+    build:
+      context: ../../../src/services/api
+      dockerfile: Dockerfile.dev
+    container_name: api-dev
+    networks:
+      - dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../../../src/services/api:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://auth-dev:3001
+      - AI_SERVICE_URL=http://ai-dev:8000
+    command: npm run dev
+
+  # AI Service (Development)
+  ai:
+    build:
+      context: ../../../src/services/ai
+      dockerfile: Dockerfile.dev
+    container_name: ai-dev
+    networks:
+      - dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../../../src/services/ai:/app
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8000
+    command: poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Auth Service (Development)
+  auth:
+    build:
+      context: ../../../src/services/auth
+      dockerfile: Dockerfile.dev
+    container_name: auth-dev
+    networks:
+      - dev
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../../../src/services/auth:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DB_HOST=postgres-dev
+      - DB_PORT=5432
+      - DB_USER=hill90
+      - DB_PASSWORD=devpassword
+    command: npm run dev
+    depends_on:
+      - postgres
+
+  # PostgreSQL (Development)
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-dev
+    networks:
+      - dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=hill90
+      - POSTGRES_PASSWORD=devpassword
+      - POSTGRES_DB=hill90_dev

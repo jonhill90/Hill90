@@ -1,0 +1,180 @@
+version: '3.9'
+
+# Networks
+networks:
+  edge:
+    driver: bridge
+    name: hill90_edge
+  internal:
+    driver: bridge
+    internal: true
+    name: hill90_internal
+
+# Volumes
+volumes:
+  traefik-certs:
+  postgres-data:
+
+# Services
+services:
+  # Traefik Edge Proxy
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
+    restart: unless-stopped
+    networks:
+      - edge
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../../platform/edge/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../../platform/edge/dynamic:/etc/traefik/dynamic:ro
+      - traefik-certs:/letsencrypt
+    environment:
+      - ACME_EMAIL=${ACME_EMAIL}
+      - TRAEFIK_ADMIN_PASSWORD_HASH=${TRAEFIK_ADMIN_PASSWORD_HASH}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.hill90.com`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth"
+
+  # API Gateway (TypeScript/Express)
+  api:
+    build:
+      context: ../../src/services/api
+      dockerfile: Dockerfile
+    image: hill90/api:${VERSION:-latest}
+    container_name: api
+    restart: unless-stopped
+    networks:
+      - edge
+      - internal
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://auth:3001
+      - AI_SERVICE_URL=http://ai:8000
+      - JWT_SECRET=${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.hill90.com`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=3000"
+      - "traefik.http.routers.api.middlewares=rate-limit"
+
+  # AI Service (Python/FastAPI)
+  ai:
+    build:
+      context: ../../src/services/ai
+      dockerfile: Dockerfile
+    image: hill90/ai:${VERSION:-latest}
+    container_name: ai
+    restart: unless-stopped
+    networks:
+      - edge
+      - internal
+    environment:
+      - ENVIRONMENT=production
+      - PORT=8000
+      - AUTH_SERVICE_URL=http://auth:3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai.rule=Host(`ai.hill90.com`)"
+      - "traefik.http.routers.ai.entrypoints=websecure"
+      - "traefik.http.routers.ai.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ai.loadbalancer.server.port=8000"
+
+  # MCP Gateway (Python/FastAPI)
+  mcp:
+    build:
+      context: ../../src/services/mcp
+      dockerfile: Dockerfile
+    image: hill90/mcp:${VERSION:-latest}
+    container_name: mcp
+    restart: unless-stopped
+    networks:
+      - edge
+      - internal
+    environment:
+      - ENVIRONMENT=production
+      - PORT=8001
+      - AUTH_SERVICE_URL=http://auth:3001
+      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mcp.rule=Host(`ai.hill90.com`) && PathPrefix(`/mcp`)"
+      - "traefik.http.routers.mcp.entrypoints=websecure"
+      - "traefik.http.routers.mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.mcp.loadbalancer.server.port=8001"
+      - "traefik.http.routers.mcp.middlewares=mcp-auth,mcp-strip"
+
+  # Auth Service (TypeScript/Express)
+  auth:
+    build:
+      context: ../../src/services/auth
+      dockerfile: Dockerfile
+    image: hill90/auth:${VERSION:-latest}
+    container_name: auth
+    restart: unless-stopped
+    networks:
+      - internal
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=hill90_auth
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - postgres
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../../platform/data/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=hill90
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

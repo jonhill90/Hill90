@@ -1,0 +1,55 @@
+---
+# User Setup Playbook
+# Creates deploy user with sudo privileges and SSH key authentication
+
+- name: Create deploy user
+  user:
+    name: "{{ deploy_user }}"
+    groups: "{{ deploy_user_groups }}"
+    append: yes
+    shell: /bin/bash
+    create_home: yes
+    home: "{{ deploy_home }}"
+    state: present
+
+- name: Create .ssh directory for deploy user
+  file:
+    path: "{{ deploy_home }}/.ssh"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0700'
+
+- name: Copy authorized_keys from root to deploy user
+  copy:
+    src: /root/.ssh/authorized_keys
+    dest: "{{ deploy_home }}/.ssh/authorized_keys"
+    remote_src: yes
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0600'
+  ignore_errors: yes
+
+- name: Grant sudo privileges to deploy user
+  lineinfile:
+    path: /etc/sudoers.d/{{ deploy_user }}
+    line: "{{ deploy_user }} ALL=(ALL) NOPASSWD:ALL"
+    create: yes
+    validate: 'visudo -cf %s'
+    mode: '0440'
+
+- name: Create application directory
+  file:
+    path: "{{ app_directory }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Set proper permissions on deploy home
+  file:
+    path: "{{ deploy_home }}"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+    state: directory
