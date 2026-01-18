@@ -108,17 +108,37 @@ Need to determine correct approach:
 
 ## Twingate SSH Access TODO
 
-### Current Status:
-- ✅ Twingate connector deployed and online
-- ✅ Twingate resource created for `srv1264324.hstgr.cloud`
-- ❌ SSH still publicly accessible (port 22 open)
-- ❌ Twingate SSH routing not tested
+### Current Status (2026-01-18):
+- ✅ Twingate connector deployed and online (State: Online)
+- ✅ VPS fully deployed with all services running
+- ❌ **SSH still publicly accessible** - firewall has `ssh` service enabled
+- ❌ **Twingate SSH routing NOT working** - tried multiple approaches
+
+### Attempts Made:
+1. **Docker gateway IP (172.18.0.1)** - Connection timeout (connector can't route to host via Docker bridge)
+2. **VPS hostname (srv1264324.hstgr.cloud)** - Worked initially via public internet, then failed when SSH service removed
+3. **localhost** - Connection refused (localhost doesn't route through Twingate)
+4. **hill90-vps.internal** - Can't resolve from local machine (Twingate DNS issue)
+
+### Current Blocker:
+**Twingate resource hostname resolution failing**
+- Created resource: `hill90-vps.internal`
+- Added to VPS /etc/hosts: `127.0.0.1 hill90-vps.internal`
+- Local machine can't resolve `hill90-vps.internal`
+- Need to determine: Does Twingate provide DNS? Do I need to configure Twingate DNS on client?
+
+### Questions to Resolve:
+1. **How does Twingate DNS work?** - Does it automatically resolve resource addresses?
+2. **Do I need to enable Twingate DNS on the client?** - Is there a DNS setting?
+3. **Should I use a different address format?** - IP? FQDN? Special Twingate format?
+4. **Can connector route to localhost SSH?** - Or does it need host networking mode?
 
 ### Required Actions:
-1. **Test Twingate SSH access** from local machine via Twingate client
-2. **Configure firewall** to block public SSH (only after Twingate verified working)
-3. **Document Twingate SSH workflow** in `docs/TWINGATE_ACCESS.md`
-4. **Update Ansible firewall** to use rich rules for SSH from specific sources only
+1. **Research Twingate DNS resolution** - How do clients resolve resource addresses?
+2. **Test Twingate client DNS settings** - Check if DNS needs to be enabled
+3. **Alternative: Use host networking for connector** - `network_mode: host` in docker-compose
+4. **Configure firewall** to block public SSH (only after Twingate verified working)
+5. **Document Twingate SSH workflow** in `docs/TWINGATE_ACCESS.md` once working
 
 ### Firewall Strategy (PENDING DECISION):
 ```bash
