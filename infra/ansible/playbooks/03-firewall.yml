@@ -28,6 +28,16 @@
     state: disabled
     immediate: yes
 
+- name: Allow SSH from Docker networks (for Twingate connector)
+  firewalld:
+    rich_rule: "{{ item }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop:
+    - 'rule family="ipv4" source address="172.17.0.0/16" port port="22" protocol="tcp" accept'
+    - 'rule family="ipv4" source address="172.18.0.0/16" port port="22" protocol="tcp" accept'
+
 - name: Reload firewalld
   command: firewall-cmd --reload
   changed_when: false
