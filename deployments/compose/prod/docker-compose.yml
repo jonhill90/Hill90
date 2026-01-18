@@ -41,7 +41,7 @@ services:
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
       - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.routers.traefik.middlewares=auth@file"
 
   # API Gateway (TypeScript/Express)
   api:
@@ -71,7 +71,7 @@ services:
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=3000"
-      - "traefik.http.routers.api.middlewares=rate-limit"
+      - "traefik.http.routers.api.middlewares=rate-limit@file"
 
   # AI Service (Python/FastAPI)
   ai:
@@ -129,7 +129,7 @@ services:
       - "traefik.http.routers.mcp.entrypoints=websecure"
       - "traefik.http.routers.mcp.tls.certresolver=letsencrypt"
       - "traefik.http.services.mcp.loadbalancer.server.port=8001"
-      - "traefik.http.routers.mcp.middlewares=mcp-auth,mcp-strip"
+      - "traefik.http.routers.mcp.middlewares=mcp-auth@file,mcp-strip@file"
 
   # Auth Service (TypeScript/Express)
   auth:
