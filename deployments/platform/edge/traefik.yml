@@ -39,13 +39,7 @@ providers:
     watch: true
 
 # Let's Encrypt Certificate Resolver
-certificatesResolvers:
-  letsencrypt:
-    acme:
-      email: jonhill90@live.com
-      storage: /letsencrypt/acme.json
-      httpChallenge:
-        entryPoint: web
+# Configured via command-line args in docker-compose.yml to support staging/production switching
 
 # Logging
 log:
