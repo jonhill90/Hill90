@@ -33,12 +33,13 @@ echo "Decrypting secrets..."
 export SOPS_AGE_KEY_FILE="$AGE_KEY"
 sops -d "$SECRETS_FILE" > "/tmp/${ENV}.dec.env"
 
-# Export environment variables
-export $(cat "/tmp/${ENV}.dec.env" | xargs)
+# Export environment variables (filter out comments and empty lines)
+export $(cat "/tmp/${ENV}.dec.env" | grep -v '^#' | grep -v '^$' | xargs)
 
-# Pull latest images
-echo "Pulling latest images..."
-docker compose -f "$COMPOSE_FILE" pull
+# Pull latest base images and build custom images
+echo "Building and pulling images..."
+docker compose -f "$COMPOSE_FILE" build
+docker compose -f "$COMPOSE_FILE" pull --ignore-buildable
 
 # Deploy services
 echo "Deploying services..."

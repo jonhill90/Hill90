@@ -1,4 +1,4 @@
-.PHONY: help build deploy test clean logs health ssh secrets-edit secrets-init bootstrap lint format ps restart
+.PHONY: help build deploy test clean logs health ssh secrets-edit secrets-init bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full twingate-setup twingate-apply
 
 # Environment
 ENV ?= prod
@@ -97,6 +97,43 @@ secrets-init: ## Initialize SOPS keys
 bootstrap: ## Bootstrap VPS infrastructure
 	@echo "$(COLOR_BOLD)Bootstrapping VPS infrastructure...$(COLOR_RESET)"
 	cd infra/ansible && ansible-playbook -i inventory/hosts.yml playbooks/bootstrap.yml
+
+twingate-apply: ## Apply Twingate Terraform configuration
+	@echo "$(COLOR_BOLD)Applying Twingate Terraform...$(COLOR_RESET)"
+	cd infra/terraform/twingate && terraform init && terraform apply
+
+twingate-setup: twingate-apply ## Setup Twingate and inject tokens into secrets
+	@echo "$(COLOR_BOLD)Injecting Twingate tokens into secrets...$(COLOR_RESET)"
+	bash scripts/twingate-inject-tokens.sh
+	@echo "$(COLOR_GREEN)Twingate setup complete!$(COLOR_RESET)"
+
+snapshot: ## Create VPS snapshot (safety backup)
+	@echo "$(COLOR_BOLD)Creating VPS snapshot...$(COLOR_RESET)"
+	bash scripts/vps-snapshot.sh
+
+rebuild: ## Rebuild VPS from scratch (DESTRUCTIVE)
+	@echo "$(COLOR_BOLD)WARNING: VPS REBUILD$(COLOR_RESET)"
+	bash scripts/vps-rebuild.sh
+
+rebuild-bootstrap: ## Bootstrap VPS after rebuild
+	@echo "$(COLOR_BOLD)Bootstrapping rebuilt VPS...$(COLOR_RESET)"
+	@if [ -z "$(ROOT_PASSWORD)" ] || [ -z "$(VPS_IP)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make rebuild-bootstrap ROOT_PASSWORD=<password> VPS_IP=<ip>$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	bash scripts/vps-bootstrap-from-rebuild.sh $(ROOT_PASSWORD) $(VPS_IP)
+
+rebuild-full: snapshot rebuild ## Full rebuild workflow (requires manual steps)
+	@echo "$(COLOR_BOLD)VPS rebuild initiated!$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_YELLOW)NEXT STEPS:$(COLOR_RESET)"
+	@echo "  1. Wait for rebuild to complete (~5 minutes)"
+	@echo "  2. Note the new VPS IP address from Hostinger"
+	@echo "  3. Run: make rebuild-bootstrap ROOT_PASSWORD=<password> VPS_IP=<new_ip>"
+	@echo "  4. Run: make twingate-setup (if not already configured)"
+	@echo "  5. Run: make deploy"
+	@echo "  6. Run: make health"
+	@echo ""
 
 clean: ## Clean up Docker resources
 	@echo "$(COLOR_BOLD)Cleaning up Docker resources...$(COLOR_RESET)"

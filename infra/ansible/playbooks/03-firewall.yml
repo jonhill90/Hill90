@@ -21,14 +21,6 @@
     immediate: yes
   loop: "{{ firewall_allowed_ports }}"
 
-- name: Allow Tailscale subnet (100.64.0.0/10)
-  firewalld:
-    source: 100.64.0.0/10
-    zone: trusted
-    permanent: yes
-    state: enabled
-    immediate: yes
-
 - name: Enable rate limiting for SSH
   command: >
     firewall-cmd --permanent --add-rich-rule='rule family="ipv4"

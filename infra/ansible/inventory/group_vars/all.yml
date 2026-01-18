@@ -27,12 +27,6 @@ firewall_allowed_ports:
   - 80/tcp    # HTTP
   - 443/tcp   # HTTPS
 
-# Tailscale configuration
-tailscale_auth_key: "{{ lookup('env', 'TAILSCALE_AUTH_KEY') }}"
-tailscale_tags:
-  - tag:server
-  - tag:hill90
-
 # SOPS/age configuration
 age_key_path: "{{ app_directory }}/secrets/keys"
 sops_version: 3.8.1
