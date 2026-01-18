@@ -10,7 +10,7 @@ WORKDIR /app
 COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/dist ./dist
 COPY package*.json ./
-RUN addgroup -g 1000 appuser && adduser -D -u 1000 -G appuser appuser && chown -R appuser:appuser /app
+RUN addgroup -S appuser && adduser -S -G appuser appuser && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 3001
 CMD ["node", "dist/index.js"]
