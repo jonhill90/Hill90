@@ -4,14 +4,16 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 
 ## Architecture
 
-- **VPS**: AlmaLinux on Hostinger
+- **VPS**: AlmaLinux 10 on Hostinger
 - **Runtime**: Docker Engine + Docker Compose
 - **Edge Proxy**: Traefik with Let's Encrypt TLS
 - **Languages**:
   - Python (FastAPI) for AI and MCP services
   - TypeScript (Express) for API, Auth, and UI services
 - **Secrets**: SOPS + age encryption
-- **Admin Access**: Tailscale + SSH key authentication
+- **Admin Access**: Twingate Zero Trust + SSH key authentication
+- **Infrastructure**: Terraform (Hostinger VPS + Twingate)
+- **Configuration**: Ansible playbooks
 - **CI/CD**: GitHub Actions
 
 ## Services
@@ -78,12 +80,13 @@ make bootstrap
 ```
 
 This will:
-- Create deploy user
-- Install Docker
-- Configure firewall
-- Harden SSH
-- Install Tailscale
-- Deploy secrets infrastructure
+- Create deploy user with SSH keys
+- Install Docker and Docker Compose
+- Configure firewall (HTTP/HTTPS public, SSH from Twingate only)
+- Harden SSH configuration
+- Install SOPS and age for secrets management
+- Install git and clone repository
+- Transfer age encryption key from local machine
 
 ### 6. Deploy Services
 
@@ -156,6 +159,11 @@ make logs-ai
 | `make secrets-edit` | Edit encrypted secrets |
 | `make secrets-init` | Initialize SOPS keys |
 | `make bootstrap` | Bootstrap VPS infrastructure |
+| `make twingate-setup` | Setup Twingate infrastructure |
+| `make snapshot` | Create VPS snapshot |
+| `make rebuild` | Rebuild VPS from scratch (DESTRUCTIVE) |
+| `make rebuild-bootstrap` | Bootstrap VPS after rebuild |
+| `make rebuild-complete` | Complete post-rebuild deployment |
 | `make clean` | Clean up Docker resources |
 | `make ps` | Show running containers |
 | `make restart` | Restart all services |
@@ -190,9 +198,11 @@ Deployments are automated via GitHub Actions on push to `main` branch.
 
 ### GitHub Secrets Required
 
-- `VPS_HOST`: Tailscale hostname or IP
+- `VPS_HOST`: VPS IP address or hostname
 - `VPS_SSH_KEY`: Deploy user SSH private key
 - `AGE_SECRET_KEY`: age private key for decryption
+
+**Note:** CI/CD requires Twingate connection for VPS access
 
 ### Manual Deployment
 
@@ -240,9 +250,10 @@ docker logs -f mcp
 
 ### Network Security
 
-- Firewall configured (ports 22, 80, 443 only)
-- Internal network isolated from external access
-- Tailscale for admin access
+- Firewall configured (HTTP/HTTPS public, SSH via Twingate only)
+- Internal Docker network isolated from external access
+- Twingate Zero Trust for secure admin access to VPS and internal services
+- SSH access restricted to Docker networks (Twingate connector)
 
 ### Application Security
 
@@ -256,12 +267,14 @@ docker logs -f mcp
 ### VPS Not Accessible
 
 ```bash
-# Check VPS status
-cd infra/terraform
-terraform show
+# Check VPS status via Hostinger MCP tools
+# (See CLAUDE.md for MCP tool usage)
 
-# Verify Tailscale connection
-tailscale status
+# Verify Twingate connection
+# Check Twingate client shows connector online
+
+# Test SSH via Twingate
+ssh -i ~/.ssh/remote.hill90.com deploy@172.18.0.1
 ```
 
 ### Service Not Starting
@@ -306,12 +319,27 @@ sops -d infra/secrets/prod.enc.env
 
 ## Documentation
 
-- [Architecture Overview](docs/architecture/overview.md)
-- [Security](docs/architecture/security.md)
+- **[Claude Code Operating Manual](CLAUDE.md)** - How Claude Code manages this infrastructure
+- **[Twingate Access Guide](docs/TWINGATE_ACCESS.md)** - Secure admin access via Twingate
+- **[VPS Rebuild Runbook](docs/runbooks/vps-rebuild.md)** - Complete VPS rebuild automation
 - [Bootstrap Runbook](docs/runbooks/bootstrap.md)
 - [Deployment Runbook](docs/runbooks/deployment.md)
-- [Troubleshooting Guide](docs/runbooks/troubleshooting.md)
+- [Architecture Overview](docs/architecture/overview.md)
+- [Security](docs/architecture/security.md)
 - [Local Development](docs/development/local-setup.md)
+
+## VPS Rebuild
+
+For catastrophic failures or OS reinstalls:
+
+```bash
+# Automated rebuild workflow (executed by Claude Code)
+make rebuild-full              # Create snapshot + rebuild OS
+make rebuild-bootstrap VPS_IP=<new_ip>  # Bootstrap + deploy
+make health                    # Verify deployment
+```
+
+See [VPS Rebuild Runbook](docs/runbooks/vps-rebuild.md) for complete details.
 
 ## License
 
