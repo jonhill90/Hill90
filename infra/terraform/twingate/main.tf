@@ -50,10 +50,9 @@ resource "twingate_resource" "mcp" {
 }
 
 # Twingate Resource: VPS Host SSH Access
-# Clients connect to this hostname via Twingate
-# Connector running on VPS resolves to localhost
+# Connector on VPS routes to localhost SSH (port 22)
 resource "twingate_resource" "vps_host" {
   name              = "Hill90 VPS SSH"
-  address           = "hill90-vps.internal"
+  address           = "127.0.0.1"
   remote_network_id = twingate_remote_network.hill90_vps.id
 }
