@@ -25,6 +25,8 @@
   dnf:
     name: fail2ban
     state: present
+  ignore_errors: yes
+  register: fail2ban_install
 
 - name: Configure fail2ban for SSH
   copy:
@@ -37,24 +39,15 @@
 
       [sshd]
       enabled = true
-      port = {{ ssh_port }}
+      port: {{ ssh_port }}
       logpath = /var/log/secure
     mode: '0644'
   notify: restart fail2ban
+  when: fail2ban_install is succeeded
 
 - name: Enable and start fail2ban
   systemd:
     name: fail2ban
     enabled: yes
     state: started
-
-handlers:
-  - name: restart sshd
-    systemd:
-      name: sshd
-      state: restarted
-
-  - name: restart fail2ban
-    systemd:
-      name: fail2ban
-      state: restarted
+  when: fail2ban_install is succeeded

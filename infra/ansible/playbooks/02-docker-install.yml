@@ -89,9 +89,3 @@
 - name: Display Docker Compose version
   debug:
     msg: "Docker Compose installed: {{ compose_version.stdout }}"
-
-handlers:
-  - name: restart docker
-    systemd:
-      name: docker
-      state: restarted

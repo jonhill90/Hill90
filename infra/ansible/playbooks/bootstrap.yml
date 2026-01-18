@@ -47,3 +47,19 @@
           - "2. Clone Hill90 repository to {{ app_directory }}/app"
           - "3. Configure DNS records for api.hill90.com, ai.hill90.com, hill90.com"
           - "4. Run: make deploy"
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
+
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
