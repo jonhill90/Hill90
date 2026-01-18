@@ -1,29 +1,10 @@
 ---
-# Firewall Configuration Playbook
-# Configures firewalld with secure rules
-
-- name: Install firewalld
-  dnf:
-    name: firewalld
-    state: present
-
-- name: Enable and start firewalld
-  systemd:
-    name: firewalld
-    enabled: yes
-    state: started
-
-- name: Configure firewall allowed ports
-  firewalld:
-    port: "{{ item }}"
-    permanent: yes
-    state: enabled
-    immediate: yes
-  loop: "{{ firewall_allowed_ports }}"
+# SSH Lockdown Playbook
+# Locks SSH access to Tailscale network only (after Tailscale is configured)
 
 - name: Remove SSH from public access (Tailscale only)
   firewalld:
-    port: 22/tcp
+    service: ssh
     permanent: yes
     state: disabled
     immediate: yes
@@ -54,6 +35,13 @@
   command: firewall-cmd --list-all
   register: firewall_status
   changed_when: false
+
+- name: Show SSH lockdown status
+  debug:
+    msg:
+      - "SSH is now locked to Tailscale network only (100.64.0.0/10)"
+      - "Public SSH access is BLOCKED"
+      - "You must use Tailscale IP for SSH access"
 
 - name: Show firewall configuration
   debug:

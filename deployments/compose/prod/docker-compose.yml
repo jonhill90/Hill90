@@ -27,13 +27,21 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    command:
+      # Override Let's Encrypt configuration
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-jonhill90@live.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      # Use staging by default, override with ACME_CA_SERVER for production
+      - "--certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ../../platform/edge/traefik.yml:/etc/traefik/traefik.yml:ro
       - ../../platform/edge/dynamic:/etc/traefik/dynamic:ro
       - traefik-certs:/letsencrypt
     environment:
-      - ACME_EMAIL=${ACME_EMAIL}
+      - ACME_EMAIL=${ACME_EMAIL:-jonhill90@live.com}
+      - ACME_CA_SERVER=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
       - TRAEFIK_ADMIN_PASSWORD_HASH=${TRAEFIK_ADMIN_PASSWORD_HASH}
     labels:
       - "traefik.enable=true"

@@ -16,21 +16,24 @@
         msg: "Starting Hill90 VPS bootstrap for {{ inventory_hostname }}"
 
   tasks:
+    # Phase 1: Base System Setup
     - name: Import user setup playbook
       import_tasks: 01-user-setup.yml
 
-    - name: Import Docker installation playbook
-      import_tasks: 02-docker-install.yml
-
-    - name: Import firewall configuration playbook
-      import_tasks: 03-firewall.yml
-
-    - name: Import SSH hardening playbook
-      import_tasks: 04-ssh-hardening.yml
+    # Phase 2: Network Security (establish VPN access)
+    - name: Import basic firewall configuration playbook
+      import_tasks: 02-firewall-basic.yml
 
     - name: Import Tailscale installation playbook
-      import_tasks: 05-tailscale.yml
+      import_tasks: 03-tailscale.yml
 
+    - name: Import SSH lockdown playbook
+      import_tasks: 04-ssh-lockdown.yml
+
+    - name: Import SSH hardening playbook
+      import_tasks: 05-ssh-hardening.yml
+
+    # Phase 3: Development Tools
     - name: Import secrets setup playbook
       import_tasks: 06-secrets-setup.yml
 
@@ -39,6 +42,10 @@
 
     - name: Import age key transfer playbook
       import_tasks: 08-age-key-transfer.yml
+
+    # Phase 4: Application Runtime (LAST)
+    - name: Import Docker installation playbook
+      import_tasks: 09-docker-install.yml
 
   post_tasks:
     - name: Display bootstrap completion message

@@ -49,12 +49,27 @@ You have direct access to Hostinger VPS via MCP tools:
 - **ALWAYS use Tailscale IP for SSH:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66`
 
 ### 3. Makefile Commands
-All operations are done via Makefile - check `make help` for full list:
+All operations are done via Makefile - check `make help` for full list.
+
+**The Makefile is organized into logical sections:**
+- **Infrastructure Setup** - Tailscale, secrets initialization (rare operations)
+- **VPS Rebuild & Bootstrap** - Destructive rebuild operations
+- **Development** - Local development environment
+- **Deployment** - Build and deploy to VPS
+- **Monitoring & Maintenance** - Health checks, logs, SSH
+- **Service Management** - Start, stop, restart services
+- **Database & Backups** - Backup operations
+
+**Key commands:**
+- `make help` - Show all available commands (organized by section)
 - `make tailscale-setup` - Automated Tailscale setup (Terraform + secrets)
 - `make rebuild-bootstrap VPS_IP=<ip> ROOT_PASSWORD=<pw>` - Bootstrap VPS after rebuild
-- `make deploy` - Deploy all services
+- `make deploy` - Deploy all services (STAGING certificates)
+- `make deploy-production` - Deploy with PRODUCTION certificates (rate-limited!)
 - `make health` - Check service health
 - `make ssh` - SSH to VPS
+- `make secrets-view KEY=<key>` - View a secret value
+- `make secrets-update KEY=<key> VALUE=<value>` - Update a secret
 
 ## VPS Rebuild Workflow (YOU Execute This)
 
@@ -85,19 +100,27 @@ ROOT_PASSWORD=$(openssl rand -base64 32)
 
 # 6. Bootstrap VPS (this does EVERYTHING automatically)
 make rebuild-bootstrap VPS_IP=<new_ip> ROOT_PASSWORD="$ROOT_PASSWORD"
-# This automatically:
-# - Updates Ansible inventory (VPS IP)
-# - Updates encrypted secrets (VPS_IP via SOPS set)
-# - Creates deploy user
-# - Installs Docker
-# - Configures firewall (80/443, SSH via Tailscale only)
-# - Hardens SSH
-# - Installs Tailscale binary
-# - Joins Tailscale network using auth key from secrets
-# - Installs git
-# - Clones repository to /opt/hill90/app
-# - Transfers age key (via Ansible)
-# - Sets up secrets
+# This automatically runs Ansible playbooks in the correct order:
+#
+# Phase 1: Base System Setup
+# - Creates deploy user with sudo access
+#
+# Phase 2: Network Security (establish VPN access BEFORE locking down)
+# - Configures firewall (HTTP/HTTPS, SSH still public temporarily)
+# - Installs Tailscale binary and joins network
+# - Locks SSH to Tailscale network ONLY (100.64.0.0/10)
+# - Hardens SSH (disable root, password auth, fail2ban)
+#
+# Phase 3: Development Tools
+# - Installs SOPS and age binaries
+# - Installs git and clones repository to /opt/hill90/app
+# - Transfers age encryption key via Ansible
+#
+# Phase 4: Application Runtime (LAST - separate infra from app)
+# - Installs Docker and Docker Compose
+#
+# Key improvement: Tailscale is established BEFORE SSH lockdown,
+# so if Tailscale fails, you still have public SSH access to debug.
 
 # 7. Deploy services (via SSH to Tailscale IP)
 ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && make deploy'
@@ -114,9 +137,16 @@ All steps are fully automated - no manual Terraform, no manual secrets editing, 
 
 ### Deploy Changes
 ```bash
-make deploy    # Deploys to VPS
-make health    # Checks everything is running
+make deploy               # Deploys to VPS (STAGING certificates - safe for testing)
+make deploy-production    # Deploys with PRODUCTION certificates (USE CAREFULLY - rate limited!)
+make health               # Checks everything is running
 ```
+
+**IMPORTANT: Let's Encrypt Configuration**
+- `make deploy` uses **STAGING** certificates by default (not trusted by browsers, but unlimited rate limits)
+- `make deploy-production` uses **PRODUCTION** certificates (trusted, but rate-limited: 5 failures/hour, 50 certs/week)
+- Always test with staging first, only use production when ready for real traffic
+- If you hit rate limits, you're locked out until the limit expires (up to 1 week for duplicate certs)
 
 ### View Logs (on VPS)
 ```bash
@@ -142,25 +172,50 @@ make restart-traefik # Traefik only
 
 **Note:** Scripts automatically use the project-local key. No manual configuration needed.
 
-### Reading Secrets (Local)
-```bash
-export SOPS_AGE_KEY_FILE=infra/secrets/keys/age-prod.key
-sops -d infra/secrets/prod.enc.env | grep <VARIABLE_NAME>
+### Viewing Secrets (RECOMMENDED - Safe, no temp files)
 
-# Or extract specific value
-sops -d --extract '["VARIABLE_NAME"]' infra/secrets/prod.enc.env
+**Using Makefile commands (easiest):**
+```bash
+make secrets-view                    # View all secrets
+make secrets-view KEY=VPS_IP         # View specific secret
 ```
 
-### Editing Secrets (The CORRECT Way)
+**Using scripts directly:**
+```bash
+bash scripts/secrets-view.sh infra/secrets/prod.enc.env              # All secrets
+bash scripts/secrets-view.sh infra/secrets/prod.enc.env VPS_IP       # Specific secret
+```
 
-**Method 1: Interactive editing**
+### Updating Secrets (RECOMMENDED - Safe, automatic backup)
+
+**Using Makefile commands (easiest):**
+```bash
+make secrets-update KEY=VPS_IP VALUE="76.13.26.69"
+# Creates automatic backup before update
+# Restores from backup if update fails
+```
+
+**Using scripts directly:**
+```bash
+bash scripts/secrets-update.sh infra/secrets/prod.enc.env VPS_IP "76.13.26.69"
+```
+
+### Editing Secrets Interactively
+
+**Using Makefile (easiest):**
+```bash
+make secrets-edit    # Opens in your default editor
+```
+
+**Using SOPS directly:**
 ```bash
 export SOPS_AGE_KEY_FILE=infra/secrets/keys/age-prod.key
 sops infra/secrets/prod.enc.env
 # SOPS will decrypt, open in editor, and re-encrypt automatically
 ```
 
-**Method 2: Programmatic updates (PREFERRED for automation)**
+### Advanced: Programmatic Updates (for scripts)
+
 ```bash
 export SOPS_AGE_KEY_FILE=infra/secrets/keys/age-prod.key
 
@@ -169,19 +224,29 @@ sops --set '["VPS_IP"] "76.13.26.69"' infra/secrets/prod.enc.env
 
 # Execute command with decrypted environment (NO temp files!)
 sops exec-env infra/secrets/prod.enc.env 'echo $VPS_IP'
+
+# Extract specific value
+sops -d --extract '["VPS_IP"]' infra/secrets/prod.enc.env
 ```
 
-**CORRECT patterns used in scripts:**
-- ✅ `sops --set '["KEY"] "value"' file.enc.env` - Atomic updates
-- ✅ `sops exec-env file.enc.env 'command'` - Run commands with secrets
-- ✅ `sops -d --extract '["KEY"]' file.enc.env` - Extract single value
+### Best Practices
 
-**WRONG - DO NOT do this:**
-- ❌ Decrypt to /tmp → sed → re-encrypt (fragile, leaves temp files)
-- ❌ `sops -d > temp.env && sed ... && sops -e` (corruption risk)
-- ❌ Manual decrypt/encrypt cycles
+**RECOMMENDED approaches:**
+- ✅ `make secrets-view KEY=<key>` - Safe viewing
+- ✅ `make secrets-update KEY=<key> VALUE=<value>` - Safe updates with auto-backup
+- ✅ `make secrets-edit` - Interactive editing
+- ✅ `bash scripts/secrets-*.sh` - Helper scripts with safety checks
 
-If SOPS fails, restore from git: `git checkout HEAD -- infra/secrets/prod.enc.env`
+**AVOID:**
+- ❌ Direct `sops -d` to temp files (leaves unencrypted secrets on disk)
+- ❌ Manual decrypt → edit → encrypt cycles (corruption risk)
+- ❌ Using `sed` or other text tools on encrypted files
+
+**If something goes wrong:**
+```bash
+git checkout HEAD -- infra/secrets/prod.enc.env    # Restore from git
+# Or restore from backup created by secrets-update.sh
+```
 
 ## Tailscale Management
 
