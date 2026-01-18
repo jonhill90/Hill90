@@ -40,5 +40,5 @@ age_version: 1.1.1
 
 # Application settings
 app_name: hill90
-app_repo: "https://github.com/yourusername/Hill90.git"
+app_repo: "https://github.com/jonhill90/Hill90.git"
 app_branch: main
