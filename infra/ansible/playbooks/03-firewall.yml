@@ -21,22 +21,30 @@
     immediate: yes
   loop: "{{ firewall_allowed_ports }}"
 
-- name: Remove SSH from public access (Twingate only)
+- name: Remove SSH from public access (Tailscale only)
   firewalld:
     port: 22/tcp
     permanent: yes
     state: disabled
     immediate: yes
 
-- name: Allow SSH from Docker networks (for Twingate connector)
+- name: Allow SSH from Tailscale network only
+  firewalld:
+    rich_rule: 'rule family="ipv4" source address="100.64.0.0/10" port port="22" protocol="tcp" accept'
+    permanent: yes
+    state: enabled
+    immediate: yes
+
+- name: Remove obsolete Docker network SSH rules (from Twingate)
   firewalld:
     rich_rule: "{{ item }}"
     permanent: yes
-    state: enabled
+    state: disabled
     immediate: yes
   loop:
     - 'rule family="ipv4" source address="172.17.0.0/16" port port="22" protocol="tcp" accept'
     - 'rule family="ipv4" source address="172.18.0.0/16" port port="22" protocol="tcp" accept'
+  ignore_errors: yes
 
 - name: Reload firewalld
   command: firewall-cmd --reload

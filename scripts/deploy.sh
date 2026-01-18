@@ -28,25 +28,20 @@ if [ ! -f "$AGE_KEY" ]; then
     exit 1
 fi
 
-# Decrypt secrets
-echo "Decrypting secrets..."
+# Deploy using sops exec-env (no temporary files!)
+echo "Deploying with encrypted secrets..."
 export SOPS_AGE_KEY_FILE="$AGE_KEY"
-sops -d "$SECRETS_FILE" > "/tmp/${ENV}.dec.env"
 
-# Export environment variables (filter out comments and empty lines)
-export $(cat "/tmp/${ENV}.dec.env" | grep -v '^#' | grep -v '^$' | xargs)
+# Use sops exec-env to run docker compose with secrets in environment
+# This avoids creating temporary decrypted files
+sops exec-env "$SECRETS_FILE" '
+  echo "Building and pulling images..."
+  docker compose -f '"$COMPOSE_FILE"' build
+  docker compose -f '"$COMPOSE_FILE"' pull --ignore-buildable
 
-# Pull latest base images and build custom images
-echo "Building and pulling images..."
-docker compose -f "$COMPOSE_FILE" build
-docker compose -f "$COMPOSE_FILE" pull --ignore-buildable
-
-# Deploy services
-echo "Deploying services..."
-docker compose -f "$COMPOSE_FILE" up -d
-
-# Cleanup decrypted secrets
-rm "/tmp/${ENV}.dec.env"
+  echo "Deploying services..."
+  docker compose -f '"$COMPOSE_FILE"' up -d
+'
 
 # Show running containers
 echo ""

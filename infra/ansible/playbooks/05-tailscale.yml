@@ -1,6 +1,7 @@
 ---
 # Tailscale Installation Playbook
-# Installs and configures Tailscale for secure admin access
+# Installs Tailscale binary and joins the tailnet
+# Auth key is managed via Terraform (infra/terraform/tailscale)
 
 - name: Add Tailscale repository
   yum_repository:
@@ -11,62 +12,57 @@
     gpgcheck: yes
     gpgkey: https://pkgs.tailscale.com/stable/rhel/9/x86_64/repo.gpg
     repo_gpgcheck: yes
-  ignore_errors: yes
-  register: tailscale_repo
 
 - name: Install Tailscale
   dnf:
     name: tailscale
     state: present
-  ignore_errors: yes
-  register: tailscale_install
-  when: tailscale_repo is succeeded
 
-- name: Enable and start Tailscale
+- name: Enable and start tailscaled service
   systemd:
     name: tailscaled
     enabled: yes
     state: started
-  when: tailscale_install is succeeded
 
 - name: Check if Tailscale is already authenticated
   command: tailscale status
   register: tailscale_status
   changed_when: false
   failed_when: false
-  when: tailscale_install is succeeded
 
-- name: Authenticate Tailscale
+- name: Join Tailscale network
   command: >
     tailscale up
-    --authkey={{ tailscale_auth_key }}
-    --hostname={{ vps_hostname }}
+    --authkey={{ lookup('env', 'TAILSCALE_AUTH_KEY') }}
+    --hostname={{ vps_hostname | default('hill90-vps') }}
     --accept-routes
     --ssh
-  when:
-    - tailscale_install is succeeded
-    - "'Logged out' in tailscale_status.stdout or tailscale_status.rc != 0"
+  when: "'Logged out' in tailscale_status.stdout or tailscale_status.rc != 0"
   register: tailscale_auth
   failed_when: tailscale_auth.rc != 0 and 'already logged in' not in tailscale_auth.stderr
 
-- name: Display Tailscale status
-  command: tailscale status
-  register: tailscale_final_status
+- name: Get Tailscale status
+  command: tailscale status --json
+  register: tailscale_status_json
   changed_when: false
-  when: tailscale_install is succeeded
 
-- name: Show Tailscale configuration
+- name: Extract Tailscale IPv4 address
+  set_fact:
+    tailscale_ipv4: "{{ (tailscale_status_json.stdout | from_json).Self.TailscaleIPs | select('match', '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$') | first }}"
+
+- name: Display Tailscale configuration
   debug:
-    var: tailscale_final_status.stdout_lines
-  when: tailscale_install is succeeded
+    msg:
+      - "Tailscale successfully configured!"
+      - "Hostname: {{ vps_hostname | default('hill90-vps') }}"
+      - "IPv4: {{ tailscale_ipv4 }}"
+      - "SSH enabled: yes"
+      - "Accept routes: yes"
 
-- name: Get Tailscale IP
-  command: tailscale ip -4
-  register: tailscale_ip
-  changed_when: false
-  when: tailscale_install is succeeded
-
-- name: Display Tailscale IP
-  debug:
-    msg: "Tailscale IP: {{ tailscale_ip.stdout }}"
-  when: tailscale_install is succeeded
+- name: Save Tailscale IP to fact file
+  copy:
+    content: "{{ tailscale_ipv4 }}"
+    dest: /opt/hill90/.tailscale_ip
+    owner: deploy
+    group: deploy
+    mode: '0644'

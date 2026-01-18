@@ -56,7 +56,7 @@ rm -f "${INVENTORY_FILE}.tmp"
 echo "Updated Ansible inventory with new IP: $NEW_VPS_IP"
 echo ""
 
-# Update encrypted secrets with new IP
+# Update encrypted secrets with new IP (using SOPS set - no temp files!)
 echo "Updating encrypted secrets..."
 SECRETS_FILE="infra/secrets/prod.enc.env"
 
@@ -65,28 +65,14 @@ if [ ! -f "$SECRETS_FILE" ]; then
   exit 1
 fi
 
-# Update VPS_IP in encrypted secrets
-cd infra/secrets
+# Set SOPS age key location (use project-local key)
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export SOPS_AGE_KEY_FILE="${PROJECT_ROOT}/infra/secrets/keys/age-prod.key"
 
-# Decrypt to plaintext
-sops -d prod.enc.env > prod.dec.env.tmp
+# Update VPS_IP using SOPS set (atomic operation, no temp files)
+sops --set '["VPS_IP"] "'"$NEW_VPS_IP"'"' "$SECRETS_FILE"
 
-# Update VPS_IP
-sed -i.bak "s/VPS_IP=.*/VPS_IP=$NEW_VPS_IP/" prod.dec.env.tmp
-rm -f prod.dec.env.tmp.bak
-
-# Get the age public key from .sops.yaml
-AGE_RECIPIENT=$(grep -A1 "path_regex: prod" .sops.yaml | grep "age1" | tr -d ' ')
-
-# Re-encrypt with explicit age recipient
-sops --encrypt --age "$AGE_RECIPIENT" prod.dec.env.tmp > prod.enc.env
-
-# Clean up temporary files
-rm -f prod.dec.env.tmp
-
-cd ../..
-
-echo "Updated encrypted secrets with new IP"
+echo "Updated encrypted secrets with new IP (using SOPS set)"
 echo ""
 
 # Bootstrap VPS as root (deploy user doesn't exist yet)
@@ -96,10 +82,19 @@ echo "  - Create deploy user"
 echo "  - Install Docker"
 echo "  - Configure firewall"
 echo "  - Harden SSH"
+echo "  - Install Tailscale"
 echo "  - Setup secrets management"
+echo "  - Clone repository"
+echo "  - Transfer age key"
 echo ""
 
 cd infra/ansible
+
+# Extract Tailscale auth key from encrypted secrets
+export TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' ../secrets/prod.enc.env)
+
+# Set local age key path for Ansible playbook (use project-local key)
+export LOCAL_AGE_KEY_PATH="${PROJECT_ROOT}/infra/secrets/keys/age-prod.key"
 
 # Run bootstrap playbook as root
 ansible-playbook -i inventory/hosts.yml \
@@ -111,47 +106,28 @@ ansible-playbook -i inventory/hosts.yml \
 # Return to project root
 cd ../..
 
-# Transfer age key from local machine to VPS
-echo ""
-echo "Transferring age encryption key to VPS..."
-
-LOCAL_AGE_KEY="infra/secrets/keys/age-prod.key"
-if [ ! -f "$LOCAL_AGE_KEY" ]; then
-  # Fallback to standard location
-  LOCAL_AGE_KEY="$HOME/.config/sops/age/keys.txt"
-  if [ ! -f "$LOCAL_AGE_KEY" ]; then
-    echo "ERROR: Local age key not found"
-    echo "Checked: infra/secrets/keys/age-prod.key and $HOME/.config/sops/age/keys.txt"
-    exit 1
-  fi
-fi
-
-# Copy age key to VPS
-scp -o StrictHostKeyChecking=no \
-  "$LOCAL_AGE_KEY" \
-  "deploy@$NEW_VPS_IP:/opt/hill90/secrets/keys/keys.txt"
-
-# Set correct permissions on VPS
-ssh -o StrictHostKeyChecking=no "deploy@$NEW_VPS_IP" \
-  "chmod 600 /opt/hill90/secrets/keys/keys.txt"
-
-echo "Age key transferred successfully"
-
 echo ""
 echo "========================================="
 echo "Bootstrap Complete!"
 echo "========================================="
 echo ""
+echo "VPS Configuration:"
+echo "  Public IP: $NEW_VPS_IP"
+echo "  Tailscale IP: (check /opt/hill90/.tailscale_ip on VPS)"
+echo ""
 echo "Next steps:"
-echo "  1. Deploy application: make deploy"
-echo "  2. Verify health: make health"
-echo "  3. Update DNS records if IP changed (points to $NEW_VPS_IP)"
+echo "  1. SSH via Tailscale: ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>"
+echo "  2. Deploy services: make deploy"
+echo "  3. Verify health: make health"
+echo "  4. Update DNS if needed (public IP: $NEW_VPS_IP)"
 echo ""
 
 # Clean up temporary password file
 if [ -f "/tmp/hill90_root_password.txt" ]; then
   rm -f /tmp/hill90_root_password.txt
   echo "Cleaned up temporary password file"
+  echo ""
 fi
 
 echo "VPS is ready for deployment!"
+echo "Public SSH is BLOCKED. Use Tailscale for access."

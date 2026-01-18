@@ -28,11 +28,17 @@
     - name: Import SSH hardening playbook
       import_tasks: 04-ssh-hardening.yml
 
+    - name: Import Tailscale installation playbook
+      import_tasks: 05-tailscale.yml
+
     - name: Import secrets setup playbook
       import_tasks: 06-secrets-setup.yml
 
     - name: Import git and repository setup
       import_tasks: 07-git-and-repo.yml
+
+    - name: Import age key transfer playbook
+      import_tasks: 08-age-key-transfer.yml
 
   post_tasks:
     - name: Display bootstrap completion message
@@ -43,9 +49,9 @@
       debug:
         msg:
           - "Bootstrap completed! Next steps:"
-          - "1. Transfer age key to VPS: scp ~/.config/sops/age/keys.txt deploy@<vps>:{{ age_key_path }}/keys.txt"
-          - "2. Configure DNS records for api.hill90.com, ai.hill90.com, hill90.com"
-          - "3. Run: make deploy"
+          - "1. Configure DNS records for api.hill90.com, ai.hill90.com, hill90.com (if not done)"
+          - "2. Deploy services: make deploy"
+          - "3. Verify health: make health"
 
   handlers:
     - name: restart docker

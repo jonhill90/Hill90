@@ -1,4 +1,4 @@
-.PHONY: help build deploy test clean logs health ssh secrets-edit secrets-init bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full twingate-setup twingate-apply
+.PHONY: help build deploy test clean logs health ssh secrets-edit secrets-init bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full tailscale-setup tailscale-rotate twingate-setup twingate-apply
 
 # Environment
 ENV ?= prod
@@ -98,11 +98,18 @@ bootstrap: ## Bootstrap VPS infrastructure
 	@echo "$(COLOR_BOLD)Bootstrapping VPS infrastructure...$(COLOR_RESET)"
 	cd infra/ansible && ansible-playbook -i inventory/hosts.yml playbooks/bootstrap.yml
 
-twingate-apply: ## Apply Twingate Terraform configuration
+tailscale-setup: ## Setup Tailscale infrastructure (Terraform + secrets) - AUTOMATED
+	@echo "$(COLOR_BOLD)Running automated Tailscale setup...$(COLOR_RESET)"
+	bash scripts/tailscale-setup.sh
+
+tailscale-rotate: tailscale-setup ## Rotate Tailscale auth key (generates new key and updates secrets)
+	@echo "$(COLOR_GREEN)Tailscale auth key rotated!$(COLOR_RESET)"
+
+twingate-apply: ## Apply Twingate Terraform configuration (deprecated - use Tailscale)
 	@echo "$(COLOR_BOLD)Applying Twingate Terraform...$(COLOR_RESET)"
 	cd infra/terraform/twingate && terraform init && terraform apply
 
-twingate-setup: twingate-apply ## Setup Twingate and inject tokens into secrets
+twingate-setup: twingate-apply ## Setup Twingate and inject tokens into secrets (deprecated)
 	@echo "$(COLOR_BOLD)Injecting Twingate tokens into secrets...$(COLOR_RESET)"
 	bash scripts/twingate-inject-tokens.sh
 	@echo "$(COLOR_GREEN)Twingate setup complete!$(COLOR_RESET)"
@@ -115,12 +122,20 @@ rebuild: ## Rebuild VPS from scratch (DESTRUCTIVE)
 	@echo "$(COLOR_BOLD)WARNING: VPS REBUILD$(COLOR_RESET)"
 	bash scripts/vps-rebuild.sh
 
-rebuild-bootstrap: ## Bootstrap VPS after rebuild
+rebuild-bootstrap: ## Bootstrap VPS after rebuild (requires VPS_IP and ROOT_PASSWORD)
 	@echo "$(COLOR_BOLD)Bootstrapping rebuilt VPS...$(COLOR_RESET)"
 	@if [ -z "$(VPS_IP)" ]; then \
-		echo "$(COLOR_YELLOW)Usage: make rebuild-bootstrap VPS_IP=<ip>$(COLOR_RESET)"; \
-		echo "$(COLOR_YELLOW)ROOT_PASSWORD will be read from /tmp/hill90_root_password.txt if not provided$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)Error: VPS_IP is required$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)Usage: make rebuild-bootstrap VPS_IP=<ip> ROOT_PASSWORD=<password>$(COLOR_RESET)"; \
 		exit 1; \
+	fi
+	@if [ -z "$(ROOT_PASSWORD)" ]; then \
+		if [ ! -f /tmp/hill90_root_password.txt ]; then \
+			echo "$(COLOR_YELLOW)Error: ROOT_PASSWORD is required$(COLOR_RESET)"; \
+			echo "$(COLOR_YELLOW)Usage: make rebuild-bootstrap VPS_IP=<ip> ROOT_PASSWORD=<password>$(COLOR_RESET)"; \
+			echo "$(COLOR_YELLOW)Or create /tmp/hill90_root_password.txt with the password$(COLOR_RESET)"; \
+			exit 1; \
+		fi; \
 	fi
 	bash scripts/vps-bootstrap-from-rebuild.sh "$(ROOT_PASSWORD)" $(VPS_IP)
 
@@ -142,7 +157,8 @@ rebuild-complete: rebuild-bootstrap deploy health ## Complete post-rebuild deplo
 	@echo ""
 	@echo "$(COLOR_YELLOW)REMINDER:$(COLOR_RESET)"
 	@echo "  - Update DNS records if VPS IP changed"
-	@echo "  - Verify Twingate connector is online"
+	@echo "  - Verify Tailscale is connected"
+	@echo "  - Public SSH is BLOCKED - use Tailscale for access"
 	@echo ""
 
 clean: ## Clean up Docker resources
