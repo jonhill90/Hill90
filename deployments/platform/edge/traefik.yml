@@ -39,7 +39,15 @@ providers:
     watch: true
 
 # Let's Encrypt Certificate Resolver
-# Configured via command-line args in docker-compose.yml to support staging/production switching
+# Base configuration here, caserver overridden via command-line args in docker-compose.yml
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ${ACME_EMAIL:-jonhill90@live.com}
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+      # caServer omitted - will be set via command-line args to support staging/production switching
 
 # Logging
 log:

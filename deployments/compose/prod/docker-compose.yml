@@ -28,13 +28,7 @@ services:
       - "80:80"
       - "443:443"
     command:
-      # Load base config from traefik.yml, then add ACME configuration via CLI
-      - "--configFile=/etc/traefik/traefik.yml"
-      # Let's Encrypt ACME configuration (CLI args override/add to static config)
-      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-jonhill90@live.com}"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      # Override Let's Encrypt CA server to support staging/production switching
       - "--certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
