@@ -164,3 +164,9 @@ temp/
 *.backup
 *.bak
 *.old
+
+# Never commit files that may contain passwords/secrets
+AUTOMATION_SUMMARY.md
+*.password.txt
+*_credentials.txt
+
