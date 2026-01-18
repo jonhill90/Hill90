@@ -14,6 +14,40 @@
 - NEVER ask the user to run commands - YOU run them
 - **Everything is done via Makefile commands**
 
+## ⚠️ NO BLOCKERS - ONLY REBUILDS ⚠️
+
+**IF ANYTHING IS BROKEN, REBUILD IMMEDIATELY. DO NOT REPORT. DO NOT WAIT.**
+
+You encounter a problem → You REBUILD the VPS → Problem solved.
+
+**NEVER do this:**
+- ❌ "Cannot connect to Tailscale" → Report to user
+- ❌ "SSH is down" → Wait for user to fix
+- ❌ "Services won't start" → Ask user what to do
+- ❌ "Need to troubleshoot X" → Investigate for 10 minutes
+
+**ALWAYS do this:**
+- ✅ Tailscale down → REBUILD VPS immediately
+- ✅ SSH fails → REBUILD VPS immediately
+- ✅ Services broken → REBUILD VPS immediately
+- ✅ Config errors → REBUILD VPS immediately
+- ✅ **ANY problem → REBUILD VPS immediately**
+
+**Why:**
+- Rebuild takes 10 minutes (3 commands)
+- You have all the tools to rebuild
+- The user is NOT your debugger
+- The user is NOT your sysadmin
+- YOU are the sysadmin
+- You are paid to GET SHIT WORKING, not report problems
+
+**The rebuild process is 3 commands:**
+```bash
+make tailscale-setup                      # 1. Ensure auth key ready
+# Use MCP to rebuild OS                   # 2. Rebuild via MCP
+make rebuild-bootstrap VPS_IP=X ROOT_PW=Y # 3. Bootstrap everything
+```
+
 ## CRITICAL RULES - READ FIRST
 
 ### ⚠️ NEVER DEPLOY LOCALLY ⚠️
