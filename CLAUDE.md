@@ -41,10 +41,12 @@ You have direct access to Hostinger VPS via MCP tools:
 - Full VPS lifecycle management
 
 ### 2. SSH Access
-- VPS IP: Get from MCP or check encrypted secrets
+- **VPS Public IP:** 76.13.26.69 (DO NOT USE - public SSH blocked)
+- **VPS Tailscale IP:** 100.88.97.65 (USE THIS for SSH)
 - SSH as: `deploy` user (or `root` after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
 - You can run ANY command on the VPS via SSH
+- **ALWAYS use Tailscale IP for SSH:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.88.97.65`
 
 ### 3. Makefile Commands
 All operations are done via Makefile - check `make help` for full list:
@@ -163,32 +165,29 @@ rm prod.dec.env
 
 If SOPS fails, restore from git and try again: `git checkout HEAD -- infra/secrets/prod.enc.env`
 
-## Twingate Management
+## Tailscale Management
 
-### Apply Terraform
+### Install on VPS
 ```bash
-cd infra/terraform/twingate
-terraform init
-terraform apply
-
-# Tokens are in outputs
-terraform output twingate_access_token
-terraform output twingate_refresh_token
+ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip>
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --authkey=<tskey-auth-...>
+tailscale status
 ```
 
-### Inject Tokens to Secrets
+### SSH via Tailscale
+Once Tailscale is running on VPS:
 ```bash
-bash scripts/twingate-inject-tokens.sh
-# Automatically reads Terraform outputs and updates prod.enc.env
+# Find VPS hostname in Tailscale network
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-hostname>
+
+# Example: ssh -i ~/.ssh/remote.hill90.com deploy@srv1264324
 ```
 
-### Twingate Resources
-- **PostgreSQL** (`postgres`) - Internal database
-- **Auth Service** (`auth`) - Internal API
-- **API Service** (`api`) - Debugging
-- **AI Service** (`ai`) - Debugging
-- **MCP Service** (`mcp`) - Debugging
-- **VPS SSH** (`hill90-vps.internal`) - Host SSH access
+### Tailscale Keys
+- **Auth key:** Used to join VPS to Tailscale network (one-time)
+- **API key:** Used for Terraform provider (optional)
+- Keys stored in secrets
 
 ## Architecture
 
@@ -199,15 +198,17 @@ bash scripts/twingate-inject-tokens.sh
 4. **mcp** - TypeScript MCP service
 5. **auth** - TypeScript auth service
 6. **postgres** - PostgreSQL database
-7. **twingate** - Zero-trust connector
+
+### Host Services
+- **Tailscale** - VPN for secure SSH access
 
 ### Networks
-- **edge** - Public-facing (traefik, twingate)
-- **internal** - Private services (postgres, auth, twingate)
+- **edge** - Public-facing (traefik)
+- **internal** - Private services (postgres, auth, api, ai, mcp)
 
 ### Firewall
 - **Public:** 80/tcp, 443/tcp
-- **SSH (22/tcp):** Currently public, will be Twingate-only once verified
+- **SSH (22/tcp):** Tailscale-only (blocked from public internet)
 
 ## When Things Break
 
@@ -242,18 +243,17 @@ bash scripts/twingate-inject-tokens.sh
 5. **Bootstrap is automated** - git, clone, age key all automatic
 6. **Commit often** - User values clean git history
 
-## Current Goal: Baseline Working VPS
+## Baseline Status: ✅ ACHIEVED
 
-The VPS is at baseline when:
+The VPS baseline is complete:
 1. ✅ VPS is bootstrapped (deploy user, Docker, firewall)
 2. ✅ Services are deployed and healthy
-3. ✅ Twingate connector is online
-4. ✅ **Twingate SSH access works** (ssh via hill90-vps.internal)
-5. 📋 Public SSH is locked down (firewall blocks port 22)
+3. ✅ **Tailscale SSH access works** (100.88.97.65)
+4. ✅ Public SSH is locked down (firewall blocks port 22)
 
-**Once Twingate SSH works, that's the signal we have a working baseline.**
+**Baseline achieved!** Ready to build the actual application.
 
-Then we can build the actual application.
+**Note:** HTTPS currently rate-limited by Let's Encrypt (too many rebuilds). Will work after 2026-01-19 15:43:41 UTC.
 
 ---
 
