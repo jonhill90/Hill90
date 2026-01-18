@@ -1,34 +1,128 @@
-# Hill90 Deployment Workflow
-name: Deploy
+name: Deploy to VPS
 
+# Automated deployment on push to main
+# Future: This will be fully automated via GitHub Actions
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'deployments/**'
+      - 'scripts/deploy.sh'
+      - '.github/workflows/deploy.yml'
+
+  # Manual trigger
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - prod
+        default: 'prod'
+      use_production_certs:
+        description: 'Use production Let''s Encrypt certificates (rate limited!)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  deploy:
+  # TODO: Implement automated deployment
+  # This workflow will eventually replace manual deployments
+  #
+  # Current manual process (via Claude Code):
+  #   SSH to VPS: ssh deploy@<tailscale-ip>
+  #   Deploy: cd /opt/hill90/app && make deploy
+  #
+  # Future automated process (GitHub Actions):
+  #   1. Trigger on push to main
+  #   2. Validate infrastructure configuration
+  #   3. SSH to VPS via Tailscale
+  #   4. Deploy services
+  #   5. Run health checks
+  #   6. Notify on failure
+  #
+  # Required GitHub Secrets:
+  #   - VPS_SSH_PRIVATE_KEY: SSH private key for VPS access
+  #   - SOPS_AGE_KEY: Age private key for decrypting secrets
+  #   - TAILSCALE_AUTH_KEY: Tailscale auth key for VPN access
+  #   - All secrets from prod.enc.env (decrypted at runtime)
+
+  validate:
+    name: Validate Infrastructure
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      # TODO: Add validation steps
+      # 1. Validate Traefik configuration
+      # 2. Validate Docker Compose files
+      # 3. Validate secrets structure (not values)
+      # 4. Run infrastructure tests
 
-      - name: Build and push Docker images
+      - name: Placeholder - Validation not implemented
         run: |
-          echo "Build images here"
-          # docker compose -f deployments/compose/prod/docker-compose.yml build
-          # docker push ...
+          echo "🚧 Automated validation not yet implemented"
+          echo ""
+          echo "📖 Current process (manual):"
+          echo "   make validate"
+          echo ""
+          echo "🔮 Future: This will run automatically before deployment"
 
-      - name: Deploy to VPS
-        env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+  deploy:
+    name: Deploy Services
+    runs-on: ubuntu-latest
+    needs: validate
+    # Only run on main branch pushes (not workflow_dispatch for now)
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # TODO: Add deployment steps
+      # 1. Setup Tailscale connection
+      # 2. Decrypt secrets with SOPS
+      # 3. SSH to VPS
+      # 4. Pull latest code
+      # 5. Run deployment script
+      # 6. Wait for services to start
+      # 7. Run health checks
+
+      - name: Placeholder - Deployment not implemented
         run: |
-          echo "Deploy to VPS here"
-          # Install SSH key, connect, pull, deploy
+          echo "🚧 Automated deployment via GitHub Actions not yet implemented"
+          echo ""
+          echo "📖 Current process (manual via Claude Code):"
+          echo "   ssh deploy@<tailscale-ip>"
+          echo "   cd /opt/hill90/app && make deploy"
+          echo ""
+          echo "🔮 Future: This will deploy automatically on push to main"
+          exit 1
+
+  health-check:
+    name: Verify Health
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.event_name == 'push'
+
+    steps:
+      # TODO: Add health check steps
+      # 1. Wait for services to stabilize
+      # 2. Check all service endpoints
+      # 3. Verify database connectivity
+      # 4. Check SSL certificates
+      # 5. Notify on failure
+
+      - name: Placeholder - Health check not implemented
+        run: |
+          echo "🚧 Automated health checks not yet implemented"
+          echo ""
+          echo "📖 Current process (manual):"
+          echo "   make health"
+          echo ""
+          echo "🔮 Future: This will verify deployment automatically"

@@ -1,0 +1,70 @@
+name: VPS Rebuild (Full Automation)
+
+# Manual trigger for VPS rebuild
+# Future: This will be fully automated via GitHub Actions
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_rebuild:
+        description: 'Type "REBUILD" to confirm VPS rebuild (DESTRUCTIVE)'
+        required: true
+        type: string
+
+jobs:
+  # TODO: Implement VPS rebuild automation
+  # This workflow will eventually replace the manual rebuild process
+  #
+  # Current manual process (via Claude Code):
+  #   1. make rebuild-full-auto
+  #   2. Claude Code uses MCP to rebuild VPS
+  #   3. make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
+  #
+  # Future automated process (GitHub Actions):
+  #   1. Trigger workflow manually
+  #   2. GitHub Actions uses Hostinger API to rebuild VPS
+  #   3. Bootstrap VPS via Ansible
+  #   4. Deploy services
+  #   5. Verify health
+  #
+  # Required GitHub Secrets:
+  #   - HOSTINGER_API_KEY: Hostinger API key for VPS management
+  #   - VPS_SSH_PRIVATE_KEY: SSH private key for VPS access
+  #   - SOPS_AGE_KEY: Age private key for decrypting secrets
+  #   - TAILSCALE_AUTH_KEY: Tailscale auth key for VPN access
+  #   - All secrets from prod.enc.env (decrypted at runtime)
+
+  rebuild:
+    name: Rebuild VPS from Scratch
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_rebuild }}" != "REBUILD" ]; then
+            echo "❌ Rebuild not confirmed. You must type 'REBUILD' exactly."
+            exit 1
+          fi
+          echo "✅ Rebuild confirmed"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # TODO: Add steps for VPS rebuild
+      # 1. Setup Tailscale infrastructure (Terraform)
+      # 2. Call Hostinger API to rebuild VPS
+      # 3. Wait for VPS to be ready
+      # 4. Bootstrap VPS with Ansible
+      # 5. Deploy services
+      # 6. Verify health
+
+      - name: Placeholder - Rebuild not implemented
+        run: |
+          echo "🚧 VPS rebuild automation via GitHub Actions not yet implemented"
+          echo ""
+          echo "📖 Current process (manual via Claude Code):"
+          echo "   1. Run: make rebuild-full-auto"
+          echo "   2. Claude Code rebuilds VPS via MCP tools"
+          echo "   3. Run: make rebuild-full-auto-post-mcp VPS_IP=<new_ip>"
+          echo ""
+          echo "🔮 Future: This workflow will automate the entire process"
+          exit 1

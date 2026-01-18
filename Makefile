@@ -1,4 +1,4 @@
-.PHONY: help build deploy deploy-production test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull exec-api exec-ai exec-auth
+.PHONY: help build deploy deploy-production test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full rebuild-full-auto rebuild-full-auto-post-mcp tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull exec-api exec-ai exec-auth
 
 # Environment
 ENV ?= prod
@@ -101,6 +101,27 @@ rebuild-full: snapshot rebuild ## Full rebuild workflow (automated via Claude Co
 	@echo ""
 	@echo "$(COLOR_GREEN)Automated steps:$(COLOR_RESET) snapshot → git install → repo clone → age key transfer → deploy → health check"
 	@echo ""
+
+rebuild-full-auto: ## PHASE 1: Fully automated VPS rebuild (prep for MCP)
+	@echo "$(COLOR_BOLD)🚀 Starting fully automated VPS rebuild...$(COLOR_RESET)"
+	@echo ""
+	bash scripts/rebuild-vps-mcp.sh pre-mcp
+	@echo ""
+	@echo "$(COLOR_YELLOW)⏸️  PAUSED: Waiting for Claude Code to run MCP rebuild$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_YELLOW)NEXT: After MCP rebuild completes, run:$(COLOR_RESET)"
+	@echo "  make rebuild-full-auto-post-mcp VPS_IP=<new_ip>"
+	@echo ""
+
+rebuild-full-auto-post-mcp: ## PHASE 2: Complete rebuild after MCP (requires VPS_IP)
+	@if [ -z "$(VPS_IP)" ]; then \
+		echo "$(COLOR_YELLOW)Error: VPS_IP is required$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)Usage: make rebuild-full-auto-post-mcp VPS_IP=<new_ip>$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_BOLD)🚀 Completing automated VPS rebuild...$(COLOR_RESET)"
+	@echo ""
+	bash scripts/rebuild-vps-mcp.sh post-mcp $(VPS_IP)
 
 rebuild-complete: rebuild-bootstrap deploy health ## Complete post-rebuild deployment
 	@echo "$(COLOR_GREEN)VPS rebuild complete and healthy!$(COLOR_RESET)"

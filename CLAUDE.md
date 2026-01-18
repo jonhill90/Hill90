@@ -41,11 +41,11 @@ You encounter a problem → You REBUILD the VPS → Problem solved.
 - YOU are the sysadmin
 - You are paid to GET SHIT WORKING, not report problems
 
-**The rebuild process is 3 commands:**
+**The rebuild process is 2 commands:**
 ```bash
-make tailscale-setup                      # 1. Ensure auth key ready
-# Use MCP to rebuild OS                   # 2. Rebuild via MCP
-make rebuild-bootstrap VPS_IP=X ROOT_PW=Y # 3. Bootstrap everything
+make rebuild-full-auto                     # 1. Prep + display MCP params
+# YOU use MCP to rebuild OS                # 2. Rebuild via MCP (5 min)
+make rebuild-full-auto-post-mcp VPS_IP=X   # 3. Bootstrap + deploy + verify
 ```
 
 ## CRITICAL RULES - READ FIRST
@@ -107,16 +107,49 @@ All operations are done via Makefile - check `make help` for full list.
 
 ## VPS Rebuild Workflow (YOU Execute This)
 
-When the VPS needs to be rebuilt from scratch:
+### Fully Automated Rebuild (NEW - Recommended)
+
+**SINGLE-COMMAND REBUILD (excluding MCP):**
+
+```bash
+# PHASE 1: Prepare for rebuild
+make rebuild-full-auto
+
+# This command:
+# 1. Ensures Tailscale auth key is ready
+# 2. Generates secure root password
+# 3. Displays MCP parameters for you to use
+# 4. Waits for MCP rebuild to complete
+
+# PHASE 2: YOU run MCP tool (Claude Code only)
+# Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
+# Parameters displayed by script above
+# Wait ~5 minutes for rebuild to complete
+
+# PHASE 3: Complete rebuild with new VPS IP
+make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
+
+# This command automatically:
+# 1. Updates VPS_IP in encrypted secrets
+# 2. Bootstraps VPS with Ansible (all phases)
+# 3. Retrieves Tailscale IP from VPS
+# 4. Updates TAILSCALE_IP in encrypted secrets
+# 5. Deploys all services via Tailscale
+# 6. Waits for services to start
+# 7. Verifies health
+
+# Done! VPS is fully rebuilt and deployed.
+```
+
+**That's it. TWO commands: `make rebuild-full-auto`, then `make rebuild-full-auto-post-mcp VPS_IP=<new_ip>`**
+
+### Manual Rebuild (Old Method - Still Works)
+
+If you prefer step-by-step control:
 
 ```bash
 # 1. Setup Tailscale infrastructure (one-time, or when auth key expires)
 make tailscale-setup
-# This automatically:
-# - Initializes Terraform
-# - Generates auth key
-# - Stores in encrypted secrets
-# All done! No manual steps.
 
 # 2. Generate root password
 ROOT_PASSWORD=$(openssl rand -base64 32)
@@ -152,9 +185,6 @@ make rebuild-bootstrap VPS_IP=<new_ip> ROOT_PASSWORD="$ROOT_PASSWORD"
 #
 # Phase 4: Application Runtime (LAST - separate infra from app)
 # - Installs Docker and Docker Compose
-#
-# Key improvement: Tailscale is established BEFORE SSH lockdown,
-# so if Tailscale fails, you still have public SSH access to debug.
 
 # 7. Deploy services (via SSH to Tailscale IP)
 ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && make deploy'
@@ -163,9 +193,7 @@ ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && mak
 make health
 ```
 
-**That's it. THREE commands: `make tailscale-setup` (one-time), `make rebuild-bootstrap`, deploy.**
-
-All steps are fully automated - no manual Terraform, no manual secrets editing, no manual key copying.
+**All steps are fully automated - no manual Terraform, no manual secrets editing, no manual key copying.**
 
 ## Daily Operations (YOU Execute These)
 
@@ -398,6 +426,56 @@ make rebuild-bootstrap VPS_IP=<new_ip> ROOT_PASSWORD="$ROOT_PASSWORD"
 - Age key: `/opt/hill90/secrets/keys/keys.txt`
 - Deploy user: `deploy`
 - Services: Docker Compose in `/opt/hill90/app`
+
+## GitHub Actions Migration (Future Work)
+
+### Current State: Automation from Mac
+
+All automation currently runs from your Mac via Claude Code:
+- ✅ Fully automated rebuild via `make rebuild-full-auto`
+- ✅ Fully automated secrets generation
+- ✅ Automated bootstrap, deploy, and health checks
+- ✅ All scripts are repeatable and idempotent
+
+### Future: GitHub Actions Runners
+
+Workflow skeletons are ready in `.github/workflows/`:
+
+**`.github/workflows/rebuild-vps.yml`**
+- Manual trigger (workflow_dispatch) for VPS rebuilds
+- Will use Hostinger API instead of MCP tools
+- Requires GitHub Secrets for API keys and SSH keys
+
+**`.github/workflows/deploy.yml`**
+- Triggers on push to main
+- Validates infrastructure before deploy
+- SSHs to VPS via Tailscale and deploys
+- Runs health checks after deployment
+
+### Migration Path
+
+When ready to migrate to GitHub Actions:
+
+1. **Secrets Migration**
+   - Add all secrets from `prod.enc.env` to GitHub Secrets
+   - Add Hostinger API key
+   - Add VPS SSH private key
+   - Add Tailscale auth key
+   - Add SOPS age key
+
+2. **Implement Workflows**
+   - Remove placeholder steps
+   - Implement actual deployment steps
+   - Add Tailscale setup in runners
+   - Add health check verification
+
+3. **Benefits**
+   - No local dependencies (runs on GitHub)
+   - Audit trail via GitHub Actions logs
+   - Can trigger from anywhere
+   - Automatic deployments on push
+
+**For now, continue using Mac-based automation via Claude Code.**
 
 ## Important Reminders
 
