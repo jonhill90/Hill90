@@ -48,3 +48,11 @@ resource "twingate_resource" "mcp" {
   address           = "mcp"
   remote_network_id = twingate_remote_network.hill90_vps.id
 }
+
+# Twingate Resource: VPS Host SSH Access
+# Gateway IP of internal Docker network - allows SSH to VPS host
+resource "twingate_resource" "vps_host" {
+  name              = "Hill90 VPS SSH"
+  address           = "172.18.0.1"
+  remote_network_id = twingate_remote_network.hill90_vps.id
+}

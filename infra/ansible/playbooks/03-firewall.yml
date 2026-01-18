@@ -21,11 +21,12 @@
     immediate: yes
   loop: "{{ firewall_allowed_ports }}"
 
-- name: Enable rate limiting for SSH
-  command: >
-    firewall-cmd --permanent --add-rich-rule='rule family="ipv4"
-    port protocol="tcp" port="22" limit value="10/m" accept'
-  changed_when: false
+- name: Remove SSH from public access (Twingate only)
+  firewalld:
+    port: 22/tcp
+    permanent: yes
+    state: disabled
+    immediate: yes
 
 - name: Reload firewalld
   command: firewall-cmd --reload

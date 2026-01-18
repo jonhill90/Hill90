@@ -22,8 +22,8 @@ ssh_client_alive_interval: 300
 ssh_client_alive_count_max: 2
 
 # Firewall configuration
+# SSH access ONLY via Twingate tunnel - not publicly exposed
 firewall_allowed_ports:
-  - 22/tcp    # SSH
   - 80/tcp    # HTTP
   - 443/tcp   # HTTPS
 
