@@ -3,20 +3,21 @@
 # Installs Tailscale binary and joins the tailnet
 # Auth key is managed via Terraform (infra/terraform/tailscale)
 
-- name: Add Tailscale repository
-  yum_repository:
-    name: tailscale-stable
-    description: Tailscale stable
-    baseurl: https://pkgs.tailscale.com/stable/rhel/9/x86_64
-    enabled: yes
-    gpgcheck: yes
-    gpgkey: https://pkgs.tailscale.com/stable/rhel/9/x86_64/repo.gpg
-    repo_gpgcheck: yes
+- name: Download Tailscale install script
+  get_url:
+    url: https://tailscale.com/install.sh
+    dest: /tmp/tailscale-install.sh
+    mode: '0755'
 
-- name: Install Tailscale
-  dnf:
-    name: tailscale
-    state: present
+- name: Install Tailscale using official script
+  command: sh /tmp/tailscale-install.sh
+  args:
+    creates: /usr/bin/tailscale
+
+- name: Remove install script
+  file:
+    path: /tmp/tailscale-install.sh
+    state: absent
 
 - name: Enable and start tailscaled service
   systemd:
