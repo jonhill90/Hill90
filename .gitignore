@@ -89,6 +89,11 @@ dmypy.json
 infra/secrets/*.dec.env
 infra/secrets/keys/*.key
 !infra/secrets/keys/.gitkeep
+infra/secrets/*.backup.*
+infra/secrets/*.tmp.*
+infra/secrets/prod.secrets.json
+infra/secrets/prod-clean.enc.env
+infra/secrets/prod.tmp.enc.env
 
 # Docker
 .dockerignore
