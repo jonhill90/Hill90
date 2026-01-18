@@ -1,4 +1,4 @@
-.PHONY: help build deploy deploy-production test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full rebuild-full-auto rebuild-full-auto-post-mcp tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull exec-api exec-ai exec-auth
+.PHONY: help build deploy deploy-production test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full rebuild-full-auto rebuild-full-auto-post-mcp rebuild-optimized rebuild-optimized-post-mcp tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull exec-api exec-ai exec-auth
 
 # Environment
 ENV ?= prod
@@ -122,6 +122,29 @@ rebuild-full-auto-post-mcp: ## PHASE 2: Complete rebuild after MCP (requires VPS
 	@echo "$(COLOR_BOLD)🚀 Completing automated VPS rebuild...$(COLOR_RESET)"
 	@echo ""
 	bash scripts/rebuild-vps-mcp.sh post-mcp $(VPS_IP)
+
+rebuild-optimized: ## OPTIMIZED PHASE 1: Fast VPS rebuild (5-7 min target, uses API instead of Terraform)
+	@echo "$(COLOR_BOLD)🚀 Starting OPTIMIZED VPS rebuild (5-7 min target)...$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_GREEN)Optimizations:$(COLOR_RESET)"
+	@echo "  ✓ Tailscale API (no Terraform)"
+	@echo "  ✓ Auto IP detection"
+	@echo "  ✓ Consolidated Ansible playbook"
+	@echo "  ✓ Parallel Docker builds"
+	@echo "  ✓ Binary pre-caching (if post-install script used)"
+	@echo ""
+	bash scripts/rebuild-vps-mcp-optimized.sh pre-mcp
+	@echo ""
+	@echo "$(COLOR_YELLOW)⏸️  PAUSED: Waiting for Claude Code to run MCP rebuild$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_YELLOW)NEXT: After MCP rebuild completes, run:$(COLOR_RESET)"
+	@echo "  make rebuild-optimized-post-mcp VPS_IP=<new_ip>"
+	@echo ""
+
+rebuild-optimized-post-mcp: ## OPTIMIZED PHASE 2: Complete fast rebuild after MCP (optional VPS_IP, auto-detected if omitted)
+	@echo "$(COLOR_BOLD)🚀 Completing OPTIMIZED VPS rebuild...$(COLOR_RESET)"
+	@echo ""
+	bash scripts/rebuild-vps-mcp-optimized.sh post-mcp $(VPS_IP)
 
 rebuild-complete: rebuild-bootstrap deploy health ## Complete post-rebuild deployment
 	@echo "$(COLOR_GREEN)VPS rebuild complete and healthy!$(COLOR_RESET)"

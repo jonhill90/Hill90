@@ -143,6 +143,66 @@ make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
 
 **That's it. TWO commands: `make rebuild-full-auto`, then `make rebuild-full-auto-post-mcp VPS_IP=<new_ip>`**
 
+### Optimized Rebuild (FASTEST - 5-7 minutes)
+
+**Use this for speed. Replaces Terraform with Tailscale API and uses optimized Ansible.**
+
+```bash
+# PHASE 1: Prepare for optimized rebuild
+make rebuild-optimized
+
+# This command:
+# 1. Generates Tailscale auth key via API (NO Terraform!)
+# 2. Generates secure root password
+# 3. Displays MCP parameters (includes optional post-install script ID)
+# 4. Saves state for phase 2
+
+# PHASE 2: YOU run MCP tool (Claude Code only)
+# Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
+# Parameters displayed by script above
+# OPTIONAL: Add post_install_script_id for binary pre-caching (saves 2-3 min)
+# Wait ~5 minutes for rebuild to complete
+
+# PHASE 3: Complete optimized rebuild (auto-detects IPs)
+make rebuild-optimized-post-mcp VPS_IP=<new_ip>
+# OR let it auto-detect: make rebuild-optimized-post-mcp
+
+# This command automatically:
+# 1. Updates VPS_IP in encrypted secrets
+# 2. Bootstraps VPS with OPTIMIZED Ansible playbook
+# 3. Queries Tailscale API for device IP (NO SSH chicken-and-egg!)
+# 4. Updates TAILSCALE_IP in encrypted secrets
+# 5. Deploys all services with PARALLEL Docker builds
+# 6. Waits for services to start
+# 7. Verifies health
+
+# Done! VPS rebuilt in 5-7 minutes (vs 30 minutes).
+```
+
+**Key Optimizations:**
+- ✅ **Tailscale API** - Replaces Terraform (saves 10-15 min)
+- ✅ **Auto IP detection** - Queries Tailscale API for device IP (no SSH needed)
+- ✅ **Consolidated Ansible** - Single playbook vs 9 sequential (saves 2-4 min)
+- ✅ **Parallel Docker builds** - `docker compose build --parallel` (saves 1-2 min)
+- ✅ **Binary pre-caching** - Post-install script caches Docker, SOPS, age (saves 2-3 min)
+
+**Post-Install Script Setup (Optional - Saves 2-3 minutes):**
+
+To enable binary pre-caching during OS rebuild:
+
+1. Upload the post-install script to Hostinger:
+   - Use MCP: `mcp__MCP_DOCKER__VPS_createPostInstallScriptV1`
+   - Name: `hill90-cache-binaries`
+   - Content: Contents of `infra/post-install/cache-binaries.sh`
+
+2. Note the script ID returned by MCP
+
+3. When running MCP rebuild, add `post_install_script_id: <script_id>`
+
+The script will run during OS installation and pre-download Docker, SOPS, age, and git. Ansible will then use the cached binaries instead of downloading them.
+
+**Total rebuild time: 5-7 minutes (vs 30 minutes with old method)**
+
 ### Manual Rebuild (Old Method - Still Works)
 
 If you prefer step-by-step control:
@@ -385,21 +445,29 @@ ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
 
 ## When Things Break
 
-**DON'T PANIC. Just rebuild (3 commands):**
+**DON'T PANIC. Just rebuild (2 commands, 5-7 minutes):**
 
 ```bash
-# 1. Ensure Tailscale auth key is current (one-time or if expired)
-make tailscale-setup  # AUTOMATED: Terraform + secrets
+# FASTEST: Use optimized rebuild (5-7 minutes total)
+make rebuild-optimized
+# Run MCP rebuild as instructed
+make rebuild-optimized-post-mcp VPS_IP=<new_ip>
 
-# 2. Rebuild VPS
-ROOT_PASSWORD=$(openssl rand -base64 32)
-# Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
-# virtualMachineId: 1264324, template_id: 1183, password: $ROOT_PASSWORD
+# Done! Fully deployed in 5-7 minutes.
+```
 
-# 3. Bootstrap (AUTOMATED: everything configured automatically)
-make rebuild-bootstrap VPS_IP=<new_ip> ROOT_PASSWORD="$ROOT_PASSWORD"
+**OR use the original automated method (30 minutes):**
 
-# Done! SSH via Tailscale IP and deploy.
+```bash
+# 1. Prepare rebuild
+make rebuild-full-auto
+
+# 2. Run MCP rebuild as instructed
+
+# 3. Complete rebuild
+make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
+
+# Done! SSH via Tailscale IP.
 ```
 
 **YOU can fix anything because YOU control the entire stack.**

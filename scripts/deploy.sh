@@ -52,8 +52,8 @@ export SOPS_AGE_KEY_FILE="$AGE_KEY"
 # Use sops exec-env to run docker compose with secrets in environment
 # This avoids creating temporary decrypted files
 sops exec-env "$SECRETS_FILE" '
-  echo "Building and pulling images..."
-  docker compose -f '"$COMPOSE_FILE"' build
+  echo "Building and pulling images (parallel mode)..."
+  docker compose -f '"$COMPOSE_FILE"' build --parallel
   docker compose -f '"$COMPOSE_FILE"' pull --ignore-buildable
 
   echo "Deploying services..."
