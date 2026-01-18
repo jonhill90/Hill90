@@ -1,0 +1,42 @@
+---
+# Git Installation and Repository Clone
+# Automates git setup and Hill90 repository cloning
+
+- name: Install git
+  dnf:
+    name: git
+    state: present
+
+- name: Verify git installation
+  command: git --version
+  register: git_version_check
+  changed_when: false
+
+- name: Display git version
+  debug:
+    msg: "Git installed: {{ git_version_check.stdout }}"
+
+- name: Create app directory
+  file:
+    path: "{{ app_directory }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Clone Hill90 repository
+  git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_directory }}/app"
+    version: "{{ app_branch }}"
+    force: no
+  become_user: "{{ deploy_user }}"
+  register: repo_clone
+
+- name: Display repository clone status
+  debug:
+    msg:
+      - "Repository cloned successfully!"
+      - "Location: {{ app_directory }}/app"
+      - "Branch: {{ app_branch }}"
+  when: repo_clone.changed

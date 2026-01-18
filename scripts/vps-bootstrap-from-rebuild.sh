@@ -100,16 +100,40 @@ ansible-playbook -i inventory/hosts.yml \
   --extra-vars "ansible_ssh_common_args='-o StrictHostKeyChecking=no'" \
   playbooks/bootstrap.yml
 
+# Return to project root
+cd ../..
+
+# Transfer age key from local machine to VPS
+echo ""
+echo "Transferring age encryption key to VPS..."
+
+LOCAL_AGE_KEY="$HOME/.config/sops/age/keys.txt"
+if [ ! -f "$LOCAL_AGE_KEY" ]; then
+  echo "ERROR: Local age key not found at $LOCAL_AGE_KEY"
+  echo "Generate one with: age-keygen -o $LOCAL_AGE_KEY"
+  exit 1
+fi
+
+# Copy age key to VPS
+scp -o StrictHostKeyChecking=no \
+  "$LOCAL_AGE_KEY" \
+  "deploy@$NEW_VPS_IP:/opt/hill90/secrets/keys/keys.txt"
+
+# Set correct permissions on VPS
+ssh -o StrictHostKeyChecking=no "deploy@$NEW_VPS_IP" \
+  "chmod 600 /opt/hill90/secrets/keys/keys.txt"
+
+echo "Age key transferred successfully"
+
 echo ""
 echo "========================================="
 echo "Bootstrap Complete!"
 echo "========================================="
 echo ""
 echo "Next steps:"
-echo "  1. Verify connectivity: ssh deploy@$NEW_VPS_IP"
-echo "  2. Deploy application: make deploy"
-echo "  3. Verify health: make health"
-echo "  4. Update DNS records if IP changed"
+echo "  1. Deploy application: make deploy"
+echo "  2. Verify health: make health"
+echo "  3. Update DNS records if IP changed (points to $NEW_VPS_IP)"
 echo ""
 
 # Clean up temporary password file

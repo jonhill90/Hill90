@@ -31,6 +31,9 @@
     - name: Import secrets setup playbook
       import_tasks: 06-secrets-setup.yml
 
+    - name: Import git and repository setup
+      import_tasks: 07-git-and-repo.yml
+
   post_tasks:
     - name: Display bootstrap completion message
       debug:
@@ -40,10 +43,9 @@
       debug:
         msg:
           - "Bootstrap completed! Next steps:"
-          - "1. Exit and reconnect via Twingate or SSH as deploy user"
-          - "2. Clone Hill90 repository to {{ app_directory }}/app"
-          - "3. Configure DNS records for api.hill90.com, ai.hill90.com, hill90.com"
-          - "4. Run: make deploy"
+          - "1. Transfer age key to VPS: scp ~/.config/sops/age/keys.txt deploy@<vps>:{{ age_key_path }}/keys.txt"
+          - "2. Configure DNS records for api.hill90.com, ai.hill90.com, hill90.com"
+          - "3. Run: make deploy"
 
   handlers:
     - name: restart docker

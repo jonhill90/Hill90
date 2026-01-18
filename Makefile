@@ -117,22 +117,32 @@ rebuild: ## Rebuild VPS from scratch (DESTRUCTIVE)
 
 rebuild-bootstrap: ## Bootstrap VPS after rebuild
 	@echo "$(COLOR_BOLD)Bootstrapping rebuilt VPS...$(COLOR_RESET)"
-	@if [ -z "$(ROOT_PASSWORD)" ] || [ -z "$(VPS_IP)" ]; then \
-		echo "$(COLOR_YELLOW)Usage: make rebuild-bootstrap ROOT_PASSWORD=<password> VPS_IP=<ip>$(COLOR_RESET)"; \
+	@if [ -z "$(VPS_IP)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make rebuild-bootstrap VPS_IP=<ip>$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)ROOT_PASSWORD will be read from /tmp/hill90_root_password.txt if not provided$(COLOR_RESET)"; \
 		exit 1; \
 	fi
-	bash scripts/vps-bootstrap-from-rebuild.sh $(ROOT_PASSWORD) $(VPS_IP)
+	bash scripts/vps-bootstrap-from-rebuild.sh "$(ROOT_PASSWORD)" $(VPS_IP)
 
-rebuild-full: snapshot rebuild ## Full rebuild workflow (requires manual steps)
+rebuild-full: snapshot rebuild ## Full rebuild workflow (automated via Claude Code)
 	@echo "$(COLOR_BOLD)VPS rebuild initiated!$(COLOR_RESET)"
 	@echo ""
-	@echo "$(COLOR_YELLOW)NEXT STEPS:$(COLOR_RESET)"
-	@echo "  1. Wait for rebuild to complete (~5 minutes)"
-	@echo "  2. Note the new VPS IP address from Hostinger"
-	@echo "  3. Run: make rebuild-bootstrap ROOT_PASSWORD=<password> VPS_IP=<new_ip>"
-	@echo "  4. Run: make twingate-setup (if not already configured)"
-	@echo "  5. Run: make deploy"
-	@echo "  6. Run: make health"
+	@echo "$(COLOR_YELLOW)NEXT STEPS (via Claude Code):$(COLOR_RESET)"
+	@echo "  1. Ask Claude Code to rebuild VPS using MCP tools (see script output above)"
+	@echo "  2. Wait for rebuild to complete (~5 minutes)"
+	@echo "  3. Get new VPS IP from Claude Code"
+	@echo "  4. Run: make rebuild-bootstrap VPS_IP=<new_ip>"
+	@echo "  5. VPS will be fully deployed and ready!"
+	@echo ""
+	@echo "$(COLOR_GREEN)Automated steps:$(COLOR_RESET) snapshot → git install → repo clone → age key transfer → deploy → health check"
+	@echo ""
+
+rebuild-complete: rebuild-bootstrap deploy health ## Complete post-rebuild deployment
+	@echo "$(COLOR_GREEN)VPS rebuild complete and healthy!$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_YELLOW)REMINDER:$(COLOR_RESET)"
+	@echo "  - Update DNS records if VPS IP changed"
+	@echo "  - Verify Twingate connector is online"
 	@echo ""
 
 clean: ## Clean up Docker resources
