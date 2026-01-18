@@ -1,8 +1,0 @@
-# Twingate Configuration Example
-# Copy this to terraform.tfvars and fill in your values
-
-# Twingate API Key (get from Twingate Admin Console > Settings > API)
-twingate_api_key = "REPLACE_WITH_TWINGATE_API_KEY"
-
-# Twingate Network Name (just the account name, e.g., "yourcompany" not "yourcompany.twingate.com")
-twingate_network = "hill90"

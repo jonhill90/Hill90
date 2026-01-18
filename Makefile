@@ -1,4 +1,4 @@
-.PHONY: help build deploy test clean logs health ssh secrets-edit secrets-init bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full tailscale-setup tailscale-rotate twingate-setup twingate-apply
+.PHONY: help build deploy test clean logs health ssh secrets-edit secrets-init bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full tailscale-setup tailscale-rotate
 
 # Environment
 ENV ?= prod
@@ -104,15 +104,6 @@ tailscale-setup: ## Setup Tailscale infrastructure (Terraform + secrets) - AUTOM
 
 tailscale-rotate: tailscale-setup ## Rotate Tailscale auth key (generates new key and updates secrets)
 	@echo "$(COLOR_GREEN)Tailscale auth key rotated!$(COLOR_RESET)"
-
-twingate-apply: ## Apply Twingate Terraform configuration (deprecated - use Tailscale)
-	@echo "$(COLOR_BOLD)Applying Twingate Terraform...$(COLOR_RESET)"
-	cd infra/terraform/twingate && terraform init && terraform apply
-
-twingate-setup: twingate-apply ## Setup Twingate and inject tokens into secrets (deprecated)
-	@echo "$(COLOR_BOLD)Injecting Twingate tokens into secrets...$(COLOR_RESET)"
-	bash scripts/twingate-inject-tokens.sh
-	@echo "$(COLOR_GREEN)Twingate setup complete!$(COLOR_RESET)"
 
 snapshot: ## Create VPS snapshot (safety backup)
 	@echo "$(COLOR_BOLD)Creating VPS snapshot...$(COLOR_RESET)"

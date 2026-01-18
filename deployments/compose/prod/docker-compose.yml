@@ -179,22 +179,3 @@ services:
       timeout: 5s
       retries: 5
 
-  # Twingate Connector for secure admin access
-  twingate:
-    image: twingate/connector:latest
-    container_name: twingate
-    restart: unless-stopped
-    networks:
-      - edge
-      - internal
-    environment:
-      - TWINGATE_ACCESS_TOKEN=${TWINGATE_ACCESS_TOKEN}
-      - TWINGATE_REFRESH_TOKEN=${TWINGATE_REFRESH_TOKEN}
-      - TWINGATE_NETWORK=${TWINGATE_NETWORK}
-      - TWINGATE_LOG_LEVEL=3
-    cap_add:
-      - NET_ADMIN
-    sysctls:
-      - net.ipv4.ip_forward=1
-    labels:
-      - "traefik.enable=false"
