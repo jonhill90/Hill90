@@ -5,7 +5,7 @@
 - name: Create deploy user
   user:
     name: "{{ deploy_user }}"
-    groups: "{{ deploy_user_groups }}"
+    groups: wheel
     append: yes
     shell: /bin/bash
     create_home: yes
