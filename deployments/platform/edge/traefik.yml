@@ -43,11 +43,12 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: ${ACME_EMAIL:-jonhill90@live.com}
+      email: admin@hill90.com
       storage: /letsencrypt/acme.json
       httpChallenge:
         entryPoint: web
-      # caServer omitted - will be set via command-line args to support staging/production switching
+      # caServer defaults to production - override via CLI args in docker-compose.yml
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
 
 # Logging
 log:
