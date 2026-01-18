@@ -12,123 +12,156 @@
 - If YOU break something, YOU can just reinstall the OS and start over
 - The user asks YOU to do things, YOU do them
 - NEVER ask the user to run commands - YOU run them
+- **Everything is done via Makefile commands**
+
+## CRITICAL RULES - READ FIRST
+
+### ⚠️ NEVER DEPLOY LOCALLY ⚠️
+
+**DEPLOYMENTS ALWAYS RUN ON THE VPS, NEVER ON THE USER'S MAC.**
+
+When deploying:
+```bash
+# CORRECT - Run deploy script ON THE VPS via SSH
+ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
+
+# WRONG - NEVER DO THIS
+make deploy  # This runs LOCALLY on Mac, NOT on VPS
+bash scripts/deploy.sh prod  # This runs LOCALLY, NOT on VPS
+```
+
+The deploy script builds and runs Docker containers **wherever you execute it**. You must SSH to the VPS first.
 
 ## Your Capabilities
 
 ### 1. VPS Management (via MCP Tools)
 You have direct access to Hostinger VPS via MCP tools:
 - `mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1` - Rebuild OS (DESTRUCTIVE)
-- `mcp__MCP_DOCKER__VPS_createSnapshotV1` - Create snapshot backup
 - `mcp__MCP_DOCKER__VPS_getVirtualMachineDetailsV1` - Get VPS info
 - Full VPS lifecycle management
 
 ### 2. SSH Access
-- VPS IP: Check `infra/ansible/inventory/hosts.yml`
+- VPS IP: Get from MCP or check encrypted secrets
 - SSH as: `deploy` user (or `root` after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
 - You can run ANY command on the VPS via SSH
 
-### 3. Local Tools
-- Terraform (Hostinger VPS, Twingate infrastructure)
-- Ansible (VPS bootstrapping)
-- SOPS/age (secrets encryption)
-- Docker Compose (service orchestration)
-- Git (this repository)
+### 3. Makefile Commands
+All operations are done via Makefile - check `make help` for full list:
+- `make rebuild-bootstrap VPS_IP=<ip>` - Bootstrap VPS after rebuild
+- `make deploy` - Deploy all services
+- `make health` - Check service health
+- `make twingate-setup` - Configure Twingate
+- `make ssh` - SSH to VPS
 
 ## VPS Rebuild Workflow (YOU Execute This)
 
-When the VPS needs to be rebuilt:
+When the VPS needs to be rebuilt from scratch:
 
 ```bash
-# 1. Create snapshot first
-# Use MCP: mcp__MCP_DOCKER__VPS_createSnapshotV1
-# Note: Only 1 snapshot per VPS (overwrites existing)
-
-# 2. Generate root password
+# 1. Generate root password
 ROOT_PASSWORD=$(openssl rand -base64 32)
-# Save this temporarily
 
-# 3. Rebuild OS via MCP
+# 2. Rebuild OS via MCP
 # Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
 # Parameters:
-#   - virtualMachineId: Get from Terraform state
-#   - template_id: AlmaLinux 10
-#   - password: The generated password
+#   - virtualMachineId: 1264324
+#   - template_id: 1183 (AlmaLinux 10)
+#   - password: $ROOT_PASSWORD
 
-# 4. Wait ~5 minutes for rebuild
+# 3. Wait ~5 minutes for rebuild
 
-# 5. Get new VPS IP from MCP response
+# 4. Get new VPS IP from MCP response
 
-# 6. SSH to VPS and run bootstrap
-cd /Users/jon/source/repos/Personal/Hill90
-bash scripts/vps-bootstrap-from-rebuild.sh "$ROOT_PASSWORD" "$NEW_VPS_IP"
-
-# This script automatically:
+# 5. Bootstrap VPS (this does EVERYTHING)
+make rebuild-bootstrap VPS_IP=<new_ip> ROOT_PASSWORD="$ROOT_PASSWORD"
+# This automatically:
 # - Updates Ansible inventory
 # - Updates encrypted secrets
-# - Runs Ansible bootstrap (user, docker, firewall, SSH, secrets)
+# - Creates deploy user
+# - Installs Docker
+# - Configures firewall (80/443/22 only)
+# - Hardens SSH
 # - Installs git
-# - Clones repository
-# - Transfers age key from local machine
-# - VPS ready for deployment
+# - Clones repository to /opt/hill90/app
+# - Transfers age key
+# - Sets up secrets
 
-# 7. Deploy services
+# 6. Deploy services
 make deploy
 
-# 8. Verify health
+# 7. Verify health
 make health
 ```
 
-**YOU run all these commands. The user doesn't.**
+**That's it. Three commands: MCP rebuild, make bootstrap, make deploy.**
 
 ## Daily Operations (YOU Execute These)
 
 ### Deploy Changes
 ```bash
-# SSH to VPS
-ssh deploy@<vps-ip>
-
-# Pull latest code
-cd /opt/hill90/app
-git pull
-
-# Deploy
-cd /opt/hill90/app
-make deploy
-
-# Check health
-make health
+make deploy    # Deploys to VPS
+make health    # Checks everything is running
 ```
 
-### View Logs
+### View Logs (on VPS)
 ```bash
-ssh deploy@<vps-ip>
-cd /opt/hill90/app
-docker logs -f <service-name>
-# Services: traefik, api, ai, mcp, auth, postgres, twingate
+make ssh       # SSH to VPS
+make logs      # All services
+make logs-api  # API only
+make logs-traefik  # Traefik only
 ```
 
-### Restart Services
+### Restart Services (on VPS)
 ```bash
-ssh deploy@<vps-ip>
-cd /opt/hill90/app
-docker compose -f deployments/compose/prod/docker-compose.yml restart <service>
+make restart        # All services
+make restart-api    # API only
+make restart-traefik # Traefik only
 ```
 
 ## Secrets Management
 
-### Decrypt Secrets (Local)
+### Age Key Locations
+- **Local:** `/Users/jon/source/repos/Personal/Hill90/infra/secrets/keys/age-prod.key`
+- **VPS:** `/opt/hill90/secrets/keys/keys.txt`
+- **Symlinked on VPS:** `/opt/hill90/app/infra/secrets/keys/age-prod.key` → `/opt/hill90/secrets/keys/keys.txt`
+
+### Reading Secrets (Local)
 ```bash
-sops -d infra/secrets/prod.enc.env > /tmp/prod.dec.env
-# Edit /tmp/prod.dec.env
-sops -e /tmp/prod.dec.env > infra/secrets/prod.enc.env
-rm /tmp/prod.dec.env
+export SOPS_AGE_KEY_FILE=/Users/jon/source/repos/Personal/Hill90/infra/secrets/keys/age-prod.key
+cd /Users/jon/source/repos/Personal/Hill90
+sops -d infra/secrets/prod.enc.env | grep <VARIABLE_NAME>
 ```
 
-### Age Key Location
-- **Local:** `~/.config/sops/age/keys.txt`
-- **VPS:** `/opt/hill90/secrets/keys/keys.txt`
-- **Auto-transferred** during bootstrap
+### Editing Secrets (The CORRECT Way)
+
+**Method 1: Direct SOPS editing (for simple changes)**
+```bash
+export SOPS_AGE_KEY_FILE=/Users/jon/source/repos/Personal/Hill90/infra/secrets/keys/age-prod.key
+cd /Users/jon/source/repos/Personal/Hill90/infra/secrets
+
+# SOPS will decrypt, open in editor, and re-encrypt automatically
+# For automated changes, use updatekeys or exec-file
+sops prod.enc.env
+```
+
+**Method 2: Programmatic updates (for automation)**
+```bash
+export SOPS_AGE_KEY_FILE=/Users/jon/source/repos/Personal/Hill90/infra/secrets/keys/age-prod.key
+cd /Users/jon/source/repos/Personal/Hill90/infra/secrets
+
+# Use sops exec-file to run commands with decrypted secrets
+sops exec-file prod.enc.env 'echo {} | jq ".VPS_IP = \"76.13.26.69\"" > prod.dec.env'
+sops -e prod.dec.env > prod.enc.env
+rm prod.dec.env
+```
+
+**WRONG - DO NOT do this:**
+- Decrypt to /tmp and try to re-encrypt from there (path regex won't match)
+- Try to manually manage SOPS metadata
+- Get stuck in decrypt/encrypt loops
+
+If SOPS fails, restore from git and try again: `git checkout HEAD -- infra/secrets/prod.enc.env`
 
 ## Twingate Management
 
@@ -157,8 +190,6 @@ bash scripts/twingate-inject-tokens.sh
 - **MCP Service** (`mcp`) - Debugging
 - **VPS SSH** (`hill90-vps.internal`) - Host SSH access
 
-**Current blocker:** SSH routing via Twingate DNS not working
-
 ## Architecture
 
 ### Services (Docker Compose)
@@ -175,29 +206,17 @@ bash scripts/twingate-inject-tokens.sh
 - **internal** - Private services (postgres, auth, twingate)
 
 ### Firewall
-- **Public:** 80/tcp, 443/tcp only
-- **SSH (22/tcp):** Currently public (SHOULD BE Twingate-only, blocked by AI-29)
-
-## Current Blockers
-
-### CRITICAL: AI-29 - Twingate SSH Routing
-- **Problem:** Can't resolve `hill90-vps.internal` from local machine
-- **Attempts:**
-  1. `172.18.0.1` (Docker gateway) → Timeout
-  2. `srv1264324.hstgr.cloud` (hostname) → Worked via public, failed when SSH removed
-  3. `localhost` → Connection refused
-  4. `hill90-vps.internal` → DNS resolution failure
-- **Blocking:** AI-30 (firewall lock-down)
+- **Public:** 80/tcp, 443/tcp
+- **SSH (22/tcp):** Currently public, will be Twingate-only once verified
 
 ## When Things Break
 
 **DON'T PANIC. Just rebuild:**
 
-1. Snapshot the VPS (if it's still accessible)
-2. Rebuild OS via MCP
-3. Run bootstrap script
-4. Deploy
-5. Done
+1. Rebuild OS via MCP
+2. `make rebuild-bootstrap VPS_IP=<new_ip>`
+3. `make deploy`
+4. Done
 
 **YOU can fix anything because YOU control the entire stack.**
 
@@ -219,28 +238,22 @@ bash scripts/twingate-inject-tokens.sh
 1. **YOU SSH to the VPS** - Never ask user to SSH
 2. **YOU use MCP tools** - You can rebuild the OS
 3. **YOU run commands** - User doesn't run anything
-4. **Security first** - Twingate-only SSH when AI-29 resolved
+4. **Use the Makefile** - All operations via `make` commands
 5. **Bootstrap is automated** - git, clone, age key all automatic
 6. **Commit often** - User values clean git history
 
-## Linear Issues (Current State)
+## Current Goal: Baseline Working VPS
 
-- **AI-26** 🚧 In Progress - Twingate integration (95% done, DNS blocker)
-- **AI-29** 🚧 In Progress - Twingate SSH routing (CRITICAL blocker)
-- **AI-30** 📋 Todo - Remove public SSH (blocked on AI-29)
-- **AI-31** 🔍 In Review - Rebuild automation (needs runbook)
-- **AI-32** 📋 Todo - Update README (remove Tailscale, add Twingate)
-- **AI-27** ✅ Done - Git/clone automation
-- **AI-28** ✅ Done - Age key automation
-- **AI-33** ✅ Done - Health check DNS verification
+The VPS is at baseline when:
+1. ✅ VPS is bootstrapped (deploy user, Docker, firewall)
+2. ✅ Services are deployed and healthy
+3. ✅ Twingate connector is online
+4. ✅ **Twingate SSH access works** (ssh via hill90-vps.internal)
+5. 📋 Public SSH is locked down (firewall blocks port 22)
 
-## Next Steps (When AI-29 Resolved)
+**Once Twingate SSH works, that's the signal we have a working baseline.**
 
-1. Verify Twingate SSH access works
-2. Remove public SSH (firewall lock-down)
-3. Create VPS rebuild runbook
-4. Update README documentation
-5. User can start building their application
+Then we can build the actual application.
 
 ---
 
