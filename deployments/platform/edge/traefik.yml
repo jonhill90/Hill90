@@ -1,0 +1,57 @@
+# Traefik Static Configuration
+# Hill90 Edge Proxy Configuration
+
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+# API and Dashboard
+api:
+  dashboard: true
+  insecure: false
+
+# Entry Points
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+
+# Docker Provider
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: hill90_edge
+
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
+
+# Let's Encrypt Certificate Resolver
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: jonhill90@live.com
+      storage: /letsencrypt/acme.json
+      httpChallenge:
+        entryPoint: web
+
+# Logging
+log:
+  level: INFO
+  format: json
+
+# Access Logs
+accessLog:
+  format: json

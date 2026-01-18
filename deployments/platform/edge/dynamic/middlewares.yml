@@ -1,0 +1,38 @@
+# Traefik Dynamic Configuration - Middlewares
+# Hill90 Middleware Definitions
+
+http:
+  middlewares:
+    # Basic Auth for Traefik Dashboard
+    auth:
+      basicAuth:
+        usersFile: /etc/traefik/dynamic/.htpasswd
+
+    # Rate Limiting for API
+    rate-limit:
+      rateLimit:
+        average: 100
+        period: 1s
+        burst: 200
+
+    # MCP Auth Middleware
+    mcp-auth:
+      headers:
+        customRequestHeaders:
+          X-Forwarded-Proto: "https"
+
+    # Strip /mcp prefix
+    mcp-strip:
+      stripPrefix:
+        prefixes:
+          - "/mcp"
+
+    # Security Headers
+    security-headers:
+      headers:
+        frameDeny: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000
