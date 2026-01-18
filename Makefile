@@ -156,11 +156,9 @@ format: ## Format all code
 	@echo "$(COLOR_BLUE)Formatting Auth service...$(COLOR_RESET)"
 	cd src/services/auth && npm run format || true
 
-validate: ## Validate configuration files
-	@echo "$(COLOR_BOLD)Validating configuration...$(COLOR_RESET)"
-	docker compose -f $(COMPOSE_FILE) config > /dev/null && echo "$(COLOR_GREEN)Docker Compose config valid$(COLOR_RESET)" || echo "$(COLOR_YELLOW)Docker Compose config invalid$(COLOR_RESET)"
-	@echo "Checking Ansible playbooks..."
-	cd infra/ansible && ansible-playbook --syntax-check playbooks/bootstrap.yml && echo "$(COLOR_GREEN)Ansible playbooks valid$(COLOR_RESET)" || echo "$(COLOR_YELLOW)Ansible playbooks invalid$(COLOR_RESET)"
+validate: ## Validate infrastructure configuration (Traefik, secrets, Docker Compose)
+	@echo "$(COLOR_BOLD)Validating infrastructure...$(COLOR_RESET)"
+	@bash scripts/validate-infra.sh $(ENV)
 
 # ============================================================================
 # Deployment

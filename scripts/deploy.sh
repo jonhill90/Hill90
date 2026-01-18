@@ -28,6 +28,23 @@ if [ ! -f "$AGE_KEY" ]; then
     exit 1
 fi
 
+# Run pre-deployment validation
+if [ "${SKIP_VALIDATION:-false}" != "true" ]; then
+    echo ""
+    echo "Running pre-deployment validation..."
+    echo ""
+    if ! bash scripts/validate-infra.sh "$ENV"; then
+        echo ""
+        echo "✗ Validation failed! Fix errors before deploying."
+        echo ""
+        echo "To skip validation (NOT RECOMMENDED):"
+        echo "  SKIP_VALIDATION=true bash scripts/deploy.sh ${ENV}"
+        echo ""
+        exit 1
+    fi
+    echo ""
+fi
+
 # Deploy using sops exec-env (no temporary files!)
 echo "Deploying with encrypted secrets..."
 export SOPS_AGE_KEY_FILE="$AGE_KEY"
