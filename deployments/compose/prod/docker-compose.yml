@@ -46,7 +46,7 @@ services:
   # API Gateway (TypeScript/Express)
   api:
     build:
-      context: ../../src/services/api
+      context: ../../../src/services/api
       dockerfile: Dockerfile
     image: hill90/api:${VERSION:-latest}
     container_name: api
@@ -76,7 +76,7 @@ services:
   # AI Service (Python/FastAPI)
   ai:
     build:
-      context: ../../src/services/ai
+      context: ../../../src/services/ai
       dockerfile: Dockerfile
     image: hill90/ai:${VERSION:-latest}
     container_name: ai
@@ -105,7 +105,7 @@ services:
   # MCP Gateway (Python/FastAPI)
   mcp:
     build:
-      context: ../../src/services/mcp
+      context: ../../../src/services/mcp
       dockerfile: Dockerfile
     image: hill90/mcp:${VERSION:-latest}
     container_name: mcp
@@ -134,7 +134,7 @@ services:
   # Auth Service (TypeScript/Express)
   auth:
     build:
-      context: ../../src/services/auth
+      context: ../../../src/services/auth
       dockerfile: Dockerfile
     image: hill90/auth:${VERSION:-latest}
     container_name: auth
