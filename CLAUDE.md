@@ -42,11 +42,11 @@ You have direct access to Hostinger VPS via MCP tools:
 
 ### 2. SSH Access
 - **VPS Public IP:** 76.13.26.69 (DO NOT USE - public SSH blocked)
-- **VPS Tailscale IP:** 100.88.97.65 (USE THIS for SSH)
+- **VPS Tailscale IP:** 100.68.116.66 (USE THIS for SSH)
 - SSH as: `deploy` user (or `root` after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
 - You can run ANY command on the VPS via SSH
-- **ALWAYS use Tailscale IP for SSH:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.88.97.65`
+- **ALWAYS use Tailscale IP for SSH:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66`
 
 ### 3. Makefile Commands
 All operations are done via Makefile - check `make help` for full list:
