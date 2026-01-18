@@ -132,7 +132,7 @@ make deploy
 2. Navigates to `/opt/hill90/app`
 3. Decrypts secrets locally
 4. Builds custom Docker images (auth, api, ai, mcp)
-5. Pulls external images (traefik, postgres, twingate)
+5. Pulls external images (traefik, postgres)
 6. Starts all services via Docker Compose
 7. Verifies all containers running
 
@@ -143,7 +143,6 @@ make deploy
 - mcp (TypeScript MCP service)
 - auth (TypeScript auth service)
 - postgres (PostgreSQL database)
-- twingate (zero-trust connector)
 
 ---
 
@@ -181,45 +180,34 @@ dig +short ai.hill90.com
 dig +short hill90.com
 ```
 
-### 2. Verify Twingate Connector
+### 2. Verify Tailscale Connection
 
-Check connector status:
+Check Tailscale status on VPS:
 ```bash
-ssh deploy@<vps-ip>
-docker logs twingate
-# Should show: State: Online
+ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66 'tailscale status'
+# Should show: VPS online with Tailscale IP
 ```
 
-Verify Twingate admin console shows connector online.
-
-### 3. Test Twingate SSH Access
-
+Check local Tailscale connection:
 ```bash
-# Via Twingate client
-ssh -i ~/.ssh/remote.hill90.com deploy@172.18.0.1
+tailscale status
+# Should show VPS (hill90-vps) online
 ```
 
-Should work through Twingate tunnel.
+### 3. Verify SSH Access
 
-### 4. Lock Down Public SSH (After Twingate Verified)
-
-**CRITICAL:** Only do this AFTER confirming Twingate SSH works!
-
+**Test SSH via Tailscale (should SUCCEED):**
 ```bash
-ssh deploy@<vps-ip>
-sudo firewall-cmd --remove-service=ssh --permanent
-sudo firewall-cmd --reload
+ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66
 ```
 
-**Verify:**
+**Test SSH via public IP (should FAIL):**
 ```bash
-# From public internet (should FAIL)
-ssh deploy@<vps-ip>
-# Connection refused or timeout
-
-# Via Twingate (should SUCCEED)
-ssh -i ~/.ssh/remote.hill90.com deploy@172.18.0.1
+ssh -i ~/.ssh/remote.hill90.com deploy@76.13.26.69
+# Connection refused - firewall blocks SSH from public internet
 ```
+
+Firewall is configured during bootstrap to only allow SSH from Tailscale network (100.64.0.0/10).
 
 ---
 
@@ -317,8 +305,8 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 ## Security Considerations
 
 1. **Root password:** Generated randomly, stored temporarily in `/tmp/hill90_root_password.txt`, deleted after bootstrap
-2. **SSH access:** Initially public during rebuild, locked to Twingate after verification
-3. **Firewall:** HTTP/HTTPS public, SSH from Docker networks only (Twingate connector)
+2. **SSH access:** Locked to Tailscale network only (100.64.0.0/10) during bootstrap
+3. **Firewall:** HTTP/HTTPS public, SSH from Tailscale network only
 4. **Secrets:** Encrypted with age, decrypted only on VPS during deployment
 5. **SSL:** Automatic via Traefik + Let's Encrypt
 
@@ -327,6 +315,5 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 ## Related Documentation
 
 - [Bootstrap Runbook](bootstrap.md)
-- [Twingate Access Guide](../TWINGATE_ACCESS.md)
 - [Claude Code Operating Manual](../../CLAUDE.md)
 - [Health Check Script](../../scripts/health-check.sh)
