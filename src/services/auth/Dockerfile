@@ -1,7 +1,7 @@
 FROM node:20-alpine as builder
 WORKDIR /build
 COPY package*.json tsconfig.json ./
-RUN npm ci --only=production
+RUN npm ci
 COPY src ./src
 RUN npm run build
 
