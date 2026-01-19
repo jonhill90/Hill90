@@ -41,8 +41,7 @@ generate_auth_key() {
                     "create": {
                         "reusable": false,
                         "ephemeral": false,
-                        "preauthorized": true,
-                        "tags": ["tag:server", "tag:hill90"]
+                        "preauthorized": true
                     }
                 }
             },

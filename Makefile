@@ -68,21 +68,8 @@ snapshot: ## Create VPS snapshot (safety backup)
 	@echo "$(COLOR_BOLD)Creating VPS snapshot...$(COLOR_RESET)"
 	bash scripts/vps-snapshot.sh
 
-recreate-vps: ## Recreate VPS via API (DESTRUCTIVE - rebuilds OS)
-	@echo "$(COLOR_BOLD)Recreating VPS...$(COLOR_RESET)"
-	@echo ""
-	@ROOT_PASSWORD="Hill90VPS-$$(openssl rand -base64 18 | tr -d '/+=')"; \
-	POST_INSTALL_ID=$$(bash scripts/secrets-view.sh infra/secrets/prod.enc.env HOSTINGER_POST_INSTALL_SCRIPT_ID 2>/dev/null | tail -1 | cut -d= -f2 | sed 's/\x1b\[[0-9;]*m//g'); \
-	echo "$(COLOR_GREEN)Parameters:$(COLOR_RESET)"; \
-	echo "  Template: AlmaLinux 10 (1183)"; \
-	echo "  Post-install script: $$POST_INSTALL_ID (bootstrap-ansible)"; \
-	echo ""; \
-	echo "$(COLOR_YELLOW)Starting VPS rebuild...$(COLOR_RESET)"; \
-	bash scripts/hostinger-api.sh recreate 1183 "$$ROOT_PASSWORD" "$$POST_INSTALL_ID"
-	@echo ""
-	@echo "$(COLOR_YELLOW)After rebuild completes, get new IP and run:$(COLOR_RESET)"
-	@echo "  make config-vps VPS_IP=<new_ip>"
-	@echo ""
+recreate-vps: ## Recreate VPS via API (DESTRUCTIVE - rebuilds OS, auto-rotates Tailscale key)
+	@bash scripts/recreate-vps.sh
 
 config-vps: ## Configure VPS with Ansible (idempotent - safe to re-run)
 	@if [ -z "$(VPS_IP)" ]; then \
