@@ -1,0 +1,177 @@
+name: VPS Rebuild (Automated)
+
+# Manual trigger only - DESTRUCTIVE operation
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_rebuild:
+        description: 'Type "REBUILD" to confirm VPS rebuild (DESTRUCTIVE)'
+        required: true
+        type: string
+
+jobs:
+  rebuild:
+    name: Rebuild VPS via Hostinger API
+    runs-on: ubuntu-latest
+
+    steps:
+      # ========================================
+      # 1. VALIDATION
+      # ========================================
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm_rebuild }}" != "REBUILD" ]; then
+            echo "❌ Rebuild not confirmed. You must type 'REBUILD' exactly."
+            exit 1
+          fi
+          echo "✅ Rebuild confirmed - proceeding with VPS rebuild"
+
+      # ========================================
+      # 2. SETUP
+      # ========================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible sops jq curl
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/remote.hill90.com
+          chmod 600 ~/.ssh/remote.hill90.com
+
+      - name: Setup SOPS/age key
+        run: |
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      # ========================================
+      # 3. REBUILD VPS (via make command)
+      # ========================================
+      - name: Run make recreate-vps
+        env:
+          HOSTINGER_API_KEY: ${{ secrets.HOSTINGER_API_KEY }}
+          TAILSCALE_API_KEY: ${{ secrets.TAILSCALE_API_KEY }}
+        run: |
+          echo "🔄 Running VPS rebuild via make recreate-vps..."
+          make recreate-vps
+
+      - name: Capture new VPS IP from secrets
+        id: get-vps-ip
+        run: |
+          echo "🌐 Reading VPS IP from encrypted secrets..."
+          VPS_IP=$(sops -d --extract '["VPS_IP"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$VPS_IP"
+          echo "vps_ip=$VPS_IP" >> $GITHUB_OUTPUT
+          echo "New VPS IP: $VPS_IP"
+
+      - name: Wait for SSH to be available
+        run: |
+          echo "⏳ Waiting for SSH to be available on ${{ steps.get-vps-ip.outputs.vps_ip }}..."
+          for i in {1..30}; do
+            if ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+                root@${{ steps.get-vps-ip.outputs.vps_ip }} 'echo "SSH ready"' 2>/dev/null; then
+              echo "✅ SSH is ready"
+              break
+            fi
+            echo "Attempt $i/30 failed, waiting 10s..."
+            sleep 10
+          done
+
+      # ========================================
+      # 4. BOOTSTRAP VPS (via make command)
+      # ========================================
+      - name: Run make config-vps
+        env:
+          VPS_IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
+        run: |
+          echo "🔧 Running VPS bootstrap via make config-vps..."
+          make config-vps VPS_IP=$VPS_IP
+
+      - name: Capture Tailscale IP from secrets
+        id: get-tailscale-ip
+        run: |
+          echo "🌐 Reading Tailscale IP from encrypted secrets..."
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+          echo "Tailscale IP: $TAILSCALE_IP"
+
+      # ========================================
+      # 5. DEPLOY SERVICES
+      # ========================================
+      - name: Deploy services via SSH
+        run: |
+          echo "🚀 Deploying services to VPS..."
+          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && \
+             export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
+             bash scripts/deploy.sh prod'
+
+      - name: Wait for services to start
+        run: |
+          echo "⏳ Waiting for services to start (60 seconds)..."
+          sleep 60
+
+      - name: Verify service health
+        run: |
+          echo "🏥 Verifying service health..."
+          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }} \
+            'docker ps --format "table {{.Names}}\t{{.Status}}"'
+
+      # ========================================
+      # 6. COMMIT UPDATED SECRETS
+      # ========================================
+      - name: Commit updated secrets
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add infra/secrets/prod.enc.env
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update VPS IPs after rebuild
+
+            - VPS Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
+            - Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}
+            - Rebuild action: ${{ github.run_id }}"
+            git push
+          fi
+
+      # ========================================
+      # 7. CLEANUP
+      # ========================================
+      - name: Cleanup backup files
+        if: always()
+        run: |
+          find infra/secrets -name "*.backup.*" -type f -delete || true
+
+      # ========================================
+      # 8. SUMMARY
+      # ========================================
+      - name: Print summary
+        if: success()
+        run: |
+          echo "🎉 VPS rebuild complete!"
+          echo ""
+          echo "📊 New VPS details:"
+          echo "  Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
+          echo "  Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+          echo ""
+          echo "✅ Next steps:"
+          echo "  1. Verify services: make health"
+          echo "  2. SSH via Tailscale: make ssh"
+          echo "  3. Check logs: make logs"
