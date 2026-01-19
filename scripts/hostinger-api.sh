@@ -186,7 +186,7 @@ get_action_status() {
         "$API_BASE/api/vps/v1/virtual-machines/$VPS_ID/actions/$action_id")
 
     local status
-    status=$(echo "$response" | jq -r '.status // empty')
+    status=$(echo "$response" | jq -r '.state // empty')
 
     if [[ -z "$status" ]]; then
         echo -e "${RED}ERROR: Failed to fetch action status${NC}"
@@ -194,7 +194,7 @@ get_action_status() {
         return 1
     fi
 
-    echo -e "${GREEN}✓ Action status: $status${NC}"
+    echo -e "${GREEN}✓ Action state: $status${NC}"
     echo "$response"
 }
 
@@ -218,26 +218,26 @@ wait_for_action() {
             "$API_BASE/api/vps/v1/virtual-machines/$VPS_ID/actions/$action_id")
 
         local status
-        status=$(echo "$response" | jq -r '.status // empty')
+        status=$(echo "$response" | jq -r '.state // empty')
 
         case "$status" in
-            "completed")
-                echo -e "${GREEN}✓ Action completed after ${elapsed}s${NC}"
+            "success")
+                echo -e "${GREEN}✓ Action completed successfully after ${elapsed}s${NC}"
                 echo "$response"
                 return 0
                 ;;
             "failed")
                 echo -e "${RED}ERROR: Action failed after ${elapsed}s${NC}"
-                echo -e "${RED}Last known status: $status${NC}"
+                echo -e "${RED}Last known state: $status${NC}"
                 echo -e "${RED}Action ID: $action_id${NC}"
                 echo "$response"
                 return 1
                 ;;
-            "running"|"pending")
+            "started"|"running"|"pending")
                 echo -e "${YELLOW}Action still $status... (${elapsed}s/${max_wait}s, next check in ${interval}s)${NC}"
                 ;;
             *)
-                echo -e "${YELLOW}Unknown status: $status (${elapsed}s/${max_wait}s)${NC}"
+                echo -e "${YELLOW}Unknown state: $status (${elapsed}s/${max_wait}s)${NC}"
                 ;;
         esac
 
@@ -252,7 +252,7 @@ wait_for_action() {
     done
 
     echo -e "${RED}ERROR: Action did not complete in ${max_wait} seconds${NC}"
-    echo -e "${RED}Last known status: $status${NC}"
+    echo -e "${RED}Last known state: $status${NC}"
     echo -e "${RED}Action ID: $action_id${NC}"
     echo -e "${YELLOW}Check manually: bash scripts/hostinger-api.sh get-action $action_id${NC}"
     return 1
