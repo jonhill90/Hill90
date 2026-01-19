@@ -71,6 +71,7 @@ jobs:
         env:
           HOSTINGER_API_KEY: ${{ secrets.HOSTINGER_API_KEY }}
           TAILSCALE_API_KEY: ${{ secrets.TAILSCALE_API_KEY }}
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "🔄 Running VPS recreate via make recreate-vps..."
           make recreate-vps
@@ -103,6 +104,7 @@ jobs:
       - name: Run make config-vps
         env:
           VPS_IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "🔧 Running VPS bootstrap via make config-vps..."
           make config-vps VPS_IP=$VPS_IP
