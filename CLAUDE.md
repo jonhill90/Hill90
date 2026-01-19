@@ -105,6 +105,19 @@ All operations are done via Makefile - check `make help` for full list.
 - `make secrets-view KEY=<key>` - View a secret value
 - `make secrets-update KEY=<key> VALUE=<value>` - Update a secret
 
+## Task Management
+
+**Use Linear for task tracking.** See `.claude/reference/task-management.md` for complete workflows.
+
+**Key Rule**: Linear issues persist across context resets (PLAN → EXEC). TodoWrite gets wiped.
+
+**Quick Commands**:
+- Create: `create_issue(title, team="AI", project="Hill90", state="todo")`
+- Update: `update_issue(id, state="doing|review|done")`
+- List: `list_issues(project="Hill90", assignee="me", state="doing")`
+
+**Status flow**: `todo` → `doing` → `review` → `done`
+
 ## VPS Rebuild Workflow (YOU Execute This)
 
 ### Fully Automated Rebuild (NEW - Recommended)
