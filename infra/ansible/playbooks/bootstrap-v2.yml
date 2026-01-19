@@ -356,7 +356,6 @@
         repo: "{{ app_repo }}"
         dest: "{{ app_directory }}/app"
         version: "{{ app_branch }}"
-      become_user: "{{ deploy_user }}"
 
     - name: Set repository ownership
       file:
