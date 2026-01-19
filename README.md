@@ -12,7 +12,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
   - TypeScript (Express) for API, Auth, and UI services
 - **Secrets**: SOPS + age encryption
 - **Admin Access**: Tailscale VPN + SSH key authentication
-- **Infrastructure**: Terraform (Hostinger VPS + Tailscale)
+- **Infrastructure**: Hostinger API + Tailscale API (fully automated)
 - **Configuration**: Ansible playbooks
 - **CI/CD**: GitHub Actions
 
@@ -28,7 +28,6 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 
 ## Prerequisites
 
-- [Terraform](https://www.terraform.io/downloads) (>= 1.6)
 - [Ansible](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html) (>= 2.15)
 - [SOPS](https://github.com/getsops/sops) (>= 3.8)
 - [age](https://github.com/FiloSottile/age) (>= 1.1)
@@ -36,6 +35,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - [Node.js](https://nodejs.org/) (>= 20) - for TypeScript services
 - [Python](https://www.python.org/) (>= 3.12) - for Python services
 - [Poetry](https://python-poetry.org/) - Python dependency management
+- [Tailscale](https://tailscale.com/download) - VPN for secure VPS access
 
 ## Quick Start
 
@@ -50,7 +50,7 @@ cd Hill90
 
 ```bash
 # macOS
-brew install terraform ansible sops age
+brew install ansible sops age
 
 # Linux
 # See individual tool documentation for installation
@@ -64,37 +64,37 @@ make secrets-init
 
 This will generate age keypair and create initial encrypted secrets file.
 
-### 4. Provision VPS
+### 4. Rebuild VPS (if needed)
+
+**Complete VPS rebuild is fully automated:**
 
 ```bash
-cd infra/terraform
-terraform init
-terraform plan
-terraform apply
+# 1. Rebuild VPS (auto-waits, auto-retrieves IP, auto-updates secrets)
+make recreate-vps
+
+# 2. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets)
+make config-vps VPS_IP=<ip>
 ```
 
-### 5. Bootstrap VPS
+**Total time:** ~5-10 minutes
 
-```bash
-make bootstrap
-```
+This automatically:
+- Generates new Tailscale auth key via API
+- Rebuilds VPS OS via Hostinger API
+- Creates deploy user with SSH keys
+- Installs Docker and Docker Compose
+- Configures firewall (HTTP/HTTPS public, SSH from Tailscale only)
+- Joins Tailscale network and captures IP
+- Installs SOPS and age for secrets management
+- Clones repository and transfers encryption key
 
-This will:
-- Create deploy user with SSH keys
-- Install Docker and Docker Compose
-- Configure firewall (HTTP/HTTPS public, SSH from Tailscale only)
-- Harden SSH configuration
-- Install SOPS and age for secrets management
-- Install git and clone repository
-- Transfer age encryption key from local machine
-
-### 6. Deploy Services
+### 5. Deploy Services
 
 ```bash
 make deploy
 ```
 
-### 7. Verify Deployment
+### 6. Verify Deployment
 
 ```bash
 make health
@@ -143,30 +143,42 @@ make logs-ai
 
 ## Makefile Commands
 
+Run `make help` for a complete, organized list of commands. Key commands:
+
 | Command | Description |
 |---------|-------------|
-| `make help` | Show all available commands |
-| `make build` | Build all Docker images |
-| `make deploy` | Deploy to VPS |
+| `make help` | Show all available commands (organized by section) |
+| **Infrastructure Setup** | |
+| `make tailscale-setup` | Setup Tailscale infrastructure (automated) |
+| `make secrets-init` | Initialize SOPS keys |
+| `make secrets-edit` | Edit encrypted secrets interactively |
+| `make secrets-view KEY=<key>` | View specific secret value |
+| `make secrets-update KEY=<key> VALUE=<val>` | Update secret value |
+| **VPS Rebuild** | |
+| `make snapshot` | Create VPS snapshot (safety backup) |
+| `make recreate-vps` | Recreate VPS via API (DESTRUCTIVE) |
+| `make config-vps VPS_IP=<ip>` | Configure VPS with Ansible |
+| **Development** | |
+| `make dev` | Run development environment |
 | `make test` | Run all tests |
 | `make lint` | Lint all code |
 | `make format` | Format all code |
+| `make validate` | Validate infrastructure configuration |
+| **Deployment** | |
+| `make build` | Build all Docker images |
+| `make deploy` | Deploy to VPS (STAGING certificates) |
+| `make deploy-production` | Deploy to VPS (PRODUCTION certificates) |
+| **Monitoring** | |
+| `make health` | Check service health |
 | `make logs` | Show logs for all services |
 | `make logs-api` | Show API service logs |
 | `make logs-ai` | Show AI service logs |
-| `make health` | Check service health |
 | `make ssh` | SSH into VPS |
-| `make secrets-edit` | Edit encrypted secrets |
-| `make secrets-init` | Initialize SOPS keys |
-| `make bootstrap` | Bootstrap VPS infrastructure |
-| `make tailscale-setup` | Setup Tailscale infrastructure (automated) |
-| `make snapshot` | Create VPS snapshot |
-| `make rebuild` | Rebuild VPS from scratch (DESTRUCTIVE) |
-| `make rebuild-bootstrap` | Bootstrap VPS after rebuild |
-| `make rebuild-complete` | Complete post-rebuild deployment |
-| `make clean` | Clean up Docker resources |
+| **Service Management** | |
 | `make ps` | Show running containers |
 | `make restart` | Restart all services |
+| `make restart-api` | Restart API service |
+| `make clean` | Clean up Docker resources |
 
 ## Secrets Management
 
@@ -274,7 +286,7 @@ docker logs -f mcp
 tailscale status
 
 # Test SSH via Tailscale
-ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66
+ssh -i ~/.ssh/remote.hill90.com deploy@100.99.139.10
 ```
 
 ### Service Not Starting
@@ -329,16 +341,33 @@ sops -d infra/secrets/prod.enc.env
 
 ## VPS Rebuild
 
-For catastrophic failures or OS reinstalls:
+For catastrophic failures or OS reinstalls, the VPS can be rebuilt in ~5-10 minutes:
 
 ```bash
-# Automated rebuild workflow (executed by Claude Code)
-make rebuild-full              # Create snapshot + rebuild OS
-make rebuild-bootstrap VPS_IP=<new_ip>  # Bootstrap + deploy
-make health                    # Verify deployment
+# 1. Create safety snapshot (optional but recommended)
+make snapshot
+
+# 2. Rebuild VPS (auto-waits, auto-retrieves IP, auto-updates secrets)
+make recreate-vps
+
+# 3. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets)
+make config-vps VPS_IP=<new_ip>
+
+# 4. Deploy services
+make deploy
+
+# 5. Verify deployment
+make health
 ```
 
-See [VPS Rebuild Runbook](docs/runbooks/vps-rebuild.md) for complete details.
+**What happens automatically:**
+- Tailscale auth key generation and rotation
+- VPS OS rebuild via Hostinger API
+- IP address retrieval and secret updates
+- Complete infrastructure bootstrap (Docker, firewall, Tailscale, SOPS)
+- Repository clone and encryption key transfer
+
+See `.claude/reference/vps-operations.md` for complete details.
 
 ## License
 

@@ -20,12 +20,14 @@
 **Critical:** Linear issues persist across Claude sessions and context resets. TodoWrite does NOT persist and gets wiped between sessions.
 
 **When to use Linear:**
+
 - Starting any work (create issue, set to "doing")
 - Breaking down multi-step tasks (create issues for each step)
 - Tracking progress across sessions (Linear survives context resets)
 - Documenting what was done (update issue descriptions)
 
 **Quick Commands:**
+
 - Create: `create_issue(title, team="AI", project="Hill90", state="todo")`
 - Update: `update_issue(id, state="doing|review|done", description="...")`
 - List: `list_issues(project="Hill90", assignee="me", state="doing")`
@@ -38,25 +40,27 @@
 
 **When encountering infrastructure problems, rebuilding is often faster than debugging.**
 
-The VPS can be rebuilt in ~10 minutes (2 commands). This makes it practical to rebuild rather than troubleshoot in most cases.
+The VPS can be rebuilt in ~5-10 minutes (2 commands). This makes it practical to rebuild rather than troubleshoot in most cases.
 
 **Examples where rebuild is preferred:**
+
 - Tailscale connectivity issues → Rebuild
 - SSH access problems → Rebuild
 - Service startup failures → Rebuild
 - Configuration errors → Rebuild
 
 **Why this approach works:**
-- Rebuild is fully automated (10 minutes)
-- All tools and access are available
+
+- Rebuild is fully automated (5-10 minutes)
+- Zero manual intervention required
 - Infrastructure is ephemeral by design
 - Faster than investigating complex issues
 
 **The rebuild process is 2 commands:**
+
 ```bash
-make rebuild-full-auto                     # 1. Prep + display MCP params
-# Use MCP to rebuild OS                    # 2. Rebuild via MCP (5 min)
-make rebuild-full-auto-post-mcp VPS_IP=X   # 3. Bootstrap + deploy + verify
+make recreate-vps                    # 1. Rebuild VPS (auto-waits, auto-updates secrets)
+make config-vps VPS_IP=<ip>          # 2. Bootstrap (auto-extracts Tailscale IP)
 ```
 
 ## Important Guidelines
@@ -66,6 +70,7 @@ make rebuild-full-auto-post-mcp VPS_IP=X   # 3. Bootstrap + deploy + verify
 **Deployments must run on the VPS via SSH, not on the local Mac.**
 
 When deploying:
+
 ```bash
 # CORRECT - Run deploy script ON THE VPS via SSH
 ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
@@ -79,24 +84,31 @@ The deploy script builds and runs Docker containers **wherever you execute it**,
 
 ## Your Capabilities
 
-### 1. VPS Management (via MCP Tools)
-Direct access to Hostinger VPS via MCP tools:
-- `mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1` - Rebuild OS (destructive)
-- `mcp__MCP_DOCKER__VPS_getVirtualMachineDetailsV1` - Get VPS info
-- Full VPS lifecycle management
+### 1. VPS Management (via API)
+
+Direct access to Hostinger VPS via Hostinger API:
+
+- `make recreate-vps` - Rebuild OS (fully automated, destructive)
+- `make config-vps VPS_IP=<ip>` - Bootstrap infrastructure (Ansible)
+- `bash scripts/hostinger-api.sh get-details` - Get VPS info
+- `bash scripts/hostinger-api.sh get-action <id>` - Check action status
+- Full VPS lifecycle management via Makefile
 
 ### 2. SSH Access
+
 - **VPS Public IP:** 76.13.26.69 (public SSH blocked by firewall)
-- **VPS Tailscale IP:** 100.68.116.66 (use this for SSH)
+- **VPS Tailscale IP:** 100.99.139.10 (use this for SSH)
 - SSH as: `deploy` user (or `root` immediately after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
 - Full command execution available via SSH
-- **Example:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66`
+- **Example:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.99.139.10`
 
 ### 3. Makefile Commands
+
 All operations are done via Makefile - check `make help` for full list.
 
 **The Makefile is organized into logical sections:**
+
 - **Infrastructure Setup** - Tailscale, secrets initialization (rare operations)
 - **VPS Rebuild & Bootstrap** - Destructive rebuild operations
 - **Development** - Local development environment
@@ -106,9 +118,10 @@ All operations are done via Makefile - check `make help` for full list.
 - **Database & Backups** - Backup operations
 
 **Key commands:**
+
 - `make help` - Show all available commands (organized by section)
-- `make tailscale-setup` - Automated Tailscale setup (Terraform + secrets)
-- `make rebuild-bootstrap VPS_IP=<ip> ROOT_PASSWORD=<pw>` - Bootstrap VPS after rebuild
+- `make recreate-vps` - Rebuild VPS (fully automated)
+- `make config-vps VPS_IP=<ip>` - Bootstrap VPS infrastructure
 - `make deploy` - Deploy all services (STAGING certificates)
 - `make deploy-production` - Deploy with PRODUCTION certificates (rate-limited!)
 - `make health` - Check service health
@@ -122,12 +135,11 @@ All operations are done via Makefile - check `make help` for full list.
 
 ### Quick Reference
 
-**Fastest rebuild (5-7 minutes):**
+**Full rebuild (5-10 minutes):**
 
 ```bash
-make rebuild-optimized                    # 1. Prep
-# Run MCP rebuild (Claude Code only)      # 2. MCP
-make rebuild-optimized-post-mcp VPS_IP=X  # 3. Bootstrap + deploy
+make recreate-vps                    # 1. Rebuild (auto-waits, auto-updates secrets)
+make config-vps VPS_IP=<ip>          # 2. Bootstrap (auto-extracts Tailscale IP)
 ```
 
 **When things break:** Rebuild is usually the fastest solution.
@@ -164,43 +176,38 @@ make secrets-edit                        # Interactive edit
 
 ### Quick Reference
 
-```bash
-make tailscale-setup    # Setup auth key (90-day expiry)
-make tailscale-rotate   # Rotate expired key
-```
+Auth keys are **automatically generated** during `make recreate-vps` (90-day expiry).
 
-**SSH via Tailscale IP**: 100.68.116.66 (public SSH blocked by firewall)
+**SSH via Tailscale IP**: 100.99.139.10 (public SSH blocked by firewall)
 
 ## GitHub Actions
 
 **See `.claude/reference/github-actions.md` for complete automation workflows.**
 
 **Quick Reference**: Hybrid approach available
-- **Mac/Manual:** MCP tools via Claude Code (interactive)
-- **GitHub Actions:** Hostinger API (full automation, no LLM)
+
+- **Mac/Local:** Hostinger API via `make` commands (fully automated)
+- **GitHub Actions:** Hostinger API (full automation, ready when needed)
 
 ## Key Operational Notes
 
 1. **Linear task tracking** - ALWAYS use Linear for task tracking (persists across sessions, unlike TodoWrite)
 2. **SSH access** - Direct SSH to VPS is available; run commands directly
-3. **MCP tools** - OS rebuild capability via MCP tools
+3. **API-based rebuild** - Fully automated via `make recreate-vps` + `make config-vps`
 4. **Command execution** - Run commands directly rather than requesting user action
 5. **Makefile usage** - All operations use `make` commands for consistency
-6. **Automation** - Bootstrap is fully automated (git, clone, age key transfer)
+6. **Automation** - Bootstrap is fully automated (git, clone, age key transfer, Tailscale)
 7. **Git commits** - Commit frequently with clear messages
 
 ## Baseline Status: ✅ ACHIEVED
 
 The VPS baseline is complete:
+
 1. ✅ VPS is bootstrapped (deploy user, Docker, firewall)
-2. ✅ Services are deployed and healthy
-3. ✅ **Tailscale SSH access works** (100.88.97.65)
+2. ✅ Infrastructure fully automated (2 commands, zero warnings)
+3. ✅ **Tailscale SSH access works** (100.99.139.10)
 4. ✅ Public SSH is locked down (firewall blocks port 22)
 
-**Baseline achieved!** Ready to build the actual application.
-
-**Note:** HTTPS currently rate-limited by Let's Encrypt (too many rebuilds). Will work after 2026-01-19 15:43:41 UTC.
+**Baseline achieved!** Infrastructure automation is production-ready.
 
 ---
-
-**Remember: The user built this infrastructure FOR YOU to manage. Use it.**
