@@ -41,13 +41,13 @@ The bootstrap process automatically:
 # Get Tailscale IP from VPS
 ssh -i ~/.ssh/remote.hill90.com root@<public-ip> 'cat /opt/hill90/.tailscale_ip'
 
-# SSH via Tailscale IP (ALWAYS use this)
+# SSH via Tailscale IP (use this for all SSH access)
 ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
 
 # Public SSH is BLOCKED by firewall
 ```
 
-**IMPORTANT**: Always use Tailscale IP (100.68.116.66) for SSH. Public SSH on port 22 is blocked by firewall.
+**Note**: Use Tailscale IP (100.68.116.66) for SSH. Public SSH on port 22 is blocked by firewall.
 
 ## Tailscale Configuration
 

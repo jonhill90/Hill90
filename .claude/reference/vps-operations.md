@@ -16,7 +16,7 @@ make rebuild-full-auto
 # 3. Displays MCP parameters for you to use
 # 4. Waits for MCP rebuild to complete
 
-# PHASE 2: YOU run MCP tool (Claude Code only)
+# PHASE 2: Run MCP tool (Claude Code only)
 # Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
 # Parameters displayed by script above
 # Wait ~5 minutes for rebuild to complete
@@ -52,7 +52,7 @@ make rebuild-optimized
 # 3. Displays MCP parameters (includes optional post-install script ID)
 # 4. Saves state for phase 2
 
-# PHASE 2: YOU run MCP tool (Claude Code only)
+# PHASE 2: Run MCP tool (Claude Code only)
 # Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
 # Parameters displayed by script above
 # OPTIONAL: Add post_install_script_id for binary pre-caching (saves 2-3 min)
@@ -177,7 +177,7 @@ make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
 # Done! SSH via Tailscale IP.
 ```
 
-**YOU can fix anything because YOU control the entire stack.**
+**Full control of the stack enables fixing any infrastructure issue.**
 
 **100% Automated - Zero Manual Steps:**
 - ✅ Tailscale auth key: `make tailscale-setup` (Terraform + secrets)
@@ -193,8 +193,8 @@ make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
 
 - **VPS ID**: 1264324
 - **Template ID**: 1183 (AlmaLinux 10)
-- **VPS Public IP**: 76.13.26.69 (DO NOT USE for SSH - public SSH blocked)
-- **VPS Tailscale IP**: 100.68.116.66 (USE THIS for SSH)
+- **VPS Public IP**: 76.13.26.69 (not for SSH - public SSH blocked)
+- **VPS Tailscale IP**: 100.68.116.66 (use this for SSH)
 - **SSH Key**: `~/.ssh/remote.hill90.com`
 - **Deploy User**: `deploy` (or `root` immediately after rebuild)
 

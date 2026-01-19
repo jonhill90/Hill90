@@ -1,20 +1,20 @@
 # Deployment Reference
 
-## ⚠️ CRITICAL: NEVER DEPLOY LOCALLY ⚠️
+## Deployment Location
 
-**DEPLOYMENTS ALWAYS RUN ON THE VPS, NEVER ON THE USER'S MAC.**
+**Deployments must run on the VPS via SSH, not on the local Mac.**
 
 When deploying:
 ```bash
-# CORRECT - Run deploy script ON THE VPS via SSH
+# Correct - Run deploy script on the VPS via SSH
 ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
 
-# WRONG - NEVER DO THIS
-make deploy  # This runs LOCALLY on Mac, NOT on VPS
-bash scripts/deploy.sh prod  # This runs LOCALLY, NOT on VPS
+# Incorrect - deploys locally instead of on VPS
+make deploy  # This runs locally on Mac, not on VPS
+bash scripts/deploy.sh prod  # This runs locally, not on VPS
 ```
 
-The deploy script builds and runs Docker containers **wherever you execute it**. You must SSH to the VPS first.
+The deploy script builds and runs Docker containers **wherever you execute it**, so SSH to the VPS first to ensure proper deployment.
 
 ## Deploy Changes
 
@@ -26,7 +26,7 @@ make health               # Checks everything is running
 
 ## Let's Encrypt Configuration
 
-**IMPORTANT: Certificate Rate Limits**
+**Certificate Rate Limits**
 
 - `make deploy` uses **STAGING** certificates by default (not trusted by browsers, but unlimited rate limits)
 - `make deploy-production` uses **PRODUCTION** certificates (trusted, but rate-limited: 5 failures/hour, 50 certs/week)

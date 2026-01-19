@@ -1,6 +1,6 @@
 # Task Management Reference
 
-**CRITICAL: Use Linear MCP tools for ALL task tracking. Never use TodoWrite.**
+**Use Linear MCP tools for task tracking instead of TodoWrite.**
 
 ## Why Linear Over TodoWrite
 
