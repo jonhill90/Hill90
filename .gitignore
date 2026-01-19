@@ -170,3 +170,6 @@ AUTOMATION_SUMMARY.md
 *.password.txt
 *_credentials.txt
 
+# Temporary build/rebuild files
+scripts/load-secrets.sh
+infra/ansible/inventory/rebuild-temp.ini

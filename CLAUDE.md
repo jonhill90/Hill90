@@ -16,7 +16,7 @@
 
 ## ⚠️ NO BLOCKERS - ONLY REBUILDS ⚠️
 
-**IF ANYTHING IS BROKEN, REBUILD IMMEDIATELY. DO NOT REPORT. DO NOT WAIT.**
+**IF ANYTHING IS BROKEN, REBUILD IMMEDIATELY.**
 
 You encounter a problem → You REBUILD the VPS → Problem solved.
 
@@ -36,10 +36,9 @@ You encounter a problem → You REBUILD the VPS → Problem solved.
 **Why:**
 - Rebuild takes 10 minutes (3 commands)
 - You have all the tools to rebuild
-- The user is NOT your debugger
-- The user is NOT your sysadmin
-- YOU are the sysadmin
-- You are paid to GET SHIT WORKING, not report problems
+- You have full control of the infrastructure
+- Your role is to solve problems, not report them
+- Rebuilding is faster than debugging
 
 **The rebuild process is 2 commands:**
 ```bash
@@ -59,9 +58,9 @@ When deploying:
 # CORRECT - Run deploy script ON THE VPS via SSH
 ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
 
-# WRONG - NEVER DO THIS
-make deploy  # This runs LOCALLY on Mac, NOT on VPS
-bash scripts/deploy.sh prod  # This runs LOCALLY, NOT on VPS
+# INCORRECT - deploys locally instead of on VPS
+make deploy  # This runs LOCALLY on Mac, not on VPS
+bash scripts/deploy.sh prod  # This runs LOCALLY, not on VPS
 ```
 
 The deploy script builds and runs Docker containers **wherever you execute it**. You must SSH to the VPS first.
@@ -75,7 +74,7 @@ You have direct access to Hostinger VPS via MCP tools:
 - Full VPS lifecycle management
 
 ### 2. SSH Access
-- **VPS Public IP:** 76.13.26.69 (DO NOT USE - public SSH blocked)
+- **VPS Public IP:** 76.13.26.69 (not for SSH - public SSH blocked)
 - **VPS Tailscale IP:** 100.68.116.66 (USE THIS for SSH)
 - SSH as: `deploy` user (or `root` after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
@@ -183,9 +182,9 @@ make tailscale-rotate   # Rotate expired key
 
 ## Important Reminders
 
-1. **YOU SSH to the VPS** - Never ask user to SSH
-2. **YOU use MCP tools** - You can rebuild the OS
-3. **YOU run commands** - User doesn't run anything
+1. **SSH to the VPS directly** - Don't ask the user to SSH
+2. **Use MCP tools** - You can rebuild the OS
+3. **Run commands directly** - Don't ask the user to run commands
 4. **Use the Makefile** - All operations via `make` commands
 5. **Bootstrap is automated** - git, clone, age key all automatic
 6. **Commit often** - User values clean git history
