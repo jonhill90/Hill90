@@ -14,8 +14,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Load secrets
-source "$SCRIPT_DIR/load-secrets.sh"
+# Load secrets only if not already set (e.g., from GitHub Actions)
+if [[ -z "${TAILSCALE_API_KEY:-}" || -z "${TAILSCALE_TAILNET:-}" ]]; then
+    source "$SCRIPT_DIR/load-secrets.sh"
+fi
 
 # Tailscale configuration
 TAILNET="${TAILSCALE_TAILNET:-}"
