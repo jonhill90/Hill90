@@ -35,7 +35,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ansible sops jq curl
+          sudo apt-get install -y ansible jq curl
+
+          # Install SOPS from GitHub releases
+          SOPS_VERSION="3.9.0"
+          curl -Lo /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          sops --version
 
       - name: Setup Tailscale
         uses: tailscale/github-action@v2
