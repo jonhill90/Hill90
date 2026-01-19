@@ -2,9 +2,9 @@
 
 **READ THIS FIRST when working on this project.**
 
-## Core Principle
+## Core Principles
 
-**You have full control of this VPS infrastructure.**
+### 1. You Have Full Control of This VPS Infrastructure
 
 - Direct SSH access to the VPS is available
 - MCP tools provide OS rebuild capabilities
@@ -12,6 +12,27 @@
 - If something breaks, reinstalling the OS is fast and easy
 - Run commands directly rather than asking the user to run them
 - All operations use Makefile commands for consistency
+
+### 2. ALWAYS Use Linear for Task Tracking
+
+**Linear is THE task tracking system for this project. Use it for ALL work.**
+
+**Critical:** Linear issues persist across Claude sessions and context resets. TodoWrite does NOT persist and gets wiped between sessions.
+
+**When to use Linear:**
+- Starting any work (create issue, set to "doing")
+- Breaking down multi-step tasks (create issues for each step)
+- Tracking progress across sessions (Linear survives context resets)
+- Documenting what was done (update issue descriptions)
+
+**Quick Commands:**
+- Create: `create_issue(title, team="AI", project="Hill90", state="todo")`
+- Update: `update_issue(id, state="doing|review|done", description="...")`
+- List: `list_issues(project="Hill90", assignee="me", state="doing")`
+
+**Status flow:** `todo` → `doing` → `review` → `done`
+
+**See `.claude/reference/task-management.md` for complete workflows.**
 
 ## Rebuild-First Approach
 
@@ -95,19 +116,6 @@ All operations are done via Makefile - check `make help` for full list.
 - `make secrets-view KEY=<key>` - View a secret value
 - `make secrets-update KEY=<key> VALUE=<value>` - Update a secret
 
-## Task Management
-
-**Use Linear for task tracking.** See `.claude/reference/task-management.md` for complete workflows.
-
-**Key Rule**: Linear issues persist across context resets (PLAN → EXEC). TodoWrite gets wiped.
-
-**Quick Commands**:
-- Create: `create_issue(title, team="AI", project="Hill90", state="todo")`
-- Update: `update_issue(id, state="doing|review|done")`
-- List: `list_issues(project="Hill90", assignee="me", state="doing")`
-
-**Status flow**: `todo` → `doing` → `review` → `done`
-
 ## VPS Rebuild & Operations
 
 **See `.claude/reference/vps-operations.md` for complete rebuild workflows.**
@@ -173,12 +181,13 @@ make tailscale-rotate   # Rotate expired key
 
 ## Key Operational Notes
 
-1. **SSH access** - Direct SSH to VPS is available; run commands directly
-2. **MCP tools** - OS rebuild capability via MCP tools
-3. **Command execution** - Run commands directly rather than requesting user action
-4. **Makefile usage** - All operations use `make` commands for consistency
-5. **Automation** - Bootstrap is fully automated (git, clone, age key transfer)
-6. **Git commits** - Commit frequently with clear messages
+1. **Linear task tracking** - ALWAYS use Linear for task tracking (persists across sessions, unlike TodoWrite)
+2. **SSH access** - Direct SSH to VPS is available; run commands directly
+3. **MCP tools** - OS rebuild capability via MCP tools
+4. **Command execution** - Run commands directly rather than requesting user action
+5. **Makefile usage** - All operations use `make` commands for consistency
+6. **Automation** - Bootstrap is fully automated (git, clone, age key transfer)
+7. **Git commits** - Commit frequently with clear messages
 
 ## Baseline Status: ✅ ACHIEVED
 
