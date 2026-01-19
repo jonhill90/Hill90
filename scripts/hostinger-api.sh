@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 source "$SCRIPT_DIR/load-secrets.sh"
 
 # Hostinger API configuration
-API_BASE="${HOSTINGER_API_BASE:-https://api.hostinger.com}"
+API_BASE="${HOSTINGER_API_BASE:-https://developers.hostinger.com}"
 API_KEY="${HOSTINGER_API_KEY:-}"
 VPS_ID="${HOSTINGER_VPS_ID:-1264324}"
 

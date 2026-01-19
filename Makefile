@@ -68,6 +68,43 @@ snapshot: ## Create VPS snapshot (safety backup)
 	@echo "$(COLOR_BOLD)Creating VPS snapshot...$(COLOR_RESET)"
 	bash scripts/vps-snapshot.sh
 
+recreate-vps: ## Recreate VPS via API (DESTRUCTIVE - rebuilds OS)
+	@echo "$(COLOR_BOLD)Recreating VPS...$(COLOR_RESET)"
+	@echo ""
+	@ROOT_PASSWORD="Hill90VPS-$$(openssl rand -base64 18 | tr -d '/+=')"; \
+	POST_INSTALL_ID=$$(bash scripts/secrets-view.sh infra/secrets/prod.enc.env HOSTINGER_POST_INSTALL_SCRIPT_ID 2>/dev/null | tail -1 | cut -d= -f2 | sed 's/\x1b\[[0-9;]*m//g'); \
+	echo "$(COLOR_GREEN)Parameters:$(COLOR_RESET)"; \
+	echo "  Template: AlmaLinux 10 (1183)"; \
+	echo "  Post-install script: $$POST_INSTALL_ID (bootstrap-ansible)"; \
+	echo ""; \
+	echo "$(COLOR_YELLOW)Starting VPS rebuild...$(COLOR_RESET)"; \
+	bash scripts/hostinger-api.sh recreate 1183 "$$ROOT_PASSWORD" "$$POST_INSTALL_ID"
+	@echo ""
+	@echo "$(COLOR_YELLOW)After rebuild completes, get new IP and run:$(COLOR_RESET)"
+	@echo "  make config-vps VPS_IP=<new_ip>"
+	@echo ""
+
+config-vps: ## Configure VPS with Ansible (idempotent - safe to re-run)
+	@if [ -z "$(VPS_IP)" ]; then \
+		echo "$(COLOR_YELLOW)Error: VPS_IP is required$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)Usage: make config-vps VPS_IP=<ip>$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_BOLD)Configuring VPS at $(VPS_IP)...$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_GREEN)This will:$(COLOR_RESET)"
+	@echo "  1. Update VPS_IP in secrets"
+	@echo "  2. Run Ansible bootstrap (Docker, SOPS, age, Tailscale)"
+	@echo "  3. Update TAILSCALE_IP in secrets"
+	@echo ""
+	bash scripts/config-vps.sh $(VPS_IP)
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Infrastructure configured!$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_YELLOW)Next: Deploy application$(COLOR_RESET)"
+	@echo "  make deploy"
+	@echo ""
+
 rebuild: ## Rebuild VPS from scratch (DESTRUCTIVE)
 	@echo "$(COLOR_BOLD)WARNING: VPS REBUILD$(COLOR_RESET)"
 	bash scripts/vps-rebuild.sh
