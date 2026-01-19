@@ -110,6 +110,13 @@ jobs:
           echo "::add-mask::$TAILSCALE_AUTH_KEY"
           echo "tailscale_auth_key=$TAILSCALE_AUTH_KEY" >> $GITHUB_OUTPUT
 
+      - name: Create age key file for Ansible
+        run: |
+          echo "🔐 Creating age key file for Ansible..."
+          mkdir -p infra/secrets/keys
+          echo "${{ secrets.SOPS_AGE_KEY }}" > infra/secrets/keys/age-prod.key
+          chmod 600 infra/secrets/keys/age-prod.key
+
       - name: Run make config-vps
         env:
           VPS_IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
