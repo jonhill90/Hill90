@@ -118,518 +118,68 @@ All operations are done via Makefile - check `make help` for full list.
 
 **Status flow**: `todo` → `doing` → `review` → `done`
 
-## VPS Rebuild Workflow (YOU Execute This)
+## VPS Rebuild & Operations
 
-### Fully Automated Rebuild (NEW - Recommended)
+**See `.claude/reference/vps-operations.md` for complete rebuild workflows.**
 
-**SINGLE-COMMAND REBUILD (excluding MCP):**
+### Quick Reference
 
-```bash
-# PHASE 1: Prepare for rebuild
-make rebuild-full-auto
-
-# This command:
-# 1. Ensures Tailscale auth key is ready
-# 2. Generates secure root password
-# 3. Displays MCP parameters for you to use
-# 4. Waits for MCP rebuild to complete
-
-# PHASE 2: YOU run MCP tool (Claude Code only)
-# Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
-# Parameters displayed by script above
-# Wait ~5 minutes for rebuild to complete
-
-# PHASE 3: Complete rebuild with new VPS IP
-make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
-
-# This command automatically:
-# 1. Updates VPS_IP in encrypted secrets
-# 2. Bootstraps VPS with Ansible (all phases)
-# 3. Retrieves Tailscale IP from VPS
-# 4. Updates TAILSCALE_IP in encrypted secrets
-# 5. Deploys all services via Tailscale
-# 6. Waits for services to start
-# 7. Verifies health
-
-# Done! VPS is fully rebuilt and deployed.
-```
-
-**That's it. TWO commands: `make rebuild-full-auto`, then `make rebuild-full-auto-post-mcp VPS_IP=<new_ip>`**
-
-### Optimized Rebuild (FASTEST - 5-7 minutes)
-
-**Use this for speed. Replaces Terraform with Tailscale API and uses optimized Ansible.**
+**Fastest rebuild (5-7 minutes):**
 
 ```bash
-# PHASE 1: Prepare for optimized rebuild
-make rebuild-optimized
-
-# This command:
-# 1. Generates Tailscale auth key via API (NO Terraform!)
-# 2. Generates secure root password
-# 3. Displays MCP parameters (includes optional post-install script ID)
-# 4. Saves state for phase 2
-
-# PHASE 2: YOU run MCP tool (Claude Code only)
-# Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
-# Parameters displayed by script above
-# OPTIONAL: Add post_install_script_id for binary pre-caching (saves 2-3 min)
-# Wait ~5 minutes for rebuild to complete
-
-# PHASE 3: Complete optimized rebuild (auto-detects IPs)
-make rebuild-optimized-post-mcp VPS_IP=<new_ip>
-# OR let it auto-detect: make rebuild-optimized-post-mcp
-
-# This command automatically:
-# 1. Updates VPS_IP in encrypted secrets
-# 2. Bootstraps VPS with OPTIMIZED Ansible playbook
-# 3. Queries Tailscale API for device IP (NO SSH chicken-and-egg!)
-# 4. Updates TAILSCALE_IP in encrypted secrets
-# 5. Deploys all services with PARALLEL Docker builds
-# 6. Waits for services to start
-# 7. Verifies health
-
-# Done! VPS rebuilt in 5-7 minutes (vs 30 minutes).
+make rebuild-optimized                    # 1. Prep
+# YOU run MCP rebuild (Claude Code only)  # 2. MCP
+make rebuild-optimized-post-mcp VPS_IP=X  # 3. Bootstrap + deploy
 ```
 
-**Key Optimizations:**
-- ✅ **Tailscale API** - Replaces Terraform (saves 10-15 min)
-- ✅ **Auto IP detection** - Queries Tailscale API for device IP (no SSH needed)
-- ✅ **Consolidated Ansible** - Single playbook vs 9 sequential (saves 2-4 min)
-- ✅ **Parallel Docker builds** - `docker compose build --parallel` (saves 1-2 min)
-- ✅ **Binary pre-caching** - Post-install script caches Docker, SOPS, age (saves 2-3 min)
+**When things break:** Just rebuild. YOU control the entire stack.
 
-**Post-Install Script Setup (Optional - Saves 2-3 minutes):**
+## Deployment
 
-To enable binary pre-caching during OS rebuild:
+**See `.claude/reference/deployment.md` for complete deployment workflows.**
 
-1. Upload the post-install script to Hostinger:
-   - Use MCP: `mcp__MCP_DOCKER__VPS_createPostInstallScriptV1`
-   - Name: `hill90-cache-binaries`
-   - Content: Contents of `infra/post-install/cache-binaries.sh`
-
-2. Note the script ID returned by MCP
-
-3. When running MCP rebuild, add `post_install_script_id: <script_id>`
-
-The script will run during OS installation and pre-download Docker, SOPS, age, and git. Ansible will then use the cached binaries instead of downloading them.
-
-**Total rebuild time: 5-7 minutes (vs 30 minutes with old method)**
-
-### Manual Rebuild (Old Method - Still Works)
-
-If you prefer step-by-step control:
+### Quick Reference
 
 ```bash
-# 1. Setup Tailscale infrastructure (one-time, or when auth key expires)
-make tailscale-setup
-
-# 2. Generate root password
-ROOT_PASSWORD=$(openssl rand -base64 32)
-
-# 3. Rebuild OS via MCP
-# Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
-# Parameters:
-#   - virtualMachineId: 1264324
-#   - template_id: 1183 (AlmaLinux 10)
-#   - password: $ROOT_PASSWORD
-
-# 4. Wait ~5 minutes for rebuild
-
-# 5. Get new VPS IP from MCP response
-
-# 6. Bootstrap VPS (this does EVERYTHING automatically)
-make rebuild-bootstrap VPS_IP=<new_ip> ROOT_PASSWORD="$ROOT_PASSWORD"
-# This automatically runs Ansible playbooks in the correct order:
-#
-# Phase 1: Base System Setup
-# - Creates deploy user with sudo access
-#
-# Phase 2: Network Security (establish VPN access BEFORE locking down)
-# - Configures firewall (HTTP/HTTPS, SSH still public temporarily)
-# - Installs Tailscale binary and joins network
-# - Locks SSH to Tailscale network ONLY (100.64.0.0/10)
-# - Hardens SSH (disable root, password auth, fail2ban)
-#
-# Phase 3: Development Tools
-# - Installs SOPS and age binaries
-# - Installs git and clones repository to /opt/hill90/app
-# - Transfers age encryption key via Ansible
-#
-# Phase 4: Application Runtime (LAST - separate infra from app)
-# - Installs Docker and Docker Compose
-
-# 7. Deploy services (via SSH to Tailscale IP)
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && make deploy'
-
-# 8. Verify health
-make health
+make deploy         # STAGING certs (safe, unlimited)
+make deploy-production  # PRODUCTION certs (rate-limited!)
+make health         # Verify services
 ```
 
-**All steps are fully automated - no manual Terraform, no manual secrets editing, no manual key copying.**
-
-## Daily Operations (YOU Execute These)
-
-### Deploy Changes
-```bash
-make deploy               # Deploys to VPS (STAGING certificates - safe for testing)
-make deploy-production    # Deploys with PRODUCTION certificates (USE CAREFULLY - rate limited!)
-make health               # Checks everything is running
-```
-
-**IMPORTANT: Let's Encrypt Configuration**
-- `make deploy` uses **STAGING** certificates by default (not trusted by browsers, but unlimited rate limits)
-- `make deploy-production` uses **PRODUCTION** certificates (trusted, but rate-limited: 5 failures/hour, 50 certs/week)
-- Always test with staging first, only use production when ready for real traffic
-- If you hit rate limits, you're locked out until the limit expires (up to 1 week for duplicate certs)
-
-### View Logs (on VPS)
-```bash
-make ssh       # SSH to VPS
-make logs      # All services
-make logs-api  # API only
-make logs-traefik  # Traefik only
-```
-
-### Restart Services (on VPS)
-```bash
-make restart        # All services
-make restart-api    # API only
-make restart-traefik # Traefik only
-```
+**CRITICAL**: Deployments ALWAYS run on VPS via SSH, never locally.
 
 ## Secrets Management
 
-### Age Key Locations
-- **Local (project):** `infra/secrets/keys/age-prod.key` (tracked in repo, used by scripts)
-- **VPS:** `/opt/hill90/secrets/keys/keys.txt`
-- **Symlinked on VPS:** `/opt/hill90/app/infra/secrets/keys/age-prod.key` → `/opt/hill90/secrets/keys/keys.txt`
+**See `.claude/reference/secrets.md` for complete secrets workflows.**
 
-**Note:** Scripts automatically use the project-local key. No manual configuration needed.
-
-### Viewing Secrets (RECOMMENDED - Safe, no temp files)
-
-**Using Makefile commands (easiest):**
-```bash
-make secrets-view                    # View all secrets
-make secrets-view KEY=VPS_IP         # View specific secret
-```
-
-**Using scripts directly:**
-```bash
-bash scripts/secrets-view.sh infra/secrets/prod.enc.env              # All secrets
-bash scripts/secrets-view.sh infra/secrets/prod.enc.env VPS_IP       # Specific secret
-```
-
-### Updating Secrets (RECOMMENDED - Safe, automatic backup)
-
-**Using Makefile commands (easiest):**
-```bash
-make secrets-update KEY=VPS_IP VALUE="76.13.26.69"
-# Creates automatic backup before update
-# Restores from backup if update fails
-```
-
-**Using scripts directly:**
-```bash
-bash scripts/secrets-update.sh infra/secrets/prod.enc.env VPS_IP "76.13.26.69"
-```
-
-### Editing Secrets Interactively
-
-**Using Makefile (easiest):**
-```bash
-make secrets-edit    # Opens in your default editor
-```
-
-**Using SOPS directly:**
-```bash
-export SOPS_AGE_KEY_FILE=infra/secrets/keys/age-prod.key
-sops infra/secrets/prod.enc.env
-# SOPS will decrypt, open in editor, and re-encrypt automatically
-```
-
-### Advanced: Programmatic Updates (for scripts)
+### Quick Reference
 
 ```bash
-export SOPS_AGE_KEY_FILE=infra/secrets/keys/age-prod.key
-
-# Update single value atomically (NO temp files!)
-sops --set '["VPS_IP"] "76.13.26.69"' infra/secrets/prod.enc.env
-
-# Execute command with decrypted environment (NO temp files!)
-sops exec-env infra/secrets/prod.enc.env 'echo $VPS_IP'
-
-# Extract specific value
-sops -d --extract '["VPS_IP"]' infra/secrets/prod.enc.env
-```
-
-### Best Practices
-
-**RECOMMENDED approaches:**
-- ✅ `make secrets-view KEY=<key>` - Safe viewing
-- ✅ `make secrets-update KEY=<key> VALUE=<value>` - Safe updates with auto-backup
-- ✅ `make secrets-edit` - Interactive editing
-- ✅ `bash scripts/secrets-*.sh` - Helper scripts with safety checks
-
-**AVOID:**
-- ❌ Direct `sops -d` to temp files (leaves unencrypted secrets on disk)
-- ❌ Manual decrypt → edit → encrypt cycles (corruption risk)
-- ❌ Using `sed` or other text tools on encrypted files
-
-**If something goes wrong:**
-```bash
-git checkout HEAD -- infra/secrets/prod.enc.env    # Restore from git
-# Or restore from backup created by secrets-update.sh
+make secrets-view KEY=<key>              # View secret
+make secrets-update KEY=<key> VALUE=<v>  # Update secret (auto-backup)
+make secrets-edit                        # Interactive edit
 ```
 
 ## Tailscale Management
 
-### Automated Setup (ONE Command)
-Tailscale infrastructure is fully automated via `make tailscale-setup`:
+**See `.claude/reference/tailscale.md` for complete Tailscale workflows.**
+
+### Quick Reference
 
 ```bash
-# Setup Tailscale (Terraform + secrets) - FULLY AUTOMATED
-make tailscale-setup
-# This command:
-# 1. Initializes Terraform
-# 2. Generates pre-authorized auth key (90-day expiry)
-# 3. Extracts the key from Terraform output
-# 4. Stores it in encrypted secrets automatically
-# DONE! No manual steps required.
-
-# Rotate auth key when expired (90 days)
-make tailscale-rotate
-# Same as tailscale-setup, generates new key and updates secrets
+make tailscale-setup    # Setup auth key (90-day expiry)
+make tailscale-rotate   # Rotate expired key
 ```
 
-**Manual Terraform operations (NOT needed, use make targets instead):**
-```bash
-# If you need to manually inspect:
-cd infra/terraform/tailscale
-terraform output -raw vps_auth_key  # View current auth key
-terraform state list                # View Terraform resources
-```
+**ALWAYS SSH via Tailscale IP**: 100.68.116.66 (public SSH blocked)
 
-### VPS Installation (Automated via Ansible)
-The bootstrap process automatically:
-1. Installs Tailscale binary (via Ansible playbook 05-tailscale.yml)
-2. Joins Tailscale network using auth key from secrets
-3. Configures firewall to allow SSH from Tailscale network only (100.64.0.0/10)
-4. Saves Tailscale IP to `/opt/hill90/.tailscale_ip`
+## GitHub Actions
 
-### SSH via Tailscale
-```bash
-# Get Tailscale IP from VPS
-ssh -i ~/.ssh/remote.hill90.com root@<public-ip> 'cat /opt/hill90/.tailscale_ip'
+**See `.claude/reference/github-actions.md` for complete automation workflows.**
 
-# SSH via Tailscale IP (ALWAYS use this)
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
-
-# Public SSH is BLOCKED by firewall
-```
-
-### Tailscale Configuration
-- **Auth key:** Generated by Terraform, expires in 90 days
-- **API key:** Used by Terraform provider (in terraform.tfvars)
-- **Firewall:** SSH allowed only from Tailscale CGNAT range (100.64.0.0/10)
-- **Tags:** VPS tagged as `tag:server`, `tag:hill90`
-
-## Architecture
-
-### Services (Docker Compose)
-1. **traefik** - Edge proxy (80/443)
-2. **api** - TypeScript API service
-3. **ai** - Python AI service
-4. **mcp** - TypeScript MCP service
-5. **auth** - TypeScript auth service
-6. **postgres** - PostgreSQL database
-
-### Host Services
-- **Tailscale** - VPN for secure SSH access
-
-### Networks
-- **edge** - Public-facing (traefik)
-- **internal** - Private services (postgres, auth, api, ai, mcp)
-
-### Firewall
-- **Public:** 80/tcp, 443/tcp
-- **SSH (22/tcp):** Tailscale-only (blocked from public internet)
-
-## When Things Break
-
-**DON'T PANIC. Just rebuild (2 commands, 5-7 minutes):**
-
-```bash
-# FASTEST: Use optimized rebuild (5-7 minutes total)
-make rebuild-optimized
-# Run MCP rebuild as instructed
-make rebuild-optimized-post-mcp VPS_IP=<new_ip>
-
-# Done! Fully deployed in 5-7 minutes.
-```
-
-**OR use the original automated method (30 minutes):**
-
-```bash
-# 1. Prepare rebuild
-make rebuild-full-auto
-
-# 2. Run MCP rebuild as instructed
-
-# 3. Complete rebuild
-make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
-
-# Done! SSH via Tailscale IP.
-```
-
-**YOU can fix anything because YOU control the entire stack.**
-
-**100% Automated - Zero Manual Steps:**
-- ✅ Tailscale auth key: `make tailscale-setup` (Terraform + secrets)
-- ✅ Ansible installs Tailscale binary and joins network
-- ✅ Firewall configured automatically (Tailscale network only)
-- ✅ Age key transferred automatically via Ansible
-- ✅ Secrets updated atomically via SOPS (no temp files)
-- ✅ Repository cloned automatically
-- ✅ All environment variables set correctly
-- ✅ Deploy user created with correct permissions
-
-## File Locations
-
-### Local (Your Machine)
-- Repository: `/Users/jon/source/repos/Personal/Hill90`
-- Age key: `~/.config/sops/age/keys.txt`
-- SSH key: `~/.ssh/remote.hill90.com`
-
-### VPS
-- App directory: `/opt/hill90/app`
-- Age key: `/opt/hill90/secrets/keys/keys.txt`
-- Deploy user: `deploy`
-- Services: Docker Compose in `/opt/hill90/app`
-
-## GitHub Actions Automation (IMPLEMENTED)
-
-### Overview
-
-**Hybrid approach:** Both Mac-based (via Claude Code) and GitHub Actions automation are available.
-
-- ✅ **Mac/Manual:** Use MCP tools via Claude Code (convenient for interactive work)
-- ✅ **GitHub Actions:** Use Hostinger API for full automation (no LLM needed)
-
-### Available Workflows
-
-**`.github/workflows/rebuild-vps.yml`** - Full VPS Rebuild
-- ✅ **IMPLEMENTED** - Ready to use
-- Manual trigger (workflow_dispatch)
-- Uses Hostinger API for OS rebuild
-- Automated bootstrap, deploy, and verification
-- Auto-updates secrets with new IPs
-- **Requires:** Hostinger API key in GitHub Secrets
-
-**`.github/workflows/deploy.yml`** - Automated Deployment
-- ✅ **IMPLEMENTED** - Ready to use
-- Triggers on push to main (or manual)
-- Validates infrastructure
-- Deploys via SSH over Tailscale
-- Extended health checks
-- **Requires:** SSH key, SOPS key in GitHub Secrets
-
-### Hostinger API Client
-
-**`scripts/hostinger-api.sh`** - Direct API Access
-- ✅ **IMPLEMENTED** - Replaces MCP tools for automation
-- Operations: get-details, recreate, snapshot, list-scripts, wait-action
-- Used by GitHub Actions workflows
-- Can also be used manually (requires HOSTINGER_API_KEY)
-
-### Setup GitHub Actions (One-Time)
-
-To enable GitHub Actions automation, add these secrets to GitHub repository settings:
-
-**Required Secrets:**
-```bash
-# Hostinger API (obtain from Hostinger control panel)
-HOSTINGER_API_KEY=<api_key>
-HOSTINGER_VPS_ID=1264324
-HOSTINGER_POST_INSTALL_SCRIPT_ID=2395
-
-# Tailscale OAuth (for GitHub Actions runners)
-TAILSCALE_OAUTH_CLIENT_ID=<oauth_client_id>
-TAILSCALE_OAUTH_SECRET=<oauth_secret>
-
-# Tailscale API (for device management)
-TAILSCALE_API_KEY=<api_key>
-TAILSCALE_TAILNET=<tailnet_name>
-
-# VPS Access
-VPS_SSH_PRIVATE_KEY=<contents of ~/.ssh/remote.hill90.com>
-
-# Secrets Decryption
-SOPS_AGE_KEY=<contents of infra/secrets/keys/age-prod.key>
-```
-
-**How to obtain Hostinger API key:**
-1. Login to Hostinger control panel: https://hpanel.hostinger.com
-2. Navigate to API settings
-3. Generate a new API key
-4. Add to GitHub Secrets: `HOSTINGER_API_KEY`
-
-**How to obtain Tailscale OAuth credentials:**
-1. Login to Tailscale admin console: https://login.tailscale.com/admin/settings/oauth
-2. Generate OAuth client for GitHub Actions
-3. Add `TAILSCALE_OAUTH_CLIENT_ID` and `TAILSCALE_OAUTH_SECRET` to GitHub Secrets
-
-### Using GitHub Actions
-
-**Rebuild VPS from GitHub:**
-1. Go to Actions tab in GitHub
-2. Select "VPS Rebuild (Full Automation)"
-3. Click "Run workflow"
-4. Type "REBUILD" to confirm
-5. Wait ~10 minutes for completion
-
-**Deploy from GitHub:**
-1. Push to main branch (auto-deploys)
-2. OR manually trigger from Actions tab
-3. Select "Deploy to VPS"
-4. Choose environment and certificate type
-5. Wait for deployment + health checks
-
-### Post-Install Script (Optimization)
-
-**Binary pre-caching during OS rebuild:**
-- ✅ **Script uploaded:** ID 2395 (hill90-cache-binaries)
-- ✅ **Stored in secrets:** HOSTINGER_POST_INSTALL_SCRIPT_ID=2395
-- ✅ **Used by workflows:** Enabled by default in rebuild workflow
-- **Saves:** ~2-3 minutes per rebuild (caches Docker, SOPS, age, git)
-
-### Benefits of GitHub Actions
-
-- ✅ No local dependencies (runs on GitHub runners)
-- ✅ Audit trail via GitHub Actions logs
-- ✅ Can trigger from anywhere (mobile, web)
-- ✅ Automatic deployments on push to main
-- ✅ Parallel execution (validate, deploy, health check)
-- ✅ Full automation without Claude Code
-
-### Current Workflow Options
-
-**Option 1: Mac via Claude Code (MCP Tools)**
-```bash
-# Quick and interactive
-make rebuild-optimized
-# Claude uses MCP to rebuild
-make rebuild-optimized-post-mcp VPS_IP=<new_ip>
-```
-
-**Option 2: GitHub Actions (Hostinger API)**
-```
-# Fully automated
-GitHub Actions → Rebuild VPS workflow → Done
-```
-
-Both work equally well. Use Mac for interactive work, GitHub Actions for automation.
+**Quick Reference**: Hybrid approach available
+- **Mac/Manual:** MCP tools via Claude Code (interactive)
+- **GitHub Actions:** Hostinger API (full automation, no LLM)
 
 ## Important Reminders
 
