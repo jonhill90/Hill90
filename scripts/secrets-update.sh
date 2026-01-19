@@ -48,7 +48,9 @@ cp "$SECRET_FILE" "$BACKUP_FILE"
 echo -e "${COLOR_YELLOW}Created backup: $BACKUP_FILE${COLOR_RESET}"
 
 # Update the secret atomically using sops --set
-if sops --set "[\"${KEY}\"] \"${VALUE}\"" "$SECRET_FILE"; then
+# Use jq to properly escape the value for JSON
+ESCAPED_VALUE=$(echo -n "$VALUE" | jq -Rs .)
+if sops --set "[\"${KEY}\"] ${ESCAPED_VALUE}" "$SECRET_FILE"; then
     echo -e "${COLOR_GREEN}✓ Secret updated successfully!${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}Backup saved: $BACKUP_FILE${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}You can remove the backup with: rm $BACKUP_FILE${COLOR_RESET}"

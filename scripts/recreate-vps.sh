@@ -21,13 +21,13 @@ echo ""
 # Step 1: Rotate Tailscale auth key
 echo -e "${BLUE}Step 1/3: Rotating Tailscale auth key...${NC}"
 
-if ! bash "$SCRIPT_DIR/tailscale-api.sh" generate-key > /tmp/tailscale_key.txt; then
+# Capture output and extract only the auth key (last line)
+if ! OUTPUT=$(bash "$SCRIPT_DIR/tailscale-api.sh" generate-key 2>&1); then
     echo -e "${RED}ERROR: Failed to generate Tailscale auth key${NC}"
     exit 1
 fi
 
-AUTH_KEY=$(cat /tmp/tailscale_key.txt)
-rm /tmp/tailscale_key.txt
+AUTH_KEY=$(echo "$OUTPUT" | tail -1)
 
 echo -e "${GREEN}✓ Auth key generated${NC}"
 
