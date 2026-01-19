@@ -1,8 +1,9 @@
 ---
-# Hill90 VPS Bootstrap Playbook
-# This playbook sets up a fresh AlmaLinux VPS for Hill90 deployment
+# Master Bootstrap Playbook
+# Runs all numbered playbooks in sequence
+# Based on existing 01-09 playbooks
 
-- name: Bootstrap Hill90 VPS
+- name: Bootstrap VPS Infrastructure
   hosts: vps
   become: yes
   gather_facts: yes
@@ -10,68 +11,30 @@
   vars_files:
     - ../inventory/group_vars/all.yml
 
-  pre_tasks:
-    - name: Display bootstrap start message
-      debug:
-        msg: "Starting Hill90 VPS bootstrap for {{ inventory_hostname }}"
-
   tasks:
-    # Phase 1: Base System Setup
-    - name: Import user setup playbook
+    - name: 01 - User Setup
       import_tasks: 01-user-setup.yml
 
-    # Phase 2: Network Security (establish VPN access)
-    - name: Import basic firewall configuration playbook
+    - name: 02 - Firewall Basic
       import_tasks: 02-firewall-basic.yml
 
-    - name: Import Tailscale installation playbook
+    - name: 03 - Tailscale
       import_tasks: 03-tailscale.yml
 
-    - name: Import SSH lockdown playbook
+    - name: 04 - SSH Lockdown
       import_tasks: 04-ssh-lockdown.yml
 
-    - name: Import SSH hardening playbook
+    - name: 05 - SSH Hardening
       import_tasks: 05-ssh-hardening.yml
 
-    # Phase 3: Development Tools
-    - name: Import secrets setup playbook
+    - name: 06 - Secrets Setup
       import_tasks: 06-secrets-setup.yml
 
-    - name: Import git and repository setup
+    - name: 07 - Git and Repo
       import_tasks: 07-git-and-repo.yml
 
-    - name: Import age key transfer playbook
+    - name: 08 - Age Key Transfer
       import_tasks: 08-age-key-transfer.yml
 
-    # Phase 4: Application Runtime (LAST)
-    - name: Import Docker installation playbook
+    - name: 09 - Docker Install
       import_tasks: 09-docker-install.yml
-
-  post_tasks:
-    - name: Display bootstrap completion message
-      debug:
-        msg: "Hill90 VPS bootstrap completed successfully!"
-
-    - name: Display next steps
-      debug:
-        msg:
-          - "Bootstrap completed! Next steps:"
-          - "1. Configure DNS records for api.hill90.com, ai.hill90.com, hill90.com (if not done)"
-          - "2. Deploy services: make deploy"
-          - "3. Verify health: make health"
-
-  handlers:
-    - name: restart docker
-      systemd:
-        name: docker
-        state: restarted
-
-    - name: restart sshd
-      systemd:
-        name: sshd
-        state: restarted
-
-    - name: restart fail2ban
-      systemd:
-        name: fail2ban
-        state: restarted

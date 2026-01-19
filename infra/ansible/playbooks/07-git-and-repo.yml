@@ -30,8 +30,14 @@
     dest: "{{ app_directory }}/app"
     version: "{{ app_branch }}"
     force: no
-  become_user: "{{ deploy_user }}"
   register: repo_clone
+
+- name: Fix repository ownership
+  file:
+    path: "{{ app_directory }}"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    recurse: yes
 
 - name: Display repository clone status
   debug:

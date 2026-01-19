@@ -50,14 +50,14 @@ echo ""
 # Export Tailscale auth key for Ansible
 export TAILSCALE_AUTH_KEY
 
-# Run Ansible bootstrap-v2.yml
+# Run Ansible bootstrap (runs 01-09 playbooks)
 cd "$PROJECT_ROOT/infra/ansible"
 if ansible-playbook -i "inventory/hosts.yml" \
                  -e "ansible_host=$VPS_IP" \
                  -e "ansible_user=root" \
                  -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
                  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
-                 playbooks/bootstrap-v2.yml; then
+                 playbooks/bootstrap.yml; then
     echo ""
     echo -e "${GREEN}   ✓ Ansible bootstrap complete${NC}"
 else
