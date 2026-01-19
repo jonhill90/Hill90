@@ -38,9 +38,16 @@ make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
 
 **That's it. TWO commands: `make rebuild-full-auto`, then `make rebuild-full-auto-post-mcp VPS_IP=<new_ip>`**
 
-### Optimized Rebuild (FASTEST - 5-7 minutes)
+### Optimized Rebuild v2 (Recommended - 12-15 minutes)
 
-**Use this for speed. Replaces Terraform with Tailscale API and uses optimized Ansible.**
+**Use this for flexibility and reliability. Prioritizes idempotency over speed.**
+
+**Architecture v2:**
+- **Minimal post-install script**: Installs only Python, git, basic tools
+- **Comprehensive Ansible playbook**: Installs Docker, SOPS, age, configures everything
+- **Idempotent bootstrap**: If Ansible fails, just re-run it (no OS rebuild needed!)
+- **Tailscale API**: No Terraform needed
+- **Auto IP detection**: Queries Tailscale API for device IP
 
 ```bash
 # PHASE 1: Prepare for optimized rebuild
@@ -49,54 +56,65 @@ make rebuild-optimized
 # This command:
 # 1. Generates Tailscale auth key via API (NO Terraform!)
 # 2. Generates secure root password
-# 3. Displays MCP parameters (includes optional post-install script ID)
+# 3. Displays MCP parameters (includes post-install script ID: 2396)
 # 4. Saves state for phase 2
 
 # PHASE 2: Run MCP tool (Claude Code only)
 # Use MCP: mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1
 # Parameters displayed by script above
-# OPTIONAL: Add post_install_script_id for binary pre-caching (saves 2-3 min)
-# Wait ~5 minutes for rebuild to complete
+# REQUIRED: post_install_script_id: 2396 (bootstrap-ansible-v2)
+# Wait ~10 minutes for rebuild to complete
 
 # PHASE 3: Complete optimized rebuild (auto-detects IPs)
 make rebuild-optimized-post-mcp VPS_IP=<new_ip>
-# OR let it auto-detect: make rebuild-optimized-post-mcp
 
 # This command automatically:
 # 1. Updates VPS_IP in encrypted secrets
-# 2. Bootstraps VPS with OPTIMIZED Ansible playbook
+# 2. Bootstraps VPS with v2 Ansible playbook (installs Docker, SOPS, age, etc.)
 # 3. Queries Tailscale API for device IP (NO SSH chicken-and-egg!)
 # 4. Updates TAILSCALE_IP in encrypted secrets
-# 5. Deploys all services with PARALLEL Docker builds
+# 5. Deploys all services
 # 6. Waits for services to start
 # 7. Verifies health
 
-# Done! VPS rebuilt in 5-7 minutes (vs 30 minutes).
+# Done! VPS rebuilt in 12-15 minutes.
 ```
 
-**Key Optimizations:**
-- ✅ **Tailscale API** - Replaces Terraform (saves 10-15 min)
-- ✅ **Auto IP detection** - Queries Tailscale API for device IP (no SSH needed)
-- ✅ **Consolidated Ansible** - Single playbook vs 9 sequential (saves 2-4 min)
-- ✅ **Parallel Docker builds** - `docker compose build --parallel` (saves 1-2 min)
-- ✅ **Binary pre-caching** - Post-install script caches Docker, SOPS, age (saves 2-3 min)
+**Key Features:**
+- ✅ **Minimal post-install** - Only Python/git (easy to debug)
+- ✅ **Comprehensive Ansible** - All tools installed via playbook
+- ✅ **Idempotent** - Can re-run Ansible without OS rebuild if it fails
+- ✅ **Tailscale API** - Replaces Terraform
+- ✅ **Auto IP detection** - Queries Tailscale API for device IP
+- ✅ **Flexible** - Easy to update tool versions without OS rebuild
 
-**Post-Install Script Setup (Optional - Saves 2-3 minutes):**
+**Post-Install Script (REQUIRED):**
 
-To enable binary pre-caching during OS rebuild:
+The post-install script ID **2396** (bootstrap-ansible-v2) is stored in secrets:
 
-1. Upload the post-install script to Hostinger:
-   - Use MCP: `mcp__MCP_DOCKER__VPS_createPostInstallScriptV1`
-   - Name: `hill90-cache-binaries`
-   - Content: Contents of `infra/post-install/cache-binaries.sh`
+```bash
+# View the current post-install script ID
+make secrets-view KEY=HOSTINGER_POST_INSTALL_SCRIPT_ID
+# Output: HOSTINGER_POST_INSTALL_SCRIPT_ID=2396
+```
 
-2. Note the script ID returned by MCP
+This script installs only Python, pip, git, curl, and sudo. Everything else (Docker, SOPS, age, Tailscale) is installed by the v2 Ansible playbook.
 
-3. When running MCP rebuild, add `post_install_script_id: <script_id>`
+**If Ansible fails during bootstrap:**
 
-The script will run during OS installation and pre-download Docker, SOPS, age, and git. Ansible will then use the cached binaries instead of downloading them.
+```bash
+# Re-run Ansible WITHOUT rebuilding the OS!
+cd infra/ansible
+export TAILSCALE_AUTH_KEY=$(make secrets-view KEY=TAILSCALE_AUTH_KEY | grep TAILSCALE | cut -d= -f2)
+ansible-playbook -i inventory/hosts.ini \
+  -e "ansible_host=<vps-ip>" \
+  -e "ansible_user=root" \
+  -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
+  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
+  playbooks/bootstrap-v2.yml
+```
 
-**Total rebuild time: 5-7 minutes (vs 30 minutes with old method)**
+**Total rebuild time: 12-15 minutes (acceptable for flexibility benefits)**
 
 ### Manual Rebuild (Old Method - Still Works)
 
@@ -152,30 +170,40 @@ make health
 
 ## When Things Break
 
-**DON'T PANIC. Just rebuild (2 commands, 5-7 minutes):**
+**DON'T PANIC. Rebuild is often the fastest solution.**
+
+### Option 1: Full OS Rebuild (v2 - 12-15 minutes)
 
 ```bash
-# FASTEST: Use optimized rebuild (5-7 minutes total)
+# Use when: OS issues, SSH lockout, infrastructure problems
 make rebuild-optimized
 # Run MCP rebuild as instructed
 make rebuild-optimized-post-mcp VPS_IP=<new_ip>
 
-# Done! Fully deployed in 5-7 minutes.
+# Done! Fully deployed in 12-15 minutes.
 ```
 
-**OR use the original automated method (30 minutes):**
+### Option 2: Just Re-run Ansible (2-3 minutes)
+
+**NEW in v2: If only Ansible failed (Docker not installed, tool missing, etc.), you can re-run JUST Ansible without rebuilding the OS!**
 
 ```bash
-# 1. Prepare rebuild
-make rebuild-full-auto
+# Re-run Ansible bootstrap WITHOUT OS rebuild
+cd infra/ansible
+export TAILSCALE_AUTH_KEY=$(make secrets-view KEY=TAILSCALE_AUTH_KEY | grep TAILSCALE | cut -d= -f2)
+ansible-playbook -i inventory/hosts.ini \
+  -e "ansible_host=<vps-ip>" \
+  -e "ansible_user=root" \
+  -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
+  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
+  playbooks/bootstrap-v2.yml
 
-# 2. Run MCP rebuild as instructed
-
-# 3. Complete rebuild
-make rebuild-full-auto-post-mcp VPS_IP=<new_ip>
-
-# Done! SSH via Tailscale IP.
+# Takes 2-3 minutes instead of 12-15 for full rebuild!
 ```
+
+**When to use Ansible-only vs full rebuild:**
+- **Ansible only**: Docker not installed, tool missing, service config issue
+- **Full rebuild**: SSH locked out, OS corruption, Tailscale problems, public IP changed
 
 **Full control of the stack enables fixing any infrastructure issue.**
 

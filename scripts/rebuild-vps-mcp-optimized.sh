@@ -25,8 +25,9 @@ NC='\033[0m' # No Color
 source "$SCRIPT_DIR/load-secrets.sh"
 source "$SCRIPT_DIR/tailscale-api.sh"
 
-echo -e "${CYAN}🚀 VPS Rebuild Automation - OPTIMIZED${NC}"
-echo -e "${CYAN}   (Target: 5-7 minutes total)${NC}"
+echo -e "${CYAN}🚀 VPS Rebuild Automation - v2${NC}"
+echo -e "${CYAN}   (Minimal post-install + comprehensive Ansible)${NC}"
+echo -e "${CYAN}   (Target: 12-15 minutes, prioritizes flexibility)${NC}"
 echo ""
 
 if [ "$PHASE" = "pre-mcp" ]; then
@@ -60,16 +61,17 @@ if [ "$PHASE" = "pre-mcp" ]; then
     echo -e "${GREEN}   ✓ Root password generated${NC}"
     echo ""
 
-    # Step 3: Check for post-install script
+    # Step 3: Check for post-install script ID in secrets
     echo -e "${CYAN}3️⃣  Checking post-install script...${NC}"
-    POST_INSTALL_SCRIPT="$PROJECT_ROOT/infra/post-install/cache-binaries.sh"
+    POST_INSTALL_SCRIPT_ID="${HOSTINGER_POST_INSTALL_SCRIPT_ID:-}"
 
-    if [ -f "$POST_INSTALL_SCRIPT" ]; then
-        echo -e "${GREEN}   ✓ Post-install script found${NC}"
-        echo -e "${YELLOW}   ℹ️  Script will be uploaded to Hostinger separately${NC}"
-        echo -e "${YELLOW}   ℹ️  Once uploaded, note the script ID for MCP rebuild${NC}"
+    if [ -n "$POST_INSTALL_SCRIPT_ID" ]; then
+        echo -e "${GREEN}   ✓ Post-install script ID: $POST_INSTALL_SCRIPT_ID (bootstrap-ansible-v2)${NC}"
+        echo -e "${YELLOW}   ℹ️  Minimal script: installs Python, git, basic tools${NC}"
+        echo -e "${YELLOW}   ℹ️  Ansible will install Docker, SOPS, age, etc.${NC}"
     else
-        echo -e "${YELLOW}   ⚠️  Post-install script not found (optional)${NC}"
+        echo -e "${YELLOW}   ⚠️  Post-install script ID not found in secrets${NC}"
+        echo -e "${YELLOW}   ℹ️  Bootstrap will take longer (all tools via Ansible)${NC}"
     fi
     echo ""
 
@@ -89,15 +91,22 @@ EOF
     echo "   ║ virtualMachineId: 1264324                                  ║"
     echo "   ║ template_id: 1183 (AlmaLinux 10)                           ║"
     echo "   ║ password: $ROOT_PASSWORD"
-    echo "   ║                                                            ║"
-    echo "   ║ OPTIONAL (saves 2-3 min):                                 ║"
-    echo "   ║ post_install_script_id: <script_id_from_hostinger>        ║"
-    echo "   ║   (Upload $POST_INSTALL_SCRIPT first)"
+
+    if [ -n "$POST_INSTALL_SCRIPT_ID" ]; then
+        echo "   ║ post_install_script_id: $POST_INSTALL_SCRIPT_ID                    ║"
+        echo "   ║   (bootstrap-ansible-v2: minimal Python/git install)   ║"
+    else
+        echo "   ║                                                            ║"
+        echo "   ║ OPTIONAL (recommended):                                   ║"
+        echo "   ║ post_install_script_id: <get_from_secrets>                ║"
+        echo "   ║   Run: make secrets-view KEY=HOSTINGER_POST_INSTALL_SCRIPT_ID ║"
+    fi
+
     echo "   ╚════════════════════════════════════════════════════════════╝"
     echo ""
-    echo -e "${YELLOW}⏳ After MCP rebuild completes (5-10 minutes):${NC}"
+    echo -e "${YELLOW}⏳ After MCP rebuild completes (~10 minutes):${NC}"
     echo -e "${YELLOW}   The MCP response will contain the new VPS IP${NC}"
-    echo -e "${YELLOW}   Run: bash $0 post-mcp${NC}"
+    echo -e "${YELLOW}   Run: bash $0 post-mcp <vps-ip>${NC}"
     echo -e "${YELLOW}   (Script will auto-detect VPS IP from MCP)${NC}"
     echo ""
 
@@ -150,21 +159,22 @@ elif [ "$PHASE" = "post-mcp" ]; then
     echo -e "${GREEN}   ✓ VPS_IP updated${NC}"
     echo ""
 
-    # Step 3: Bootstrap VPS with optimized Ansible playbook
-    echo -e "${CYAN}3️⃣  Bootstrapping VPS with optimized Ansible...${NC}"
-    echo -e "${YELLOW}   Using: bootstrap-optimized.yml${NC}"
+    # Step 3: Bootstrap VPS with v2 Ansible playbook
+    echo -e "${CYAN}3️⃣  Bootstrapping VPS with v2 Ansible playbook...${NC}"
+    echo -e "${YELLOW}   Using: bootstrap-v2.yml (minimal post-install + comprehensive Ansible)${NC}"
+    echo -e "${YELLOW}   This playbook is idempotent - safe to re-run if it fails${NC}"
 
     # Export Tailscale auth key for Ansible
     export TAILSCALE_AUTH_KEY
 
-    # Run optimized bootstrap
+    # Run v2 bootstrap (installs Docker, SOPS, age, etc.)
     cd "$PROJECT_ROOT/infra/ansible"
     ansible-playbook -i "inventory/hosts.ini" \
                      -e "ansible_host=$NEW_VPS_IP" \
                      -e "ansible_user=root" \
                      -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
                      -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
-                     playbooks/bootstrap-optimized.yml
+                     playbooks/bootstrap-v2.yml
 
     echo -e "${GREEN}   ✓ Bootstrap complete${NC}"
     echo ""
@@ -240,12 +250,12 @@ elif [ "$PHASE" = "post-mcp" ]; then
     echo -e "${GREEN}║${NC} SSH Access:                                                   ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   ${YELLOW}ssh deploy@$TAILSCALE_IP${NC}"
     echo -e "${GREEN}║                                                               ║${NC}"
-    echo -e "${GREEN}║${NC} Optimizations Applied:                                        ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Tailscale API (no Terraform)                              ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC} Architecture (v2):                                            ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Minimal post-install (Python, git only)                   ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Comprehensive Ansible (Docker, SOPS, age via playbook)    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Idempotent bootstrap (can re-run without OS rebuild)      ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Tailscale API (no Terraform needed)                       ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   ✓ Auto IP detection via API                                 ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Optimized Ansible playbook                                ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Parallel Docker builds                                    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Binary pre-caching (if post-install used)                 ${GREEN}║${NC}"
     echo -e "${GREEN}║                                                               ║${NC}"
     echo -e "${GREEN}║${NC} Next Steps:                                                   ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   1. Test HTTPS: ${CYAN}https://api.hill90.com/health${NC}"

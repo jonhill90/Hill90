@@ -38,7 +38,7 @@ get_vps_details() {
     echo -e "${BLUE}Fetching VPS details for ID: $VPS_ID...${NC}"
 
     local response
-    response=$(curl -s \
+    response=$(curl -s --max-time 30 --retry 3 --retry-delay 2 \
         -H "Authorization: Bearer $API_KEY" \
         -H "Content-Type: application/json" \
         "$API_BASE/api/vps/v1/virtual-machines/$VPS_ID")
@@ -85,7 +85,7 @@ recreate_vps() {
     fi
 
     local response
-    response=$(curl -s -X POST \
+    response=$(curl -s --max-time 30 --retry 3 --retry-delay 2 -X POST \
         -H "Authorization: Bearer $API_KEY" \
         -H "Content-Type: application/json" \
         -d "$data" \
@@ -112,7 +112,7 @@ create_snapshot() {
     echo -e "${YELLOW}NOTE: Creating new snapshot will overwrite existing snapshot!${NC}"
 
     local response
-    response=$(curl -s -X POST \
+    response=$(curl -s --max-time 30 --retry 3 --retry-delay 2 -X POST \
         -H "Authorization: Bearer $API_KEY" \
         -H "Content-Type: application/json" \
         "$API_BASE/api/vps/v1/virtual-machines/$VPS_ID/snapshot")
@@ -136,7 +136,7 @@ get_snapshot() {
     echo -e "${BLUE}Fetching snapshot details...${NC}"
 
     local response
-    response=$(curl -s \
+    response=$(curl -s --max-time 30 --retry 3 --retry-delay 2 \
         -H "Authorization: Bearer $API_KEY" \
         -H "Content-Type: application/json" \
         "$API_BASE/api/vps/v1/virtual-machines/$VPS_ID/snapshot")
@@ -159,7 +159,7 @@ list_scripts() {
     echo -e "${BLUE}Listing post-install scripts...${NC}"
 
     local response
-    response=$(curl -s \
+    response=$(curl -s --max-time 30 --retry 3 --retry-delay 2 \
         -H "Authorization: Bearer $API_KEY" \
         -H "Content-Type: application/json" \
         "$API_BASE/api/vps/v1/post-install-scripts")
@@ -180,7 +180,7 @@ get_action_status() {
     echo -e "${BLUE}Fetching action status for ID: $action_id...${NC}"
 
     local response
-    response=$(curl -s \
+    response=$(curl -s --max-time 30 --retry 3 --retry-delay 2 \
         -H "Authorization: Bearer $API_KEY" \
         -H "Content-Type: application/json" \
         "$API_BASE/api/vps/v1/virtual-machines/$VPS_ID/actions/$action_id")
@@ -205,13 +205,14 @@ wait_for_action() {
     local action_id="$1"
     local max_wait="${2:-600}"
     local elapsed=0
-    local interval=10
+    local interval=5  # Start with 5 second intervals
+    local max_interval=60  # Cap at 60 seconds
 
     echo -e "${BLUE}Waiting for action $action_id to complete...${NC}"
 
     while [[ $elapsed -lt $max_wait ]]; do
         local response
-        response=$(curl -s \
+        response=$(curl -s --max-time 30 --retry 3 --retry-delay 2 \
             -H "Authorization: Bearer $API_KEY" \
             -H "Content-Type: application/json" \
             "$API_BASE/api/vps/v1/virtual-machines/$VPS_ID/actions/$action_id")
@@ -227,22 +228,33 @@ wait_for_action() {
                 ;;
             "failed")
                 echo -e "${RED}ERROR: Action failed after ${elapsed}s${NC}"
+                echo -e "${RED}Last known status: $status${NC}"
+                echo -e "${RED}Action ID: $action_id${NC}"
                 echo "$response"
                 return 1
                 ;;
             "running"|"pending")
-                echo -e "${YELLOW}Action still $status... (${elapsed}s/${max_wait}s)${NC}"
+                echo -e "${YELLOW}Action still $status... (${elapsed}s/${max_wait}s, next check in ${interval}s)${NC}"
                 ;;
             *)
-                echo -e "${YELLOW}Unknown status: $status${NC}"
+                echo -e "${YELLOW}Unknown status: $status (${elapsed}s/${max_wait}s)${NC}"
                 ;;
         esac
 
         sleep $interval
         elapsed=$((elapsed + interval))
+
+        # Exponential backoff: double interval each time, but cap at max_interval
+        interval=$((interval * 2))
+        if [[ $interval -gt $max_interval ]]; then
+            interval=$max_interval
+        fi
     done
 
-    echo -e "${RED}ERROR: Action did not complete within ${max_wait}s${NC}"
+    echo -e "${RED}ERROR: Action did not complete in ${max_wait} seconds${NC}"
+    echo -e "${RED}Last known status: $status${NC}"
+    echo -e "${RED}Action ID: $action_id${NC}"
+    echo -e "${YELLOW}Check manually: bash scripts/hostinger-api.sh get-action $action_id${NC}"
     return 1
 }
 

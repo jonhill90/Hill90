@@ -1,0 +1,475 @@
+---
+# Hill90 VPS Bootstrap Playbook v2
+# Minimal post-install + comprehensive Ansible approach
+# Prioritizes flexibility and idempotency over speed
+# Target: 12-15 minutes (acceptable for rebuild-heavy workflows)
+#
+# Architecture:
+# - Post-install: Python, git, basic tools only
+# - Ansible: Docker, SOPS, age, Tailscale, all config
+# - Benefit: Can re-run Ansible without OS rebuild if it fails
+
+- name: Bootstrap Hill90 VPS v2
+  hosts: vps
+  become: yes
+  gather_facts: yes
+
+  vars_files:
+    - ../inventory/group_vars/all.yml
+
+  vars:
+    # Tool versions (easy to update without OS rebuild)
+    sops_version: "3.8.1"
+    age_version: "1.1.1"
+
+  pre_tasks:
+    - name: Display bootstrap start message
+      debug:
+        msg:
+          - "Starting Hill90 VPS bootstrap v2 for {{ inventory_hostname }}"
+          - "This playbook is idempotent - safe to re-run if it fails"
+
+  tasks:
+    # ========================================
+    # Phase 1: System Preparation
+    # ========================================
+
+    - name: Install core utilities
+      dnf:
+        name:
+          - jq
+          - tmux
+          - htop
+          - vim
+          - wget
+          - tar
+        state: present
+
+    - name: Create deploy user
+      user:
+        name: "{{ deploy_user }}"
+        groups: wheel
+        append: yes
+        shell: /bin/bash
+        create_home: yes
+        home: "{{ deploy_home }}"
+        state: present
+
+    - name: Create .ssh directory for deploy user
+      file:
+        path: "{{ deploy_home }}/.ssh"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0700'
+
+    - name: Copy authorized_keys from root to deploy user
+      copy:
+        src: /root/.ssh/authorized_keys
+        dest: "{{ deploy_home }}/.ssh/authorized_keys"
+        remote_src: yes
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0600'
+      ignore_errors: yes
+
+    - name: Grant sudo privileges to deploy user
+      lineinfile:
+        path: /etc/sudoers.d/{{ deploy_user }}
+        line: "{{ deploy_user }} ALL=(ALL) NOPASSWD:ALL"
+        create: yes
+        validate: 'visudo -cf %s'
+        mode: '0440'
+
+    - name: Create application directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0755'
+      loop:
+        - "{{ app_directory }}"
+        - "{{ deploy_home }}"
+
+    # ========================================
+    # Phase 2: Security & Network (order matters)
+    # ========================================
+
+    - name: Install firewalld
+      dnf:
+        name: firewalld
+        state: present
+
+    - name: Enable and start firewalld
+      systemd:
+        name: firewalld
+        enabled: yes
+        state: started
+
+    - name: Configure firewall rules (HTTP/HTTPS/SSH public)
+      firewalld:
+        service: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      loop:
+        - http
+        - https
+        - ssh
+
+    # Tailscale installation (idempotent)
+    - name: Check if Tailscale is installed
+      stat:
+        path: /usr/bin/tailscale
+      register: tailscale_binary
+
+    - name: Download Tailscale install script
+      get_url:
+        url: https://tailscale.com/install.sh
+        dest: /tmp/tailscale-install.sh
+        mode: '0755'
+      when: not tailscale_binary.stat.exists
+
+    - name: Install Tailscale
+      command: sh /tmp/tailscale-install.sh
+      args:
+        creates: /usr/bin/tailscale
+      when: not tailscale_binary.stat.exists
+
+    - name: Remove Tailscale install script
+      file:
+        path: /tmp/tailscale-install.sh
+        state: absent
+
+    - name: Enable and start tailscaled service
+      systemd:
+        name: tailscaled
+        enabled: yes
+        state: started
+
+    - name: Check if Tailscale is already authenticated
+      command: tailscale status
+      register: tailscale_status
+      changed_when: false
+      failed_when: false
+
+    - name: Join Tailscale network
+      command: >
+        tailscale up
+        --authkey={{ lookup('env', 'TAILSCALE_AUTH_KEY') }}
+        --hostname={{ vps_hostname | default('hill90-vps') }}
+        --accept-routes
+        --ssh
+      when: "'Logged out' in tailscale_status.stdout or tailscale_status.rc != 0"
+      register: tailscale_auth
+      failed_when: tailscale_auth.rc != 0 and 'already logged in' not in tailscale_auth.stderr
+
+    - name: Get Tailscale status
+      command: tailscale status --json
+      register: tailscale_status_json
+      changed_when: false
+
+    - name: Extract Tailscale IPv4 address
+      set_fact:
+        tailscale_ipv4: "{{ (tailscale_status_json.stdout | from_json).Self.TailscaleIPs | select('match', '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$') | first }}"
+
+    - name: Save Tailscale IP to fact file
+      copy:
+        content: "{{ tailscale_ipv4 }}"
+        dest: /opt/hill90/.tailscale_ip
+        owner: deploy
+        group: deploy
+        mode: '0644'
+
+    - name: Display Tailscale configuration
+      debug:
+        msg:
+          - "Tailscale successfully configured!"
+          - "Hostname: {{ vps_hostname | default('hill90-vps') }}"
+          - "IPv4: {{ tailscale_ipv4 }}"
+
+    # SSH Lockdown (Tailscale-only)
+    - name: Lock SSH to Tailscale network only (100.64.0.0/10)
+      firewalld:
+        rich_rule: 'rule family="ipv4" source address="100.64.0.0/10" service name="ssh" accept'
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Remove public SSH access
+      firewalld:
+        service: ssh
+        permanent: yes
+        state: disabled
+        immediate: yes
+
+    # SSH Hardening
+    - name: Configure SSH hardening
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+        - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+        - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
+        - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+        - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+      notify: restart sshd
+
+    - name: Install fail2ban
+      dnf:
+        name: fail2ban
+        state: present
+
+    - name: Configure fail2ban for SSH
+      copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          bantime = 3600
+          findtime = 600
+          maxretry = 3
+
+          [sshd]
+          enabled = true
+          port = ssh
+          logpath = /var/log/secure
+        mode: '0644'
+      notify: restart fail2ban
+
+    - name: Enable and start fail2ban
+      systemd:
+        name: fail2ban
+        enabled: yes
+        state: started
+
+    # ========================================
+    # Phase 3: Development Tools (fresh installs, not cached)
+    # ========================================
+
+    # Docker installation (idempotent)
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Download Docker installation script
+      get_url:
+        url: https://get.docker.com
+        dest: /tmp/get-docker.sh
+        mode: '0755'
+      when: docker_check.rc != 0
+
+    - name: Install Docker
+      command: sh /tmp/get-docker.sh
+      when: docker_check.rc != 0
+
+    - name: Remove Docker install script
+      file:
+        path: /tmp/get-docker.sh
+        state: absent
+
+    - name: Enable and start Docker service
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Add deploy user to docker group
+      user:
+        name: "{{ deploy_user }}"
+        groups: docker
+        append: yes
+
+    # SOPS installation (idempotent)
+    - name: Check if SOPS is installed
+      stat:
+        path: /usr/local/bin/sops
+      register: sops_binary
+
+    - name: Download SOPS
+      get_url:
+        url: "https://github.com/getsops/sops/releases/download/v{{ sops_version }}/sops-v{{ sops_version }}.linux.amd64"
+        dest: /usr/local/bin/sops
+        mode: '0755'
+      when: not sops_binary.stat.exists
+
+    # Age tools installation (idempotent)
+    - name: Check if age is installed
+      stat:
+        path: /usr/local/bin/age
+      register: age_binary
+
+    - name: Download age archive
+      get_url:
+        url: "https://github.com/FiloSottile/age/releases/download/v{{ age_version }}/age-v{{ age_version }}-linux-amd64.tar.gz"
+        dest: /tmp/age.tar.gz
+        mode: '0644'
+      when: not age_binary.stat.exists
+
+    - name: Extract age archive
+      unarchive:
+        src: /tmp/age.tar.gz
+        dest: /tmp
+        remote_src: yes
+      when: not age_binary.stat.exists
+
+    - name: Install age binaries
+      copy:
+        src: "/tmp/age/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        mode: '0755'
+        remote_src: yes
+      loop:
+        - age
+        - age-keygen
+      when: not age_binary.stat.exists
+
+    - name: Clean up age installation files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/age.tar.gz
+        - /tmp/age
+
+    # Repository setup
+    - name: Clone Hill90 repository
+      git:
+        repo: "{{ git_repo_url }}"
+        dest: "{{ app_directory }}"
+        version: "{{ git_branch | default('main') }}"
+        force: yes
+      become_user: "{{ deploy_user }}"
+
+    - name: Set repository ownership
+      file:
+        path: "{{ app_directory }}"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        recurse: yes
+
+    # Secrets setup
+    - name: Create secrets directory
+      file:
+        path: "{{ age_key_path }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0700'
+
+    - name: Transfer age encryption key
+      copy:
+        content: "{{ lookup('file', age_key_source) }}"
+        dest: "{{ age_key_path }}/keys.txt"
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0600'
+      no_log: true
+
+    - name: Create symlink to age key in app directory
+      file:
+        src: "{{ age_key_path }}/keys.txt"
+        dest: "{{ app_directory }}/infra/secrets/keys/age-prod.key"
+        state: link
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        force: yes
+
+    # ========================================
+    # Phase 4: Verification
+    # ========================================
+
+    - name: Verify Docker is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+      register: docker_service
+
+    - name: Verify Docker version
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Verify Docker Compose version
+      command: docker compose version
+      register: compose_version
+      changed_when: false
+
+    - name: Verify SOPS is executable
+      command: sops --version
+      register: sops_version_check
+      changed_when: false
+
+    - name: Verify age is executable
+      command: age --version
+      register: age_version_check
+      changed_when: false
+
+    - name: Verify Tailscale is connected
+      command: tailscale status --json
+      register: ts_status_verify
+      changed_when: false
+
+    - name: Verify age key exists
+      stat:
+        path: "{{ age_key_path }}/keys.txt"
+      register: age_key_verify
+      failed_when: not age_key_verify.stat.exists
+
+    - name: Verify repository was cloned
+      stat:
+        path: "{{ app_directory }}/.git"
+      register: repo_verify
+      failed_when: not repo_verify.stat.exists
+
+  post_tasks:
+    - name: Display verification results
+      debug:
+        msg:
+          - "=========================================="
+          - "Bootstrap v2 Verification Results"
+          - "=========================================="
+          - "Docker: {{ docker_version.stdout }}"
+          - "Docker Compose: {{ compose_version.stdout }}"
+          - "SOPS: {{ sops_version_check.stdout }}"
+          - "age: {{ age_version_check.stdout }}"
+          - "Tailscale IP: {{ tailscale_ipv4 }}"
+          - "Age key: {{ 'PRESENT' if age_key_verify.stat.exists else 'MISSING' }}"
+          - "Repository: {{ 'CLONED' if repo_verify.stat.exists else 'MISSING' }}"
+          - "=========================================="
+
+    - name: Display bootstrap completion message
+      debug:
+        msg:
+          - "✓ Bootstrap v2 completed successfully!"
+          - ""
+          - "Next steps:"
+          - "1. SSH via Tailscale: ssh -i ~/.ssh/remote.hill90.com deploy@{{ tailscale_ipv4 }}"
+          - "2. Deploy services: cd {{ app_directory }} && bash scripts/deploy.sh prod"
+          - ""
+          - "Note: If anything failed above, you can re-run this playbook"
+          - "      (it's idempotent - no OS rebuild needed!)"
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
+
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
