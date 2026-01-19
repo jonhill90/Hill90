@@ -14,8 +14,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Load secrets
-source "$SCRIPT_DIR/load-secrets.sh"
+# Load secrets only if not already set (e.g., from GitHub Actions)
+if [[ -z "${HOSTINGER_API_KEY:-}" ]]; then
+    source "$SCRIPT_DIR/load-secrets.sh"
+fi
 
 # Hostinger API configuration
 API_BASE="${HOSTINGER_API_BASE:-https://developers.hostinger.com}"
