@@ -9,6 +9,11 @@
     group: "{{ deploy_user }}"
     mode: '0755'
 
+- name: Mark repository directory as safe for git operations
+  command: git config --global --add safe.directory "{{ app_directory }}/app"
+  failed_when: false
+  changed_when: false
+
 - name: Clone Hill90 repository
   git:
     repo: "{{ app_repo }}"

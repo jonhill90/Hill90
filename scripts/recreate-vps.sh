@@ -60,14 +60,60 @@ echo ""
 echo -e "${YELLOW}Starting VPS rebuild via Hostinger API...${NC}"
 echo ""
 
-if ! bash "$SCRIPT_DIR/hostinger-api.sh" recreate 1183 "$ROOT_PASSWORD" "$POST_INSTALL_ID"; then
+OUTPUT=$(bash "$SCRIPT_DIR/hostinger-api.sh" recreate 1183 "$ROOT_PASSWORD" "$POST_INSTALL_ID")
+if [[ $? -ne 0 ]]; then
     echo -e "${RED}ERROR: VPS rebuild failed${NC}"
     exit 1
 fi
 
+# Extract action ID from JSON response
+ACTION_ID=$(echo "$OUTPUT" | tail -1 | jq -r '.id // empty')
+if [[ -z "$ACTION_ID" ]]; then
+    echo -e "${RED}ERROR: Could not extract action ID from response${NC}"
+    echo "$OUTPUT"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ VPS rebuild initiated (action ID: $ACTION_ID)${NC}"
 echo ""
-echo -e "${GREEN}✓ VPS rebuild initiated${NC}"
+
+# Step 5: Wait for rebuild to complete
+echo -e "${BLUE}Step 4/4: Waiting for VPS rebuild to complete (~5 minutes)...${NC}"
+if ! bash "$SCRIPT_DIR/hostinger-api.sh" wait-action "$ACTION_ID" 600; then
+    echo -e "${RED}ERROR: VPS rebuild action failed or timed out${NC}"
+    exit 1
+fi
+
 echo ""
-echo -e "${YELLOW}After rebuild completes (~5 min), get new IP and run:${NC}"
-echo "  make config-vps VPS_IP=<new_ip>"
+echo -e "${GREEN}✓ VPS rebuild completed successfully!${NC}"
+echo ""
+
+# Step 6: Get new VPS IP
+echo -e "${BLUE}Retrieving new VPS IP address...${NC}"
+DETAILS=$(bash "$SCRIPT_DIR/hostinger-api.sh" get-details 2>/dev/null)
+NEW_IP=$(echo "$DETAILS" | tail -1 | jq -r '.ipv4[0].address // empty')
+
+if [[ -z "$NEW_IP" ]]; then
+    echo -e "${RED}ERROR: Could not retrieve VPS IP${NC}"
+    echo -e "${YELLOW}Run manually: bash scripts/hostinger-api.sh get-details | tail -1 | jq -r '.ipv4[0].address'${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ New VPS IP: $NEW_IP${NC}"
+echo ""
+
+# Update VPS_IP secret
+echo -e "${BLUE}Updating VPS_IP secret...${NC}"
+if bash "$SCRIPT_DIR/secrets-update.sh" infra/secrets/prod.enc.env "VPS_IP" "$NEW_IP"; then
+    echo -e "${GREEN}✓ VPS_IP secret updated${NC}"
+else
+    echo -e "${YELLOW}WARNING: Failed to update VPS_IP secret automatically${NC}"
+    echo -e "${YELLOW}Run manually: make secrets-update KEY=VPS_IP VALUE=\"$NEW_IP\"${NC}"
+fi
+echo ""
+
+echo -e "${GREEN}${BOLD}VPS rebuild complete!${NC}"
+echo ""
+echo -e "${YELLOW}Next step: Bootstrap the VPS with Ansible${NC}"
+echo -e "${BOLD}  make config-vps VPS_IP=$NEW_IP${NC}"
 echo ""

@@ -63,3 +63,7 @@
     owner: deploy
     group: deploy
     mode: '0644'
+
+- name: Display Tailscale IP
+  debug:
+    msg: "TAILSCALE_IP={{ tailscale_ipv4 }}"

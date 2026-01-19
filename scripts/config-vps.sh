@@ -50,14 +50,15 @@ echo ""
 # Export Tailscale auth key for Ansible
 export TAILSCALE_AUTH_KEY
 
-# Run Ansible bootstrap (runs 01-09 playbooks)
+# Run Ansible bootstrap and capture output to extract Tailscale IP
 cd "$PROJECT_ROOT/infra/ansible"
+ANSIBLE_OUTPUT=$(mktemp)
 if ansible-playbook -i "inventory/hosts.yml" \
                  -e "ansible_host=$VPS_IP" \
                  -e "ansible_user=root" \
                  -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
                  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
-                 playbooks/bootstrap.yml; then
+                 playbooks/bootstrap.yml 2>&1 | tee "$ANSIBLE_OUTPUT"; then
     echo ""
     echo -e "${GREEN}   ✓ Ansible bootstrap complete${NC}"
 else
@@ -65,21 +66,18 @@ else
     echo -e "${RED}   ✗ Ansible bootstrap failed${NC}"
     echo -e "${YELLOW}   You can re-run this script to try again (it's idempotent)${NC}"
     echo -e "${YELLOW}   Command: make config-vps VPS_IP=$VPS_IP${NC}"
+    rm -f "$ANSIBLE_OUTPUT"
     exit 1
 fi
 echo ""
 
-# Step 3: Get Tailscale IP from VPS
-echo -e "${CYAN}[3/4] Retrieving Tailscale IP from VPS...${NC}"
-TAILSCALE_IP=$(ssh -i ~/.ssh/remote.hill90.com \
-                   -o StrictHostKeyChecking=no \
-                   -o UserKnownHostsFile=/dev/null \
-                   -o ConnectTimeout=10 \
-                   deploy@"$VPS_IP" \
-                   'cat /opt/hill90/.tailscale_ip' 2>/dev/null || echo "")
+# Step 3: Extract Tailscale IP from Ansible output
+echo -e "${CYAN}[3/4] Extracting Tailscale IP from Ansible output...${NC}"
+TAILSCALE_IP=$(grep -o 'TAILSCALE_IP=[0-9.]*' "$ANSIBLE_OUTPUT" | head -1 | cut -d= -f2 || echo "")
+rm -f "$ANSIBLE_OUTPUT"
 
 if [ -z "$TAILSCALE_IP" ]; then
-    echo -e "${RED}   ✗ Could not retrieve Tailscale IP${NC}"
+    echo -e "${RED}   ✗ Could not extract Tailscale IP from Ansible output${NC}"
     echo -e "${YELLOW}   Please check manually and update secrets:${NC}"
     echo -e "${YELLOW}   make secrets-update KEY=TAILSCALE_IP VALUE=<ip>${NC}"
     exit 1
