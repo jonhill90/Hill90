@@ -4,54 +4,45 @@
 
 ## Core Principle
 
-**YOU (Claude Code) manage this VPS, not the user.**
+**You have full control of this VPS infrastructure.**
 
-- YOU have SSH access to the VPS
-- YOU have MCP tools to rebuild the VPS OS
-- YOU can install, configure, and deploy everything
-- If YOU break something, YOU can just reinstall the OS and start over
-- The user asks YOU to do things, YOU do them
-- NEVER ask the user to run commands - YOU run them
-- **Everything is done via Makefile commands**
+- Direct SSH access to the VPS is available
+- MCP tools provide OS rebuild capabilities
+- You can install, configure, and deploy everything
+- If something breaks, reinstalling the OS is fast and easy
+- Run commands directly rather than asking the user to run them
+- All operations use Makefile commands for consistency
 
-## ⚠️ NO BLOCKERS - ONLY REBUILDS ⚠️
+## Rebuild-First Approach
 
-**IF ANYTHING IS BROKEN, REBUILD IMMEDIATELY.**
+**When encountering infrastructure problems, rebuilding is often faster than debugging.**
 
-You encounter a problem → You REBUILD the VPS → Problem solved.
+The VPS can be rebuilt in ~10 minutes (2 commands). This makes it practical to rebuild rather than troubleshoot in most cases.
 
-**NEVER do this:**
-- ❌ "Cannot connect to Tailscale" → Report to user
-- ❌ "SSH is down" → Wait for user to fix
-- ❌ "Services won't start" → Ask user what to do
-- ❌ "Need to troubleshoot X" → Investigate for 10 minutes
+**Examples where rebuild is preferred:**
+- Tailscale connectivity issues → Rebuild
+- SSH access problems → Rebuild
+- Service startup failures → Rebuild
+- Configuration errors → Rebuild
 
-**ALWAYS do this:**
-- ✅ Tailscale down → REBUILD VPS immediately
-- ✅ SSH fails → REBUILD VPS immediately
-- ✅ Services broken → REBUILD VPS immediately
-- ✅ Config errors → REBUILD VPS immediately
-- ✅ **ANY problem → REBUILD VPS immediately**
-
-**Why:**
-- Rebuild takes 10 minutes (3 commands)
-- You have all the tools to rebuild
-- You have full control of the infrastructure
-- Your role is to solve problems, not report them
-- Rebuilding is faster than debugging
+**Why this approach works:**
+- Rebuild is fully automated (10 minutes)
+- All tools and access are available
+- Infrastructure is ephemeral by design
+- Faster than investigating complex issues
 
 **The rebuild process is 2 commands:**
 ```bash
 make rebuild-full-auto                     # 1. Prep + display MCP params
-# YOU use MCP to rebuild OS                # 2. Rebuild via MCP (5 min)
+# Use MCP to rebuild OS                    # 2. Rebuild via MCP (5 min)
 make rebuild-full-auto-post-mcp VPS_IP=X   # 3. Bootstrap + deploy + verify
 ```
 
-## CRITICAL RULES - READ FIRST
+## Important Guidelines
 
-### ⚠️ NEVER DEPLOY LOCALLY ⚠️
+### Deployment Location
 
-**DEPLOYMENTS ALWAYS RUN ON THE VPS, NEVER ON THE USER'S MAC.**
+**Deployments must run on the VPS via SSH, not on the local Mac.**
 
 When deploying:
 ```bash
@@ -63,23 +54,23 @@ make deploy  # This runs LOCALLY on Mac, not on VPS
 bash scripts/deploy.sh prod  # This runs LOCALLY, not on VPS
 ```
 
-The deploy script builds and runs Docker containers **wherever you execute it**. You must SSH to the VPS first.
+The deploy script builds and runs Docker containers **wherever you execute it**, so SSH to the VPS first to ensure proper deployment.
 
 ## Your Capabilities
 
 ### 1. VPS Management (via MCP Tools)
-You have direct access to Hostinger VPS via MCP tools:
-- `mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1` - Rebuild OS (DESTRUCTIVE)
+Direct access to Hostinger VPS via MCP tools:
+- `mcp__MCP_DOCKER__VPS_recreateVirtualMachineV1` - Rebuild OS (destructive)
 - `mcp__MCP_DOCKER__VPS_getVirtualMachineDetailsV1` - Get VPS info
 - Full VPS lifecycle management
 
 ### 2. SSH Access
-- **VPS Public IP:** 76.13.26.69 (not for SSH - public SSH blocked)
-- **VPS Tailscale IP:** 100.68.116.66 (USE THIS for SSH)
-- SSH as: `deploy` user (or `root` after rebuild)
+- **VPS Public IP:** 76.13.26.69 (public SSH blocked by firewall)
+- **VPS Tailscale IP:** 100.68.116.66 (use this for SSH)
+- SSH as: `deploy` user (or `root` immediately after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
-- You can run ANY command on the VPS via SSH
-- **ALWAYS use Tailscale IP for SSH:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66`
+- Full command execution available via SSH
+- **Example:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66`
 
 ### 3. Makefile Commands
 All operations are done via Makefile - check `make help` for full list.
@@ -127,11 +118,11 @@ All operations are done via Makefile - check `make help` for full list.
 
 ```bash
 make rebuild-optimized                    # 1. Prep
-# YOU run MCP rebuild (Claude Code only)  # 2. MCP
+# Run MCP rebuild (Claude Code only)      # 2. MCP
 make rebuild-optimized-post-mcp VPS_IP=X  # 3. Bootstrap + deploy
 ```
 
-**When things break:** Just rebuild. YOU control the entire stack.
+**When things break:** Rebuild is usually the fastest solution.
 
 ## Deployment
 
@@ -145,7 +136,7 @@ make deploy-production  # PRODUCTION certs (rate-limited!)
 make health         # Verify services
 ```
 
-**CRITICAL**: Deployments ALWAYS run on VPS via SSH, never locally.
+**Important**: Deployments run on VPS via SSH, not locally on Mac.
 
 ## Secrets Management
 
@@ -170,7 +161,7 @@ make tailscale-setup    # Setup auth key (90-day expiry)
 make tailscale-rotate   # Rotate expired key
 ```
 
-**ALWAYS SSH via Tailscale IP**: 100.68.116.66 (public SSH blocked)
+**SSH via Tailscale IP**: 100.68.116.66 (public SSH blocked by firewall)
 
 ## GitHub Actions
 
@@ -180,14 +171,14 @@ make tailscale-rotate   # Rotate expired key
 - **Mac/Manual:** MCP tools via Claude Code (interactive)
 - **GitHub Actions:** Hostinger API (full automation, no LLM)
 
-## Important Reminders
+## Key Operational Notes
 
-1. **SSH to the VPS directly** - Don't ask the user to SSH
-2. **Use MCP tools** - You can rebuild the OS
-3. **Run commands directly** - Don't ask the user to run commands
-4. **Use the Makefile** - All operations via `make` commands
-5. **Bootstrap is automated** - git, clone, age key all automatic
-6. **Commit often** - User values clean git history
+1. **SSH access** - Direct SSH to VPS is available; run commands directly
+2. **MCP tools** - OS rebuild capability via MCP tools
+3. **Command execution** - Run commands directly rather than requesting user action
+4. **Makefile usage** - All operations use `make` commands for consistency
+5. **Automation** - Bootstrap is fully automated (git, clone, age key transfer)
+6. **Git commits** - Commit frequently with clear messages
 
 ## Baseline Status: ✅ ACHIEVED
 
