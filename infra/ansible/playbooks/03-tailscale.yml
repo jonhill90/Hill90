@@ -1,20 +1,25 @@
 ---
-# Tailscale Installation Playbook
-# Installs Tailscale binary and joins the tailnet
-# Auth key is managed via Terraform (infra/terraform/tailscale)
+# Tailscale Installation and Configuration
+
+- name: Check if Tailscale is installed
+  stat:
+    path: /usr/bin/tailscale
+  register: tailscale_binary
 
 - name: Download Tailscale install script
   get_url:
     url: https://tailscale.com/install.sh
     dest: /tmp/tailscale-install.sh
     mode: '0755'
+  when: not tailscale_binary.stat.exists
 
-- name: Install Tailscale using official script
+- name: Install Tailscale
   command: sh /tmp/tailscale-install.sh
   args:
     creates: /usr/bin/tailscale
+  when: not tailscale_binary.stat.exists
 
-- name: Remove install script
+- name: Remove Tailscale install script
   file:
     path: /tmp/tailscale-install.sh
     state: absent
@@ -50,15 +55,6 @@
 - name: Extract Tailscale IPv4 address
   set_fact:
     tailscale_ipv4: "{{ (tailscale_status_json.stdout | from_json).Self.TailscaleIPs | select('match', '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$') | first }}"
-
-- name: Display Tailscale configuration
-  debug:
-    msg:
-      - "Tailscale successfully configured!"
-      - "Hostname: {{ vps_hostname | default('hill90-vps') }}"
-      - "IPv4: {{ tailscale_ipv4 }}"
-      - "SSH enabled: yes"
-      - "Accept routes: yes"
 
 - name: Save Tailscale IP to fact file
   copy:

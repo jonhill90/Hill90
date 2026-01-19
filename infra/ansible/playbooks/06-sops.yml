@@ -1,0 +1,14 @@
+---
+# SOPS Installation
+
+- name: Check if SOPS is installed
+  stat:
+    path: /usr/local/bin/sops
+  register: sops_binary
+
+- name: Download SOPS
+  get_url:
+    url: "https://github.com/getsops/sops/releases/download/v{{ sops_version }}/sops-v{{ sops_version }}.linux.amd64"
+    dest: /usr/local/bin/sops
+    mode: '0755'
+  when: not sops_binary.stat.exists

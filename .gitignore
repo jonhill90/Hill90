@@ -167,6 +167,7 @@ temp/
 
 # Never commit files that may contain passwords/secrets
 AUTOMATION_SUMMARY.md
+HANDOFF.md
 *.password.txt
 *_credentials.txt
 

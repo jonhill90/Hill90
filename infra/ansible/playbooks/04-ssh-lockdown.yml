@@ -1,48 +1,62 @@
 ---
-# SSH Lockdown Playbook
-# Locks SSH access to Tailscale network only (after Tailscale is configured)
+# SSH Lockdown to Tailscale Network
 
-- name: Remove SSH from public access (Tailscale only)
+- name: Lock SSH to Tailscale network only (100.64.0.0/10)
+  firewalld:
+    rich_rule: 'rule family="ipv4" source address="100.64.0.0/10" service name="ssh" accept'
+    permanent: yes
+    state: enabled
+    immediate: yes
+
+- name: Remove public SSH access
   firewalld:
     service: ssh
     permanent: yes
     state: disabled
     immediate: yes
 
-- name: Allow SSH from Tailscale network only
-  firewalld:
-    rich_rule: 'rule family="ipv4" source address="100.64.0.0/10" port port="22" protocol="tcp" accept'
-    permanent: yes
-    state: enabled
-    immediate: yes
-
-- name: Remove obsolete Docker network SSH rules (from Twingate)
-  firewalld:
-    rich_rule: "{{ item }}"
-    permanent: yes
-    state: disabled
-    immediate: yes
+- name: Configure SSH hardening
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
   loop:
-    - 'rule family="ipv4" source address="172.17.0.0/16" port port="22" protocol="tcp" accept'
-    - 'rule family="ipv4" source address="172.18.0.0/16" port port="22" protocol="tcp" accept'
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+    - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+    - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
+    - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+    - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+  notify: restart sshd
+
+- name: Install fail2ban
+  dnf:
+    name: fail2ban
+    state: present
   ignore_errors: yes
 
-- name: Reload firewalld
-  command: firewall-cmd --reload
-  changed_when: false
+- name: Configure fail2ban for SSH
+  copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 3
 
-- name: Display firewall status
-  command: firewall-cmd --list-all
-  register: firewall_status
-  changed_when: false
+      [sshd]
+      enabled = true
+      port = ssh
+      logpath = /var/log/secure
+    mode: '0644'
+  ignore_errors: yes
+  notify: restart fail2ban
 
-- name: Show SSH lockdown status
-  debug:
-    msg:
-      - "SSH is now locked to Tailscale network only (100.64.0.0/10)"
-      - "Public SSH access is BLOCKED"
-      - "You must use Tailscale IP for SSH access"
-
-- name: Show firewall configuration
-  debug:
-    var: firewall_status.stdout_lines
+- name: Enable and start fail2ban
+  systemd:
+    name: fail2ban
+    enabled: yes
+    state: started
+  ignore_errors: yes

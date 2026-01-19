@@ -1,0 +1,23 @@
+---
+# Repository Clone
+
+- name: Ensure app directory exists with correct ownership
+  file:
+    path: "{{ app_directory }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Clone Hill90 repository
+  git:
+    repo: "{{ app_repo }}"
+    dest: "{{ app_directory }}/app"
+    version: "{{ app_branch }}"
+
+- name: Set repository ownership
+  file:
+    path: "{{ app_directory }}"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    recurse: yes

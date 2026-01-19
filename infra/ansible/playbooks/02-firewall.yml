@@ -1,0 +1,24 @@
+---
+# Firewall Configuration
+
+- name: Install firewalld
+  dnf:
+    name: firewalld
+    state: present
+
+- name: Enable and start firewalld
+  systemd:
+    name: firewalld
+    enabled: yes
+    state: started
+
+- name: Configure firewall rules (HTTP/HTTPS/SSH public)
+  firewalld:
+    service: "{{ item }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop:
+    - http
+    - https
+    - ssh

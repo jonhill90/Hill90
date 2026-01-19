@@ -1,6 +1,16 @@
 ---
-# User Setup Playbook
-# Creates deploy user with sudo privileges and SSH key authentication
+# System Preparation
+# Core utilities, deploy user, directories
+
+- name: Install core utilities
+  dnf:
+    name:
+      - jq
+      - tmux
+      - vim
+      - wget
+      - tar
+    state: present
 
 - name: Create deploy user
   user:
@@ -38,18 +48,13 @@
     validate: 'visudo -cf %s'
     mode: '0440'
 
-- name: Create application directory
+- name: Create application directories
   file:
-    path: "{{ app_directory }}"
+    path: "{{ item }}"
     state: directory
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
     mode: '0755'
-
-- name: Set proper permissions on deploy home
-  file:
-    path: "{{ deploy_home }}"
-    owner: "{{ deploy_user }}"
-    group: "{{ deploy_user }}"
-    mode: '0755'
-    state: directory
+  loop:
+    - "{{ app_directory }}"
+    - "{{ deploy_home }}"

@@ -1,7 +1,7 @@
 ---
 # Master Bootstrap Playbook
-# Runs all numbered playbooks in sequence
-# Based on existing 01-09 playbooks
+# Runs all numbered playbooks in sequence (01-09)
+# Based on working bootstrap-v2.yml logic
 
 - name: Bootstrap VPS Infrastructure
   hosts: vps
@@ -11,30 +11,50 @@
   vars_files:
     - ../inventory/group_vars/all.yml
 
+  vars:
+    sops_version: "3.8.1"
+    age_version: "1.1.1"
+
   tasks:
-    - name: 01 - User Setup
-      import_tasks: 01-user-setup.yml
+    - name: "01 - System Preparation"
+      import_tasks: 01-system-prep.yml
 
-    - name: 02 - Firewall Basic
-      import_tasks: 02-firewall-basic.yml
+    - name: "02 - Firewall"
+      import_tasks: 02-firewall.yml
 
-    - name: 03 - Tailscale
+    - name: "03 - Tailscale"
       import_tasks: 03-tailscale.yml
 
-    - name: 04 - SSH Lockdown
+    - name: "04 - SSH Lockdown"
       import_tasks: 04-ssh-lockdown.yml
 
-    - name: 05 - SSH Hardening
-      import_tasks: 05-ssh-hardening.yml
+    - name: "05 - Docker"
+      import_tasks: 05-docker.yml
 
-    - name: 06 - Secrets Setup
-      import_tasks: 06-secrets-setup.yml
+    - name: "06 - SOPS"
+      import_tasks: 06-sops.yml
 
-    - name: 07 - Git and Repo
-      import_tasks: 07-git-and-repo.yml
+    - name: "07 - Age"
+      import_tasks: 07-age.yml
 
-    - name: 08 - Age Key Transfer
-      import_tasks: 08-age-key-transfer.yml
+    - name: "08 - Repository"
+      import_tasks: 08-repository.yml
 
-    - name: 09 - Docker Install
-      import_tasks: 09-docker-install.yml
+    - name: "09 - Secrets"
+      import_tasks: 09-secrets.yml
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
+
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      systemd:
+        name: fail2ban
+        state: restarted
