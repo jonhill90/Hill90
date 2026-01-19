@@ -53,7 +53,14 @@ ESCAPED_VALUE=$(echo -n "$VALUE" | jq -Rs .)
 if sops --set "[\"${KEY}\"] ${ESCAPED_VALUE}" "$SECRET_FILE"; then
     echo -e "${COLOR_GREEN}✓ Secret updated successfully!${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}Backup saved: $BACKUP_FILE${COLOR_RESET}"
-    echo -e "${COLOR_YELLOW}You can remove the backup with: rm $BACKUP_FILE${COLOR_RESET}"
+
+    # Clean up old backups (keep only last 5)
+    BACKUP_COUNT=$(ls -1 "${SECRET_FILE}.backup."* 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$BACKUP_COUNT" -gt 5 ]; then
+        echo -e "${COLOR_YELLOW}Cleaning up old backups (keeping last 5)...${COLOR_RESET}"
+        ls -1t "${SECRET_FILE}.backup."* | tail -n +6 | xargs rm -f
+        echo -e "${COLOR_GREEN}✓ Cleaned up $((BACKUP_COUNT - 5)) old backup(s)${COLOR_RESET}"
+    fi
 else
     echo -e "${COLOR_RED}✗ Failed to update secret${COLOR_RESET}"
     echo -e "${COLOR_YELLOW}Restoring from backup...${COLOR_RESET}"

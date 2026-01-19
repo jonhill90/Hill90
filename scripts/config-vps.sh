@@ -35,15 +35,8 @@ echo ""
 # Load secrets for Tailscale auth key
 source "$SCRIPT_DIR/load-secrets.sh"
 
-# Step 1: Update VPS_IP in secrets
-echo -e "${CYAN}[1/4] Updating VPS_IP in encrypted secrets...${NC}"
-cd "$PROJECT_ROOT"
-make secrets-update KEY=VPS_IP VALUE="$VPS_IP" > /dev/null 2>&1
-echo -e "${GREEN}   ✓ VPS_IP updated${NC}"
-echo ""
-
-# Step 2: Run Ansible bootstrap
-echo -e "${CYAN}[2/4] Running Ansible bootstrap (this may take 5-10 minutes)...${NC}"
+# Step 1: Run Ansible bootstrap
+echo -e "${CYAN}[1/3] Running Ansible bootstrap (this may take 5-10 minutes)...${NC}"
 echo -e "${YELLOW}   Installing: Docker, SOPS, age, Tailscale, SSH hardening${NC}"
 echo ""
 
@@ -71,8 +64,8 @@ else
 fi
 echo ""
 
-# Step 3: Extract Tailscale IP from Ansible output
-echo -e "${CYAN}[3/4] Extracting Tailscale IP from Ansible output...${NC}"
+# Step 2: Extract Tailscale IP from Ansible output
+echo -e "${CYAN}[2/3] Extracting Tailscale IP from Ansible output...${NC}"
 TAILSCALE_IP=$(grep -o 'TAILSCALE_IP=[0-9.]*' "$ANSIBLE_OUTPUT" | head -1 | cut -d= -f2 || echo "")
 rm -f "$ANSIBLE_OUTPUT"
 
@@ -86,8 +79,8 @@ fi
 echo -e "${GREEN}   ✓ Tailscale IP: $TAILSCALE_IP${NC}"
 echo ""
 
-# Step 4: Update TAILSCALE_IP in secrets
-echo -e "${CYAN}[4/4] Updating TAILSCALE_IP in encrypted secrets...${NC}"
+# Step 3: Update TAILSCALE_IP in secrets
+echo -e "${CYAN}[3/3] Updating TAILSCALE_IP in encrypted secrets...${NC}"
 cd "$PROJECT_ROOT"
 make secrets-update KEY=TAILSCALE_IP VALUE="$TAILSCALE_IP" > /dev/null 2>&1
 echo -e "${GREEN}   ✓ TAILSCALE_IP updated${NC}"

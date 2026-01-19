@@ -80,9 +80,8 @@ config-vps: ## Configure VPS with Ansible (idempotent - safe to re-run)
 	@echo "$(COLOR_BOLD)Configuring VPS at $(VPS_IP)...$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_GREEN)This will:$(COLOR_RESET)"
-	@echo "  1. Update VPS_IP in secrets"
-	@echo "  2. Run Ansible bootstrap (Docker, SOPS, age, Tailscale)"
-	@echo "  3. Update TAILSCALE_IP in secrets"
+	@echo "  1. Run Ansible bootstrap (Docker, SOPS, age, Tailscale)"
+	@echo "  2. Extract and update TAILSCALE_IP in secrets"
 	@echo ""
 	bash scripts/config-vps.sh $(VPS_IP)
 	@echo ""
