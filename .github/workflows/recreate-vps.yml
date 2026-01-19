@@ -1,17 +1,17 @@
-name: VPS Rebuild (Automated)
+name: VPS Recreate (Automated)
 
 # Manual trigger only - DESTRUCTIVE operation
 on:
   workflow_dispatch:
     inputs:
-      confirm_rebuild:
-        description: 'Type REBUILD to confirm VPS rebuild (DESTRUCTIVE)'
+      confirm_recreate:
+        description: 'Type RECREATE to confirm VPS recreate (DESTRUCTIVE)'
         required: true
         type: string
 
 jobs:
-  rebuild:
-    name: Rebuild VPS via Hostinger API
+  recreate:
+    name: Recreate VPS via Hostinger API
     runs-on: ubuntu-latest
 
     steps:
@@ -20,11 +20,11 @@ jobs:
       # ========================================
       - name: Validate confirmation
         run: |
-          if [ "${{ github.event.inputs.confirm_rebuild }}" != "REBUILD" ]; then
-            echo "❌ Rebuild not confirmed. You must type 'REBUILD' exactly."
+          if [ "${{ github.event.inputs.confirm_recreate }}" != "RECREATE" ]; then
+            echo "❌ Recreate not confirmed. You must type 'RECREATE' exactly."
             exit 1
           fi
-          echo "✅ Rebuild confirmed - proceeding with VPS rebuild"
+          echo "✅ Recreate confirmed - proceeding with VPS recreate"
 
       # ========================================
       # 2. SETUP
@@ -57,14 +57,14 @@ jobs:
           chmod 600 ~/.config/sops/age/keys.txt
 
       # ========================================
-      # 3. REBUILD VPS (via make command)
+      # 3. RECREATE VPS (via make command)
       # ========================================
       - name: Run make recreate-vps
         env:
           HOSTINGER_API_KEY: ${{ secrets.HOSTINGER_API_KEY }}
           TAILSCALE_API_KEY: ${{ secrets.TAILSCALE_API_KEY }}
         run: |
-          echo "🔄 Running VPS rebuild via make recreate-vps..."
+          echo "🔄 Running VPS recreate via make recreate-vps..."
           make recreate-vps
 
       - name: Capture new VPS IP from secrets
@@ -143,11 +143,11 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update VPS IPs after rebuild
+            git commit -m "Update VPS IPs after recreate
 
             - VPS Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
             - Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}
-            - Rebuild action: ${{ github.run_id }}"
+            - Recreate action: ${{ github.run_id }}"
             git push
           fi
 
@@ -165,7 +165,7 @@ jobs:
       - name: Print summary
         if: success()
         run: |
-          echo "🎉 VPS rebuild complete!"
+          echo "🎉 VPS recreate complete!"
           echo ""
           echo "📊 New VPS details:"
           echo "  Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
