@@ -1,8 +1,19 @@
 # VPS Operations Reference
 
-## Automated VPS Rebuild (2 Commands)
+## VPS Rebuild Options
 
 The VPS rebuild is fully automated with **zero manual intervention** required.
+
+Two rebuild options are available:
+
+- **Option A: Local Execution (Recommended)** - Faster, simpler, no GitHub UI needed
+- **Option B: GitHub Actions** - Remote execution, full audit trail, accessible from anywhere
+
+Both options use the same underlying automation and produce identical results.
+
+## Option A: Local Rebuild (Recommended)
+
+**Preferred method for speed and simplicity.**
 
 ### Complete Rebuild Workflow
 
@@ -114,12 +125,59 @@ If you can't SSH to VPS:
 2. Verify VPS joined Tailscale: Check Tailscale admin console
 3. Try public IP temporarily (within first few minutes before SSH lockdown)
 
+## Option B: GitHub Actions Rebuild
+
+**Alternative method for remote execution or when local setup is unavailable.**
+
+### When to Use GitHub Actions
+
+- Remote execution (trigger from anywhere via GitHub web UI)
+- CI/CD integration
+- Full audit trail in GitHub Actions logs
+- Team collaboration (anyone with repo access can trigger)
+- Local machine is unavailable
+
+### How to Trigger
+
+1. Go to repository → **Actions** → **VPS Recreate (Automated)**
+2. Click **"Run workflow"**
+3. Type **"RECREATE"** exactly in the confirmation input
+4. Click **"Run workflow"** button
+5. Watch execution in real-time
+
+### Expected Timeline
+
+- Setup: ~1 minute
+- VPS recreate: ~5 minutes (rebuild + wait for SSH)
+- Bootstrap: ~5 minutes (Ansible 9-stage setup)
+- Deploy: ~2 minutes (all 6 services)
+- Cleanup: ~30 seconds
+- **Total:** ~13 minutes
+
+### What Happens
+
+1. Validates confirmation input ("RECREATE")
+2. Sets up Tailscale, SSH keys, SOPS on runner
+3. Runs `make recreate-vps` (generates keys, rebuilds VPS, updates secrets)
+4. Waits for SSH availability on new VPS
+5. Runs `make config-vps` (Ansible bootstrap)
+6. Deploys services via SSH over Tailscale
+7. Attempts to commit updated secrets to repository (may fail - non-blocking)
+8. Cleans up backup files
+
+### Requirements
+
+- GitHub secrets configured (see `.claude/reference/github-actions.md`)
+- Workflow file: `.github/workflows/recreate-vps.yml`
+
+**Full documentation:** See `.claude/reference/github-actions.md`
+
 ## VPS Information
 
 - **VPS ID**: 1264324
 - **Template ID**: 1183 (AlmaLinux 10)
 - **Current Public IP**: 76.13.26.69 (not for SSH - public SSH blocked)
-- **Current Tailscale IP**: 100.99.139.10 (use this for SSH)
+- **Current Tailscale IP**: 100.108.199.106 (use this for SSH)
 - **SSH Key**: `~/.ssh/remote.hill90.com`
 - **Deploy User**: `deploy` (or `root` immediately after rebuild)
 

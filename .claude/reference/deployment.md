@@ -18,11 +18,24 @@ The deploy script builds and runs Docker containers **wherever you execute it**,
 
 ## Deploy Changes
 
+### Local Deployment
+
 ```bash
 make deploy               # Deploys to VPS (STAGING certificates - safe for testing)
 make deploy-production    # Deploys with PRODUCTION certificates (USE CAREFULLY - rate limited!)
 make health               # Checks everything is running
 ```
+
+### GitHub Actions Deployment
+
+**VPS recreate workflow automatically deploys services** after bootstrap completes.
+
+- Workflow: `.github/workflows/recreate-vps.yml`
+- Deployment included as part of VPS recreate process
+- Uses staging certificates by default
+- SSH connection via Tailscale network
+
+**Note:** Standalone deployment workflow (`.github/workflows/deploy.yml`) is also available but VPS recreate workflow includes deployment.
 
 ## Let's Encrypt Configuration
 

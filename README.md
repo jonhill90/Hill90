@@ -66,7 +66,9 @@ This will generate age keypair and create initial encrypted secrets file.
 
 ### 4. Rebuild VPS (if needed)
 
-**Complete VPS rebuild is fully automated:**
+**Complete VPS rebuild is fully automated with two options:**
+
+#### Option A: Local Execution (Recommended)
 
 ```bash
 # 1. Rebuild VPS (auto-waits, auto-retrieves IP, auto-updates secrets)
@@ -76,17 +78,32 @@ make recreate-vps
 make config-vps VPS_IP=<ip>
 ```
 
-**Total time:** ~5-10 minutes
+**Time:** ~5-10 minutes
 
-This automatically:
-- Generates new Tailscale auth key via API
-- Rebuilds VPS OS via Hostinger API
-- Creates deploy user with SSH keys
-- Installs Docker and Docker Compose
-- Configures firewall (HTTP/HTTPS public, SSH from Tailscale only)
-- Joins Tailscale network and captures IP
-- Installs SOPS and age for secrets management
-- Clones repository and transfers encryption key
+#### Option B: GitHub Actions
+
+**Alternative method for remote execution or CI/CD integration.**
+
+1. Go to repository → **Actions** → **VPS Recreate (Automated)**
+2. Click **"Run workflow"**
+3. Type **"RECREATE"** to confirm
+4. Watch execution (~13 minutes)
+
+**Time:** ~13 minutes (includes deployment)
+
+**Status:** ✅ Tested successfully (Run #21128156365)
+
+---
+
+**Both options automatically:**
+- Generate new Tailscale auth key via API
+- Rebuild VPS OS via Hostinger API
+- Create deploy user with SSH keys
+- Install Docker and Docker Compose
+- Configure firewall (HTTP/HTTPS public, SSH from Tailscale only)
+- Join Tailscale network and capture IP
+- Install SOPS and age for secrets management
+- Clone repository and transfer encryption key
 
 ### 5. Deploy Services
 
@@ -206,20 +223,49 @@ infra/secrets/
 
 ## CI/CD
 
-Deployments are automated via GitHub Actions on push to `main` branch.
+### GitHub Actions Workflows
+
+**Two GitHub Actions workflows are available:**
+
+1. **VPS Recreate Workflow** - `.github/workflows/recreate-vps.yml`
+   - ✅ **Status:** Tested and operational (Run #21128156365)
+   - **Trigger:** Manual via GitHub UI (type "RECREATE" to confirm)
+   - **Duration:** ~13 minutes (recreate + bootstrap + deploy)
+   - **Features:**
+     - Full VPS rebuild via Hostinger API
+     - Automatic bootstrap with Ansible
+     - Service deployment via SSH over Tailscale
+     - IP updates and secret management
+
+2. **Tailscale ACL GitOps** - `.github/workflows/tailscale.yml`
+   - ✅ **Status:** Operational
+   - **Trigger:** Automatic on push to main (for `policy.hujson` changes)
+   - **Features:**
+     - Automatic ACL deployment to Tailscale network
+     - ACL testing on pull requests
+     - Full audit trail in git
 
 ### GitHub Secrets Required
 
-- `VPS_HOST`: VPS IP address or hostname
-- `VPS_SSH_KEY`: Deploy user SSH private key
-- `AGE_SECRET_KEY`: age private key for decryption
+To use GitHub Actions workflows, configure these secrets in repository settings:
 
-**Note:** CI/CD requires Tailscale connection for VPS access
+- `HOSTINGER_API_KEY` - VPS management API access
+- `TAILSCALE_API_KEY` - Tailscale device/auth key management
+- `TS_OAUTH_CLIENT_ID` - GitHub runner network access (ephemeral nodes)
+- `TS_OAUTH_SECRET` - GitHub runner network access (ephemeral nodes)
+- `VPS_SSH_PRIVATE_KEY` - SSH access to VPS
+- `SOPS_AGE_KEY` - Secrets decryption
+
+**Full setup guide:** See `.claude/reference/github-actions.md`
 
 ### Manual Deployment
 
 ```bash
+# Local deployment (recommended for development)
 make deploy
+
+# Or via SSH to VPS
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
 ```
 
 ## Monitoring

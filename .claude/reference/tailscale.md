@@ -37,6 +37,85 @@ The bootstrap process automatically:
 5. Configures firewall to allow SSH from Tailscale network only (100.64.0.0/10)
 6. Locks down SSH to Tailscale-only access
 
+## Tailscale ACL GitOps Workflow
+
+**Tailscale ACL policies are managed via GitOps** - changes are automatically deployed when pushed to main.
+
+### How It Works
+
+1. Edit `policy.hujson` in repository root
+2. Commit and push to main branch
+3. GitHub Actions workflow (`.github/workflows/tailscale.yml`) automatically:
+   - Validates ACL syntax
+   - Deploys to Tailscale network
+   - Updates live policy immediately
+
+### Pull Request Testing
+
+When creating a PR that modifies `policy.hujson`:
+- ACL is automatically **tested** for syntax errors
+- Invalid ACLs will fail the PR check
+- Merge only after ACL test passes
+
+### Policy File Location
+
+- **File:** `policy.hujson` (repository root)
+- **Format:** JSON with comments (HuJSON)
+- **Manages:**
+  - Tag ownership (`tagOwners`)
+  - Network access grants (`grants`)
+  - SSH access rules (`ssh`)
+
+### Example: Admin SSH Access
+
+To allow admin users to SSH to VPS, add to `policy.hujson`:
+
+```json
+"ssh": [
+  {
+    "action": "accept",
+    "src":    ["autogroup:admin"],
+    "dst":    ["tag:vps"],
+    "users":  ["root", "deploy", "autogroup:nonroot"],
+  }
+]
+```
+
+Push to main → ACL deployed automatically.
+
+## ACL Configuration for SSH Access
+
+**Required ACL rules for admin SSH access:**
+
+The VPS must have the `tag:vps` tag, and your user must be in `autogroup:admin` or have explicit SSH access configured.
+
+**Current policy includes:**
+
+1. **Admin SSH access:**
+   ```json
+   {
+     "action": "accept",
+     "src":    ["autogroup:admin"],
+     "dst":    ["tag:vps"],
+     "users":  ["root", "deploy", "autogroup:nonroot"],
+   }
+   ```
+
+2. **GitHub Actions runner access:**
+   ```json
+   {
+     "action": "accept",
+     "src":    ["tag:github-actions"],
+     "dst":    ["tag:vps"],
+     "users":  ["root", "deploy", "autogroup:nonroot"],
+   }
+   ```
+
+**To check your access:**
+- Visit Tailscale admin console: https://login.tailscale.com/admin/acls
+- Verify your user is in `autogroup:admin`
+- Verify VPS device has `tag:vps` tag
+
 ## SSH via Tailscale
 
 ```bash
@@ -64,21 +143,27 @@ make ssh
 
 ### Cannot SSH to VPS
 
-1. Verify Tailscale is running on your Mac:
+1. **Check ACL rules first:**
+   - Visit Tailscale admin console: https://login.tailscale.com/admin/acls
+   - Verify ACL includes admin SSH rule (see "ACL Configuration for SSH Access" above)
+   - Verify your user is in `autogroup:admin`
+   - Verify VPS device has `tag:vps` tag
+
+2. Verify Tailscale is running on your Mac:
    ```bash
    tailscale status
    ```
 
-2. Verify VPS joined Tailscale network:
+3. Verify VPS joined Tailscale network:
    - Check Tailscale admin console at https://login.tailscale.com/admin/machines
    - Look for device named `hill90-vps`
 
-3. Get Tailscale IP from VPS (within first few minutes before SSH lockdown):
+4. Get Tailscale IP from VPS (within first few minutes before SSH lockdown):
    ```bash
    ssh -i ~/.ssh/remote.hill90.com root@<public-ip> 'cat /opt/hill90/.tailscale_ip'
    ```
 
-4. Update secrets with correct Tailscale IP:
+5. Update secrets with correct Tailscale IP:
    ```bash
    make secrets-update KEY=TAILSCALE_IP VALUE="<ip>"
    ```

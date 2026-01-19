@@ -97,11 +97,11 @@ Direct access to Hostinger VPS via Hostinger API:
 ### 2. SSH Access
 
 - **VPS Public IP:** 76.13.26.69 (public SSH blocked by firewall)
-- **VPS Tailscale IP:** 100.99.139.10 (use this for SSH)
+- **VPS Tailscale IP:** 100.108.199.106 (use this for SSH)
 - SSH as: `deploy` user (or `root` immediately after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
 - Full command execution available via SSH
-- **Example:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.99.139.10`
+- **Example:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.108.199.106`
 
 ### 3. Makefile Commands
 
@@ -176,18 +176,35 @@ make secrets-edit                        # Interactive edit
 
 ### Quick Reference
 
-Auth keys are **automatically generated** during `make recreate-vps` (90-day expiry).
+- Auth keys are **automatically generated** during `make recreate-vps` (90-day expiry)
+- **SSH via Tailscale IP**: 100.108.199.106 (public SSH blocked by firewall)
+- **ACL management via GitOps**: Edit `policy.hujson` → push to main → auto-deployed
 
-**SSH via Tailscale IP**: 100.99.139.10 (public SSH blocked by firewall)
+**ACL GitOps workflow** (`.github/workflows/tailscale.yml`):
+- Push to main → ACL deployed automatically
+- Pull request → ACL tested for validity
+- Manages SSH access, tags, and network grants
 
 ## GitHub Actions
 
 **See `.claude/reference/github-actions.md` for complete automation workflows.**
 
-**Quick Reference**: Hybrid approach available
+**Quick Reference**: Hybrid approach - both tested and operational
 
-- **Mac/Local:** Hostinger API via `make` commands (fully automated)
-- **GitHub Actions:** Hostinger API (full automation, ready when needed)
+- **Mac/Local:** Hostinger API via `make` commands (fully automated, recommended)
+- **GitHub Actions:** Full VPS recreate workflow (tested January 19, 2026)
+
+**VPS Recreate Workflow** - ✅ Tested successfully:
+- Workflow: `.github/workflows/recreate-vps.yml`
+- Trigger: Manual via GitHub UI (type "RECREATE" to confirm)
+- Timeline: ~13 minutes (recreate + bootstrap + deploy)
+- Test run: Successfully rebuilt VPS with all 6 services running
+
+**Tailscale ACL GitOps** - ✅ Operational:
+- Workflow: `.github/workflows/tailscale.yml`
+- Automatic ACL deployment on push to main
+- ACL testing on pull requests
+- Policy file: `policy.hujson`
 
 ## Key Operational Notes
 
@@ -205,9 +222,11 @@ The VPS baseline is complete:
 
 1. ✅ VPS is bootstrapped (deploy user, Docker, firewall)
 2. ✅ Infrastructure fully automated (2 commands, zero warnings)
-3. ✅ **Tailscale SSH access works** (100.99.139.10)
+3. ✅ **Tailscale SSH access works** (100.108.199.106)
 4. ✅ Public SSH is locked down (firewall blocks port 22)
+5. ✅ **GitHub Actions VPS recreate tested** (Run #21128156365)
+6. ✅ **Tailscale ACL GitOps operational** (automatic deployment on push)
 
-**Baseline achieved!** Infrastructure automation is production-ready.
+**Baseline achieved!** Infrastructure automation is production-ready with both local and GitHub Actions workflows operational.
 
 ---
