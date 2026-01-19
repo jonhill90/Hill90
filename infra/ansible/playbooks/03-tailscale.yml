@@ -41,6 +41,7 @@
     tailscale up
     --authkey={{ lookup('env', 'TAILSCALE_AUTH_KEY') }}
     --hostname={{ vps_hostname | default('hill90-vps') }}
+    --advertise-tags=tag:vps
     --accept-routes
     --ssh
   when: "'Logged out' in tailscale_status.stdout or tailscale_status.rc != 0"
