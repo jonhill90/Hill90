@@ -212,55 +212,33 @@ elif [ "$PHASE" = "post-mcp" ]; then
     echo -e "${GREEN}   ✓ TAILSCALE_IP updated${NC}"
     echo ""
 
-    # Step 6: Deploy services via Tailscale (with parallel builds)
-    echo -e "${CYAN}6️⃣  Deploying services to VPS (parallel builds enabled)...${NC}"
-    echo -e "${YELLOW}   Using Tailscale IP for secure connection${NC}"
-    ssh -i ~/.ssh/remote.hill90.com \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        deploy@"$TAILSCALE_IP" \
-        "cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod"
-    echo -e "${GREEN}   ✓ Services deployed${NC}"
-    echo ""
-
-    # Step 7: Wait for services to start
-    echo -e "${CYAN}7️⃣  Waiting for services to start (30 seconds)...${NC}"
-    sleep 30
-    echo -e "${GREEN}   ✓ Wait complete${NC}"
-    echo ""
-
-    # Step 8: Verify health
-    echo -e "${CYAN}8️⃣  Verifying service health...${NC}"
-    cd "$PROJECT_ROOT"
-    make health
-    echo -e "${GREEN}   ✓ Health check complete${NC}"
-    echo ""
-
-    # Step 9: Clean up state file
+    # Step 6: Clean up state file
     rm -f "$STATE_FILE"
 
     # Success summary
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                    ✅ REBUILD COMPLETE!                       ║${NC}"
+    echo -e "${GREEN}║              ✅ INFRASTRUCTURE REBUILD COMPLETE!              ║${NC}"
     echo -e "${GREEN}╠═══════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${NC} VPS Public IP:     ${CYAN}$NEW_VPS_IP${NC}"
     echo -e "${GREEN}║${NC} VPS Tailscale IP:  ${CYAN}$TAILSCALE_IP${NC}"
     echo -e "${GREEN}║                                                               ║${NC}"
     echo -e "${GREEN}║${NC} SSH Access:                                                   ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ${YELLOW}ssh deploy@$TAILSCALE_IP${NC}"
+    echo -e "${GREEN}║${NC}   ${YELLOW}ssh -i ~/.ssh/remote.hill90.com deploy@$TAILSCALE_IP${NC}"
     echo -e "${GREEN}║                                                               ║${NC}"
-    echo -e "${GREEN}║${NC} Architecture (v2):                                            ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Minimal post-install (Python, git only)                   ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Comprehensive Ansible (Docker, SOPS, age via playbook)    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Idempotent bootstrap (can re-run without OS rebuild)      ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Tailscale API (no Terraform needed)                       ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   ✓ Auto IP detection via API                                 ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC} Infrastructure Ready:                                         ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ OS rebuilt (AlmaLinux 10)                                 ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Docker, SOPS, age installed                               ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Tailscale configured (SSH locked down)                    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Repository cloned, secrets transferred                    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   ✓ Firewall configured (HTTP/HTTPS/Tailscale only)           ${GREEN}║${NC}"
+    echo -e "${GREEN}║                                                               ║${NC}"
+    echo -e "${GREEN}║${NC} ${YELLOW}⚠️  APPLICATION NOT DEPLOYED YET${NC}                              ${GREEN}║${NC}"
     echo -e "${GREEN}║                                                               ║${NC}"
     echo -e "${GREEN}║${NC} Next Steps:                                                   ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   1. Test HTTPS: ${CYAN}https://api.hill90.com/health${NC}"
-    echo -e "${GREEN}║${NC}   2. Test services: ${YELLOW}make health${NC}"
-    echo -e "${GREEN}║${NC}   3. View logs: ${YELLOW}make ssh${NC}, then ${YELLOW}make logs${NC}"
+    echo -e "${GREEN}║${NC}   1. Deploy application: ${YELLOW}make deploy${NC}"
+    echo -e "${GREEN}║${NC}   2. Verify health: ${YELLOW}make health${NC}"
+    echo -e "${GREEN}║${NC}   3. Test HTTPS: ${CYAN}https://api.hill90.com/health${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 

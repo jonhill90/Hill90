@@ -65,7 +65,7 @@ make rebuild-optimized
 # REQUIRED: post_install_script_id: 2396 (bootstrap-ansible-v2)
 # Wait ~10 minutes for rebuild to complete
 
-# PHASE 3: Complete optimized rebuild (auto-detects IPs)
+# PHASE 3: Complete infrastructure rebuild (auto-detects IPs)
 make rebuild-optimized-post-mcp VPS_IP=<new_ip>
 
 # This command automatically:
@@ -73,11 +73,17 @@ make rebuild-optimized-post-mcp VPS_IP=<new_ip>
 # 2. Bootstraps VPS with v2 Ansible playbook (installs Docker, SOPS, age, etc.)
 # 3. Queries Tailscale API for device IP (NO SSH chicken-and-egg!)
 # 4. Updates TAILSCALE_IP in encrypted secrets
-# 5. Deploys all services
-# 6. Waits for services to start
-# 7. Verifies health
+# STOPS HERE - Infrastructure ready, application NOT deployed
 
-# Done! VPS rebuilt in 12-15 minutes.
+# PHASE 4: Deploy application (separate step)
+make deploy
+
+# This command:
+# 1. Builds Docker images on VPS
+# 2. Starts containers
+# 3. Verifies health
+
+# Done! Full rebuild + deploy in 12-15 minutes.
 ```
 
 **Key Features:**
@@ -172,15 +178,20 @@ make health
 
 **DON'T PANIC. Rebuild is often the fastest solution.**
 
-### Option 1: Full OS Rebuild (v2 - 12-15 minutes)
+### Option 1: Full OS Rebuild (v2)
 
 ```bash
 # Use when: OS issues, SSH lockout, infrastructure problems
+
+# Rebuild infrastructure (12-15 min)
 make rebuild-optimized
 # Run MCP rebuild as instructed
 make rebuild-optimized-post-mcp VPS_IP=<new_ip>
 
-# Done! Fully deployed in 12-15 minutes.
+# Deploy application (2-3 min)
+make deploy
+
+# Done! Infrastructure + app in ~15 minutes.
 ```
 
 ### Option 2: Just Re-run Ansible (2-3 minutes)
