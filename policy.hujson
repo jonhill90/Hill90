@@ -1,0 +1,34 @@
+// Tailscale ACL Policy for Hill90 VPS
+// Managed via GitOps - changes are applied automatically on push to main
+{
+	// Define the tags which can be applied to devices and by which users.
+	"tagOwners": {
+		"tag:github-actions": ["autogroup:admin"],
+		"tag:vps":            ["autogroup:admin"],
+	},
+
+	// Define grants that govern access for users, groups, autogroups, tags,
+	// Tailscale IP addresses, and subnet ranges.
+	"grants": [
+		// Allow all connections.
+		{"src": ["*"], "dst": ["*"], "ip": ["*"]},
+	],
+
+	// Define users and devices that can use Tailscale SSH.
+	"ssh": [
+		// Allow GitHub Actions runners to SSH to VPS
+		{
+			"action": "accept",
+			"src":    ["tag:github-actions"],
+			"dst":    ["tag:vps"],
+			"users":  ["root", "deploy", "autogroup:nonroot"],
+		},
+		// Allow all users to SSH into their own devices in check mode.
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+}
