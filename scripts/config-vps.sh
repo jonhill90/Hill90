@@ -32,8 +32,10 @@ echo ""
 echo -e "${BLUE}VPS IP:${NC} $VPS_IP"
 echo ""
 
-# Load secrets for Tailscale auth key
-source "$SCRIPT_DIR/load-secrets.sh"
+# Load secrets only if not already set (e.g., from GitHub Actions)
+if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
+    source "$SCRIPT_DIR/load-secrets.sh"
+fi
 
 # Step 1: Run Ansible bootstrap
 echo -e "${CYAN}[1/3] Running Ansible bootstrap (this may take 5-10 minutes)...${NC}"
