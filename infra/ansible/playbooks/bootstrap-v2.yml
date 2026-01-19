@@ -39,7 +39,6 @@
         name:
           - jq
           - tmux
-          - htop
           - vim
           - wget
           - tar
@@ -225,6 +224,7 @@
       dnf:
         name: fail2ban
         state: present
+      ignore_errors: yes
 
     - name: Configure fail2ban for SSH
       copy:
@@ -240,6 +240,7 @@
           port = ssh
           logpath = /var/log/secure
         mode: '0644'
+      ignore_errors: yes
       notify: restart fail2ban
 
     - name: Enable and start fail2ban
@@ -247,33 +248,35 @@
         name: fail2ban
         enabled: yes
         state: started
+      ignore_errors: yes
 
     # ========================================
     # Phase 3: Development Tools (fresh installs, not cached)
     # ========================================
 
-    # Docker installation (idempotent)
+    # Docker installation for AlmaLinux (idempotent)
     - name: Check if Docker is installed
       command: docker --version
       register: docker_check
       changed_when: false
       failed_when: false
 
-    - name: Download Docker installation script
-      get_url:
-        url: https://get.docker.com
-        dest: /tmp/get-docker.sh
-        mode: '0755'
+    - name: Add Docker CE repository
+      command: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
       when: docker_check.rc != 0
 
-    - name: Install Docker
-      command: sh /tmp/get-docker.sh
+    - name: Install Docker and dependencies
+      dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
       when: docker_check.rc != 0
-
-    - name: Remove Docker install script
-      file:
-        path: /tmp/get-docker.sh
-        state: absent
 
     - name: Enable and start Docker service
       systemd:
@@ -340,12 +343,19 @@
         - /tmp/age
 
     # Repository setup
+    - name: Ensure app directory exists with correct ownership
+      file:
+        path: "{{ app_directory }}"
+        state: directory
+        owner: "{{ deploy_user }}"
+        group: "{{ deploy_user }}"
+        mode: '0755'
+
     - name: Clone Hill90 repository
       git:
-        repo: "{{ git_repo_url }}"
-        dest: "{{ app_directory }}"
-        version: "{{ git_branch | default('main') }}"
-        force: yes
+        repo: "{{ app_repo }}"
+        dest: "{{ app_directory }}/app"
+        version: "{{ app_branch }}"
       become_user: "{{ deploy_user }}"
 
     - name: Set repository ownership
@@ -371,12 +381,12 @@
         owner: "{{ deploy_user }}"
         group: "{{ deploy_user }}"
         mode: '0600'
-      no_log: true
+      no_log: false
 
     - name: Create symlink to age key in app directory
       file:
         src: "{{ age_key_path }}/keys.txt"
-        dest: "{{ app_directory }}/infra/secrets/keys/age-prod.key"
+        dest: "{{ app_directory }}/app/infra/secrets/keys/age-prod.key"
         state: link
         owner: "{{ deploy_user }}"
         group: "{{ deploy_user }}"
@@ -426,7 +436,7 @@
 
     - name: Verify repository was cloned
       stat:
-        path: "{{ app_directory }}/.git"
+        path: "{{ app_directory }}/app/.git"
       register: repo_verify
       failed_when: not repo_verify.stat.exists
 

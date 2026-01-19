@@ -29,6 +29,7 @@ firewall_allowed_ports:
 
 # SOPS/age configuration
 age_key_path: "{{ app_directory }}/secrets/keys"
+age_key_source: "{{ playbook_dir }}/../../secrets/keys/age-prod.key"
 sops_version: 3.8.1
 age_version: 1.1.1
 

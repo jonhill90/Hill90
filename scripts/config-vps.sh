@@ -52,7 +52,7 @@ export TAILSCALE_AUTH_KEY
 
 # Run Ansible bootstrap-v2.yml
 cd "$PROJECT_ROOT/infra/ansible"
-if ansible-playbook -i "inventory/hosts.ini" \
+if ansible-playbook -i "inventory/hosts.yml" \
                  -e "ansible_host=$VPS_IP" \
                  -e "ansible_user=root" \
                  -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
