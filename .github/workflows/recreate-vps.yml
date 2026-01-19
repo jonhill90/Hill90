@@ -102,9 +102,18 @@ jobs:
       # ========================================
       # 4. BOOTSTRAP VPS (via make command)
       # ========================================
+      - name: Capture Tailscale auth key from secrets
+        id: get-tailscale-auth-key
+        run: |
+          echo "🔑 Reading Tailscale auth key from encrypted secrets..."
+          TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_AUTH_KEY"
+          echo "tailscale_auth_key=$TAILSCALE_AUTH_KEY" >> $GITHUB_OUTPUT
+
       - name: Run make config-vps
         env:
           VPS_IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
+          TAILSCALE_AUTH_KEY: ${{ steps.get-tailscale-auth-key.outputs.tailscale_auth_key }}
           SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "🔧 Running VPS bootstrap via make config-vps..."
