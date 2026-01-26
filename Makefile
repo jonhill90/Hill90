@@ -71,24 +71,28 @@ snapshot: ## Create VPS snapshot (safety backup)
 recreate-vps: ## Recreate VPS via API (DESTRUCTIVE - rebuilds OS, auto-rotates Tailscale key)
 	@bash scripts/recreate-vps.sh
 
-config-vps: ## Configure VPS with Ansible (idempotent - safe to re-run)
+config-vps: ## Configure VPS infrastructure (Traefik + Portainer only)
 	@if [ -z "$(VPS_IP)" ]; then \
 		echo "$(COLOR_YELLOW)Error: VPS_IP is required$(COLOR_RESET)"; \
 		echo "$(COLOR_YELLOW)Usage: make config-vps VPS_IP=<ip>$(COLOR_RESET)"; \
 		exit 1; \
 	fi
-	@echo "$(COLOR_BOLD)Configuring VPS at $(VPS_IP)...$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Configuring VPS Infrastructure at $(VPS_IP)...$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_GREEN)This will:$(COLOR_RESET)"
 	@echo "  1. Run Ansible bootstrap (Docker, SOPS, age, Tailscale)"
-	@echo "  2. Extract and update TAILSCALE_IP in secrets"
+	@echo "  2. Deploy Traefik (reverse proxy with SSL)"
+	@echo "  3. Deploy Portainer (Tailscale-only access)"
+	@echo "  4. Extract and update TAILSCALE_IP in secrets"
+	@echo ""
+	@echo "$(COLOR_YELLOW)⚠️  Application services NOT deployed$(COLOR_RESET)"
 	@echo ""
 	bash scripts/config-vps.sh $(VPS_IP)
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ Infrastructure configured!$(COLOR_RESET)"
 	@echo ""
-	@echo "$(COLOR_YELLOW)Next: Deploy application$(COLOR_RESET)"
-	@echo "  make deploy"
+	@echo "$(COLOR_YELLOW)Next: Deploy application services$(COLOR_RESET)"
+	@echo "  make deploy (staging) or make deploy-production"
 	@echo ""
 
 # ============================================================================
