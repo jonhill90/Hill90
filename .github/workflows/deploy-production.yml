@@ -118,8 +118,8 @@ jobs:
       - name: Setup Tailscale
         uses: tailscale/github-action@v2
         with:
-          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
       - name: Setup SSH key
@@ -224,8 +224,8 @@ jobs:
       - name: Setup Tailscale
         uses: tailscale/github-action@v2
         with:
-          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
       - name: Setup SSH key
