@@ -37,11 +37,14 @@
     - name: "07 - Age"
       import_tasks: 07-age.yml
 
-    - name: "08 - Repository"
-      import_tasks: 08-repository.yml
+    - name: "08 - Secrets"
+      import_tasks: 08-secrets.yml
 
-    - name: "09 - Secrets"
-      import_tasks: 09-secrets.yml
+    - name: "09 - Traefik"
+      import_tasks: 09-traefik.yml
+
+    - name: "10 - Portainer"
+      import_tasks: 10-portainer.yml
 
   handlers:
     - name: restart docker

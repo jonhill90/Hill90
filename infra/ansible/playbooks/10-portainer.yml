@@ -1,0 +1,72 @@
+---
+# Portainer Container Management Setup (Tailscale-only access)
+
+- name: Create Portainer infrastructure directory
+  file:
+    path: "{{ app_directory }}/infra/portainer"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Deploy Portainer docker-compose.yml
+  copy:
+    dest: "{{ app_directory }}/infra/portainer/docker-compose.yml"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+    content: |
+      version: '3.9'
+
+      networks:
+        edge:
+          external: true
+          name: hill90_edge
+
+      volumes:
+        portainer-data:
+          name: portainer-data
+
+      services:
+        portainer:
+          image: portainer/portainer-ce:latest
+          container_name: portainer
+          restart: unless-stopped
+          networks:
+            - edge
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - portainer-data:/data
+          labels:
+            - "traefik.enable=true"
+            # Portainer web UI - Tailscale-only access
+            - "traefik.http.routers.portainer.rule=Host(`portainer.{{ domain }}`)"
+            - "traefik.http.routers.portainer.entrypoints=websecure"
+            - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
+            - "traefik.http.routers.portainer.service=portainer"
+            - "traefik.http.routers.portainer.middlewares=tailscale-only@file"
+            - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+- name: Start Portainer
+  become: yes
+  become_user: "{{ deploy_user }}"
+  shell: |
+    cd {{ app_directory }}/infra/portainer
+    docker compose up -d
+  args:
+    executable: /bin/bash
+
+- name: Wait for Portainer to be ready
+  wait_for:
+    host: localhost
+    port: 9000
+    delay: 5
+    timeout: 60
+
+- name: Display Portainer access info
+  debug:
+    msg:
+      - "Portainer deployed successfully!"
+      - "Access URL: https://portainer.{{ domain }}"
+      - "⚠️  Portainer is ONLY accessible via Tailscale network (100.64.0.0/10)"
+      - "First login: Create admin user via web UI"

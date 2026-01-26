@@ -35,5 +35,9 @@ age_version: 1.1.1
 
 # Application settings
 app_name: hill90
-app_repo: "https://github.com/jonhill90/Hill90.git"
-app_branch: main
+domain: hill90.com
+acme_email: jonhill90@live.com
+
+# Traefik admin password (default: changeme - should be updated after first login)
+# Generate with: htpasswd -nb admin yourpassword
+traefik_admin_password_hash: "$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"  # admin:changeme

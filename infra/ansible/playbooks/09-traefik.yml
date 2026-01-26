@@ -1,0 +1,173 @@
+---
+# Traefik Reverse Proxy Setup
+
+- name: Create Traefik infrastructure directory
+  file:
+    path: "{{ app_directory }}/infra/traefik"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Create Traefik config directory
+  file:
+    path: "{{ app_directory }}/infra/traefik/config"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Create Traefik dynamic config directory
+  file:
+    path: "{{ app_directory }}/infra/traefik/config/dynamic"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Deploy Traefik static configuration
+  copy:
+    dest: "{{ app_directory }}/infra/traefik/config/traefik.yml"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+    content: |
+      # Traefik Static Configuration
+      # Hill90 Edge Proxy Configuration
+
+      global:
+        checkNewVersion: true
+        sendAnonymousUsage: false
+
+      # API and Dashboard
+      api:
+        dashboard: true
+        insecure: false
+
+      # Entry Points
+      entryPoints:
+        web:
+          address: ":80"
+          http:
+            redirections:
+              entryPoint:
+                to: websecure
+                scheme: https
+                permanent: true
+
+        websecure:
+          address: ":443"
+          http:
+            tls:
+              certResolver: letsencrypt
+
+      # Docker Provider
+      providers:
+        docker:
+          endpoint: "unix:///var/run/docker.sock"
+          exposedByDefault: false
+          network: hill90_edge
+
+        file:
+          directory: "/etc/traefik/dynamic"
+          watch: true
+
+      # Let's Encrypt Certificate Resolver (Production)
+      certificatesResolvers:
+        letsencrypt:
+          acme:
+            email: {{ acme_email }}
+            storage: /letsencrypt/acme.json
+            httpChallenge:
+              entryPoint: web
+            caServer: https://acme-v02.api.letsencrypt.org/directory
+
+      # Logging
+      log:
+        level: INFO
+        format: json
+
+      # Access Logs
+      accessLog:
+        format: json
+
+- name: Deploy Traefik dynamic configuration (middlewares)
+  copy:
+    dest: "{{ app_directory }}/infra/traefik/config/dynamic/middlewares.yml"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+    content: |
+      # Traefik Dynamic Configuration - Middlewares
+      http:
+        middlewares:
+          # Rate limiting
+          rate-limit:
+            rateLimit:
+              average: 100
+              burst: 50
+              period: 1s
+
+          # Basic auth for dashboards (placeholder - will be configured via environment)
+          auth:
+            basicAuth:
+              users:
+                - "admin:{{ traefik_admin_password_hash }}"
+
+          # Tailscale-only access middleware
+          tailscale-only:
+            ipWhiteList:
+              sourceRange:
+                - "100.64.0.0/10"  # Tailscale CGNAT range
+
+- name: Deploy Traefik docker-compose.yml
+  copy:
+    dest: "{{ app_directory }}/infra/traefik/docker-compose.yml"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+    content: |
+      version: '3.9'
+
+      networks:
+        edge:
+          driver: bridge
+          name: hill90_edge
+
+      volumes:
+        traefik-certs:
+          name: traefik-certs
+
+      services:
+        traefik:
+          image: traefik:v2.11
+          container_name: traefik
+          restart: unless-stopped
+          networks:
+            - edge
+          ports:
+            - "80:80"
+            - "443:443"
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
+            - ./config/dynamic:/etc/traefik/dynamic:ro
+            - traefik-certs:/letsencrypt
+          environment:
+            - ACME_EMAIL={{ acme_email }}
+          labels:
+            - "traefik.enable=true"
+            - "traefik.http.routers.traefik.rule=Host(`traefik.{{ domain }}`)"
+            - "traefik.http.routers.traefik.entrypoints=websecure"
+            - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+            - "traefik.http.routers.traefik.service=api@internal"
+            - "traefik.http.routers.traefik.middlewares=auth@file,tailscale-only@file"
+
+- name: Start Traefik
+  become: yes
+  become_user: "{{ deploy_user }}"
+  shell: |
+    cd {{ app_directory }}/infra/traefik
+    docker compose up -d
+  args:
+    executable: /bin/bash

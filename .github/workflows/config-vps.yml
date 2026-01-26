@@ -1,0 +1,231 @@
+name: Config VPS (Infrastructure Bootstrap)
+
+# Manual trigger only
+# Configures VPS infrastructure: Docker, Tailscale, Traefik, Portainer
+# Does NOT deploy application services - use Deploy workflows separately
+on:
+  workflow_dispatch:
+    inputs:
+      vps_ip:
+        description: 'VPS Public IP address'
+        required: true
+        type: string
+
+jobs:
+  validate:
+    name: Validate Prerequisites
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate VPS IP format
+        run: |
+          VPS_IP="${{ github.event.inputs.vps_ip }}"
+          if ! [[ "$VPS_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid IP address format"
+            exit 1
+          fi
+          echo "✅ VPS IP valid: $VPS_IP"
+
+      - name: Validate Ansible playbooks exist
+        run: |
+          echo "🔍 Validating Ansible playbooks..."
+
+          PLAYBOOKS=(
+            "infra/ansible/playbooks/01-system-prep.yml"
+            "infra/ansible/playbooks/02-firewall.yml"
+            "infra/ansible/playbooks/03-tailscale.yml"
+            "infra/ansible/playbooks/04-ssh-lockdown.yml"
+            "infra/ansible/playbooks/05-docker.yml"
+            "infra/ansible/playbooks/06-sops.yml"
+            "infra/ansible/playbooks/07-age.yml"
+            "infra/ansible/playbooks/08-secrets.yml"
+            "infra/ansible/playbooks/09-traefik.yml"
+            "infra/ansible/playbooks/10-portainer.yml"
+            "infra/ansible/playbooks/bootstrap.yml"
+          )
+
+          for playbook in "${PLAYBOOKS[@]}"; do
+            if [[ ! -f "$playbook" ]]; then
+              echo "❌ Missing: $playbook"
+              exit 1
+            fi
+          done
+
+          echo "✅ All Ansible playbooks present"
+
+  config:
+    name: Configure VPS Infrastructure
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age for secrets
+        run: |
+          # Install SOPS
+          curl -L -o /tmp/sops https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+
+          # Setup age key
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Verify VPS SSH access
+        run: |
+          echo "🔌 Verifying SSH access to VPS..."
+          VPS_IP="${{ github.event.inputs.vps_ip }}"
+
+          # Try as root first (fresh VPS), then as deploy user
+          if ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              root@$VPS_IP 'echo "SSH as root OK"' 2>/dev/null; then
+            echo "✅ SSH access as root (fresh VPS)"
+          elif ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              deploy@$VPS_IP 'echo "SSH as deploy OK"' 2>/dev/null; then
+            echo "✅ SSH access as deploy user (configured VPS)"
+          else
+            echo "❌ Failed to SSH to VPS"
+            exit 1
+          fi
+
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
+      - name: Export Tailscale auth key
+        run: |
+          TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_AUTH_KEY"
+          echo "TAILSCALE_AUTH_KEY=$TAILSCALE_AUTH_KEY" >> $GITHUB_ENV
+
+      - name: Run Ansible bootstrap
+        run: |
+          echo "🚀 Running Ansible bootstrap..."
+          VPS_IP="${{ github.event.inputs.vps_ip }}"
+
+          cd infra/ansible
+          ansible-playbook -i "inventory/hosts.yml" \
+            -e "ansible_host=$VPS_IP" \
+            -e "ansible_user=root" \
+            -e "ansible_ssh_private_key_file=~/.ssh/vps_key" \
+            -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
+            playbooks/bootstrap.yml
+
+      - name: Extract Tailscale IP
+        id: get-tailscale-ip
+        run: |
+          echo "🌐 Waiting for Tailscale connection..."
+          sleep 30
+
+          # SSH to VPS and get Tailscale IP
+          VPS_IP="${{ github.event.inputs.vps_ip }}"
+          TAILSCALE_IP=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@$VPS_IP 'tailscale ip -4')
+
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+          echo "Tailscale IP: $TAILSCALE_IP"
+
+      - name: Update TAILSCALE_IP in secrets
+        run: |
+          echo "📝 Updating TAILSCALE_IP in encrypted secrets..."
+          TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+
+          # Create temporary script to update secrets
+          cat > /tmp/update-secret.sh << 'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          KEY="$1"
+          VALUE="$2"
+          SECRETS_FILE="infra/secrets/prod.enc.env"
+
+          # Decrypt, update, re-encrypt
+          sops -d "$SECRETS_FILE" > /tmp/secrets.env
+          if grep -q "^${KEY}=" /tmp/secrets.env; then
+            sed -i "s|^${KEY}=.*|${KEY}=${VALUE}|" /tmp/secrets.env
+          else
+            echo "${KEY}=${VALUE}" >> /tmp/secrets.env
+          fi
+          sops -e /tmp/secrets.env > "$SECRETS_FILE"
+          rm /tmp/secrets.env
+          EOF
+
+          chmod +x /tmp/update-secret.sh
+          /tmp/update-secret.sh TAILSCALE_IP "$TAILSCALE_IP"
+
+          echo "✅ TAILSCALE_IP updated"
+
+      - name: Commit updated secrets
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          if git diff --quiet infra/secrets/prod.enc.env; then
+            echo "No changes to commit"
+          else
+            git add infra/secrets/prod.enc.env
+            git commit -m "Update TAILSCALE_IP after VPS config
+
+          Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+            git push
+          fi
+
+      - name: Verify infrastructure
+        run: |
+          echo "🏥 Verifying infrastructure..."
+          TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+
+          # Check Docker is running
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@$TAILSCALE_IP 'docker --version'
+
+          # Check Traefik is running
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@$TAILSCALE_IP 'docker ps | grep traefik'
+
+          # Check Portainer is running
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@$TAILSCALE_IP 'docker ps | grep portainer'
+
+          echo "✅ All infrastructure services running"
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "🎉 VPS Configuration Complete!"
+          echo ""
+          echo "📊 Configuration details:"
+          echo "  VPS Public IP: ${{ github.event.inputs.vps_ip }}"
+          echo "  VPS Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+          echo ""
+          echo "✅ Infrastructure deployed:"
+          echo "  • Traefik: https://traefik.hill90.com (Tailscale-only)"
+          echo "  • Portainer: https://portainer.hill90.com (Tailscale-only)"
+          echo ""
+          echo "⚠️  APPLICATION SERVICES NOT DEPLOYED"
+          echo "    Infrastructure only: Traefik + Portainer"
+          echo ""
+          echo "✅ Next steps:"
+          echo "  1. Setup Portainer admin: https://portainer.hill90.com"
+          echo "  2. Deploy application: Trigger 'Deploy (Production)' workflow"
+          echo "  3. SSH access: ssh -i ~/.ssh/remote.hill90.com deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
