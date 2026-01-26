@@ -56,13 +56,6 @@
   args:
     executable: /bin/bash
 
-- name: Wait for Portainer to be ready
-  wait_for:
-    host: localhost
-    port: 9000
-    delay: 5
-    timeout: 60
-
 - name: Display Portainer access info
   debug:
     msg:
