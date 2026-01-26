@@ -70,8 +70,8 @@ jobs:
           echo "🔍 Validating Docker Compose configuration..."
 
           # Check if docker compose files exist
-          if [[ ! -f deployments/docker-compose.prod.yml ]]; then
-            echo "❌ Missing docker-compose.prod.yml"
+          if [[ ! -f deployments/compose/prod/docker-compose.yml ]]; then
+            echo "❌ Missing deployments/compose/prod/docker-compose.yml"
             exit 1
           fi
 
