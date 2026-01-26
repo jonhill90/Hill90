@@ -38,6 +38,6 @@ app_name: hill90
 domain: hill90.com
 acme_email: jonhill90@live.com
 
-# Traefik admin password (default: changeme - should be updated after first login)
+# Traefik admin password - stored in encrypted secrets
 # Generate with: htpasswd -nb admin yourpassword
-traefik_admin_password_hash: "$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"  # admin:changeme
+# Update with: make secrets-update KEY=TRAEFIK_ADMIN_PASSWORD_HASH VALUE='$apr1$...'

@@ -46,6 +46,10 @@ echo ""
 # Export Tailscale auth key for Ansible
 export TAILSCALE_AUTH_KEY
 
+# Get Traefik admin password hash from encrypted secrets
+echo -e "${CYAN}Loading Traefik admin password from encrypted secrets...${NC}"
+TRAEFIK_ADMIN_PASSWORD_HASH=$(cd "$PROJECT_ROOT" && sops -d --extract '["TRAEFIK_ADMIN_PASSWORD_HASH"]' infra/secrets/prod.enc.env)
+
 # Run Ansible bootstrap and capture output to extract Tailscale IP
 cd "$PROJECT_ROOT/infra/ansible"
 ANSIBLE_OUTPUT=$(mktemp)
@@ -54,6 +58,7 @@ if ansible-playbook -i "inventory/hosts.yml" \
                  -e "ansible_user=root" \
                  -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
                  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
+                 -e "traefik_admin_password_hash=$TRAEFIK_ADMIN_PASSWORD_HASH" \
                  playbooks/bootstrap.yml 2>&1 | tee "$ANSIBLE_OUTPUT"; then
     echo ""
     echo -e "${GREEN}   ✓ Ansible bootstrap complete${NC}"

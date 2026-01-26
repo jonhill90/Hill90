@@ -112,11 +112,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ansible
 
-      - name: Export Tailscale auth key
+      - name: Export secrets for Ansible
         run: |
           TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' infra/secrets/prod.enc.env)
+          TRAEFIK_ADMIN_PASSWORD_HASH=$(sops -d --extract '["TRAEFIK_ADMIN_PASSWORD_HASH"]' infra/secrets/prod.enc.env)
+
           echo "::add-mask::$TAILSCALE_AUTH_KEY"
+          echo "::add-mask::$TRAEFIK_ADMIN_PASSWORD_HASH"
+
           echo "TAILSCALE_AUTH_KEY=$TAILSCALE_AUTH_KEY" >> $GITHUB_ENV
+          echo "TRAEFIK_ADMIN_PASSWORD_HASH=$TRAEFIK_ADMIN_PASSWORD_HASH" >> $GITHUB_ENV
 
       - name: Run Ansible bootstrap
         run: |
@@ -129,6 +134,7 @@ jobs:
             -e "ansible_user=root" \
             -e "ansible_ssh_private_key_file=~/.ssh/vps_key" \
             -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
+            -e "traefik_admin_password_hash=$TRAEFIK_ADMIN_PASSWORD_HASH" \
             playbooks/bootstrap.yml
 
       - name: Extract Tailscale IP
