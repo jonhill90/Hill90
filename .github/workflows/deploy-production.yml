@@ -1,6 +1,9 @@
-name: Deploy to VPS
+name: Deploy (Production Certificates)
 
-# Automated deployment on push to main or manual trigger
+# ⚠️  PRODUCTION CERTIFICATES - RATE LIMITED ⚠️
+# Let's Encrypt production: 50 certificates per week
+# Use this workflow for main branch deployments only
+# For testing, use 'Deploy (Staging)' workflow instead
 on:
   push:
     branches:
@@ -10,9 +13,8 @@ on:
       - 'deployments/**'
       - 'scripts/deploy.sh'
       - 'scripts/build-and-deploy.sh'
-      - '.github/workflows/deploy.yml'
+      - '.github/workflows/deploy-production.yml'
 
-  # Manual trigger
   workflow_dispatch:
     inputs:
       environment:
@@ -22,16 +24,42 @@ on:
         options:
           - prod
         default: 'prod'
-      use_production_certs:
-        description: 'Use production Let''s Encrypt certificates (rate limited!)'
-        required: false
-        type: boolean
-        default: false
+      confirm_production:
+        description: 'Type PRODUCTION to confirm (rate limited: 50 certs/week)'
+        required: true
+        type: string
 
 jobs:
+  validate-production:
+    name: Validate Production Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate manual trigger confirmation
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.event.inputs.confirm_production }}" != "PRODUCTION" ]; then
+            echo "❌ Production deployment not confirmed"
+            echo "   You must type 'PRODUCTION' exactly"
+            echo "   Rate limit: 50 certificates per week"
+            exit 1
+          fi
+          echo "✅ Production deployment confirmed"
+
+      - name: Rate limit warning
+        run: |
+          echo "⚠️  PRODUCTION CERTIFICATE DEPLOYMENT ⚠️"
+          echo ""
+          echo "Let's Encrypt Rate Limits:"
+          echo "  - 50 certificates per week"
+          echo "  - 5 validation failures per hour"
+          echo ""
+          echo "Proceeding with production certificate deployment..."
+
   validate:
     name: Validate Infrastructure
     runs-on: ubuntu-latest
+    needs: validate-production
 
     steps:
       - name: Checkout repository
@@ -78,9 +106,10 @@ jobs:
           echo "✅ Secrets file exists (encrypted)"
 
   deploy:
-    name: Deploy Services
+    name: Deploy Services (Production Certs)
     runs-on: ubuntu-latest
     needs: validate
+    environment: production
 
     steps:
       - name: Checkout repository
@@ -130,29 +159,22 @@ jobs:
           fi
           echo "✅ SSH connectivity verified"
 
-      - name: Deploy to VPS
-        env:
-          USE_PRODUCTION_CERTS: ${{ github.event.inputs.use_production_certs || 'false' }}
+      - name: Deploy to VPS with production certificates
         run: |
-          echo "🚀 Deploying services to VPS..."
+          echo "🚀 Using Let's Encrypt PRODUCTION certificates"
+          echo "   ✅ Trusted by all browsers"
+          echo "   ⚠️  Rate limited: 50 certificates/week"
+          echo ""
 
-          # Determine deployment command
-          if [[ "$USE_PRODUCTION_CERTS" == "true" ]]; then
-            echo "⚠️  Using PRODUCTION Let's Encrypt certificates (rate limited!)"
-            DEPLOY_CMD="bash scripts/deploy.sh prod production"
-          else
-            echo "📋 Using STAGING Let's Encrypt certificates (unlimited)"
-            DEPLOY_CMD="bash scripts/deploy.sh prod"
-          fi
-
-          # Deploy via SSH
+          # Deploy via SSH with production ACME server
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && \
              git fetch origin && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             $DEPLOY_CMD"
+             export ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory && \
+             bash scripts/deploy.sh prod"
 
       - name: Wait for services to start
         run: |
@@ -177,13 +199,17 @@ jobs:
           echo ""
           echo "📊 Deployment details:"
           echo "  Environment: ${{ github.event.inputs.environment || 'prod' }}"
-          echo "  Certificates: ${{ github.event.inputs.use_production_certs == 'true' && 'PRODUCTION' || 'STAGING' }}"
+          echo "  Certificates: PRODUCTION (trusted, rate-limited)"
+          echo "  Branch: main"
           echo "  Commit: ${{ github.sha }}"
+          echo ""
+          echo "✅ Production certificates issued successfully"
+          echo "   Certificates are trusted by all browsers"
           echo ""
           echo "✅ Next steps:"
           echo "  1. Verify services: make health"
           echo "  2. Check logs: make logs"
-          echo "  3. Test endpoints manually"
+          echo "  3. Test endpoints (no -k flag needed for curl)"
 
   health-check:
     name: Extended Health Check

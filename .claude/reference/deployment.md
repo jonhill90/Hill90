@@ -28,14 +28,46 @@ make health               # Checks everything is running
 
 ### GitHub Actions Deployment
 
-**VPS recreate workflow automatically deploys services** after bootstrap completes.
+**Deployment is separated from VPS rebuild to prevent Let's Encrypt rate limit issues.**
 
-- Workflow: `.github/workflows/recreate-vps.yml`
-- Deployment included as part of VPS recreate process
-- Uses staging certificates by default
-- SSH connection via Tailscale network
+Two deployment workflows available:
 
-**Note:** Standalone deployment workflow (`.github/workflows/deploy.yml`) is also available but VPS recreate workflow includes deployment.
+#### Staging Deployment (Unlimited Certificates)
+
+- Workflow: `.github/workflows/deploy-staging.yml`
+- **Triggers:** Push to `dev` or `stage` branches, manual dispatch
+- **Certificates:** Let's Encrypt STAGING (browser warnings expected)
+- **Rate limit:** Unlimited (safe for testing)
+- **Use for:** Testing, development, VPS rebuild validation
+
+**How to trigger manually:**
+1. Go to Actions → Deploy (Staging Certificates)
+2. Click "Run workflow"
+3. Select environment: `prod`
+4. Click "Run workflow"
+
+#### Production Deployment (Rate-Limited Certificates)
+
+- Workflow: `.github/workflows/deploy-production.yml`
+- **Triggers:** Push to `main` branch (auto), manual dispatch (requires confirmation)
+- **Certificates:** Let's Encrypt PRODUCTION (trusted by browsers)
+- **Rate limit:** 50 certificates/week, 5 failures/hour
+- **Use for:** Production deployments only
+
+**How to trigger manually:**
+1. Go to Actions → Deploy (Production Certificates)
+2. Click "Run workflow"
+3. Type "PRODUCTION" exactly to confirm
+4. Click "Run workflow"
+
+**Auto-deployment:** Pushes to `main` branch automatically trigger production deployment.
+
+#### VPS Recreate No Longer Includes Deployment
+
+- **Important:** `.github/workflows/recreate-vps.yml` now stops after infrastructure bootstrap
+- No services are deployed, no certificates are requested
+- After VPS recreate, manually trigger staging or production deployment workflow
+- This prevents hitting Let's Encrypt rate limits when testing VPS rebuilds
 
 ## Let's Encrypt Configuration
 

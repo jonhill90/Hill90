@@ -1,6 +1,8 @@
-name: VPS Recreate (Automated)
+name: VPS Recreate (Infrastructure Only)
 
 # Manual trigger only - DESTRUCTIVE operation
+# Rebuilds VPS and bootstraps infrastructure (Docker, Tailscale, firewall)
+# Does NOT deploy application - use Deploy workflows separately
 on:
   workflow_dispatch:
     inputs:
@@ -138,31 +140,7 @@ jobs:
           echo "Tailscale IP: $TAILSCALE_IP"
 
       # ========================================
-      # 5. DEPLOY SERVICES
-      # ========================================
-      - name: Deploy services via SSH
-        run: |
-          echo "🚀 Deploying services to VPS..."
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }} \
-            'cd /opt/hill90/app && \
-             export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             bash scripts/deploy.sh prod'
-
-      - name: Wait for services to start
-        run: |
-          echo "⏳ Waiting for services to start (60 seconds)..."
-          sleep 60
-
-      - name: Verify service health
-        run: |
-          echo "🏥 Verifying service health..."
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }} \
-            'docker ps --format "table {{.Names}}\t{{.Status}}"'
-
-      # ========================================
-      # 6. COMMIT UPDATED SECRETS
+      # 5. COMMIT UPDATED SECRETS
       # ========================================
       - name: Commit updated secrets
         run: |
@@ -181,7 +159,7 @@ jobs:
           fi
 
       # ========================================
-      # 7. CLEANUP
+      # 6. CLEANUP
       # ========================================
       - name: Cleanup backup files
         if: always()
@@ -189,18 +167,21 @@ jobs:
           find infra/secrets -name "*.backup.*" -type f -delete || true
 
       # ========================================
-      # 8. SUMMARY
+      # 7. SUMMARY
       # ========================================
       - name: Print summary
         if: success()
         run: |
-          echo "🎉 VPS recreate complete!"
+          echo "🎉 VPS recreate and bootstrap complete!"
           echo ""
           echo "📊 New VPS details:"
           echo "  Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
           echo "  Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo ""
+          echo "⚠️  DEPLOYMENT NOT INCLUDED"
+          echo "  VPS infrastructure is ready but services are NOT deployed."
+          echo ""
           echo "✅ Next steps:"
-          echo "  1. Verify services: make health"
-          echo "  2. SSH via Tailscale: make ssh"
-          echo "  3. Check logs: make logs"
+          echo "  1. Deploy with staging certs (safe): Trigger 'Deploy (Staging)' workflow"
+          echo "  2. Deploy with production certs (rate-limited): Trigger 'Deploy (Production)' workflow"
+          echo "  3. Via SSH: ssh deploy@\$TAILSCALE_IP 'cd /opt/hill90/app && make deploy'"

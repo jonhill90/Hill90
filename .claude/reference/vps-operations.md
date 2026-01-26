@@ -67,9 +67,14 @@ make config-vps VPS_IP=<ip>
 
 ### Next Steps After Bootstrap
 
+**Important:** VPS bootstrap does NOT deploy services. Deploy manually after bootstrap completes.
+
 ```bash
-# Deploy application
+# Deploy application with staging certificates (safe for testing)
 make deploy
+
+# OR deploy with production certificates (rate-limited: 50/week)
+make deploy-production
 
 # Verify health
 make health
@@ -79,6 +84,10 @@ make ssh
 # or
 ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
 ```
+
+**GitHub Actions deployment:**
+- Trigger "Deploy (Staging Certificates)" workflow for unlimited testing
+- Trigger "Deploy (Production Certificates)" workflow for production (requires "PRODUCTION" confirmation)
 
 ## Safety Operations
 
@@ -150,9 +159,10 @@ If you can't SSH to VPS:
 - Setup: ~1 minute
 - VPS recreate: ~5 minutes (rebuild + wait for SSH)
 - Bootstrap: ~5 minutes (Ansible 9-stage setup)
-- Deploy: ~2 minutes (all 6 services)
 - Cleanup: ~30 seconds
-- **Total:** ~13 minutes
+- **Total:** ~8 minutes
+
+**Note:** Deployment is NOT included. Manually trigger deployment workflow after recreate completes.
 
 ### What Happens
 
@@ -161,9 +171,13 @@ If you can't SSH to VPS:
 3. Runs `make recreate-vps` (generates keys, rebuilds VPS, updates secrets)
 4. Waits for SSH availability on new VPS
 5. Runs `make config-vps` (Ansible bootstrap)
-6. Deploys services via SSH over Tailscale
-7. Attempts to commit updated secrets to repository (may fail - non-blocking)
-8. Cleans up backup files
+6. Attempts to commit updated secrets to repository (may fail - non-blocking)
+7. Cleans up backup files
+
+**After completion:**
+- Infrastructure ready but services NOT deployed
+- Manually trigger "Deploy (Staging Certificates)" workflow for testing
+- Or trigger "Deploy (Production Certificates)" workflow for production
 
 ### Requirements
 
