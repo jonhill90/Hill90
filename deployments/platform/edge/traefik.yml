@@ -39,7 +39,7 @@ providers:
     watch: true
 
 # Let's Encrypt Certificate Resolver
-# Base configuration here, caserver overridden via command-line args in docker-compose.yml
+# Production Let's Encrypt by default
 certificatesResolvers:
   letsencrypt:
     acme:
@@ -47,8 +47,8 @@ certificatesResolvers:
       storage: /letsencrypt/acme.json
       httpChallenge:
         entryPoint: web
-      # caServer defaults to production - override via CLI args in docker-compose.yml
-      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      # Production Let's Encrypt - can be overridden via CLI args in docker-compose.yml
+      caServer: https://acme-v02.api.letsencrypt.org/directory
 
 # Logging
 log:
