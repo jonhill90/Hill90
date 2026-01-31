@@ -5,7 +5,7 @@ set -euo pipefail
 # Updates DNS A records for VPS services after VPS recreate
 
 DOMAIN="hill90.com"
-API_BASE="https://api.hostinger.com/dns/v1"
+API_BASE="https://developers.hostinger.com/api/dns/v1"
 
 # Check for jq and install if missing (GitHub Actions runner)
 if ! command -v jq &> /dev/null; then
@@ -101,10 +101,11 @@ api_call() {
 
 # Get current DNS records
 log_step "Fetching current DNS records..."
-if ! current_records=$(api_call GET "/domains/$DOMAIN"); then
-    log_error "Failed to fetch current DNS records"
+current_records=$(api_call GET "/zones/$DOMAIN" 2>&1) || {
+    log_error "Failed to fetch current DNS records. API response:"
+    echo "$current_records"
     exit 1
-fi
+}
 
 # Check if records need updating (idempotency check)
 needs_update=false
@@ -185,7 +186,7 @@ EOF
 
 # Validate DNS records before applying
 log_step "Validating DNS records..."
-if api_call POST "/domains/$DOMAIN/dns/validate" "$dns_payload" > /dev/null; then
+if api_call POST "/zones/$DOMAIN/validate" "$dns_payload" > /dev/null; then
     log_info "  ✓ DNS records validation passed"
 else
     log_error "DNS validation failed. Aborting update."
@@ -194,7 +195,7 @@ fi
 
 # Apply DNS update
 log_step "Applying DNS updates..."
-if api_call POST "/domains/$DOMAIN/dns" "$dns_payload" > /dev/null; then
+if api_call POST "/zones/$DOMAIN" "$dns_payload" > /dev/null; then
     log_info "  ✓ DNS records updated successfully"
 else
     log_error "Failed to update DNS records"
