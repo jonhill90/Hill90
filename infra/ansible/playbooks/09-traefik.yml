@@ -129,7 +129,7 @@
             storage: /letsencrypt/acme-http.json
             httpChallenge:
               entryPoint: web
-            caServer: https://acme-v02.api.letsencrypt.org/directory
+            caServer: {% if letsencrypt_env == 'production' %}https://acme-v02.api.letsencrypt.org/directory{% else %}https://acme-staging-v02.api.letsencrypt.org/directory{% endif %}
 
         # DNS-01 challenge for Tailscale-only services (portainer, traefik dashboard)
         letsencrypt-dns:
@@ -139,7 +139,7 @@
             dnsChallenge:
               provider: httpreq
               delayBeforeCheck: 30s
-            caServer: https://acme-v02.api.letsencrypt.org/directory
+            caServer: {% if letsencrypt_env == 'production' %}https://acme-v02.api.letsencrypt.org/directory{% else %}https://acme-staging-v02.api.letsencrypt.org/directory{% endif %}
 
       # Logging
       log:
