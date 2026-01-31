@@ -153,9 +153,9 @@ jobs:
           # Ansible playbook saves Tailscale IP to /opt/hill90/.tailscale_ip
           echo "Reading Tailscale IP from VPS..."
 
-          # Try tailscale command first
+          # Try tailscale command first (IPv4 only)
           if command -v tailscale &> /dev/null; then
-            TAILSCALE_IP=$(tailscale ip hill90-vps 2>/dev/null || echo "")
+            TAILSCALE_IP=$(tailscale ip -4 hill90-vps 2>/dev/null || echo "")
             [ -n "$TAILSCALE_IP" ] && echo "Got IP via tailscale command: $TAILSCALE_IP"
           fi
 
