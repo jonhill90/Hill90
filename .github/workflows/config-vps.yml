@@ -90,29 +90,8 @@ jobs:
           echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
           chmod 600 ~/.config/sops/age/keys.txt
 
-      - name: Verify VPS SSH access
-        id: ssh-check
-        run: |
-          echo "🔌 Verifying SSH access to fresh VPS (with retries)..."
-          VPS_IP="${{ github.event.inputs.vps_ip }}"
-
-          # Retry SSH connection up to 30 times (5 minutes total)
-          for i in {1..30}; do
-            if ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-                root@$VPS_IP 'echo "SSH OK"' 2>/dev/null; then
-              echo "✅ SSH access verified (root@$VPS_IP)"
-              echo "ansible_host=$VPS_IP" >> $GITHUB_OUTPUT
-              echo "ansible_user=root" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            echo "Attempt $i/30 failed, waiting 10s..."
-            sleep 10
-          done
-
-          echo "❌ Failed to SSH to VPS after 30 attempts"
-          echo "   VPS should be freshly rebuilt with root access"
-          echo "   Check VPS IP: $VPS_IP"
-          exit 1
+      # SSH verification removed - recreate-vps already verified SSH is working
+      # and auto-triggers config-vps immediately to minimize timing gaps
 
       - name: Install Ansible
         run: |

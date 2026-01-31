@@ -110,6 +110,19 @@ jobs:
             exit 1
           fi
 
+      - name: Auto-trigger config-vps workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🚀 Auto-triggering config-vps immediately to avoid timing gaps..."
+          VPS_IP="${{ steps.get-vps-ip.outputs.vps_ip }}"
+          gh workflow run config-vps.yml --field vps_ip="$VPS_IP"
+          echo "✅ config-vps triggered with VPS_IP=$VPS_IP"
+          echo ""
+          echo "💡 Monitor config-vps progress:"
+          echo "   gh run list --workflow=config-vps.yml --limit 1"
+          echo "   gh run watch <run-id>"
+
 
       # ========================================
       # 4. COMMIT UPDATED SECRETS
@@ -155,9 +168,9 @@ jobs:
           echo "   VPS OS has been rebuilt but infrastructure is NOT deployed"
           echo ""
           echo "📋 Next steps:"
-          echo "  1. Run 'Config VPS' workflow with IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
+          echo "  1. Config VPS workflow auto-triggered - check progress above"
           echo "  2. After config completes, deploy application services"
           echo ""
-          echo "💡 Why separate workflows?"
-          echo "  Separating recreate and config makes debugging easier"
-          echo "  and avoids SSH timing issues during VPS lockdown"
+          echo "💡 Workflow automation:"
+          echo "  config-vps triggered automatically to minimize timing gaps"
+          echo "  For manual iterations, run config-vps.yml with VPS IP"
