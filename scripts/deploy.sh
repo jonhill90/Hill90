@@ -60,7 +60,12 @@ echo "Deploying with encrypted secrets..."
 # This avoids creating temporary decrypted files
 sops exec-env "$SECRETS_FILE" '
   echo "Stopping existing services..."
-  docker compose -f '"$COMPOSE_FILE"' down || true
+  docker compose -f '"$COMPOSE_FILE"' down --remove-orphans || true
+
+  # Force remove any lingering containers by name
+  for container in traefik postgres api ai mcp auth; do
+    docker rm -f "$container" 2>/dev/null || true
+  done
 
   echo "Building and pulling images (parallel mode)..."
   docker compose -f '"$COMPOSE_FILE"' build --parallel
