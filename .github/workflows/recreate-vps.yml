@@ -193,7 +193,7 @@ jobs:
           else
             echo "TAILSCALE_IP=${TAILSCALE_IP}" >> /tmp/secrets.env
           fi
-          sops -e /tmp/secrets.env > "$SECRETS_FILE"
+          sops -e --config infra/secrets/.sops.yaml /tmp/secrets.env > "$SECRETS_FILE"
           rm /tmp/secrets.env
 
           echo "✅ TAILSCALE_IP updated"
