@@ -103,6 +103,19 @@ jobs:
             sleep 10
           done
 
+      - name: Auto-trigger Config VPS workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🚀 Auto-triggering config-vps workflow immediately..."
+          VPS_IP="${{ steps.get-vps-ip.outputs.vps_ip }}"
+
+          # Trigger config workflow
+          gh workflow run config-vps.yml --field vps_ip="$VPS_IP"
+
+          echo "✅ Config VPS workflow triggered with IP: $VPS_IP"
+          echo "   Minimizing delay between rebuild and config to avoid auto-lockdown"
+
       # ========================================
       # 4. COMMIT UPDATED SECRETS
       # ========================================
@@ -142,13 +155,15 @@ jobs:
           echo "📊 New VPS details:"
           echo "  Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
           echo ""
-          echo "⚠️  VPS IS A FRESH OS - NO CONFIGURATION YET"
-          echo "  The VPS has been rebuilt but is not bootstrapped."
+          echo "✅ Config VPS workflow auto-triggered!"
+          echo "  The config-vps workflow has been automatically triggered to bootstrap"
+          echo "  infrastructure immediately (minimizes delay to avoid auto-lockdown)"
           echo ""
-          echo "✅ Next steps:"
-          echo "  1. Bootstrap infrastructure: Trigger 'Config VPS' workflow"
-          echo "     - Provide VPS IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
+          echo "📋 Next steps:"
+          echo "  1. Monitor 'Config VPS' workflow progress in GitHub Actions"
           echo "  2. After config completes, deploy services with 'Deploy' workflows"
           echo ""
-          echo "💡 Fast iteration tip:"
-          echo "  If config fails, just re-run 'Config VPS' - no need to recreate VPS"
+          echo "💡 Tips:"
+          echo "  - Config workflow bootstraps: Docker, Tailscale, Traefik, Portainer"
+          echo "  - If config fails due to SSH timeout, VPS may have auto-locked down"
+          echo "  - In that case, re-run this workflow to rebuild fresh"
