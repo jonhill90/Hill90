@@ -9,6 +9,30 @@
     group: "{{ deploy_user }}"
     mode: '0755'
 
+- name: Create app directory
+  file:
+    path: "{{ app_directory }}/app"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Create app src directory
+  file:
+    path: "{{ app_directory }}/app/src"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
+- name: Create app services directory
+  file:
+    path: "{{ app_directory }}/app/src/services"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+
 - name: Create DNS manager source directory
   file:
     path: "{{ app_directory }}/app/src/services/dns-manager"
@@ -16,7 +40,6 @@
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
     mode: '0755'
-    recurse: yes
 
 - name: Deploy DNS manager app.py
   copy:
