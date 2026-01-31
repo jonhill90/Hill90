@@ -90,21 +90,36 @@ jobs:
           echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
           chmod 600 ~/.config/sops/age/keys.txt
 
-      - name: Verify VPS SSH access
+      - name: Verify VPS SSH access and determine mode
+        id: ssh-check
         run: |
           echo "🔌 Verifying SSH access to VPS..."
           VPS_IP="${{ github.event.inputs.vps_ip }}"
 
-          # Try as root first (fresh VPS), then as deploy user
+          # Try public IP as root first (fresh VPS)
           if ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
               root@$VPS_IP 'echo "SSH as root OK"' 2>/dev/null; then
-            echo "✅ SSH access as root (fresh VPS)"
-          elif ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              deploy@$VPS_IP 'echo "SSH as deploy OK"' 2>/dev/null; then
-            echo "✅ SSH access as deploy user (configured VPS)"
+            echo "✅ SSH access as root via public IP (fresh VPS)"
+            echo "ansible_host=$VPS_IP" >> $GITHUB_OUTPUT
+            echo "ansible_user=root" >> $GITHUB_OUTPUT
+            echo "mode=fresh" >> $GITHUB_OUTPUT
           else
-            echo "❌ Failed to SSH to VPS"
-            exit 1
+            echo "⚠️  Public IP SSH failed - trying Tailscale IP (re-config mode)"
+
+            # Get Tailscale IP from secrets for re-config scenario
+            TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+            echo "::add-mask::$TAILSCALE_IP"
+
+            if ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+                deploy@$TAILSCALE_IP 'echo "SSH as deploy OK"' 2>/dev/null; then
+              echo "✅ SSH access as deploy via Tailscale IP (re-config mode)"
+              echo "ansible_host=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+              echo "ansible_user=deploy" >> $GITHUB_OUTPUT
+              echo "mode=reconfig" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Failed to SSH via both public IP and Tailscale IP"
+              exit 1
+            fi
           fi
 
       - name: Install Ansible
@@ -129,12 +144,14 @@ jobs:
       - name: Run Ansible bootstrap
         run: |
           echo "🚀 Running Ansible bootstrap..."
-          VPS_IP="${{ github.event.inputs.vps_ip }}"
+          echo "Mode: ${{ steps.ssh-check.outputs.mode }}"
+          echo "Host: ${{ steps.ssh-check.outputs.ansible_host }}"
+          echo "User: ${{ steps.ssh-check.outputs.ansible_user }}"
 
           cd infra/ansible
           ansible-playbook -i "inventory/hosts.yml" \
-            -e "ansible_host=$VPS_IP" \
-            -e "ansible_user=root" \
+            -e "ansible_host=${{ steps.ssh-check.outputs.ansible_host }}" \
+            -e "ansible_user=${{ steps.ssh-check.outputs.ansible_user }}" \
             -e "ansible_ssh_private_key_file=~/.ssh/vps_key" \
             -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
             -e "traefik_admin_password_hash=$TRAEFIK_ADMIN_PASSWORD_HASH" \
@@ -147,10 +164,10 @@ jobs:
           echo "🌐 Waiting for Tailscale connection..."
           sleep 30
 
-          # SSH to VPS and get Tailscale IP
-          VPS_IP="${{ github.event.inputs.vps_ip }}"
+          # SSH to VPS and get Tailscale IP (use detected host and user)
           TAILSCALE_IP=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
-            deploy@$VPS_IP 'tailscale ip -4')
+            ${{ steps.ssh-check.outputs.ansible_user }}@${{ steps.ssh-check.outputs.ansible_host }} \
+            'tailscale ip -4')
 
           echo "::add-mask::$TAILSCALE_IP"
           echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
