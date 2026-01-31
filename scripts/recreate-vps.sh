@@ -46,13 +46,12 @@ ROOT_PASSWORD="Hill90VPS-$(openssl rand -base64 18 | tr -d '/+=')"
 echo -e "${GREEN}✓ Password generated${NC}"
 echo ""
 
-# Step 3: Get post-install script ID
-echo -e "${BLUE}Step 3/3: Retrieving configuration...${NC}"
-POST_INSTALL_ID=$(bash "$SCRIPT_DIR/secrets-view.sh" infra/secrets/prod.enc.env HOSTINGER_POST_INSTALL_SCRIPT_ID 2>/dev/null | tail -1 | cut -d= -f2 | sed 's/\x1b\[[0-9;]*m//g')
+# Step 3: Configuration
+echo -e "${BLUE}Step 3/3: Configuration...${NC}"
 
 echo -e "${GREEN}Configuration:${NC}"
 echo "  Template: AlmaLinux 10 (1183)"
-echo "  Post-install script: $POST_INSTALL_ID (bootstrap-ansible)"
+echo "  Post-install script: none (Ansible will handle all setup)"
 echo "  Tailscale: Auth key rotated"
 echo ""
 
@@ -60,7 +59,8 @@ echo ""
 echo -e "${YELLOW}Starting VPS rebuild via Hostinger API...${NC}"
 echo ""
 
-OUTPUT=$(bash "$SCRIPT_DIR/hostinger-api.sh" recreate 1183 "$ROOT_PASSWORD" "$POST_INSTALL_ID")
+# Recreate WITHOUT post-install script - Ansible will handle all setup
+OUTPUT=$(bash "$SCRIPT_DIR/hostinger-api.sh" recreate 1183 "$ROOT_PASSWORD")
 if [[ $? -ne 0 ]]; then
     echo -e "${RED}ERROR: VPS rebuild failed${NC}"
     exit 1
