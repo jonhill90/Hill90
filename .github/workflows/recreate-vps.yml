@@ -73,6 +73,12 @@ jobs:
           echo "🔄 Running VPS recreate via make recreate-vps..."
           make recreate-vps
 
+      - name: Clear old Tailscale IP from secrets
+        run: |
+          echo "🧹 Clearing old TAILSCALE_IP (VPS was rebuilt, Tailscale not yet installed)..."
+          # Set TAILSCALE_IP to empty string so config-vps uses public IP for initial bootstrap
+          sops --set '["TAILSCALE_IP"] ""' infra/secrets/prod.enc.env
+
       - name: Capture new VPS IP from secrets
         id: get-vps-ip
         run: |
