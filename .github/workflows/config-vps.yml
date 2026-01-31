@@ -119,98 +119,38 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ansible
 
-      - name: Export secrets for Ansible
+      - name: Capture Tailscale auth key
+        id: get-tailscale-auth-key
         run: |
+          echo "🔑 Extracting Tailscale auth key..."
           TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' infra/secrets/prod.enc.env)
-          TRAEFIK_ADMIN_PASSWORD_HASH=$(sops -d --extract '["TRAEFIK_ADMIN_PASSWORD_HASH"]' infra/secrets/prod.enc.env)
-          HOSTINGER_API_KEY=$(sops -d --extract '["HOSTINGER_API_KEY"]' infra/secrets/prod.enc.env)
-
           echo "::add-mask::$TAILSCALE_AUTH_KEY"
-          echo "::add-mask::$TRAEFIK_ADMIN_PASSWORD_HASH"
-          echo "::add-mask::$HOSTINGER_API_KEY"
+          echo "tailscale_auth_key=$TAILSCALE_AUTH_KEY" >> $GITHUB_OUTPUT
 
-          echo "TAILSCALE_AUTH_KEY=$TAILSCALE_AUTH_KEY" >> $GITHUB_ENV
-          echo "TRAEFIK_ADMIN_PASSWORD_HASH=$TRAEFIK_ADMIN_PASSWORD_HASH" >> $GITHUB_ENV
-          echo "HOSTINGER_API_KEY=$HOSTINGER_API_KEY" >> $GITHUB_ENV
+      - name: Create age key file for Ansible
+        run: |
+          echo "🔐 Creating age key file for Ansible..."
+          mkdir -p infra/secrets/keys
+          echo "${{ secrets.SOPS_AGE_KEY }}" > infra/secrets/keys/age-prod.key
+          chmod 600 infra/secrets/keys/age-prod.key
 
-      - name: Run Ansible bootstrap
+      - name: Run make config-vps
         env:
+          VPS_IP: ${{ github.event.inputs.vps_ip }}
+          TAILSCALE_AUTH_KEY: ${{ steps.get-tailscale-auth-key.outputs.tailscale_auth_key }}
           SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
-          echo "🚀 Running Ansible bootstrap..."
-          echo "Host: ${{ steps.ssh-check.outputs.ansible_host }}"
-          echo "User: ${{ steps.ssh-check.outputs.ansible_user }}"
+          echo "🔧 Running VPS bootstrap via make config-vps..."
+          make config-vps VPS_IP=$VPS_IP
 
-          # Read age key from secret for transfer to VPS
-          AGE_KEY_CONTENT=$(cat ~/.config/sops/age/keys.txt)
-
-          cd infra/ansible
-          ansible-playbook -i "inventory/hosts.yml" \
-            -e "ansible_host=${{ steps.ssh-check.outputs.ansible_host }}" \
-            -e "ansible_user=${{ steps.ssh-check.outputs.ansible_user }}" \
-            -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
-            -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
-            -e "traefik_admin_password_hash=$TRAEFIK_ADMIN_PASSWORD_HASH" \
-            -e "hostinger_api_key=$HOSTINGER_API_KEY" \
-            -e "age_key_content=$AGE_KEY_CONTENT" \
-            playbooks/bootstrap.yml
-
-      - name: Extract Tailscale IP
+      - name: Capture Tailscale IP from secrets
         id: get-tailscale-ip
         run: |
-          echo "🌐 Waiting for Tailscale connection..."
-          sleep 30
-
-          # After bootstrap, SSH is locked to Tailscale network only
-          # VPS hostname on Tailscale: hill90-vps
-          # Ansible playbook saves Tailscale IP to /opt/hill90/.tailscale_ip
-          echo "Reading Tailscale IP from VPS..."
-
-          # Try tailscale command first (IPv4 only)
-          if command -v tailscale &> /dev/null; then
-            TAILSCALE_IP=$(tailscale ip -4 hill90-vps 2>/dev/null || echo "")
-            [ -n "$TAILSCALE_IP" ] && echo "Got IP via tailscale command: $TAILSCALE_IP"
-          fi
-
-          # Fallback: SSH as deploy user via Tailscale hostname and read saved IP file
-          if [ -z "$TAILSCALE_IP" ]; then
-            echo "Trying SSH as deploy@hill90-vps via Tailscale..."
-            TAILSCALE_IP=$(ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              deploy@hill90-vps 'cat /opt/hill90/.tailscale_ip' 2>/dev/null || echo "")
-            [ -n "$TAILSCALE_IP" ] && echo "Got IP via SSH to Tailscale hostname"
-          fi
-
-          if [ -z "$TAILSCALE_IP" ]; then
-            echo "❌ Failed to get Tailscale IP"
-            echo "   VPS may not have joined Tailscale network"
-            echo "   Check Tailscale status on VPS"
-            exit 1
-          fi
-
+          echo "🌐 Reading Tailscale IP from encrypted secrets..."
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
           echo "::add-mask::$TAILSCALE_IP"
           echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
           echo "✅ Tailscale IP: $TAILSCALE_IP"
-
-      - name: Update TAILSCALE_IP in secrets
-        env:
-          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
-        run: |
-          echo "📝 Updating TAILSCALE_IP in encrypted secrets..."
-          TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
-          SECRETS_FILE="infra/secrets/prod.enc.env"
-
-          # Decrypt, update, re-encrypt (use temp file that matches creation rules)
-          TEMP_FILE="/tmp/prod.enc.env"
-          sops -d "$SECRETS_FILE" > "$TEMP_FILE"
-          if grep -q "^TAILSCALE_IP=" "$TEMP_FILE"; then
-            sed -i "s|^TAILSCALE_IP=.*|TAILSCALE_IP=${TAILSCALE_IP}|" "$TEMP_FILE"
-          else
-            echo "TAILSCALE_IP=${TAILSCALE_IP}" >> "$TEMP_FILE"
-          fi
-          sops -e --config infra/secrets/.sops.yaml "$TEMP_FILE" > "$SECRETS_FILE"
-          rm "$TEMP_FILE"
-
-          echo "✅ TAILSCALE_IP updated"
 
       - name: Commit updated secrets
         run: |
@@ -226,25 +166,6 @@ jobs:
           Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
             git push
           fi
-
-      - name: Verify infrastructure
-        run: |
-          echo "🏥 Verifying infrastructure..."
-          TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
-
-          # Check Docker is running
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@$TAILSCALE_IP 'docker --version'
-
-          # Check Traefik is running
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@$TAILSCALE_IP 'docker ps | grep traefik'
-
-          # Check Portainer is running
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@$TAILSCALE_IP 'docker ps | grep portainer'
-
-          echo "✅ All infrastructure services running"
 
       - name: Summary
         if: success()
