@@ -5,6 +5,7 @@
 - name: Install core utilities
   dnf:
     name:
+      - git
       - jq
       - tmux
       - vim
