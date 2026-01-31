@@ -27,6 +27,12 @@ http:
         prefixes:
           - "/mcp"
 
+    # Tailscale-only access (restrict to Tailscale IP range)
+    tailscale-only:
+      ipWhiteList:
+        sourceRange:
+          - "100.64.0.0/10"  # Tailscale CGNAT range
+
     # Security Headers
     security-headers:
       headers:
