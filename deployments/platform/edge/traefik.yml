@@ -38,9 +38,9 @@ providers:
     directory: "/etc/traefik/dynamic"
     watch: true
 
-# Let's Encrypt Certificate Resolver
-# Production Let's Encrypt by default
+# Let's Encrypt Certificate Resolvers
 certificatesResolvers:
+  # HTTP-01 challenge for public services
   letsencrypt:
     acme:
       email: admin@hill90.com
@@ -49,6 +49,18 @@ certificatesResolvers:
         entryPoint: web
       # Production Let's Encrypt - can be overridden via CLI args in docker-compose.yml
       caServer: https://acme-v02.api.letsencrypt.org/directory
+
+  # DNS-01 challenge for Tailscale-only services (traefik, portainer)
+  letsencrypt-dns:
+    acme:
+      email: admin@hill90.com
+      storage: /letsencrypt/acme-dns.json
+      dnsChallenge:
+        provider: httpreq
+        delayBeforeCheck: 30s
+        resolvers:
+          - 1.1.1.1:53
+          - 8.8.8.8:53
 
 # Logging
 log:
