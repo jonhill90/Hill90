@@ -6,7 +6,15 @@ set -e
 ENV=${1:-prod}
 COMPOSE_FILE="deployments/compose/${ENV}/docker-compose.yml"
 SECRETS_FILE="infra/secrets/${ENV}.enc.env"
-AGE_KEY="infra/secrets/keys/age-${ENV}.key"
+
+# Use SOPS_AGE_KEY_FILE if already set (e.g., from GitHub Actions)
+# Otherwise use default location
+if [ -z "${SOPS_AGE_KEY_FILE:-}" ]; then
+    AGE_KEY="infra/secrets/keys/age-${ENV}.key"
+    export SOPS_AGE_KEY_FILE="$AGE_KEY"
+else
+    AGE_KEY="$SOPS_AGE_KEY_FILE"
+fi
 
 echo "================================"
 echo "Hill90 Deployment - ${ENV}"
@@ -47,7 +55,6 @@ fi
 
 # Deploy using sops exec-env (no temporary files!)
 echo "Deploying with encrypted secrets..."
-export SOPS_AGE_KEY_FILE="$AGE_KEY"
 
 # Use sops exec-env to run docker compose with secrets in environment
 # This avoids creating temporary decrypted files
