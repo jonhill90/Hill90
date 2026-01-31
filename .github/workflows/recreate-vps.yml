@@ -179,6 +179,8 @@ jobs:
           echo "✅ Tailscale IP: $TAILSCALE_IP"
 
       - name: Update TAILSCALE_IP in secrets
+        env:
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "📝 Updating TAILSCALE_IP in encrypted secrets..."
           TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
