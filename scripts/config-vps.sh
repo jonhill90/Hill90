@@ -51,11 +51,24 @@ echo -e "${CYAN}Loading secrets from encrypted file...${NC}"
 TRAEFIK_ADMIN_PASSWORD_HASH=$(cd "$PROJECT_ROOT" && sops -d --extract '["TRAEFIK_ADMIN_PASSWORD_HASH"]' infra/secrets/prod.enc.env)
 HOSTINGER_API_KEY=$(cd "$PROJECT_ROOT" && sops -d --extract '["HOSTINGER_API_KEY"]' infra/secrets/prod.enc.env)
 
+# Check if TAILSCALE_IP is available in secrets (for re-runs after SSH lockdown)
+EXISTING_TAILSCALE_IP=$(cd "$PROJECT_ROOT" && sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env 2>/dev/null || echo "")
+
+# Use Tailscale IP if available (SSH is locked down), otherwise use public IP (initial bootstrap)
+if [ -n "$EXISTING_TAILSCALE_IP" ]; then
+    ANSIBLE_HOST="$EXISTING_TAILSCALE_IP"
+    echo -e "${YELLOW}Using Tailscale IP for SSH (public SSH is locked down): $ANSIBLE_HOST${NC}"
+else
+    ANSIBLE_HOST="$VPS_IP"
+    echo -e "${YELLOW}Using public IP for SSH (initial bootstrap): $ANSIBLE_HOST${NC}"
+fi
+echo ""
+
 # Run Ansible bootstrap and capture output to extract Tailscale IP
 cd "$PROJECT_ROOT/infra/ansible"
 ANSIBLE_OUTPUT=$(mktemp)
 if ansible-playbook -i "inventory/hosts.yml" \
-                 -e "ansible_host=$VPS_IP" \
+                 -e "ansible_host=$ANSIBLE_HOST" \
                  -e "ansible_user=root" \
                  -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
                  -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
