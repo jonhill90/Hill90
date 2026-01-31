@@ -90,18 +90,34 @@ jobs:
           echo "vps_ip=$VPS_IP" >> $GITHUB_OUTPUT
           echo "New VPS IP: $VPS_IP"
 
-      - name: Wait for SSH to be available
+      - name: Wait for SSH to be available and stable
         run: |
-          echo "⏳ Waiting for SSH to be available on ${{ steps.get-vps-ip.outputs.vps_ip }}..."
+          echo "⏳ Waiting for SSH to be available and stable on ${{ steps.get-vps-ip.outputs.vps_ip }}..."
+          VPS_IP="${{ steps.get-vps-ip.outputs.vps_ip }}"
+
+          # Wait for SSH to become available
           for i in {1..30}; do
             if ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
-                root@${{ steps.get-vps-ip.outputs.vps_ip }} 'echo "SSH ready"' 2>/dev/null; then
-              echo "✅ SSH is ready"
+                root@$VPS_IP 'echo "SSH ready"' 2>/dev/null; then
+              echo "SSH is available (attempt $i)"
               break
             fi
             echo "Attempt $i/30 failed, waiting 10s..."
             sleep 10
           done
+
+          # Wait additional time for VPS to finish cloud-init and stabilize
+          echo "⏸️  Waiting 60s for VPS to complete initialization..."
+          sleep 60
+
+          # Verify SSH is still working after stabilization
+          if ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+              root@$VPS_IP 'echo "SSH stable"' 2>/dev/null; then
+            echo "✅ SSH is stable and ready for Ansible"
+          else
+            echo "❌ SSH became unavailable - VPS may be auto-hardening"
+            exit 1
+          fi
 
       - name: Install Ansible
         run: |
