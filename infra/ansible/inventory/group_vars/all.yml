@@ -41,7 +41,7 @@ acme_email: jonhill90@live.com
 # Let's Encrypt configuration
 # IMPORTANT: Use staging for testing to avoid rate limits (50/week for production)
 # Set to 'production' only when ready for real certificates
-letsencrypt_env: staging  # 'staging' or 'production'
+letsencrypt_env: production  # 'staging' or 'production'
 
 # Traefik admin password - stored in encrypted secrets
 # Generate with: htpasswd -nb admin yourpassword
