@@ -5,7 +5,15 @@ set -e
 
 ENV=${1:-prod}
 SECRETS_FILE="infra/secrets/${ENV}.enc.env"
-AGE_KEY="infra/secrets/keys/age-${ENV}.key"
+
+# Use SOPS_AGE_KEY_FILE if already set (e.g., from GitHub Actions)
+# Otherwise use default location
+if [ -z "${SOPS_AGE_KEY_FILE:-}" ]; then
+  AGE_KEY="infra/secrets/keys/age-${ENV}.key"
+  export SOPS_AGE_KEY_FILE="$AGE_KEY"
+else
+  AGE_KEY="$SOPS_AGE_KEY_FILE"
+fi
 
 echo "================================"
 echo "Secrets Validation"
@@ -58,7 +66,6 @@ fi
 
 # Check SOPS can decrypt
 echo -n "Testing SOPS decryption... "
-export SOPS_AGE_KEY_FILE="$AGE_KEY"
 if sops -d "$SECRETS_FILE" > /dev/null 2>&1; then
   echo "✓"
 else
