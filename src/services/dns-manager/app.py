@@ -12,7 +12,7 @@ import requests
 app = Flask(__name__)
 
 HOSTINGER_API_KEY = os.getenv('HOSTINGER_API_KEY')
-HOSTINGER_API_BASE = "https://api.hostinger.com/api/v1"
+HOSTINGER_API_BASE = "https://developers.hostinger.com/api/dns/v1"
 BASE_DOMAIN = "hill90.com"
 
 def get_headers():
@@ -23,14 +23,14 @@ def get_headers():
 
 def get_dns_records():
     """Get current DNS records for the domain"""
-    url = f"{HOSTINGER_API_BASE}/domains/{BASE_DOMAIN}/dns"
+    url = f"{HOSTINGER_API_BASE}/zones/{BASE_DOMAIN}"
     response = requests.get(url, headers=get_headers())
     response.raise_for_status()
     return response.json()
 
 def add_txt_record(record_name, value, ttl=300):
     """Add a TXT record via Hostinger API"""
-    url = f"{HOSTINGER_API_BASE}/domains/{BASE_DOMAIN}/dns"
+    url = f"{HOSTINGER_API_BASE}/zones/{BASE_DOMAIN}"
 
     payload = {
         "zone": [{
@@ -41,7 +41,7 @@ def add_txt_record(record_name, value, ttl=300):
         }]
     }
 
-    response = requests.post(url, headers=get_headers(), json=payload)
+    response = requests.put(url, headers=get_headers(), json=payload)
     response.raise_for_status()
     return response.json()
 
@@ -49,7 +49,7 @@ def delete_txt_record(record_name):
     """Delete TXT record by name"""
     # Hostinger API doesn't have a direct delete for individual records
     # We need to update with empty records or use the overwrite method
-    url = f"{HOSTINGER_API_BASE}/domains/{BASE_DOMAIN}/dns"
+    url = f"{HOSTINGER_API_BASE}/zones/{BASE_DOMAIN}"
 
     payload = {
         "zone": [{
@@ -61,7 +61,7 @@ def delete_txt_record(record_name):
         "overwrite": True
     }
 
-    response = requests.post(url, headers=get_headers(), json=payload)
+    response = requests.put(url, headers=get_headers(), json=payload)
     response.raise_for_status()
     return response.json()
 
