@@ -15,6 +15,7 @@ jobs:
   validate:
     name: Validate Prerequisites
     runs-on: ubuntu-latest
+    environment: production
 
     steps:
       - name: Checkout repository
@@ -59,6 +60,7 @@ jobs:
   config:
     name: Configure VPS Infrastructure
     runs-on: ubuntu-latest
+    environment: production
     needs: validate
 
     steps:
