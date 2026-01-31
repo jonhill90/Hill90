@@ -195,7 +195,7 @@ log_info "  ✓ DNS records validation passed"
 
 # Apply DNS update
 log_step "Applying DNS updates..."
-update_response=$(api_call POST "/zones/$DOMAIN" "$dns_payload" 2>&1) || {
+update_response=$(api_call PUT "/zones/$DOMAIN" "$dns_payload" 2>&1) || {
     log_error "Failed to update DNS records. API response:"
     echo "$update_response"
     exit 1
