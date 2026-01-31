@@ -148,14 +148,35 @@ jobs:
           echo "🌐 Waiting for Tailscale connection..."
           sleep 30
 
-          # SSH to VPS and get Tailscale IP
-          VPS_IP="${{ steps.get-vps-ip.outputs.vps_ip }}"
-          TAILSCALE_IP=$(ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            root@$VPS_IP 'tailscale ip -4')
+          # After bootstrap, SSH is locked to Tailscale network only
+          # VPS hostname on Tailscale: hill90-vps
+          # Ansible playbook saves Tailscale IP to /opt/hill90/.tailscale_ip
+          echo "Reading Tailscale IP from VPS..."
+
+          # Try tailscale command first
+          if command -v tailscale &> /dev/null; then
+            TAILSCALE_IP=$(tailscale ip hill90-vps 2>/dev/null || echo "")
+            [ -n "$TAILSCALE_IP" ] && echo "Got IP via tailscale command: $TAILSCALE_IP"
+          fi
+
+          # Fallback: SSH as deploy user via Tailscale hostname and read saved IP file
+          if [ -z "$TAILSCALE_IP" ]; then
+            echo "Trying SSH as deploy@hill90-vps via Tailscale..."
+            TAILSCALE_IP=$(ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              deploy@hill90-vps 'cat /opt/hill90/.tailscale_ip' 2>/dev/null || echo "")
+            [ -n "$TAILSCALE_IP" ] && echo "Got IP via SSH to Tailscale hostname"
+          fi
+
+          if [ -z "$TAILSCALE_IP" ]; then
+            echo "❌ Failed to get Tailscale IP"
+            echo "   VPS may not have joined Tailscale network"
+            echo "   Check Tailscale status on VPS"
+            exit 1
+          fi
 
           echo "::add-mask::$TAILSCALE_IP"
           echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
-          echo "Tailscale IP: $TAILSCALE_IP"
+          echo "✅ Tailscale IP: $TAILSCALE_IP"
 
       - name: Update TAILSCALE_IP in secrets
         run: |
