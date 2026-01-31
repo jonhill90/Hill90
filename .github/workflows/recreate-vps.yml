@@ -104,43 +104,7 @@ jobs:
           done
 
       # ========================================
-      # 4. BOOTSTRAP VPS (via make command)
-      # ========================================
-      - name: Capture Tailscale auth key from secrets
-        id: get-tailscale-auth-key
-        run: |
-          echo "🔑 Reading Tailscale auth key from encrypted secrets..."
-          TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' infra/secrets/prod.enc.env)
-          echo "::add-mask::$TAILSCALE_AUTH_KEY"
-          echo "tailscale_auth_key=$TAILSCALE_AUTH_KEY" >> $GITHUB_OUTPUT
-
-      - name: Create age key file for Ansible
-        run: |
-          echo "🔐 Creating age key file for Ansible..."
-          mkdir -p infra/secrets/keys
-          echo "${{ secrets.SOPS_AGE_KEY }}" > infra/secrets/keys/age-prod.key
-          chmod 600 infra/secrets/keys/age-prod.key
-
-      - name: Run make config-vps
-        env:
-          VPS_IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
-          TAILSCALE_AUTH_KEY: ${{ steps.get-tailscale-auth-key.outputs.tailscale_auth_key }}
-          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
-        run: |
-          echo "🔧 Running VPS bootstrap via make config-vps..."
-          make config-vps VPS_IP=$VPS_IP
-
-      - name: Capture Tailscale IP from secrets
-        id: get-tailscale-ip
-        run: |
-          echo "🌐 Reading Tailscale IP from encrypted secrets..."
-          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
-          echo "::add-mask::$TAILSCALE_IP"
-          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
-          echo "Tailscale IP: $TAILSCALE_IP"
-
-      # ========================================
-      # 5. COMMIT UPDATED SECRETS
+      # 4. COMMIT UPDATED SECRETS
       # ========================================
       - name: Commit updated secrets
         run: |
@@ -150,11 +114,12 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update VPS IPs after recreate
+            git commit -m "Update VPS public IP after recreate
 
             - VPS Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
-            - Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}
-            - Recreate action: ${{ github.run_id }}"
+            - Recreate action: ${{ github.run_id }}
+
+            Next step: Run 'Config VPS' workflow to bootstrap infrastructure"
             git push
           fi
 
@@ -167,21 +132,23 @@ jobs:
           find infra/secrets -name "*.backup.*" -type f -delete || true
 
       # ========================================
-      # 7. SUMMARY
+      # 5. SUMMARY
       # ========================================
       - name: Print summary
         if: success()
         run: |
-          echo "🎉 VPS recreate and bootstrap complete!"
+          echo "🎉 VPS recreate complete!"
           echo ""
           echo "📊 New VPS details:"
           echo "  Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
-          echo "  Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo ""
-          echo "⚠️  DEPLOYMENT NOT INCLUDED"
-          echo "  VPS infrastructure is ready but services are NOT deployed."
+          echo "⚠️  VPS IS A FRESH OS - NO CONFIGURATION YET"
+          echo "  The VPS has been rebuilt but is not bootstrapped."
           echo ""
           echo "✅ Next steps:"
-          echo "  1. Deploy with staging certs (safe): Trigger 'Deploy (Staging)' workflow"
-          echo "  2. Deploy with production certs (rate-limited): Trigger 'Deploy (Production)' workflow"
-          echo "  3. Via SSH: ssh deploy@\$TAILSCALE_IP 'cd /opt/hill90/app && make deploy'"
+          echo "  1. Bootstrap infrastructure: Trigger 'Config VPS' workflow"
+          echo "     - Provide VPS IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
+          echo "  2. After config completes, deploy services with 'Deploy' workflows"
+          echo ""
+          echo "💡 Fast iteration tip:"
+          echo "  If config fails, just re-run 'Config VPS' - no need to recreate VPS"
