@@ -61,6 +61,8 @@ jobs:
     name: Configure VPS Infrastructure
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: write
     needs: validate
 
     steps:
