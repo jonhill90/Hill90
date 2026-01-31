@@ -134,10 +134,15 @@ jobs:
           echo "HOSTINGER_API_KEY=$HOSTINGER_API_KEY" >> $GITHUB_ENV
 
       - name: Run Ansible bootstrap
+        env:
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "🚀 Running Ansible bootstrap..."
           echo "Host: ${{ steps.ssh-check.outputs.ansible_host }}"
           echo "User: ${{ steps.ssh-check.outputs.ansible_user }}"
+
+          # Read age key from secret for transfer to VPS
+          AGE_KEY_CONTENT=$(cat ~/.config/sops/age/keys.txt)
 
           cd infra/ansible
           ansible-playbook -i "inventory/hosts.yml" \
@@ -147,6 +152,7 @@ jobs:
             -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
             -e "traefik_admin_password_hash=$TRAEFIK_ADMIN_PASSWORD_HASH" \
             -e "hostinger_api_key=$HOSTINGER_API_KEY" \
+            -e "age_key_content=$AGE_KEY_CONTENT" \
             playbooks/bootstrap.yml
 
       - name: Extract Tailscale IP
@@ -155,41 +161,54 @@ jobs:
           echo "🌐 Waiting for Tailscale connection..."
           sleep 30
 
-          # SSH to VPS and get Tailscale IP (use detected host and user)
-          TAILSCALE_IP=$(ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            ${{ steps.ssh-check.outputs.ansible_user }}@${{ steps.ssh-check.outputs.ansible_host }} \
-            'tailscale ip -4')
+          # After bootstrap, SSH is locked to Tailscale network only
+          # VPS hostname on Tailscale: hill90-vps
+          # Ansible playbook saves Tailscale IP to /opt/hill90/.tailscale_ip
+          echo "Reading Tailscale IP from VPS..."
+
+          # Try tailscale command first (IPv4 only)
+          if command -v tailscale &> /dev/null; then
+            TAILSCALE_IP=$(tailscale ip -4 hill90-vps 2>/dev/null || echo "")
+            [ -n "$TAILSCALE_IP" ] && echo "Got IP via tailscale command: $TAILSCALE_IP"
+          fi
+
+          # Fallback: SSH as deploy user via Tailscale hostname and read saved IP file
+          if [ -z "$TAILSCALE_IP" ]; then
+            echo "Trying SSH as deploy@hill90-vps via Tailscale..."
+            TAILSCALE_IP=$(ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+              deploy@hill90-vps 'cat /opt/hill90/.tailscale_ip' 2>/dev/null || echo "")
+            [ -n "$TAILSCALE_IP" ] && echo "Got IP via SSH to Tailscale hostname"
+          fi
+
+          if [ -z "$TAILSCALE_IP" ]; then
+            echo "❌ Failed to get Tailscale IP"
+            echo "   VPS may not have joined Tailscale network"
+            echo "   Check Tailscale status on VPS"
+            exit 1
+          fi
 
           echo "::add-mask::$TAILSCALE_IP"
           echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
-          echo "Tailscale IP: $TAILSCALE_IP"
+          echo "✅ Tailscale IP: $TAILSCALE_IP"
 
       - name: Update TAILSCALE_IP in secrets
+        env:
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "📝 Updating TAILSCALE_IP in encrypted secrets..."
           TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
-
-          # Create temporary script to update secrets
-          cat > /tmp/update-secret.sh << 'EOF'
-          #!/bin/bash
-          set -euo pipefail
-          KEY="$1"
-          VALUE="$2"
           SECRETS_FILE="infra/secrets/prod.enc.env"
 
-          # Decrypt, update, re-encrypt
-          sops -d "$SECRETS_FILE" > /tmp/secrets.env
-          if grep -q "^${KEY}=" /tmp/secrets.env; then
-            sed -i "s|^${KEY}=.*|${KEY}=${VALUE}|" /tmp/secrets.env
+          # Decrypt, update, re-encrypt (use temp file that matches creation rules)
+          TEMP_FILE="/tmp/prod.enc.env"
+          sops -d "$SECRETS_FILE" > "$TEMP_FILE"
+          if grep -q "^TAILSCALE_IP=" "$TEMP_FILE"; then
+            sed -i "s|^TAILSCALE_IP=.*|TAILSCALE_IP=${TAILSCALE_IP}|" "$TEMP_FILE"
           else
-            echo "${KEY}=${VALUE}" >> /tmp/secrets.env
+            echo "TAILSCALE_IP=${TAILSCALE_IP}" >> "$TEMP_FILE"
           fi
-          sops -e /tmp/secrets.env > "$SECRETS_FILE"
-          rm /tmp/secrets.env
-          EOF
-
-          chmod +x /tmp/update-secret.sh
-          /tmp/update-secret.sh TAILSCALE_IP "$TAILSCALE_IP"
+          sops -e --config infra/secrets/.sops.yaml "$TEMP_FILE" > "$SECRETS_FILE"
+          rm "$TEMP_FILE"
 
           echo "✅ TAILSCALE_IP updated"
 

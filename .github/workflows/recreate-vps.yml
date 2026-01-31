@@ -1,7 +1,8 @@
-name: VPS Recreate (Infrastructure Only)
+name: VPS Recreate (OS Only)
 
 # Manual trigger only - DESTRUCTIVE operation
-# Rebuilds VPS and bootstraps infrastructure (Docker, Tailscale, firewall)
+# Rebuilds VPS operating system only
+# Does NOT configure infrastructure - run 'Config VPS' workflow afterward
 # Does NOT deploy application - use Deploy workflows separately
 on:
   workflow_dispatch:
@@ -13,7 +14,7 @@ on:
 
 jobs:
   recreate:
-    name: Recreate VPS via Hostinger API
+    name: Recreate VPS OS (No Bootstrap)
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -39,22 +40,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ansible jq curl
-
-          # Install SOPS from GitHub releases
+          # Install SOPS for secrets management
           SOPS_VERSION="3.9.0"
           curl -Lo /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
           chmod +x /tmp/sops
           sudo mv /tmp/sops /usr/local/bin/sops
           sops --version
-
-      - name: Setup Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:github-actions
 
       - name: Setup SSH key
         run: |
@@ -119,120 +110,6 @@ jobs:
             exit 1
           fi
 
-      - name: Install Ansible
-        run: |
-          # Already installed in dependencies step
-
-      - name: Export secrets for Ansible
-        run: |
-          TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' infra/secrets/prod.enc.env)
-          TRAEFIK_ADMIN_PASSWORD_HASH=$(sops -d --extract '["TRAEFIK_ADMIN_PASSWORD_HASH"]' infra/secrets/prod.enc.env)
-          HOSTINGER_API_KEY=$(sops -d --extract '["HOSTINGER_API_KEY"]' infra/secrets/prod.enc.env)
-
-          echo "::add-mask::$TAILSCALE_AUTH_KEY"
-          echo "::add-mask::$TRAEFIK_ADMIN_PASSWORD_HASH"
-          echo "::add-mask::$HOSTINGER_API_KEY"
-
-          echo "TAILSCALE_AUTH_KEY=$TAILSCALE_AUTH_KEY" >> $GITHUB_ENV
-          echo "TRAEFIK_ADMIN_PASSWORD_HASH=$TRAEFIK_ADMIN_PASSWORD_HASH" >> $GITHUB_ENV
-          echo "HOSTINGER_API_KEY=$HOSTINGER_API_KEY" >> $GITHUB_ENV
-
-      - name: Run Ansible bootstrap
-        env:
-          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
-        run: |
-          echo "🚀 Running Ansible bootstrap immediately after rebuild..."
-          VPS_IP="${{ steps.get-vps-ip.outputs.vps_ip }}"
-
-          # Read age key from secret for transfer to VPS
-          AGE_KEY_CONTENT=$(cat ~/.config/sops/age/keys.txt)
-
-          cd infra/ansible
-          ansible-playbook -i "inventory/hosts.yml" \
-            -e "ansible_host=$VPS_IP" \
-            -e "ansible_user=root" \
-            -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
-            -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
-            -e "traefik_admin_password_hash=$TRAEFIK_ADMIN_PASSWORD_HASH" \
-            -e "hostinger_api_key=$HOSTINGER_API_KEY" \
-            -e "age_key_content=$AGE_KEY_CONTENT" \
-            playbooks/bootstrap.yml
-
-      - name: Extract Tailscale IP
-        id: get-tailscale-ip
-        run: |
-          echo "🌐 Waiting for Tailscale connection..."
-          sleep 30
-
-          # After bootstrap, SSH is locked to Tailscale network only
-          # VPS hostname on Tailscale: hill90-vps
-          # Ansible playbook saves Tailscale IP to /opt/hill90/.tailscale_ip
-          echo "Reading Tailscale IP from VPS..."
-
-          # Try tailscale command first (IPv4 only)
-          if command -v tailscale &> /dev/null; then
-            TAILSCALE_IP=$(tailscale ip -4 hill90-vps 2>/dev/null || echo "")
-            [ -n "$TAILSCALE_IP" ] && echo "Got IP via tailscale command: $TAILSCALE_IP"
-          fi
-
-          # Fallback: SSH as deploy user via Tailscale hostname and read saved IP file
-          if [ -z "$TAILSCALE_IP" ]; then
-            echo "Trying SSH as deploy@hill90-vps via Tailscale..."
-            TAILSCALE_IP=$(ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              deploy@hill90-vps 'cat /opt/hill90/.tailscale_ip' 2>/dev/null || echo "")
-            [ -n "$TAILSCALE_IP" ] && echo "Got IP via SSH to Tailscale hostname"
-          fi
-
-          if [ -z "$TAILSCALE_IP" ]; then
-            echo "❌ Failed to get Tailscale IP"
-            echo "   VPS may not have joined Tailscale network"
-            echo "   Check Tailscale status on VPS"
-            exit 1
-          fi
-
-          echo "::add-mask::$TAILSCALE_IP"
-          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
-          echo "✅ Tailscale IP: $TAILSCALE_IP"
-
-      - name: Update TAILSCALE_IP in secrets
-        env:
-          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
-        run: |
-          echo "📝 Updating TAILSCALE_IP in encrypted secrets..."
-          TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
-          SECRETS_FILE="infra/secrets/prod.enc.env"
-
-          # Decrypt, update, re-encrypt (use temp file that matches creation rules)
-          TEMP_FILE="/tmp/prod.enc.env"
-          sops -d "$SECRETS_FILE" > "$TEMP_FILE"
-          if grep -q "^TAILSCALE_IP=" "$TEMP_FILE"; then
-            sed -i "s|^TAILSCALE_IP=.*|TAILSCALE_IP=${TAILSCALE_IP}|" "$TEMP_FILE"
-          else
-            echo "TAILSCALE_IP=${TAILSCALE_IP}" >> "$TEMP_FILE"
-          fi
-          sops -e --config infra/secrets/.sops.yaml "$TEMP_FILE" > "$SECRETS_FILE"
-          rm "$TEMP_FILE"
-
-          echo "✅ TAILSCALE_IP updated"
-
-      - name: Verify infrastructure
-        run: |
-          echo "🏥 Verifying infrastructure..."
-          TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
-
-          # Check Docker is running
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@$TAILSCALE_IP 'docker --version'
-
-          # Check Traefik is running
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@$TAILSCALE_IP 'docker ps | grep traefik'
-
-          # Check Portainer is running
-          ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no \
-            deploy@$TAILSCALE_IP 'docker ps | grep portainer'
-
-          echo "✅ All infrastructure services running"
 
       # ========================================
       # 4. COMMIT UPDATED SECRETS
@@ -245,13 +122,13 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update VPS IPs after recreate and bootstrap
+            git commit -m "Update VPS IP after recreate
 
             - VPS Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}
-            - VPS Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}
             - Recreate action: ${{ github.run_id }}
 
-            Infrastructure bootstrapped: Docker, Tailscale, Traefik, Portainer"
+            Note: VPS OS rebuilt, infrastructure NOT yet configured.
+            Run 'Config VPS' workflow next to bootstrap infrastructure."
             git push
           fi
 
@@ -269,24 +146,18 @@ jobs:
       - name: Print summary
         if: success()
         run: |
-          echo "🎉 VPS recreate and bootstrap complete!"
+          echo "🎉 VPS recreate complete!"
           echo ""
           echo "📊 VPS details:"
           echo "  Public IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
-          echo "  Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo ""
-          echo "✅ Infrastructure deployed:"
-          echo "  • Docker + Docker Compose"
-          echo "  • Tailscale VPN"
-          echo "  • Traefik reverse proxy (https://traefik.hill90.com)"
-          echo "  • Portainer container manager (https://portainer.hill90.com)"
-          echo "  • DNS Manager (for Let's Encrypt DNS-01 challenges)"
+          echo "⚠️  INFRASTRUCTURE NOT YET CONFIGURED"
+          echo "   VPS OS has been rebuilt but infrastructure is NOT deployed"
           echo ""
           echo "📋 Next steps:"
-          echo "  1. Setup Portainer admin: https://portainer.hill90.com (Tailscale-only)"
-          echo "  2. Deploy application services: Trigger 'Deploy (Production)' workflow"
-          echo "  3. SSH access: ssh -i ~/.ssh/remote.hill90.com deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+          echo "  1. Run 'Config VPS' workflow with IP: ${{ steps.get-vps-ip.outputs.vps_ip }}"
+          echo "  2. After config completes, deploy application services"
           echo ""
-          echo "💡 Success!"
-          echo "  VPS was rebuilt and configured in one atomic operation"
-          echo "  No manual steps needed - infrastructure is production-ready"
+          echo "💡 Why separate workflows?"
+          echo "  Separating recreate and config makes debugging easier"
+          echo "  and avoids SSH timing issues during VPS lockdown"
