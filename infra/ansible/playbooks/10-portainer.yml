@@ -39,10 +39,10 @@
             - portainer-data:/data
           labels:
             - "traefik.enable=true"
-            # Portainer web UI - Tailscale-only access
+            # Portainer web UI - Tailscale-only access with DNS-01 cert
             - "traefik.http.routers.portainer.rule=Host(`portainer.{{ domain }}`)"
             - "traefik.http.routers.portainer.entrypoints=websecure"
-            - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
+            - "traefik.http.routers.portainer.tls.certresolver=letsencrypt-dns"
             - "traefik.http.routers.portainer.service=portainer"
             - "traefik.http.routers.portainer.middlewares=tailscale-only@file"
             - "traefik.http.services.portainer.loadbalancer.server.port=9000"

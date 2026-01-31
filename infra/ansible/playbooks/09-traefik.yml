@@ -9,6 +9,31 @@
     group: "{{ deploy_user }}"
     mode: '0755'
 
+- name: Create DNS manager source directory
+  file:
+    path: "{{ app_directory }}/app/src/services/dns-manager"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0755'
+    recurse: yes
+
+- name: Deploy DNS manager app.py
+  copy:
+    src: "{{ playbook_dir }}/../../../src/services/dns-manager/app.py"
+    dest: "{{ app_directory }}/app/src/services/dns-manager/app.py"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+
+- name: Deploy DNS manager Dockerfile
+  copy:
+    src: "{{ playbook_dir }}/../../../src/services/dns-manager/Dockerfile"
+    dest: "{{ app_directory }}/app/src/services/dns-manager/Dockerfile"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
+
 - name: Create Traefik config directory
   file:
     path: "{{ app_directory }}/infra/traefik/config"
@@ -72,14 +97,25 @@
           directory: "/etc/traefik/dynamic"
           watch: true
 
-      # Let's Encrypt Certificate Resolver (Production)
+      # Let's Encrypt Certificate Resolvers
       certificatesResolvers:
-        letsencrypt:
+        # HTTP-01 challenge for public services (api, ai, etc.)
+        letsencrypt-http:
           acme:
             email: {{ acme_email }}
-            storage: /letsencrypt/acme.json
+            storage: /letsencrypt/acme-http.json
             httpChallenge:
               entryPoint: web
+            caServer: https://acme-v02.api.letsencrypt.org/directory
+
+        # DNS-01 challenge for Tailscale-only services (portainer, traefik dashboard)
+        letsencrypt-dns:
+          acme:
+            email: {{ acme_email }}
+            storage: /letsencrypt/acme-dns.json
+            dnsChallenge:
+              provider: httpreq
+              delayBeforeCheck: 30s
             caServer: https://acme-v02.api.letsencrypt.org/directory
 
       # Logging
@@ -139,6 +175,21 @@
           name: traefik-certs
 
       services:
+        # DNS Manager for DNS-01 ACME challenges
+        dns-manager:
+          build: {{ app_directory }}/app/src/services/dns-manager
+          container_name: dns-manager
+          restart: unless-stopped
+          networks:
+            - edge
+          environment:
+            - HOSTINGER_API_KEY={{ hostinger_api_key }}
+          healthcheck:
+            test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+
         traefik:
           image: traefik:v2.11
           container_name: traefik
@@ -155,11 +206,18 @@
             - traefik-certs:/letsencrypt
           environment:
             - ACME_EMAIL={{ acme_email }}
+            # HTTP Request DNS provider config for DNS-01
+            - HTTPREQ_ENDPOINT=http://dns-manager:8080
+            - HTTPREQ_MODE=RAW
+            - HTTPREQ_POLLING_INTERVAL=30s
+            - HTTPREQ_PROPAGATION_TIMEOUT=300s
+          depends_on:
+            - dns-manager
           labels:
             - "traefik.enable=true"
             - "traefik.http.routers.traefik.rule=Host(`traefik.{{ domain }}`)"
             - "traefik.http.routers.traefik.entrypoints=websecure"
-            - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+            - "traefik.http.routers.traefik.tls.certresolver=letsencrypt-dns"
             - "traefik.http.routers.traefik.service=api@internal"
             - "traefik.http.routers.traefik.middlewares=auth@file,tailscale-only@file"
 
