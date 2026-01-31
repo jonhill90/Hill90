@@ -202,15 +202,16 @@ jobs:
           TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           SECRETS_FILE="infra/secrets/prod.enc.env"
 
-          # Decrypt, update, re-encrypt (directly, no sub-script)
-          sops -d "$SECRETS_FILE" > /tmp/secrets.env
-          if grep -q "^TAILSCALE_IP=" /tmp/secrets.env; then
-            sed -i "s|^TAILSCALE_IP=.*|TAILSCALE_IP=${TAILSCALE_IP}|" /tmp/secrets.env
+          # Decrypt, update, re-encrypt (use temp file that matches creation rules)
+          TEMP_FILE="/tmp/prod.enc.env"
+          sops -d "$SECRETS_FILE" > "$TEMP_FILE"
+          if grep -q "^TAILSCALE_IP=" "$TEMP_FILE"; then
+            sed -i "s|^TAILSCALE_IP=.*|TAILSCALE_IP=${TAILSCALE_IP}|" "$TEMP_FILE"
           else
-            echo "TAILSCALE_IP=${TAILSCALE_IP}" >> /tmp/secrets.env
+            echo "TAILSCALE_IP=${TAILSCALE_IP}" >> "$TEMP_FILE"
           fi
-          sops -e --config infra/secrets/.sops.yaml /tmp/secrets.env > "$SECRETS_FILE"
-          rm /tmp/secrets.env
+          sops -e --config infra/secrets/.sops.yaml "$TEMP_FILE" > "$SECRETS_FILE"
+          rm "$TEMP_FILE"
 
           echo "✅ TAILSCALE_IP updated"
 
