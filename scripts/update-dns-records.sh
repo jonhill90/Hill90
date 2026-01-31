@@ -7,6 +7,12 @@ set -euo pipefail
 DOMAIN="hill90.com"
 API_BASE="https://api.hostinger.com/dns/v1"
 
+# Check for jq and install if missing (GitHub Actions runner)
+if ! command -v jq &> /dev/null; then
+    echo "Installing jq..."
+    sudo apt-get update -qq && sudo apt-get install -y -qq jq > /dev/null 2>&1
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -95,7 +101,10 @@ api_call() {
 
 # Get current DNS records
 log_step "Fetching current DNS records..."
-current_records=$(api_call GET "/domains/$DOMAIN")
+if ! current_records=$(api_call GET "/domains/$DOMAIN"); then
+    log_error "Failed to fetch current DNS records"
+    exit 1
+fi
 
 # Check if records need updating (idempotency check)
 needs_update=false
