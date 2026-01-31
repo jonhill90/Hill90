@@ -65,6 +65,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Pull latest secrets
+        run: |
+          echo "📥 Pulling latest changes (including updated secrets from recreate)..."
+          git pull origin main
+
       - name: Setup Tailscale
         uses: tailscale/github-action@v2
         with:

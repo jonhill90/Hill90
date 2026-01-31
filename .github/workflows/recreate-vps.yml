@@ -111,19 +111,6 @@ jobs:
             exit 1
           fi
 
-      - name: Auto-trigger config-vps workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "🚀 Auto-triggering config-vps immediately to avoid timing gaps..."
-          VPS_IP="${{ steps.get-vps-ip.outputs.vps_ip }}"
-          gh workflow run config-vps.yml --field vps_ip="$VPS_IP"
-          echo "✅ config-vps triggered with VPS_IP=$VPS_IP"
-          echo ""
-          echo "💡 Monitor config-vps progress:"
-          echo "   gh run list --workflow=config-vps.yml --limit 1"
-          echo "   gh run watch <run-id>"
-
 
       # ========================================
       # 4. COMMIT UPDATED SECRETS
@@ -145,6 +132,19 @@ jobs:
             Run 'Config VPS' workflow next to bootstrap infrastructure."
             git push
           fi
+
+      - name: Auto-trigger config-vps workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🚀 Auto-triggering config-vps immediately..."
+          VPS_IP="${{ steps.get-vps-ip.outputs.vps_ip }}"
+          gh workflow run config-vps.yml --field vps_ip="$VPS_IP"
+          echo "✅ config-vps triggered with VPS_IP=$VPS_IP"
+          echo ""
+          echo "💡 Monitor config-vps progress:"
+          echo "   gh run list --workflow=config-vps.yml --limit 1"
+          echo "   gh run watch <run-id>"
 
       # ========================================
       # 6. CLEANUP
