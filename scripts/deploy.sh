@@ -59,6 +59,9 @@ echo "Deploying with encrypted secrets..."
 # Use sops exec-env to run docker compose with secrets in environment
 # This avoids creating temporary decrypted files
 sops exec-env "$SECRETS_FILE" '
+  echo "Stopping existing services..."
+  docker compose -f '"$COMPOSE_FILE"' down || true
+
   echo "Building and pulling images (parallel mode)..."
   docker compose -f '"$COMPOSE_FILE"' build --parallel
   docker compose -f '"$COMPOSE_FILE"' pull --ignore-buildable
