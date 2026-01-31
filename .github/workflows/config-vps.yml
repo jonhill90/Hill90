@@ -90,7 +90,7 @@ jobs:
           chmod +x /tmp/sops
           sudo mv /tmp/sops /usr/local/bin/sops
 
-          # Setup age key
+          # Setup age key (exact same as working version)
           mkdir -p ~/.config/sops/age
           echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
           chmod 600 ~/.config/sops/age/keys.txt
@@ -105,6 +105,8 @@ jobs:
 
       - name: Capture Tailscale auth key
         id: get-tailscale-auth-key
+        env:
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "🔑 Extracting Tailscale auth key..."
           TAILSCALE_AUTH_KEY=$(sops -d --extract '["TAILSCALE_AUTH_KEY"]' infra/secrets/prod.enc.env)
@@ -129,6 +131,8 @@ jobs:
 
       - name: Capture Tailscale IP from secrets
         id: get-tailscale-ip
+        env:
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "🌐 Reading Tailscale IP from encrypted secrets..."
           TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
