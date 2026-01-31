@@ -197,6 +197,25 @@ ssh: ## SSH into VPS
 	ssh deploy@$(VPS_HOST)
 
 # ============================================================================
+# DNS Management
+# ============================================================================
+
+dns-view: ## View current DNS records for hill90.com
+	@bash scripts/dns-manager.sh get-records
+
+dns-sync: ## Sync DNS A records to current VPS_IP
+	@bash scripts/dns-manager.sh sync-vps-dns
+
+dns-snapshots: ## List DNS backup snapshots
+	@bash scripts/dns-manager.sh list-snapshots
+
+dns-restore: ## Restore DNS from snapshot (usage: make dns-restore SNAPSHOT_ID=123)
+	@bash scripts/dns-manager.sh restore-snapshot $(SNAPSHOT_ID)
+
+dns-verify: ## Verify DNS propagation
+	@bash scripts/dns-manager.sh verify-dns
+
+# ============================================================================
 # Service Management
 # ============================================================================
 

@@ -1,0 +1,32 @@
+{
+  "records": [
+    {
+      "type": "A",
+      "name": "@",
+      "content": "${VPS_IP}",
+      "ttl": 3600,
+      "priority": null
+    },
+    {
+      "type": "A",
+      "name": "www",
+      "content": "${VPS_IP}",
+      "ttl": 3600,
+      "priority": null
+    },
+    {
+      "type": "A",
+      "name": "api",
+      "content": "${VPS_IP}",
+      "ttl": 3600,
+      "priority": null
+    },
+    {
+      "type": "A",
+      "name": "ai",
+      "content": "${VPS_IP}",
+      "ttl": 3600,
+      "priority": null
+    }
+  ]
+}
