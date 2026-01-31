@@ -93,20 +93,26 @@ jobs:
       - name: Verify VPS SSH access
         id: ssh-check
         run: |
-          echo "🔌 Verifying SSH access to fresh VPS..."
+          echo "🔌 Verifying SSH access to fresh VPS (with retries)..."
           VPS_IP="${{ github.event.inputs.vps_ip }}"
 
-          if ! ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              root@$VPS_IP 'echo "SSH OK"' 2>/dev/null; then
-            echo "❌ Failed to SSH to VPS as root"
-            echo "   VPS should be freshly rebuilt with root access"
-            echo "   Check VPS IP: $VPS_IP"
-            exit 1
-          fi
+          # Retry SSH connection up to 30 times (5 minutes total)
+          for i in {1..30}; do
+            if ssh -i ~/.ssh/remote.hill90.com -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+                root@$VPS_IP 'echo "SSH OK"' 2>/dev/null; then
+              echo "✅ SSH access verified (root@$VPS_IP)"
+              echo "ansible_host=$VPS_IP" >> $GITHUB_OUTPUT
+              echo "ansible_user=root" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "Attempt $i/30 failed, waiting 10s..."
+            sleep 10
+          done
 
-          echo "✅ SSH access verified (root@$VPS_IP)"
-          echo "ansible_host=$VPS_IP" >> $GITHUB_OUTPUT
-          echo "ansible_user=root" >> $GITHUB_OUTPUT
+          echo "❌ Failed to SSH to VPS after 30 attempts"
+          echo "   VPS should be freshly rebuilt with root access"
+          echo "   Check VPS IP: $VPS_IP"
+          exit 1
 
       - name: Install Ansible
         run: |
