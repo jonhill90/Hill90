@@ -159,6 +159,15 @@ jobs:
             git push
           fi
 
+      - name: Update DNS records
+        env:
+          HOSTINGER_API_KEY: ${{ secrets.HOSTINGER_API_KEY }}
+        run: |
+          echo "🌐 Updating DNS records..."
+          bash scripts/update-dns-records.sh \
+            "${{ github.event.inputs.vps_ip }}" \
+            "${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+
       - name: Summary
         if: success()
         run: |
@@ -171,6 +180,13 @@ jobs:
           echo "✅ Infrastructure deployed:"
           echo "  • Traefik: https://traefik.hill90.com (Tailscale-only)"
           echo "  • Portainer: https://portainer.hill90.com (Tailscale-only)"
+          echo ""
+          echo "🌐 DNS records updated:"
+          echo "  • hill90.com → ${{ github.event.inputs.vps_ip }}"
+          echo "  • api.hill90.com → ${{ github.event.inputs.vps_ip }}"
+          echo "  • ai.hill90.com → ${{ github.event.inputs.vps_ip }}"
+          echo "  • portainer.hill90.com → ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+          echo "  • traefik.hill90.com → ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo ""
           echo "⚠️  APPLICATION SERVICES NOT DEPLOYED"
           echo "    Infrastructure only: Traefik + Portainer"

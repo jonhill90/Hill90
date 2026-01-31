@@ -149,33 +149,35 @@ make dns-restore SNAPSHOT_ID=123
 
 ## VPS Recreate Workflow
 
-When you recreate the VPS, follow this workflow:
+DNS updates are **fully automated** via GitHub Actions:
 
-1. **Recreate VPS:**
-   ```bash
-   make recreate-vps
-   ```
-   This automatically updates VPS_IP and TAILSCALE_IP in secrets.
+1. **Trigger VPS Recreate** (via GitHub UI):
+   - Workflow: `.github/workflows/recreate-vps.yml`
+   - Updates VPS_IP in secrets
+   - Auto-triggers config-vps workflow
 
-2. **Bootstrap VPS:**
-   ```bash
-   make config-vps VPS_IP=<new-ip>
-   ```
-   This extracts and updates TAILSCALE_IP in secrets.
+2. **Config VPS runs automatically:**
+   - Workflow: `.github/workflows/config-vps.yml`
+   - Deploys Traefik + Portainer
+   - Updates TAILSCALE_IP in secrets
+   - **Automatically updates DNS records** ✨
 
-3. **Sync DNS records:**
-   ```bash
-   make dns-sync
-   ```
-   Use Claude Code to run the displayed MCP commands to update DNS.
+3. **Done!** DNS is updated automatically.
 
-4. **Verify DNS:**
-   ```bash
-   make dns-verify
-   ```
+### Manual DNS Update (if needed)
 
-5. **Wait for propagation:**
-   DNS changes typically propagate in 5-10 minutes.
+If you need to manually update DNS outside of the workflow:
+
+```bash
+# View current records
+make dns-view
+
+# Verify what would change
+make dns-verify
+
+# Manual update via Claude Code MCP tools
+make dns-sync
+```
 
 ## Troubleshooting
 
