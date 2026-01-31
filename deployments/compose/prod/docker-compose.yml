@@ -30,6 +30,7 @@ services:
     command:
       # Override Let's Encrypt CA server to support staging/production switching
       - "--certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
+      - "--certificatesresolvers.letsencrypt-dns.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ../../platform/edge/traefik.yml:/etc/traefik/traefik.yml:ro

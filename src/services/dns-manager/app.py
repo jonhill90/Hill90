@@ -70,13 +70,21 @@ def present():
     """
     Handle ACME DNS-01 challenge present request
     Creates _acme-challenge TXT record
+    Supports both JSON body and query parameters (lego httpreq RAW mode)
     """
     try:
-        data = request.json
-        fqdn = data.get('fqdn')  # e.g., _acme-challenge.portainer.hill90.com
-        value = data.get('value')  # TXT record value
+        # Try JSON body first, fall back to query parameters
+        if request.is_json:
+            data = request.json
+            fqdn = data.get('fqdn')
+            value = data.get('value')
+        else:
+            # RAW mode sends query parameters or form data
+            fqdn = request.args.get('fqdn') or request.form.get('fqdn')
+            value = request.args.get('value') or request.form.get('value')
 
         if not fqdn or not value:
+            app.logger.error(f"Missing parameters - JSON: {request.is_json}, Args: {dict(request.args)}, Form: {dict(request.form)}")
             return jsonify({"error": "Missing fqdn or value"}), 400
 
         # Extract record name (e.g., _acme-challenge.portainer)
@@ -103,12 +111,19 @@ def cleanup():
     """
     Handle ACME DNS-01 challenge cleanup request
     Removes _acme-challenge TXT record
+    Supports both JSON body and query parameters (lego httpreq RAW mode)
     """
     try:
-        data = request.json
-        fqdn = data.get('fqdn')
+        # Try JSON body first, fall back to query parameters
+        if request.is_json:
+            data = request.json
+            fqdn = data.get('fqdn')
+        else:
+            # RAW mode sends query parameters or form data
+            fqdn = request.args.get('fqdn') or request.form.get('fqdn')
 
         if not fqdn:
+            app.logger.error(f"Missing fqdn - JSON: {request.is_json}, Args: {dict(request.args)}, Form: {dict(request.form)}")
             return jsonify({"error": "Missing fqdn"}), 400
 
         # Extract record name

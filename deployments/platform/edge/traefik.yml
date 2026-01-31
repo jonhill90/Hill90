@@ -39,6 +39,7 @@ providers:
     watch: true
 
 # Let's Encrypt Certificate Resolvers
+# CA server is overridden via command args in docker-compose.yml
 certificatesResolvers:
   # HTTP-01 challenge for public services
   letsencrypt:
@@ -47,8 +48,6 @@ certificatesResolvers:
       storage: /letsencrypt/acme.json
       httpChallenge:
         entryPoint: web
-      # Production Let's Encrypt - can be overridden via CLI args in docker-compose.yml
-      caServer: https://acme-v02.api.letsencrypt.org/directory
 
   # DNS-01 challenge for Tailscale-only services (traefik, portainer)
   letsencrypt-dns:
