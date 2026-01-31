@@ -59,3 +59,11 @@
   loop:
     - "{{ app_directory }}"
     - "{{ deploy_home }}"
+
+- name: Clone Hill90 application repository
+  git:
+    repo: https://github.com/jonhill90/Hill90.git
+    dest: "{{ app_directory }}/app"
+    version: main
+    force: yes
+  become_user: "{{ deploy_user }}"
