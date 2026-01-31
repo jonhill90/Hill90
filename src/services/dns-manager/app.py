@@ -73,6 +73,13 @@ def present():
     Supports both JSON body and query parameters (lego httpreq RAW mode)
     """
     try:
+        # Log the raw request data for debugging
+        app.logger.info(f"Received /present request - Content-Type: {request.content_type}")
+        app.logger.info(f"JSON body: {request.get_json(silent=True)}")
+        app.logger.info(f"Query args: {dict(request.args)}")
+        app.logger.info(f"Form data: {dict(request.form)}")
+        app.logger.info(f"Raw data: {request.get_data(as_text=True)[:500]}")
+
         # Try JSON body first, fall back to query parameters
         if request.is_json:
             data = request.json
