@@ -184,28 +184,17 @@ jobs:
         run: |
           echo "📝 Updating TAILSCALE_IP in encrypted secrets..."
           TAILSCALE_IP="${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
-
-          # Create temporary script to update secrets
-          cat > /tmp/update-secret.sh << 'EOF'
-          #!/bin/bash
-          set -euo pipefail
-          KEY="$1"
-          VALUE="$2"
           SECRETS_FILE="infra/secrets/prod.enc.env"
 
-          # Decrypt, update, re-encrypt
+          # Decrypt, update, re-encrypt (directly, no sub-script)
           sops -d "$SECRETS_FILE" > /tmp/secrets.env
-          if grep -q "^${KEY}=" /tmp/secrets.env; then
-            sed -i "s|^${KEY}=.*|${KEY}=${VALUE}|" /tmp/secrets.env
+          if grep -q "^TAILSCALE_IP=" /tmp/secrets.env; then
+            sed -i "s|^TAILSCALE_IP=.*|TAILSCALE_IP=${TAILSCALE_IP}|" /tmp/secrets.env
           else
-            echo "${KEY}=${VALUE}" >> /tmp/secrets.env
+            echo "TAILSCALE_IP=${TAILSCALE_IP}" >> /tmp/secrets.env
           fi
           sops -e /tmp/secrets.env > "$SECRETS_FILE"
           rm /tmp/secrets.env
-          EOF
-
-          chmod +x /tmp/update-secret.sh
-          /tmp/update-secret.sh TAILSCALE_IP "$TAILSCALE_IP"
 
           echo "✅ TAILSCALE_IP updated"
 
