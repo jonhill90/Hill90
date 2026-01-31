@@ -186,21 +186,21 @@ EOF
 
 # Validate DNS records before applying
 log_step "Validating DNS records..."
-if api_call POST "/zones/$DOMAIN/validate" "$dns_payload" > /dev/null; then
-    log_info "  ✓ DNS records validation passed"
-else
-    log_error "DNS validation failed. Aborting update."
+validation_response=$(api_call POST "/zones/$DOMAIN/validate" "$dns_payload" 2>&1) || {
+    log_error "DNS validation failed. API response:"
+    echo "$validation_response"
     exit 1
-fi
+}
+log_info "  ✓ DNS records validation passed"
 
 # Apply DNS update
 log_step "Applying DNS updates..."
-if api_call POST "/zones/$DOMAIN" "$dns_payload" > /dev/null; then
-    log_info "  ✓ DNS records updated successfully"
-else
-    log_error "Failed to update DNS records"
+update_response=$(api_call POST "/zones/$DOMAIN" "$dns_payload" 2>&1) || {
+    log_error "Failed to update DNS records. API response:"
+    echo "$update_response"
     exit 1
-fi
+}
+log_info "  ✓ DNS records updated successfully"
 
 echo ""
 log_info "✅ DNS update complete!"
