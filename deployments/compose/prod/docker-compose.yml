@@ -202,7 +202,6 @@ services:
       - "traefik.http.routers.openclaw.entrypoints=websecure"
       - "traefik.http.routers.openclaw.tls.certresolver=letsencrypt-dns"
       - "traefik.http.services.openclaw.loadbalancer.server.port=18789"
-      - "traefik.http.routers.openclaw.middlewares=auth@file"
 
   # PostgreSQL Database
   postgres:
