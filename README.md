@@ -7,6 +7,8 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - **VPS**: AlmaLinux 10 on Hostinger
 - **Runtime**: Docker Engine + Docker Compose
 - **Edge Proxy**: Traefik with Let's Encrypt TLS
+  - **HTTP-01 Challenge**: For public services (api, ai, mcp)
+  - **DNS-01 Challenge**: For Tailscale-only services (traefik, portainer)
 - **Languages**:
   - Python (FastAPI) for AI and MCP services
   - TypeScript (Express) for API, Auth, and UI services
@@ -15,16 +17,22 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - **Infrastructure**: Hostinger API + Tailscale API (fully automated)
 - **Configuration**: Ansible playbooks
 - **CI/CD**: GitHub Actions
+- **DNS**: Hostinger DNS API (automated via MCP tools)
 
 ## Services
 
 | Service | Language | URL | Description |
 |---------|----------|-----|-------------|
+| Traefik | - | https://traefik.hill90.com | Edge proxy & load balancer |
+| Portainer | - | https://portainer.hill90.com | Docker container management |
+| DNS Manager | Python | Internal | DNS-01 challenge webhook for Let's Encrypt |
 | API | TypeScript | https://api.hill90.com | API Gateway |
 | AI | Python | https://ai.hill90.com | LangChain/LangGraph agents |
 | MCP | Python | https://ai.hill90.com/mcp | MCP Gateway (authenticated) |
 | Auth | TypeScript | Internal | JWT authentication |
 | UI | TypeScript | https://hill90.com | Frontend |
+
+**Note:** Traefik and Portainer are accessible only via Tailscale network (100.64.0.0/10).
 
 ## Prerequisites
 
@@ -66,44 +74,74 @@ This will generate age keypair and create initial encrypted secrets file.
 
 ### 4. Rebuild VPS (if needed)
 
-**Complete VPS rebuild is fully automated with two options:**
+**Complete VPS rebuild is fully automated with a 3-step process:**
 
-#### Option A: Local Execution (Recommended)
+#### Step 1: Rebuild VPS OS
 
 ```bash
-# 1. Rebuild VPS (auto-waits, auto-retrieves IP, auto-updates secrets)
 make recreate-vps
+```
 
-# 2. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets)
+**What happens:**
+- Generates new Tailscale auth key via API
+- Rebuilds VPS OS via Hostinger API (AlmaLinux 10)
+- Waits for VPS to become available
+- Retrieves new public IP
+- Updates `VPS_IP` in encrypted secrets
+- **Time:** ~3-5 minutes
+
+#### Step 2: Bootstrap Infrastructure
+
+```bash
 make config-vps VPS_IP=<ip>
 ```
 
-**Time:** ~5-10 minutes
+**What happens:**
+- Creates deploy user with SSH keys
+- Installs Docker and Docker Compose
+- Configures firewall (HTTP/HTTPS public, SSH from Tailscale only)
+- Joins Tailscale network and captures IP
+- Installs SOPS and age for secrets management
+- Clones repository and transfers encryption key
+- Deploys Traefik + Portainer (infrastructure only)
+- Updates DNS records automatically
+- Updates `TAILSCALE_IP` in encrypted secrets
+- **Time:** ~3-5 minutes
 
-#### Option B: GitHub Actions
+#### Step 3: Deploy Application Services
 
-**Alternative method for remote execution or CI/CD integration.**
+```bash
+make deploy  # Staging certificates (safe for testing)
+# OR
+make deploy-production  # Production certificates (rate-limited!)
+```
+
+**What happens:**
+- Deploys application services (api, ai, mcp, auth, ui)
+- Requests Let's Encrypt certificates (staging or production)
+- Verifies service health
+- **Time:** ~2-3 minutes
+
+---
+
+**Total rebuild time:** ~8-13 minutes (3 steps)
+
+**Why 3 steps?**
+- **Infrastructure vs. Application**: Separating infrastructure (Traefik/Portainer) from application services prevents certificate exhaustion during VPS rebuild testing
+- **Certificate Rate Limits**: Let's Encrypt limits failures to 5/hour. Testing rebuild multiple times would hit this limit if certificates were requested during bootstrap.
+- **Flexibility**: Can rebuild infrastructure without redeploying applications
+
+#### GitHub Actions Alternative
+
+**For remote execution or CI/CD integration:**
 
 1. Go to repository → **Actions** → **VPS Recreate (Automated)**
 2. Click **"Run workflow"**
 3. Type **"RECREATE"** to confirm
-4. Watch execution (~13 minutes)
-
-**Time:** ~13 minutes (includes deployment)
+4. Watch execution (~10 minutes for Steps 1-2)
+5. Manually trigger deployment workflow (Step 3)
 
 **Status:** ✅ Tested successfully (Run #21128156365)
-
----
-
-**Both options automatically:**
-- Generate new Tailscale auth key via API
-- Rebuild VPS OS via Hostinger API
-- Create deploy user with SSH keys
-- Install Docker and Docker Compose
-- Configure firewall (HTTP/HTTPS public, SSH from Tailscale only)
-- Join Tailscale network and capture IP
-- Install SOPS and age for secrets management
-- Clone repository and transfer encryption key
 
 ### 5. Deploy Services
 
@@ -191,6 +229,12 @@ Run `make help` for a complete, organized list of commands. Key commands:
 | `make logs-api` | Show API service logs |
 | `make logs-ai` | Show AI service logs |
 | `make ssh` | SSH into VPS |
+| **DNS Management** | |
+| `make dns-view` | View current DNS records for hill90.com |
+| `make dns-sync` | Sync DNS A records to current VPS_IP |
+| `make dns-snapshots` | List DNS backup snapshots |
+| `make dns-restore SNAPSHOT_ID=<id>` | Restore DNS from snapshot |
+| `make dns-verify` | Verify DNS propagation |
 | **Service Management** | |
 | `make ps` | Show running containers |
 | `make restart` | Restart all services |
@@ -225,19 +269,39 @@ infra/secrets/
 
 ### GitHub Actions Workflows
 
-**Two GitHub Actions workflows are available:**
+**Four GitHub Actions workflows are available:**
 
 1. **VPS Recreate Workflow** - `.github/workflows/recreate-vps.yml`
    - ✅ **Status:** Tested and operational (Run #21128156365)
    - **Trigger:** Manual via GitHub UI (type "RECREATE" to confirm)
-   - **Duration:** ~13 minutes (recreate + bootstrap + deploy)
+   - **Duration:** ~3-5 minutes
    - **Features:**
-     - Full VPS rebuild via Hostinger API
-     - Automatic bootstrap with Ansible
-     - Service deployment via SSH over Tailscale
-     - IP updates and secret management
+     - Full VPS OS rebuild via Hostinger API
+     - Automatic Tailscale auth key generation
+     - VPS IP retrieval and secret updates
+     - Auto-triggers config-vps workflow
 
-2. **Tailscale ACL GitOps** - `.github/workflows/tailscale.yml`
+2. **Config VPS Workflow** - `.github/workflows/config-vps.yml`
+   - ✅ **Status:** Operational
+   - **Trigger:** Automatic after recreate-vps, or manual via GitHub UI
+   - **Duration:** ~3-5 minutes
+   - **Features:**
+     - Infrastructure bootstrap via Ansible
+     - Traefik + Portainer deployment
+     - Tailscale IP extraction and secret updates
+     - Automatic DNS record updates
+
+3. **Deploy Workflow** - `.github/workflows/deploy.yml`
+   - ✅ **Status:** Operational
+   - **Trigger:** Automatic on push to main, or manual via GitHub UI
+   - **Duration:** ~2-3 minutes
+   - **Features:**
+     - Application service deployment (api, ai, mcp, auth, ui)
+     - Production Let's Encrypt certificates
+     - Health check validation
+     - Deploys via SSH over Tailscale
+
+4. **Tailscale ACL GitOps** - `.github/workflows/tailscale.yml`
    - ✅ **Status:** Operational
    - **Trigger:** Automatic on push to main (for `policy.hujson` changes)
    - **Features:**
@@ -285,6 +349,12 @@ curl https://ai.hill90.com/health
 
 Access at https://traefik.hill90.com (requires authentication).
 
+**Authentication:**
+- Username: `admin`
+- Password: Auto-generated during deployment (stored in password manager)
+- Credentials file (`.htpasswd`) is automatically generated from `TRAEFIK_ADMIN_PASSWORD_HASH` secret
+- Accessible only via Tailscale network (IP whitelist: 100.64.0.0/10)
+
 ### Logs
 
 ```bash
@@ -318,7 +388,11 @@ docker logs -f mcp
 - MCP gateway requires JWT authentication
 - Service-to-service authentication via shared secrets
 - TLS certificates automatically renewed via Let's Encrypt
+  - HTTP-01 challenge for public services
+  - DNS-01 challenge for Tailscale-only services
 - Security headers enforced via Traefik
+- Traefik dashboard authentication auto-generated from encrypted secrets
+- Tailscale-only services protected by IP whitelist middleware (100.64.0.0/10)
 
 ## Troubleshooting
 
@@ -375,43 +449,107 @@ cat infra/secrets/.sops.yaml
 sops -d infra/secrets/prod.enc.env
 ```
 
+### DNS-01 Certificate Issues
+
+```bash
+# Check dns-manager logs
+ssh deploy@<tailscale-ip> 'docker logs dns-manager --tail 50'
+
+# Verify DNS TXT records
+dig TXT _acme-challenge.traefik.hill90.com @8.8.8.8
+
+# Check Traefik logs for ACME errors
+docker logs traefik | grep -i acme
+
+# Common issues:
+# 1. Wrong TXT value - dns-manager must compute base64url(SHA256(keyAuth))
+# 2. Timeout during /present - Remove sleep() from dns-manager
+# 3. Rate limiting - Wait 1 hour, use STAGING certificates for testing
+```
+
+### DNS Management Issues
+
+```bash
+# View current DNS records
+make dns-view
+
+# Verify DNS propagation
+make dns-verify
+
+# Check secrets are correct
+make secrets-view KEY=VPS_IP
+make secrets-view KEY=TAILSCALE_IP
+
+# Manually sync DNS after VPS rebuild
+make dns-sync
+```
+
 ## Documentation
 
+### Core Documentation
 - **[Claude Code Operating Manual](CLAUDE.md)** - How Claude Code manages this infrastructure
 - **[VPS Rebuild Runbook](docs/runbooks/vps-rebuild.md)** - Complete VPS rebuild automation
+
+### Architecture
+- [Architecture Overview](docs/architecture/overview.md)
+- [Certificate Management](docs/architecture/certificates.md) - HTTP-01 vs DNS-01 challenges
+- [Security](docs/architecture/security.md)
+
+### Runbooks
 - [Bootstrap Runbook](docs/runbooks/bootstrap.md)
 - [Deployment Runbook](docs/runbooks/deployment.md)
-- [Architecture Overview](docs/architecture/overview.md)
-- [Security](docs/architecture/security.md)
+- [Troubleshooting Guide](docs/runbooks/troubleshooting.md)
+
+### Development
 - [Local Development](docs/development/local-setup.md)
 
 ## VPS Rebuild
 
-For catastrophic failures or OS reinstalls, the VPS can be rebuilt in ~5-10 minutes:
+For catastrophic failures or OS reinstalls, the VPS can be rebuilt in ~8-13 minutes using a 3-step process:
 
 ```bash
 # 1. Create safety snapshot (optional but recommended)
 make snapshot
 
-# 2. Rebuild VPS (auto-waits, auto-retrieves IP, auto-updates secrets)
+# 2. Rebuild VPS OS (auto-waits, auto-retrieves IP, auto-updates secrets)
 make recreate-vps
 
-# 3. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets)
+# 3. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets, deploys Traefik + Portainer)
 make config-vps VPS_IP=<new_ip>
 
-# 4. Deploy services
+# 4. Deploy application services (STAGING certificates - safe for testing)
 make deploy
+
+# OR for production certificates (rate-limited!)
+make deploy-production
 
 # 5. Verify deployment
 make health
 ```
 
 **What happens automatically:**
-- Tailscale auth key generation and rotation
+
+**Step 2 - Recreate VPS (~3-5 minutes):**
+- Tailscale auth key generation via API
 - VPS OS rebuild via Hostinger API
 - IP address retrieval and secret updates
-- Complete infrastructure bootstrap (Docker, firewall, Tailscale, SOPS)
+
+**Step 3 - Bootstrap Infrastructure (~3-5 minutes):**
+- Deploy user creation with SSH keys
+- Docker and Docker Compose installation
+- Firewall configuration (HTTP/HTTPS public, SSH from Tailscale only)
+- Tailscale network join and IP capture
+- SOPS and age installation
 - Repository clone and encryption key transfer
+- Traefik + Portainer deployment (infrastructure only)
+- DNS record updates
+
+**Step 4 - Deploy Services (~2-3 minutes):**
+- Application service deployment (api, ai, mcp, auth, ui)
+- Let's Encrypt certificate acquisition (staging or production)
+- Service health verification
+
+**Why 3 steps?** Separating infrastructure from application deployment prevents Let's Encrypt rate limit exhaustion during VPS rebuild testing.
 
 See `.claude/reference/vps-operations.md` for complete details.
 

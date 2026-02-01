@@ -28,46 +28,51 @@ make health               # Checks everything is running
 
 ### GitHub Actions Deployment
 
-**Deployment is separated from VPS rebuild to prevent Let's Encrypt rate limit issues.**
+**Deployment is part of a 3-step workflow (recreate → config → deploy):**
 
-Two deployment workflows available:
+#### Deploy Workflow
 
-#### Staging Deployment (Unlimited Certificates)
-
-- Workflow: `.github/workflows/deploy-staging.yml`
-- **Triggers:** Push to `dev` or `stage` branches, manual dispatch
-- **Certificates:** Let's Encrypt STAGING (browser warnings expected)
-- **Rate limit:** Unlimited (safe for testing)
-- **Use for:** Testing, development, VPS rebuild validation
-
-**How to trigger manually:**
-1. Go to Actions → Deploy (Staging Certificates)
-2. Click "Run workflow"
-3. Select environment: `prod`
-4. Click "Run workflow"
-
-#### Production Deployment (Rate-Limited Certificates)
-
-- Workflow: `.github/workflows/deploy-production.yml`
-- **Triggers:** Push to `main` branch (auto), manual dispatch (requires confirmation)
+- Workflow: `.github/workflows/deploy.yml`
+- **Triggers:** Push to `main` branch (auto), manual dispatch
 - **Certificates:** Let's Encrypt PRODUCTION (trusted by browsers)
 - **Rate limit:** 50 certificates/week, 5 failures/hour
-- **Use for:** Production deployments only
+- **Use for:** Application deployments after infrastructure bootstrap
 
 **How to trigger manually:**
-1. Go to Actions → Deploy (Production Certificates)
+1. Go to Actions → Deploy
 2. Click "Run workflow"
-3. Type "PRODUCTION" exactly to confirm
-4. Click "Run workflow"
+3. Click "Run workflow"
 
-**Auto-deployment:** Pushes to `main` branch automatically trigger production deployment.
+**Auto-deployment:** Pushes to `main` branch automatically trigger deployment (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`).
 
-#### VPS Recreate No Longer Includes Deployment
+**Certificate management:**
+- GitHub Actions uses PRODUCTION certificates by default
+- Local `make deploy` uses STAGING certificates by default
+- Use `make deploy-production` locally for production certificates
 
-- **Important:** `.github/workflows/recreate-vps.yml` now stops after infrastructure bootstrap
-- No services are deployed, no certificates are requested
-- After VPS recreate, manually trigger staging or production deployment workflow
-- This prevents hitting Let's Encrypt rate limits when testing VPS rebuilds
+#### Complete VPS Rebuild + Deployment (3 Steps)
+
+**Step 1: VPS Recreate** (~3-5 minutes)
+- Workflow: `.github/workflows/recreate-vps.yml`
+- Rebuilds VPS OS, generates Tailscale key, updates VPS_IP secret
+- Auto-triggers config-vps workflow
+
+**Step 2: Config VPS** (~3-5 minutes, auto-triggered)
+- Workflow: `.github/workflows/config-vps.yml`
+- Ansible bootstrap, deploys Traefik + Portainer
+- Updates DNS records automatically
+- Updates TAILSCALE_IP secret
+
+**Step 3: Deploy** (~2-3 minutes, manual)
+- Workflow: `.github/workflows/deploy.yml`
+- Deploys application services (api, ai, mcp, auth, ui)
+- Uses production Let's Encrypt certificates
+- **Manually trigger this after Steps 1-2 complete**
+
+**Why 3 steps?**
+- Separating infrastructure from application deployment prevents Let's Encrypt rate limit issues during VPS rebuild testing
+- Infrastructure (Traefik + Portainer) uses DNS-01 challenges (no public access needed)
+- Applications use HTTP-01 challenges (rate-limited)
 
 ## Let's Encrypt Configuration
 

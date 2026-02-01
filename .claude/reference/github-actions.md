@@ -35,54 +35,53 @@
 - Tailscale IP: 100.108.199.106 (use for SSH access)
 - Hostname: srv1264324.hstgr.cloud
 
-### Deployment Workflows - ✅ SEPARATED FOR RATE LIMIT SAFETY
+### Config VPS Workflow - ✅ INFRASTRUCTURE BOOTSTRAP
 
-**Workflows separated to prevent Let's Encrypt rate limit issues during VPS rebuild testing.**
+**Workflow file:** `.github/workflows/config-vps.yml`
 
-#### Deploy (Staging Certificates) - ✅ UNLIMITED
-
-**Workflow file:** `.github/workflows/deploy-staging.yml`
-
-**Status:** Safe for unlimited testing
+**Status:** Operational
 
 **Triggers:**
-- Push to `dev` or `stage` branches (auto)
+- Automatic after recreate-vps workflow completes
+- Manual workflow dispatch
+
+**What it does:**
+- Infrastructure bootstrap via Ansible
+- Traefik + Portainer deployment (infrastructure only)
+- Tailscale IP extraction and secret updates
+- **Automatic DNS record updates** ✨
+
+**Duration:** ~3-5 minutes
+
+**Note:** Application services are NOT deployed. Use Deploy workflow after this completes.
+
+### Deploy Workflow - ✅ PRODUCTION CERTIFICATES BY DEFAULT
+
+**Workflow file:** `.github/workflows/deploy.yml`
+
+**Status:** Operational (consolidated single workflow)
+
+**Triggers:**
+- Push to `main` branch (auto)
 - Manual workflow dispatch
 
 **Certificates:**
-- Let's Encrypt STAGING environment
-- Browser warnings expected (self-signed chain)
-- Unlimited rate limits - safe for testing
-
-**Use for:**
-- Testing deployments after VPS recreate
-- Development and staging environments
-- Validating infrastructure changes
-
-#### Deploy (Production Certificates) - ⚠️ RATE LIMITED
-
-**Workflow file:** `.github/workflows/deploy-production.yml`
-
-**Status:** Production-ready with confirmation safeguards
-
-**Triggers:**
-- Push to `main` branch (auto-deploys production certs)
-- Manual workflow dispatch (requires "PRODUCTION" confirmation)
-
-**Certificates:**
-- Let's Encrypt PRODUCTION environment
+- Let's Encrypt PRODUCTION environment by default
 - Trusted by all browsers
 - **Rate limits:** 50 certificates/week, 5 failures/hour
 
-**Use for:**
-- Production deployments only
-- After staging validation passes
-- When ready for real user traffic
+**What it does:**
+- Deploys application services (api, ai, mcp, auth, ui)
+- Uses production Let's Encrypt certificates
+- Validates infrastructure before deployment
+- Health check validation
 
-**Safety features:**
-- Manual triggers require typing "PRODUCTION" exactly
-- Rate limit warnings in workflow output
-- Explicit ACME_CA_SERVER environment variable set
+**Duration:** ~2-3 minutes
+
+**Certificate Management:**
+- Production certificates by default (workflow uses PRODUCTION ACME server)
+- For staging certificates during local development, use `make deploy` (uses STAGING ACME server)
+- Separation between local (staging) and CI/CD (production) certificates
 
 ### Tailscale ACL GitOps Workflow - ✅ OPERATIONAL
 
@@ -113,56 +112,75 @@ make config-vps VPS_IP=<ip>            # Bootstrap with Ansible
 
 ## Available GitHub Actions Workflows
 
-### VPS Recreate Workflow (Infrastructure Only)
+### 1. VPS Recreate Workflow
 
-**`.github/workflows/recreate-vps.yml`** - Infrastructure Bootstrap Only
+**`.github/workflows/recreate-vps.yml`** - VPS OS Rebuild
 - **Trigger:** Manual only (`workflow_dispatch`)
-- **Workflow:** Uses `make recreate-vps` and `make config-vps` commands
+- **Confirmation:** Type "RECREATE" to confirm destructive operation
 - **Features:**
-  - Destructive operation with confirmation required (type "RECREATE")
-  - Fully automated rebuild and bootstrap
-  - Auto-updates secrets with new IPs
-  - Commits changes back to repository
-  - **DOES NOT deploy services** (prevents rate limit issues)
-  - ~8 minutes total execution time
-- **Status:** ✅ Ready to use (requires GitHub secrets setup)
+  - Generates new Tailscale auth key via API
+  - Rebuilds VPS OS via Hostinger API
+  - Waits for rebuild completion
+  - Retrieves new VPS IP automatically
+  - Updates VPS_IP secret
+  - Auto-triggers config-vps workflow
+- **Duration:** ~3-5 minutes
+- **Status:** ✅ Operational
 
 **After completion:**
-- VPS infrastructure ready (Docker, Tailscale, firewall configured)
-- No services running, no certificates requested
-- Manually trigger staging or production deployment workflow
+- VPS OS rebuilt (AlmaLinux 10)
+- New VPS IP captured in secrets
+- Auto-triggers config-vps workflow
 
-**Key improvements:**
-- ✅ Unlimited VPS rebuild testing without using certificate quota
-- ✅ Single source of truth (uses make commands)
-- ✅ Automatic secret updates and git commits
+### 2. Config VPS Workflow
 
-### Deployment Workflow (Staging Certificates)
-
-**`.github/workflows/deploy-staging.yml`** - Unlimited Testing
-- **Trigger:** Push to `dev`/`stage` branches, manual dispatch
-- **Certificates:** Let's Encrypt STAGING (browser warnings, unlimited)
+**`.github/workflows/config-vps.yml`** - Infrastructure Bootstrap
+- **Trigger:** Automatic after recreate-vps, or manual dispatch
 - **Features:**
-  - Validates infrastructure before deployment
-  - Deploys via SSH over Tailscale
-  - Extended health checks
-  - Safe for unlimited testing
-- **Status:** ✅ Ready to use (requires GitHub secrets setup)
-- **Use for:** VPS rebuild validation, testing, development
+  - Infrastructure bootstrap via Ansible (9 stages)
+  - Deploys Traefik + Portainer (infrastructure only)
+  - Extracts Tailscale IP from Ansible output
+  - Updates TAILSCALE_IP secret
+  - **Automatically updates DNS records** ✨
+  - Commits updated secrets to repository
+- **Duration:** ~3-5 minutes
+- **Status:** ✅ Operational
 
-### Deployment Workflow (Production Certificates)
+**After completion:**
+- Infrastructure ready (Docker, Tailscale, firewall)
+- Traefik + Portainer running (with DNS-01 certificates)
+- Application services NOT deployed
+- DNS records updated to new VPS IP
 
-**`.github/workflows/deploy-production.yml`** - Rate-Limited Production
-- **Trigger:** Push to `main` branch (auto), manual dispatch (requires confirmation)
+### 3. Deploy Workflow
+
+**`.github/workflows/deploy.yml`** - Application Deployment
+- **Trigger:** Push to `main` branch (auto), manual dispatch
 - **Certificates:** Let's Encrypt PRODUCTION (trusted, rate-limited: 50/week)
 - **Features:**
-  - Requires "PRODUCTION" confirmation for manual triggers
   - Validates infrastructure before deployment
+  - Deploys application services (api, ai, mcp, auth, ui)
+  - Uses production Let's Encrypt certificates
+  - Health check validation
   - Deploys via SSH over Tailscale
-  - Extended health checks
-  - Explicit ACME server configuration
-- **Status:** ✅ Ready to use (requires GitHub secrets setup)
-- **Use for:** Production deployments only, after staging validation
+- **Duration:** ~2-3 minutes
+- **Status:** ✅ Operational
+
+**Certificate Note:**
+- GitHub Actions uses PRODUCTION certificates by default
+- Local `make deploy` uses STAGING certificates by default
+- Use `make deploy-production` locally for production certificates
+
+### 4. Tailscale ACL GitOps Workflow
+
+**`.github/workflows/tailscale.yml`** - Network Access Control
+- **Trigger:** Automatic on push to main (for `policy.hujson` changes)
+- **Features:**
+  - Automatic ACL deployment to Tailscale network
+  - ACL validation on pull requests
+  - Full audit trail in git
+  - Manages SSH access, tags, and network grants
+- **Status:** ✅ Operational
 
 ## Required GitHub Secrets Setup
 
@@ -350,107 +368,84 @@ After setup, you should have these **5 secrets** configured:
 
 ## Using GitHub Actions Workflows
 
-### VPS Recreate Workflow (Infrastructure Only)
+### Complete Rebuild Workflow (3 Steps)
+
+**Full VPS rebuild takes ~8-13 minutes across 3 automated workflows:**
+
+#### Step 1: VPS Recreate (~3-5 minutes)
 
 **When to use:**
-- Rebuild VPS from scratch (destructive operation)
-- Same functionality as local `make recreate-vps` + `make config-vps`
-- **Does NOT deploy services** to avoid certificate quota usage
+- Rebuild VPS OS from scratch (destructive operation)
+- Catastrophic failure recovery
 
 **How to trigger:**
-1. Go to repository → **Actions** → **VPS Recreate (Infrastructure Only)**
+1. Go to repository → **Actions** → **VPS Recreate (Automated)**
 2. Click **"Run workflow"**
 3. Type **"RECREATE"** exactly in the confirmation input
 4. Click **"Run workflow"** button
-5. Watch the workflow execution in real-time
-
-**Expected execution timeline:**
-- Setup: ~1 minute
-- make recreate-vps: ~5 minutes (VPS rebuild + wait)
-- make config-vps: ~5 minutes (Ansible bootstrap)
-- Commit & cleanup: ~30 seconds
-- **Total:** ~8 minutes
 
 **What happens:**
-1. Validates confirmation input
-2. Sets up Tailscale, SSH, and SOPS on runner
-3. Runs `make recreate-vps` (generates keys, rebuilds VPS, updates secrets)
-4. Waits for SSH to be available on new VPS
-5. Runs `make config-vps` (Ansible bootstrap)
-6. Commits updated secrets back to repository
-7. Cleans up backup files
+1. Generates new Tailscale auth key via API
+2. Rebuilds VPS OS via Hostinger API
+3. Waits for rebuild completion
+4. Retrieves new VPS IP
+5. Updates VPS_IP secret
+6. Auto-triggers config-vps workflow
 
 **After completion:**
-- Infrastructure ready (Docker, Tailscale, firewall configured)
-- Repository cloned to `/opt/hill90/app`
-- No services running, no certificates requested
-- **Next step:** Manually trigger staging or production deployment workflow
+- VPS OS rebuilt (AlmaLinux 10)
+- Config VPS workflow automatically triggered
 
-### Deployment Workflow (Staging Certificates)
+#### Step 2: Config VPS (~3-5 minutes - Auto-triggered)
+
+**Automatically triggered after recreate-vps completes.**
+
+**What happens:**
+1. Infrastructure bootstrap via Ansible (9 stages)
+2. Deploys Traefik + Portainer (infrastructure only)
+3. Extracts Tailscale IP from Ansible output
+4. Updates TAILSCALE_IP secret
+5. **Automatically updates DNS records** to new VPS IP
+6. Commits updated secrets to repository
+
+**After completion:**
+- Infrastructure ready (Docker, Tailscale, firewall)
+- Traefik + Portainer running with DNS-01 certificates
+- DNS records updated
+- Application services NOT deployed yet
+
+#### Step 3: Deploy Application (~2-3 minutes - Manual)
 
 **When to use:**
-- Testing deployments after VPS recreate
-- Development and staging environments
-- Unlimited testing (no rate limits)
+- After VPS rebuild (Step 2) completes
+- Application code changes
+- Configuration updates
 
 **How to trigger manually:**
-1. Go to repository → **Actions** → **Deploy (Staging Certificates)**
+1. Go to repository → **Actions** → **Deploy**
 2. Click **"Run workflow"**
-3. Select environment: `prod`
-4. Click **"Run workflow"**
+3. Click **"Run workflow"** button
 
 **Auto-trigger:**
-- Push to `dev` or `stage` branches (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`)
+- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`)
 
 **What happens:**
 1. Validates Docker Compose files and scripts
 2. Sets up Tailscale, SSH, and SOPS on runner
 3. Gets Tailscale IP from encrypted secrets
 4. Verifies SSH connectivity
-5. Deploys services via SSH (staging certificates)
-6. Waits for services to start
-7. Runs health checks
-8. Extended health check job verifies container status
-
-**Certificate details:**
-- Let's Encrypt STAGING environment
-- Browser warnings expected (untrusted certificate)
-- Unlimited rate limits - safe for testing
-- Use `-k` flag with curl to skip validation
-
-### Deployment Workflow (Production Certificates)
-
-**When to use:**
-- Production deployments only
-- After staging validation passes
-- ⚠️ **Rate limited:** 50 certificates/week, 5 failures/hour
-
-**How to trigger manually:**
-1. Go to repository → **Actions** → **Deploy (Production Certificates)**
-2. Click **"Run workflow"**
-3. Type **"PRODUCTION"** exactly to confirm
-4. Click **"Run workflow"**
-
-**Auto-trigger:**
-- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`)
-
-**What happens:**
-1. Validates confirmation input (manual triggers only)
-2. Displays rate limit warning
-3. Validates Docker Compose files and scripts
-4. Sets up Tailscale, SSH, and SOPS on runner
-5. Gets Tailscale IP from encrypted secrets
-6. Verifies SSH connectivity
-7. Deploys services via SSH with `ACME_CA_SERVER` set to production
-8. Waits for services to start
-9. Runs health checks
-10. Extended health check job verifies container status
+5. Deploys application services via SSH (production certificates)
+6. Runs health checks
 
 **Certificate details:**
 - Let's Encrypt PRODUCTION environment
 - Trusted by all browsers
 - **Rate limited:** 50 certificates/week, 5 validation failures/hour
-- Use only when ready for production traffic
+
+**After completion:**
+- All services running (api, ai, mcp, auth, ui, traefik, portainer)
+- Production certificates active
+- Services health-checked
 
 ---
 
@@ -510,9 +505,9 @@ bash scripts/tailscale-api.sh get-ip hill90-vps
 
 ## Workflow Files
 
-- `.github/workflows/recreate-vps.yml` - VPS rebuild workflow (infrastructure only, no deployment)
-- `.github/workflows/deploy-staging.yml` - Staging deployment workflow (unlimited certificates)
-- `.github/workflows/deploy-production.yml` - Production deployment workflow (rate-limited certificates)
+- `.github/workflows/recreate-vps.yml` - VPS OS rebuild (Step 1, auto-triggers config-vps)
+- `.github/workflows/config-vps.yml` - Infrastructure bootstrap (Step 2, auto-triggered or manual)
+- `.github/workflows/deploy.yml` - Application deployment (Step 3, production certificates)
 - `.github/workflows/tailscale.yml` - Tailscale ACL GitOps workflow
 
 ---

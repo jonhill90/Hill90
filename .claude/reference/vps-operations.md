@@ -15,21 +15,26 @@ Both options use the same underlying automation and produce identical results.
 
 **Preferred method for speed and simplicity.**
 
-### Complete Rebuild Workflow
+### Complete Rebuild Workflow (3 Steps)
 
 ```bash
-# 1. Rebuild VPS (auto-waits, auto-retrieves IP, auto-updates secrets)
+# Step 1: Rebuild VPS OS (auto-waits, auto-retrieves IP, auto-updates secrets)
 make recreate-vps
 
-# 2. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets)
+# Step 2: Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets, deploys Traefik + Portainer)
 make config-vps VPS_IP=<ip>
+
+# Step 3: Deploy application services
+make deploy  # Staging certificates (safe for testing)
+# OR
+make deploy-production  # Production certificates (rate-limited!)
 ```
 
-**Total time:** ~5-10 minutes
+**Total time:** ~8-13 minutes (3-5 min + 3-5 min + 2-3 min)
 
 ### What Happens Automatically
 
-**`make recreate-vps`** (2-3 minutes):
+**Step 1: `make recreate-vps`** (~3-5 minutes):
 1. Generates new Tailscale auth key via API
 2. Updates TAILSCALE_AUTH_KEY secret
 3. Generates random root password
@@ -39,7 +44,7 @@ make config-vps VPS_IP=<ip>
 7. **Updates VPS_IP secret automatically**
 8. Displays next command to run
 
-**`make config-vps VPS_IP=<ip>`** (5-10 minutes):
+**Step 2: `make config-vps VPS_IP=<ip>`** (~3-5 minutes):
 1. Runs Ansible bootstrap (9 stages)
    - System setup (deploy user, directories)
    - Firewall configuration
@@ -49,31 +54,48 @@ make config-vps VPS_IP=<ip>
    - SOPS and age installation
    - Repository clone
    - Secrets transfer
-2. **Extracts Tailscale IP from Ansible output**
-3. **Updates TAILSCALE_IP secret automatically**
-4. Displays infrastructure summary
+2. **Deploys Traefik + Portainer (infrastructure only)**
+3. **Automatically updates DNS records** to new VPS IP
+4. **Extracts Tailscale IP from Ansible output**
+5. **Updates TAILSCALE_IP secret automatically**
+6. Displays infrastructure summary
 
-### Infrastructure After Bootstrap
+**Step 3: `make deploy` or `make deploy-production`** (~2-3 minutes):
+1. Validates infrastructure configuration
+2. Decrypts secrets with SOPS
+3. Generates Traefik .htpasswd file
+4. Deploys application services (api, ai, mcp, auth, ui)
+5. Requests Let's Encrypt certificates (staging or production)
+6. Verifies service health
 
-✅ **Ready for deployment:**
+### Infrastructure After Step 2 (Config VPS)
+
+✅ **Infrastructure services running:**
 - Docker 29.1.5 + Compose v5.0.1
 - SOPS 3.8.1 for secrets
 - age 1.1.1 for encryption
 - Tailscale connected
+- **Traefik running** (with DNS-01 certificates for Tailscale-only access)
+- **Portainer running** (with DNS-01 certificates for Tailscale-only access)
 - Repository cloned to `/opt/hill90/app`
 - Age key transferred to `/opt/hill90/secrets/keys/keys.txt`
 - SSH locked to Tailscale network only (public SSH blocked)
 - Firewall configured (HTTP/HTTPS public, SSH Tailscale-only)
+- **DNS records updated** to new VPS IP
 
-### Next Steps After Bootstrap
+❌ **Application services NOT running:**
+- API, AI, MCP, Auth, UI services are NOT deployed yet
+- Step 3 (deployment) required to start application services
 
-**Important:** VPS bootstrap does NOT deploy services. Deploy manually after bootstrap completes.
+### Step 3: Deploy Application Services
+
+**After Step 2 completes, deploy application services:**
 
 ```bash
-# Deploy application with staging certificates (safe for testing)
+# Option A: Deploy with staging certificates (safe for testing, unlimited)
 make deploy
 
-# OR deploy with production certificates (rate-limited: 50/week)
+# Option B: Deploy with production certificates (rate-limited: 50/week)
 make deploy-production
 
 # Verify health
@@ -86,8 +108,8 @@ ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
 ```
 
 **GitHub Actions deployment:**
-- Trigger "Deploy (Staging Certificates)" workflow for unlimited testing
-- Trigger "Deploy (Production Certificates)" workflow for production (requires "PRODUCTION" confirmation)
+- Trigger "Deploy" workflow (uses production certificates by default)
+- Auto-triggered on push to `main` branch
 
 ## Safety Operations
 
@@ -146,43 +168,66 @@ If you can't SSH to VPS:
 - Team collaboration (anyone with repo access can trigger)
 - Local machine is unavailable
 
-### How to Trigger
+### 3-Step Workflow
 
+**Complete VPS rebuild via GitHub Actions takes ~8-13 minutes:**
+
+#### Step 1: VPS Recreate (~3-5 minutes)
+
+**How to trigger:**
 1. Go to repository → **Actions** → **VPS Recreate (Automated)**
 2. Click **"Run workflow"**
 3. Type **"RECREATE"** exactly in the confirmation input
 4. Click **"Run workflow"** button
-5. Watch execution in real-time
 
-### Expected Timeline
+**What happens:**
+1. Generates new Tailscale auth key via API
+2. Rebuilds VPS OS via Hostinger API
+3. Waits for rebuild completion
+4. Retrieves new VPS IP
+5. Updates VPS_IP secret
+6. **Auto-triggers config-vps workflow**
 
-- Setup: ~1 minute
-- VPS recreate: ~5 minutes (rebuild + wait for SSH)
-- Bootstrap: ~5 minutes (Ansible 9-stage setup)
-- Cleanup: ~30 seconds
-- **Total:** ~8 minutes
+#### Step 2: Config VPS (~3-5 minutes - Auto-triggered)
 
-**Note:** Deployment is NOT included. Manually trigger deployment workflow after recreate completes.
+**Automatically triggered after Step 1 completes.**
 
-### What Happens
-
-1. Validates confirmation input ("RECREATE")
-2. Sets up Tailscale, SSH keys, SOPS on runner
-3. Runs `make recreate-vps` (generates keys, rebuilds VPS, updates secrets)
-4. Waits for SSH availability on new VPS
-5. Runs `make config-vps` (Ansible bootstrap)
-6. Attempts to commit updated secrets to repository (may fail - non-blocking)
-7. Cleans up backup files
+**What happens:**
+1. Runs Ansible bootstrap (9 stages)
+2. Deploys Traefik + Portainer (infrastructure only)
+3. **Automatically updates DNS records**
+4. Extracts Tailscale IP
+5. Updates TAILSCALE_IP secret
+6. Commits updated secrets to repository
 
 **After completion:**
-- Infrastructure ready but services NOT deployed
-- Manually trigger "Deploy (Staging Certificates)" workflow for testing
-- Or trigger "Deploy (Production Certificates)" workflow for production
+- Infrastructure ready (Traefik + Portainer running)
+- DNS records updated
+- Application services NOT deployed yet
+
+#### Step 3: Deploy Application (~2-3 minutes - Manual)
+
+**How to trigger:**
+1. Go to repository → **Actions** → **Deploy**
+2. Click **"Run workflow"**
+3. Click **"Run workflow"** button
+
+**What happens:**
+1. Validates infrastructure
+2. Deploys application services (api, ai, mcp, auth, ui)
+3. Uses production Let's Encrypt certificates
+4. Runs health checks
+
+**Auto-trigger:**
+- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`)
 
 ### Requirements
 
 - GitHub secrets configured (see `.claude/reference/github-actions.md`)
-- Workflow file: `.github/workflows/recreate-vps.yml`
+- Workflow files:
+  - `.github/workflows/recreate-vps.yml` (Step 1)
+  - `.github/workflows/config-vps.yml` (Step 2)
+  - `.github/workflows/deploy.yml` (Step 3)
 
 **Full documentation:** See `.claude/reference/github-actions.md`
 
