@@ -190,7 +190,7 @@ services:
       # Read-only access to Hill90 repo (for deployments, Ansible, etc.)
       - /opt/hill90:/opt/hill90:ro
     group_add:
-      - "999"  # Docker group GID
+      - "993"  # Docker group GID (AlmaLinux)
     environment:
       - HOME=/home/node
       - NODE_ENV=production
