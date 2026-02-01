@@ -169,39 +169,57 @@ services:
     depends_on:
       - postgres
 
-  # OpenClaw AI Assistant Gateway
+  # OpenClaw AI Assistant Gateway (Enhanced with Docker + SSH access)
   openclaw:
-    image: hill90/openclaw:${VERSION:-latest}
+    build:
+      context: ../../../platform/openclaw
+      dockerfile: Dockerfile
+    image: hill90/openclaw:enhanced-${VERSION:-latest}
     container_name: openclaw
     restart: unless-stopped
     networks:
       - edge
     volumes:
+      # Persistent data
       - openclaw-config:/home/node/.openclaw
       - openclaw-workspace:/home/node/.openclaw/workspace
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+      # SSH keys for host access
+      - ../../../infra/secrets/openclaw-ssh:/home/node/.ssh:ro
+      # Read-only access to Hill90 repo (for deployments, Ansible, etc.)
+      - /opt/hill90:/opt/hill90:ro
+    group_add:
+      - "999"  # Docker group GID
     environment:
       - HOME=/home/node
       - NODE_ENV=production
+      # OpenClaw authentication
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+      # Claude API credentials
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - CLAUDE_AI_SESSION_KEY=${CLAUDE_AI_SESSION_KEY}
       - CLAUDE_WEB_SESSION_KEY=${CLAUDE_WEB_SESSION_KEY}
       - CLAUDE_WEB_COOKIE=${CLAUDE_WEB_COOKIE}
+      # Discord integration
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      # SSH config for host access
+      - SSH_HOST=${TAILSCALE_IP}
+      - SSH_USER=deploy
     init: true
-    command:
-      - "node"
-      - "dist/index.js"
-      - "gateway"
-      - "--bind"
-      - "lan"
-      - "--port"
-      - "18789"
-      - "--allow-unconfigured"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+          pids: 500
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.openclaw.rule=Host(`openclaw.hill90.com`)"
       - "traefik.http.routers.openclaw.entrypoints=websecure"
       - "traefik.http.routers.openclaw.tls.certresolver=letsencrypt-dns"
       - "traefik.http.services.openclaw.loadbalancer.server.port=18789"
+      - "traefik.http.routers.openclaw.middlewares=tailscale-only@file"
 
   # PostgreSQL Database
   postgres:
