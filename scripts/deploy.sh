@@ -63,7 +63,7 @@ sops exec-env "$SECRETS_FILE" '
   docker compose -f '"$COMPOSE_FILE"' down --remove-orphans || true
 
   # Force remove any lingering containers by name
-  for container in traefik postgres api ai mcp auth; do
+  for container in traefik postgres api ai mcp auth openclaw; do
     docker rm -f "$container" 2>/dev/null || true
   done
 
@@ -71,6 +71,14 @@ sops exec-env "$SECRETS_FILE" '
   mkdir -p deployments/platform/edge/dynamic
   echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > deployments/platform/edge/dynamic/.htpasswd
   echo "✓ Created .htpasswd for Traefik dashboard authentication"
+
+  # Build OpenClaw from GitHub if image does not exist
+  if ! docker image inspect hill90/openclaw:${VERSION:-latest} >/dev/null 2>&1; then
+    echo "Building OpenClaw from GitHub..."
+    bash scripts/build-openclaw.sh
+  else
+    echo "✓ OpenClaw image already exists (hill90/openclaw:${VERSION:-latest})"
+  fi
 
   echo "Building and pulling images (parallel mode)..."
   docker compose -f '"$COMPOSE_FILE"' build --parallel

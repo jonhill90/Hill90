@@ -14,6 +14,8 @@ networks:
 volumes:
   traefik-certs:
   postgres-data:
+  openclaw-config:
+  openclaw-workspace:
 
 # Services
 services:
@@ -166,6 +168,40 @@ services:
       retries: 3
     depends_on:
       - postgres
+
+  # OpenClaw AI Assistant Gateway
+  openclaw:
+    image: hill90/openclaw:${VERSION:-latest}
+    container_name: openclaw
+    restart: unless-stopped
+    networks:
+      - edge
+    volumes:
+      - openclaw-config:/home/node/.openclaw
+      - openclaw-workspace:/home/node/.openclaw/workspace
+    environment:
+      - HOME=/home/node
+      - NODE_ENV=production
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN}
+      - CLAUDE_AI_SESSION_KEY=${CLAUDE_AI_SESSION_KEY}
+      - CLAUDE_WEB_SESSION_KEY=${CLAUDE_WEB_SESSION_KEY}
+      - CLAUDE_WEB_COOKIE=${CLAUDE_WEB_COOKIE}
+    init: true
+    command:
+      - "node"
+      - "dist/index.js"
+      - "gateway"
+      - "--bind"
+      - "lan"
+      - "--port"
+      - "18789"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openclaw.rule=Host(`openclaw.hill90.com`)"
+      - "traefik.http.routers.openclaw.entrypoints=websecure"
+      - "traefik.http.routers.openclaw.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.services.openclaw.loadbalancer.server.port=18789"
+      - "traefik.http.routers.openclaw.middlewares=auth@file"
 
   # PostgreSQL Database
   postgres:
