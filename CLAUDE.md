@@ -226,6 +226,9 @@ The VPS baseline is complete:
 4. ✅ Public SSH is locked down (firewall blocks port 22)
 5. ✅ **GitHub Actions VPS recreate tested** (Run #21128156365)
 6. ✅ **Tailscale ACL GitOps operational** (automatic deployment on push)
+7. ✅ **Let's Encrypt DNS-01 working** (Tailscale-only services: Traefik, Portainer)
+8. ✅ **Traefik dashboard authentication** (Auto-generated .htpasswd, secured with bcrypt)
+9. ✅ **Deployment automation complete** (GitHub Actions runner creates all required files)
 
 **Baseline achieved!** Infrastructure automation is production-ready with both local and GitHub Actions workflows operational.
 

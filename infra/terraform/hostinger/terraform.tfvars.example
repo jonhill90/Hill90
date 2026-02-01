@@ -1,9 +1,0 @@
-# Secrets (set these locally, do not commit real values)
-api-token      = "REPLACE_ME"
-ssh-public-key = "REPLACE_ME"
-
-# VPS Configuration
-vps_plan           = "hostingercom-vps-kvm4-usd-1m"
-vps_data_center_id = 17 # Boston
-vps_template_id    = 1183 # Almalinux 10
-vps_hostname       = "web-01.example.com"

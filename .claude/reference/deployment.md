@@ -99,6 +99,40 @@ Two deployment workflows available:
 - **Public:** 80/tcp, 443/tcp
 - **SSH (22/tcp):** Tailscale-only (blocked from public internet)
 
+## Traefik Dashboard Authentication
+
+The Traefik dashboard at `https://traefik.hill90.com` uses basic authentication.
+
+**Credentials are automatically generated during deployment:**
+
+1. Password hash stored in: `TRAEFIK_ADMIN_PASSWORD_HASH` (encrypted in secrets)
+2. Deploy script generates: `deployments/platform/edge/dynamic/.htpasswd`
+3. File format: `admin:$2y$05$...` (bcrypt hash)
+
+**How it works:**
+
+```bash
+# During deployment (scripts/deploy.sh):
+echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > deployments/platform/edge/dynamic/.htpasswd
+
+# Traefik reads this file via:
+# deployments/platform/edge/dynamic/middlewares.yml
+auth:
+  basicAuth:
+    usersFile: /etc/traefik/dynamic/.htpasswd
+```
+
+**Access credentials:**
+- Username: `admin`
+- Password: Stored in user's password manager (not in repo)
+- Hash: `TRAEFIK_ADMIN_PASSWORD_HASH` in encrypted secrets
+
+**If you need to reset the password:**
+1. Generate new password: `openssl rand -base64 20 | tr -d '/+=' | cut -c1-20`
+2. Generate bcrypt hash: `htpasswd -nbB admin "<password>" | cut -d: -f2`
+3. Update secret: `sops --set '["TRAEFIK_ADMIN_PASSWORD_HASH"] "$2y$...' infra/secrets/prod.enc.env`
+4. Redeploy: `make deploy`
+
 ## File Locations
 
 ### Local (Your Machine)
@@ -111,3 +145,4 @@ Two deployment workflows available:
 - Age key: `/opt/hill90/secrets/keys/keys.txt`
 - Deploy user: `deploy`
 - Services: Docker Compose in `/opt/hill90/app`
+- Traefik dynamic config: `/opt/hill90/app/deployments/platform/edge/dynamic/`
