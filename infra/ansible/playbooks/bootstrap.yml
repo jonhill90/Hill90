@@ -46,6 +46,9 @@
     - name: "10 - Portainer"
       import_tasks: 10-portainer.yml
 
+    - name: "11 - OpenClaw SSH Setup"
+      import_tasks: 11-openclaw-ssh.yml
+
   handlers:
     - name: restart docker
       systemd:

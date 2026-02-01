@@ -95,6 +95,12 @@ infra/secrets/prod.secrets.json
 infra/secrets/prod-clean.enc.env
 infra/secrets/prod.tmp.enc.env
 
+# OpenClaw SSH Keys (NEVER commit private keys)
+infra/secrets/openclaw-ssh/id_*
+infra/secrets/openclaw-ssh/config
+!infra/secrets/openclaw-ssh/.gitkeep
+!infra/secrets/openclaw-ssh/README.md
+
 # Docker
 .dockerignore
 
