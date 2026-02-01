@@ -195,6 +195,7 @@ services:
       - "lan"
       - "--port"
       - "18789"
+      - "--allow-unconfigured"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.openclaw.rule=Host(`openclaw.hill90.com`)"
