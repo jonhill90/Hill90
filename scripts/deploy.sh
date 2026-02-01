@@ -67,6 +67,11 @@ sops exec-env "$SECRETS_FILE" '
     docker rm -f "$container" 2>/dev/null || true
   done
 
+  echo "Generating Traefik basic auth credentials..."
+  mkdir -p deployments/platform/edge/dynamic
+  echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > deployments/platform/edge/dynamic/.htpasswd
+  echo "✓ Created .htpasswd for Traefik dashboard authentication"
+
   echo "Building and pulling images (parallel mode)..."
   docker compose -f '"$COMPOSE_FILE"' build --parallel
   docker compose -f '"$COMPOSE_FILE"' pull --ignore-buildable

@@ -170,6 +170,7 @@ AUTOMATION_SUMMARY.md
 HANDOFF.md
 *.password.txt
 *_credentials.txt
+.htpasswd
 
 # Temporary build/rebuild files
 scripts/load-secrets.sh
