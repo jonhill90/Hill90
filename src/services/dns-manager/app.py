@@ -6,6 +6,8 @@ Manages DNS TXT records via Hostinger API
 
 import os
 import time
+import hashlib
+import base64
 from flask import Flask, request, jsonify
 import requests
 
@@ -74,21 +76,43 @@ def present():
     """
     try:
         # Log the raw request data for debugging
-        app.logger.info(f"Received /present request - Content-Type: {request.content_type}")
-        app.logger.info(f"JSON body: {request.get_json(silent=True)}")
-        app.logger.info(f"Query args: {dict(request.args)}")
-        app.logger.info(f"Form data: {dict(request.form)}")
-        app.logger.info(f"Raw data: {request.get_data(as_text=True)[:500]}")
+        print(f"[PRESENT] Content-Type: {request.content_type}", flush=True)
+        print(f"[PRESENT] Headers: {dict(request.headers)}", flush=True)
+        print(f"[PRESENT] Method: {request.method}", flush=True)
+        print(f"[PRESENT] URL: {request.url}", flush=True)
+        print(f"[PRESENT] JSON body: {request.get_json(silent=True)}", flush=True)
+        print(f"[PRESENT] Query args: {dict(request.args)}", flush=True)
+        print(f"[PRESENT] Form data: {dict(request.form)}", flush=True)
+        print(f"[PRESENT] Raw data: {request.get_data(as_text=True)}", flush=True)
 
         # Try JSON body first, fall back to query parameters
-        if request.is_json:
-            data = request.json
-            fqdn = data.get('fqdn')
-            value = data.get('value')
+        data = request.get_json(silent=True) or {}
+
+        # Lego httpreq provider sends 'domain', 'token', and 'keyAuth'
+        # For DNS-01 challenge, TXT value = base64url(SHA256(keyAuth))
+        domain = data.get('domain') or data.get('fqdn')
+        key_auth = data.get('keyAuth')
+
+        # Compute the ACME DNS-01 challenge value
+        if key_auth:
+            # SHA256 hash of keyAuth, base64url encoded
+            hash_digest = hashlib.sha256(key_auth.encode()).digest()
+            value = base64.urlsafe_b64encode(hash_digest).decode().rstrip('=')
         else:
-            # RAW mode sends query parameters or form data
-            fqdn = request.args.get('fqdn') or request.form.get('fqdn')
-            value = request.args.get('value') or request.form.get('value')
+            # Fallback to token or value if keyAuth not provided
+            value = data.get('token') or data.get('value')
+
+        # If JSON didn't provide values, try query parameters or form data
+        if not domain:
+            domain = request.args.get('domain') or request.args.get('fqdn') or request.form.get('domain') or request.form.get('fqdn')
+        if not value:
+            value = request.args.get('token') or request.args.get('value') or request.form.get('token') or request.form.get('value')
+
+        # Construct FQDN: _acme-challenge.DOMAIN
+        if domain and not domain.startswith('_acme-challenge'):
+            fqdn = f"_acme-challenge.{domain}"
+        else:
+            fqdn = domain
 
         if not fqdn or not value:
             app.logger.error(f"Missing parameters - JSON: {request.is_json}, Args: {dict(request.args)}, Form: {dict(request.form)}")
@@ -103,9 +127,8 @@ def present():
         app.logger.info(f"Adding TXT record: {record_name} = {value}")
         result = add_txt_record(record_name, value)
 
-        # Wait for DNS propagation
-        app.logger.info("Waiting 30 seconds for DNS propagation...")
-        time.sleep(30)
+        # Return immediately - Traefik waits for DNS propagation (delayBeforeCheck: 30s)
+        app.logger.info(f"TXT record added successfully: {record_name}")
 
         return jsonify({"status": "success", "result": result}), 200
 
@@ -122,12 +145,20 @@ def cleanup():
     """
     try:
         # Try JSON body first, fall back to query parameters
-        if request.is_json:
-            data = request.json
-            fqdn = data.get('fqdn')
+        data = request.get_json(silent=True) or {}
+
+        # Lego httpreq provider sends 'domain' (not 'fqdn')
+        domain = data.get('domain') or data.get('fqdn')
+
+        # If JSON didn't provide domain, try query parameters or form data
+        if not domain:
+            domain = request.args.get('domain') or request.args.get('fqdn') or request.form.get('domain') or request.form.get('fqdn')
+
+        # Construct FQDN: _acme-challenge.DOMAIN
+        if domain and not domain.startswith('_acme-challenge'):
+            fqdn = f"_acme-challenge.{domain}"
         else:
-            # RAW mode sends query parameters or form data
-            fqdn = request.args.get('fqdn') or request.form.get('fqdn')
+            fqdn = domain
 
         if not fqdn:
             app.logger.error(f"Missing fqdn - JSON: {request.is_json}, Args: {dict(request.args)}, Form: {dict(request.form)}")
