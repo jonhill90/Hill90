@@ -193,5 +193,5 @@ jobs:
           echo ""
           echo "✅ Next steps:"
           echo "  1. Setup Portainer admin: https://portainer.hill90.com"
-          echo "  2. Deploy application: Trigger 'Deploy (Production)' workflow"
+          echo "  2. Deploy application: Trigger 'Deploy' workflow"
           echo "  3. SSH access: ssh -i ~/.ssh/remote.hill90.com deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"

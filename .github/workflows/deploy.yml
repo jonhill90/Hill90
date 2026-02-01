@@ -1,9 +1,5 @@
-name: Deploy (Production Certificates)
+name: Deploy
 
-# ⚠️  PRODUCTION CERTIFICATES - RATE LIMITED ⚠️
-# Let's Encrypt production: 50 certificates per week
-# Use this workflow for main branch deployments only
-# For testing, use 'Deploy (Staging)' workflow instead
 on:
   push:
     branches:
@@ -13,7 +9,7 @@ on:
       - 'deployments/**'
       - 'scripts/deploy.sh'
       - 'scripts/build-and-deploy.sh'
-      - '.github/workflows/deploy-production.yml'
+      - '.github/workflows/deploy.yml'
 
   workflow_dispatch:
     inputs:
@@ -24,42 +20,10 @@ on:
         options:
           - prod
         default: 'prod'
-      confirm_production:
-        description: 'Type PRODUCTION to confirm (rate limited: 50 certs/week)'
-        required: true
-        type: string
-
-jobs:
-  validate-production:
-    name: Validate Production Deployment
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Validate manual trigger confirmation
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          if [ "${{ github.event.inputs.confirm_production }}" != "PRODUCTION" ]; then
-            echo "❌ Production deployment not confirmed"
-            echo "   You must type 'PRODUCTION' exactly"
-            echo "   Rate limit: 50 certificates per week"
-            exit 1
-          fi
-          echo "✅ Production deployment confirmed"
-
-      - name: Rate limit warning
-        run: |
-          echo "⚠️  PRODUCTION CERTIFICATE DEPLOYMENT ⚠️"
-          echo ""
-          echo "Let's Encrypt Rate Limits:"
-          echo "  - 50 certificates per week"
-          echo "  - 5 validation failures per hour"
-          echo ""
-          echo "Proceeding with production certificate deployment..."
 
   validate:
     name: Validate Infrastructure
     runs-on: ubuntu-latest
-    needs: validate-production
 
     steps:
       - name: Checkout repository
@@ -106,7 +70,7 @@ jobs:
           echo "✅ Secrets file exists (encrypted)"
 
   deploy:
-    name: Deploy Services (Production Certs)
+    name: Deploy Services
     runs-on: ubuntu-latest
     needs: validate
     environment: production
@@ -159,11 +123,9 @@ jobs:
           fi
           echo "✅ SSH connectivity verified"
 
-      - name: Deploy to VPS with production certificates
+      - name: Deploy to VPS
         run: |
-          echo "🚀 Using Let's Encrypt PRODUCTION certificates"
-          echo "   ✅ Trusted by all browsers"
-          echo "   ⚠️  Rate limited: 50 certificates/week"
+          echo "🚀 Deploying to VPS"
           echo ""
 
           # Deploy via SSH with production ACME server
@@ -199,17 +161,12 @@ jobs:
           echo ""
           echo "📊 Deployment details:"
           echo "  Environment: ${{ github.event.inputs.environment || 'prod' }}"
-          echo "  Certificates: PRODUCTION (trusted, rate-limited)"
           echo "  Branch: main"
           echo "  Commit: ${{ github.sha }}"
-          echo ""
-          echo "✅ Production certificates issued successfully"
-          echo "   Certificates are trusted by all browsers"
           echo ""
           echo "✅ Next steps:"
           echo "  1. Verify services: make health"
           echo "  2. Check logs: make logs"
-          echo "  3. Test endpoints (no -k flag needed for curl)"
 
   health-check:
     name: Extended Health Check
@@ -259,7 +216,7 @@ jobs:
           echo "📦 Checking container status..."
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'cd /opt/hill90/app && docker compose -f deployments/docker-compose.prod.yml ps'
+            'cd /opt/hill90/app && docker compose -f deployments/compose/prod/docker-compose.yml ps'
 
       - name: Check container logs for errors
         run: |
@@ -268,7 +225,7 @@ jobs:
           # Check for recent errors in logs (last 50 lines)
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'cd /opt/hill90/app && docker compose -f deployments/docker-compose.prod.yml logs --tail=50' \
+            'cd /opt/hill90/app && docker compose -f deployments/compose/prod/docker-compose.yml logs --tail=50' \
             | grep -i "error\|fatal\|exception" || echo "No errors found in recent logs"
 
       - name: Verify Traefik dashboard
