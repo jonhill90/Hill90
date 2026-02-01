@@ -21,6 +21,7 @@ on:
           - prod
         default: 'prod'
 
+jobs:
   validate:
     name: Validate Infrastructure
     runs-on: ubuntu-latest
