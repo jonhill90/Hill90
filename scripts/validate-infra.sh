@@ -31,6 +31,7 @@ run_validation() {
 run_validation "scripts/validate-traefik.sh" "Traefik configuration"
 run_validation "scripts/validate-secrets.sh" "Secrets"
 run_validation "scripts/validate-compose.sh" "Docker Compose"
+run_validation "scripts/validate-openclaw.sh" "OpenClaw configuration"
 
 # Final summary
 echo "========================================"
