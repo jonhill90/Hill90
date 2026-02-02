@@ -1,108 +1,127 @@
 # Deployment Reference
 
+## Deployment Architecture
+
+**Infrastructure and applications are deployed separately:**
+
+1. **Infrastructure** (Traefik, dns-manager, Portainer) - Deploy once after VPS config
+2. **Application services** (auth, api, ai, mcp) - Deploy independently as needed
+
 ## Deployment Location
 
 **Deployments must run on the VPS via SSH, not on the local Mac.**
 
-When deploying:
-```bash
-# Correct - Run deploy script on the VPS via SSH
-ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
+The deploy scripts build and run Docker containers **wherever you execute them**, so SSH to the VPS first to ensure proper deployment.
 
-# Incorrect - deploys locally instead of on VPS
-make deploy  # This runs locally on Mac, not on VPS
-bash scripts/deploy.sh prod  # This runs locally, not on VPS
-```
+## New Deployment Workflow
 
-The deploy script builds and runs Docker containers **wherever you execute it**, so SSH to the VPS first to ensure proper deployment.
-
-## Deploy Changes
-
-### Local Deployment
+### After VPS Rebuild (3 Steps)
 
 ```bash
-make deploy               # Deploys to VPS (STAGING certificates - safe for testing)
-make deploy-production    # Deploys with PRODUCTION certificates (USE CAREFULLY - rate limited!)
-make health               # Checks everything is running
+# Step 1: Rebuild VPS OS
+make recreate-vps
+
+# Step 2: Configure VPS (OS only - no containers)
+make config-vps VPS_IP=<ip>
+
+# Step 3a: Deploy infrastructure (Traefik, dns-manager, Portainer)
+make deploy-infra
+
+# Step 3b: Deploy all application services
+make deploy-all
 ```
 
-### GitHub Actions Deployment
+### Per-Service Deployment
 
-**Deployment is part of a 3-step workflow (recreate → config → deploy):**
+Deploy individual services without affecting others:
 
-#### Deploy Workflow
+```bash
+make deploy-infra   # Traefik, dns-manager, Portainer
+make deploy-auth    # Auth + PostgreSQL
+make deploy-api     # API service
+make deploy-ai      # AI service
+make deploy-mcp     # MCP service
+make deploy-all     # All app services (not infra)
+```
 
-- Workflow: `.github/workflows/deploy.yml`
-- **Triggers:** Push to `main` branch (auto), manual dispatch
-- **Certificates:** Let's Encrypt PRODUCTION (trusted by browsers)
-- **Rate limit:** 50 certificates/week, 5 failures/hour
-- **Use for:** Application deployments after infrastructure bootstrap
+### Legacy Deployment (Still Available)
 
-**How to trigger manually:**
-1. Go to Actions → Deploy
-2. Click "Run workflow"
-3. Click "Run workflow"
+```bash
+make deploy              # Deploy all services (STAGING certs)
+make deploy-production   # Deploy all services (PRODUCTION certs)
+```
 
-**Auto-deployment:** Pushes to `main` branch automatically trigger deployment (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`).
+## Docker Compose Files
 
-**Certificate management:**
-- GitHub Actions uses PRODUCTION certificates by default
-- Local `make deploy` uses STAGING certificates by default
-- Use `make deploy-production` locally for production certificates
+Separate compose files in `deployments/compose/prod/`:
 
-#### Complete VPS Rebuild + Deployment (3 Steps)
+| File | Services | Networks |
+|------|----------|----------|
+| `docker-compose.infra.yml` | traefik, dns-manager, portainer | Creates hill90_edge, hill90_internal |
+| `docker-compose.auth.yml` | auth, postgres | Uses external networks |
+| `docker-compose.api.yml` | api | Uses external networks |
+| `docker-compose.ai.yml` | ai | Uses external networks |
+| `docker-compose.mcp.yml` | mcp | Uses external networks |
+| `docker-compose.yml` | All services (legacy) | Creates networks |
 
-**Step 1: VPS Recreate** (~3-5 minutes)
-- Workflow: `.github/workflows/recreate-vps.yml`
-- Rebuilds VPS OS, generates Tailscale key, updates VPS_IP secret
-- Auto-triggers config-vps workflow
+## GitHub Actions Deployment
 
-**Step 2: Config VPS** (~3-5 minutes, auto-triggered)
-- Workflow: `.github/workflows/config-vps.yml`
-- Ansible bootstrap, deploys Traefik + Portainer
-- Updates DNS records automatically
-- Updates TAILSCALE_IP secret
+### Per-Service Workflows
 
-**Step 3: Deploy** (~2-3 minutes, manual)
-- Workflow: `.github/workflows/deploy.yml`
-- Deploys application services (api, ai, mcp, auth, ui)
-- Uses production Let's Encrypt certificates
-- **Manually trigger this after Steps 1-2 complete**
+| Workflow | Trigger | Services |
+|----------|---------|----------|
+| `deploy-infra.yml` | Manual only | traefik, dns-manager, portainer |
+| `deploy-auth.yml` | `src/services/auth/**` changes | auth, postgres |
+| `deploy-api.yml` | `src/services/api/**` changes | api |
+| `deploy-ai.yml` | `src/services/ai/**` changes | ai |
+| `deploy-mcp.yml` | `src/services/mcp/**` changes | mcp |
+| `deploy.yml` | Any `src/**` changes (legacy) | All services |
 
-**Why 3 steps?**
-- Separating infrastructure from application deployment prevents Let's Encrypt rate limit issues during VPS rebuild testing
-- Infrastructure (Traefik + Portainer) uses DNS-01 challenges (no public access needed)
-- Applications use HTTP-01 challenges (rate-limited)
+### Path-Based Auto-Deployment
+
+When you push changes to `main`:
+- Changes to `src/services/auth/**` → Only auth service deploys
+- Changes to `src/services/api/**` → Only API service deploys
+- Changes to `src/services/ai/**` → Only AI service deploys
+- Changes to `src/services/mcp/**` → Only MCP service deploys
 
 ## Let's Encrypt Configuration
 
 **Certificate Rate Limits**
 
-- `make deploy` uses **STAGING** certificates by default (not trusted by browsers, but unlimited rate limits)
-- `make deploy-production` uses **PRODUCTION** certificates (trusted, but rate-limited: 5 failures/hour, 50 certs/week)
-- Always test with staging first, only use production when ready for real traffic
-- If you hit rate limits, you're locked out until the limit expires (up to 1 week for duplicate certs)
+- `make deploy-*` uses **STAGING** certificates by default (not trusted, unlimited)
+- `make deploy-infra-production` uses **PRODUCTION** certificates (trusted, rate-limited)
+- Rate limits: 5 failures/hour, 50 certs/week
 
 ## Architecture
 
-### Services (Docker Compose)
-1. **traefik** - Edge proxy (80/443)
-2. **api** - TypeScript API service
-3. **ai** - Python AI service
-4. **mcp** - TypeScript MCP service
-5. **auth** - TypeScript auth service
-6. **postgres** - PostgreSQL database
+### Services by Deployment Unit
 
-### Host Services
-- **Tailscale** - VPN for secure SSH access
+**Infrastructure (deploy-infra):**
+- **traefik** - Edge proxy (80/443)
+- **dns-manager** - DNS-01 ACME challenges
+- **portainer** - Container management (Tailscale-only)
+
+**Auth (deploy-auth):**
+- **auth** - Authentication service
+- **postgres** - PostgreSQL database
+
+**API (deploy-api):**
+- **api** - API Gateway
+
+**AI (deploy-ai):**
+- **ai** - AI service
+
+**MCP (deploy-mcp):**
+- **mcp** - MCP Gateway
 
 ### Networks
-- **edge** - Public-facing (traefik)
-- **internal** - Private services (postgres, auth, api, ai, mcp)
+- **hill90_edge** - Public-facing (traefik, api, ai, mcp)
+- **hill90_internal** - Private services (postgres, auth, all apps)
 
-### Firewall
-- **Public:** 80/tcp, 443/tcp
-- **SSH (22/tcp):** Tailscale-only (blocked from public internet)
+### Dependencies
+- Infrastructure must be deployed first (creates networks)
+- Auth (with postgres) should be deployed before api, ai, mcp
 
 ## Traefik Dashboard Authentication
 
@@ -112,31 +131,10 @@ The Traefik dashboard at `https://traefik.hill90.com` uses basic authentication.
 
 1. Password hash stored in: `TRAEFIK_ADMIN_PASSWORD_HASH` (encrypted in secrets)
 2. Deploy script generates: `deployments/platform/edge/dynamic/.htpasswd`
-3. File format: `admin:$2y$05$...` (bcrypt hash)
-
-**How it works:**
-
-```bash
-# During deployment (scripts/deploy.sh):
-echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > deployments/platform/edge/dynamic/.htpasswd
-
-# Traefik reads this file via:
-# deployments/platform/edge/dynamic/middlewares.yml
-auth:
-  basicAuth:
-    usersFile: /etc/traefik/dynamic/.htpasswd
-```
 
 **Access credentials:**
 - Username: `admin`
 - Password: Stored in user's password manager (not in repo)
-- Hash: `TRAEFIK_ADMIN_PASSWORD_HASH` in encrypted secrets
-
-**If you need to reset the password:**
-1. Generate new password: `openssl rand -base64 20 | tr -d '/+=' | cut -c1-20`
-2. Generate bcrypt hash: `htpasswd -nbB admin "<password>" | cut -d: -f2`
-3. Update secret: `sops --set '["TRAEFIK_ADMIN_PASSWORD_HASH"] "$2y$...' infra/secrets/prod.enc.env`
-4. Redeploy: `make deploy`
 
 ## File Locations
 
@@ -149,5 +147,3 @@ auth:
 - App directory: `/opt/hill90/app`
 - Age key: `/opt/hill90/secrets/keys/keys.txt`
 - Deploy user: `deploy`
-- Services: Docker Compose in `/opt/hill90/app`
-- Traefik dynamic config: `/opt/hill90/app/deployments/platform/edge/dynamic/`

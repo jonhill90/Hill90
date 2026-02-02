@@ -1,4 +1,4 @@
-.PHONY: help build deploy deploy-production test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full rebuild-full-auto rebuild-full-auto-post-mcp rebuild-optimized rebuild-optimized-post-mcp tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull exec-api exec-ai exec-auth
+.PHONY: help build deploy deploy-production deploy-infra deploy-auth deploy-api deploy-ai deploy-mcp deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full rebuild-full-auto rebuild-full-auto-post-mcp rebuild-optimized rebuild-optimized-post-mcp tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull exec-api exec-ai exec-auth
 
 # Environment
 ENV ?= prod
@@ -71,28 +71,27 @@ snapshot: ## Create VPS snapshot (safety backup)
 recreate-vps: ## Recreate VPS via API (DESTRUCTIVE - rebuilds OS, auto-rotates Tailscale key)
 	@bash scripts/recreate-vps.sh
 
-config-vps: ## Configure VPS infrastructure (Traefik + Portainer only)
+config-vps: ## Configure VPS OS only (no containers deployed)
 	@if [ -z "$(VPS_IP)" ]; then \
 		echo "$(COLOR_YELLOW)Error: VPS_IP is required$(COLOR_RESET)"; \
 		echo "$(COLOR_YELLOW)Usage: make config-vps VPS_IP=<ip>$(COLOR_RESET)"; \
 		exit 1; \
 	fi
-	@echo "$(COLOR_BOLD)Configuring VPS Infrastructure at $(VPS_IP)...$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Configuring VPS at $(VPS_IP)...$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_GREEN)This will:$(COLOR_RESET)"
 	@echo "  1. Run Ansible bootstrap (Docker, SOPS, age, Tailscale)"
-	@echo "  2. Deploy Traefik (reverse proxy with SSL)"
-	@echo "  3. Deploy Portainer (Tailscale-only access)"
-	@echo "  4. Extract and update TAILSCALE_IP in secrets"
+	@echo "  2. Extract and update TAILSCALE_IP in secrets"
 	@echo ""
-	@echo "$(COLOR_YELLOW)⚠️  Application services NOT deployed$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)⚠️  No containers deployed$(COLOR_RESET)"
 	@echo ""
 	bash scripts/config-vps.sh $(VPS_IP)
 	@echo ""
-	@echo "$(COLOR_GREEN)✓ Infrastructure configured!$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ VPS configured!$(COLOR_RESET)"
 	@echo ""
-	@echo "$(COLOR_YELLOW)Next: Deploy application services$(COLOR_RESET)"
-	@echo "  make deploy (staging) or make deploy-production"
+	@echo "$(COLOR_YELLOW)Next: Deploy infrastructure and services$(COLOR_RESET)"
+	@echo "  make deploy-infra    # Traefik, dns-manager, Portainer"
+	@echo "  make deploy-all      # All app services"
 	@echo ""
 
 # ============================================================================
@@ -159,6 +158,35 @@ deploy-production: ## Deploy to VPS (PRODUCTION certificates - LIMITED RATE LIMI
 	@echo "$(COLOR_YELLOW)Rate limits apply: 5 failures/hour, 50 certs/week$(COLOR_RESET)"
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
 	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy.sh $(ENV)
+
+deploy-infra: ## Deploy infrastructure (Traefik, dns-manager, Portainer)
+	@echo "$(COLOR_YELLOW)Deploying infrastructure services...$(COLOR_RESET)"
+	bash scripts/deploy-infra.sh $(ENV)
+
+deploy-infra-production: ## Deploy infrastructure with PRODUCTION certificates
+	@echo "$(COLOR_BOLD)⚠️  WARNING: PRODUCTION CERTIFICATES ⚠️$(COLOR_RESET)"
+	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
+	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy-infra.sh $(ENV)
+
+deploy-auth: ## Deploy auth service (with PostgreSQL)
+	@echo "$(COLOR_YELLOW)Deploying auth service...$(COLOR_RESET)"
+	bash scripts/deploy-auth.sh $(ENV)
+
+deploy-api: ## Deploy API service
+	@echo "$(COLOR_YELLOW)Deploying API service...$(COLOR_RESET)"
+	bash scripts/deploy-api.sh $(ENV)
+
+deploy-ai: ## Deploy AI service
+	@echo "$(COLOR_YELLOW)Deploying AI service...$(COLOR_RESET)"
+	bash scripts/deploy-ai.sh $(ENV)
+
+deploy-mcp: ## Deploy MCP service
+	@echo "$(COLOR_YELLOW)Deploying MCP service...$(COLOR_RESET)"
+	bash scripts/deploy-mcp.sh $(ENV)
+
+deploy-all: ## Deploy all application services (NOT infrastructure)
+	@echo "$(COLOR_YELLOW)Deploying all application services...$(COLOR_RESET)"
+	bash scripts/deploy-all.sh $(ENV)
 
 # ============================================================================
 # Monitoring & Maintenance

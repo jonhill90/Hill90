@@ -40,14 +40,9 @@
     - name: "08 - Secrets"
       import_tasks: 08-secrets.yml
 
-    - name: "09 - Traefik"
-      import_tasks: 09-traefik.yml
-
-    - name: "10 - Portainer"
-      import_tasks: 10-portainer.yml
-
-    - name: "11 - OpenClaw SSH Setup"
-      import_tasks: 11-openclaw-ssh.yml
+    # NOTE: Playbooks 09-traefik.yml and 10-portainer.yml are NOT run during bootstrap
+    # Infrastructure containers (Traefik, dns-manager, Portainer) are deployed separately
+    # via: make deploy-infra
 
   handlers:
     - name: restart docker

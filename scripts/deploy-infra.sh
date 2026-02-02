@@ -1,14 +1,14 @@
 #!/bin/bash
-# Deploy Hill90 services to VPS
+# Deploy infrastructure services (Traefik, dns-manager, Portainer)
+# This is typically run once after VPS config, then rarely changes
 
 set -e
 
 ENV=${1:-prod}
-COMPOSE_FILE="deployments/compose/${ENV}/docker-compose.yml"
+COMPOSE_FILE="deployments/compose/${ENV}/docker-compose.infra.yml"
 SECRETS_FILE="infra/secrets/${ENV}.enc.env"
 
 # Use SOPS_AGE_KEY_FILE if already set (e.g., from GitHub Actions)
-# Otherwise use default location
 if [ -z "${SOPS_AGE_KEY_FILE:-}" ]; then
     AGE_KEY="infra/secrets/keys/age-${ENV}.key"
     export SOPS_AGE_KEY_FILE="$AGE_KEY"
@@ -17,7 +17,7 @@ else
 fi
 
 echo "================================"
-echo "Hill90 Deployment - ${ENV}"
+echo "Infrastructure Deployment - ${ENV}"
 echo "================================"
 
 # Check prerequisites
@@ -36,34 +36,15 @@ if [ ! -f "$AGE_KEY" ]; then
     exit 1
 fi
 
-# Run pre-deployment validation
-if [ "${SKIP_VALIDATION:-false}" != "true" ]; then
-    echo ""
-    echo "Running pre-deployment validation..."
-    echo ""
-    if ! bash scripts/validate-infra.sh "$ENV"; then
-        echo ""
-        echo "✗ Validation failed! Fix errors before deploying."
-        echo ""
-        echo "To skip validation (NOT RECOMMENDED):"
-        echo "  SKIP_VALIDATION=true bash scripts/deploy.sh ${ENV}"
-        echo ""
-        exit 1
-    fi
-    echo ""
-fi
+# Deploy using sops exec-env
+echo "Deploying infrastructure with encrypted secrets..."
 
-# Deploy using sops exec-env (no temporary files!)
-echo "Deploying with encrypted secrets..."
-
-# Use sops exec-env to run docker compose with secrets in environment
-# This avoids creating temporary decrypted files
 sops exec-env "$SECRETS_FILE" '
-  echo "Stopping existing services..."
+  echo "Stopping existing infrastructure containers..."
   docker compose -f '"$COMPOSE_FILE"' down --remove-orphans || true
 
   # Force remove any lingering containers by name
-  for container in traefik postgres api ai mcp auth; do
+  for container in traefik dns-manager portainer; do
     docker rm -f "$container" 2>/dev/null || true
   done
 
@@ -72,24 +53,24 @@ sops exec-env "$SECRETS_FILE" '
   echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > deployments/platform/edge/dynamic/.htpasswd
   echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
-  echo "Building and pulling images (parallel mode)..."
+  echo "Building and pulling images..."
   docker compose -f '"$COMPOSE_FILE"' build --parallel
   docker compose -f '"$COMPOSE_FILE"' pull --ignore-buildable
 
-  echo "Deploying services..."
+  echo "Deploying infrastructure services..."
   docker compose -f '"$COMPOSE_FILE"' up -d
 '
 
 # Show running containers
 echo ""
 echo "================================"
-echo "Deployment Complete!"
+echo "Infrastructure Deployment Complete!"
 echo "================================"
 docker compose -f "$COMPOSE_FILE" ps
 
 echo ""
-echo "Check service health:"
-echo "  make health"
+echo "Services deployed:"
+echo "  - Traefik (reverse proxy with SSL)"
+echo "  - dns-manager (DNS-01 ACME challenges)"
+echo "  - Portainer (container management, Tailscale-only)"
 echo ""
-echo "View logs:"
-echo "  make logs"

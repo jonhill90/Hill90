@@ -1,0 +1,92 @@
+name: Deploy Auth Service
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/services/auth/**'
+      - 'deployments/compose/prod/docker-compose.auth.yml'
+      - 'scripts/deploy-auth.sh'
+      - '.github/workflows/deploy-auth.yml'
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - prod
+        default: 'prod'
+
+jobs:
+  deploy:
+    name: Deploy Auth Service
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age for secrets
+        run: |
+          curl -L -o /tmp/sops https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      - name: Verify SSH connectivity
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
+
+      - name: Deploy auth service
+        run: |
+          echo "Deploying auth service..."
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd /opt/hill90/app && \
+             git fetch origin && \
+             git reset --hard origin/main && \
+             export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
+             bash scripts/deploy-auth.sh prod"
+
+      - name: Wait for services to start
+        run: sleep 30
+
+      - name: Verify services
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "(auth|postgres)"'
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "Auth service deployment complete!"
+          echo "Services: auth, postgres"
