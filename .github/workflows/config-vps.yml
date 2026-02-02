@@ -1,8 +1,8 @@
-name: Config VPS (Infrastructure Bootstrap)
+name: Config VPS (OS Configuration Only)
 
-# Manual trigger only
-# Configures VPS infrastructure: Docker, Tailscale, Traefik, Portainer
-# Does NOT deploy application services - use Deploy workflows separately
+# Manual trigger or auto-triggered by recreate-vps
+# Configures VPS OS: Docker, Tailscale, firewall, secrets
+# Does NOT deploy containers - auto-triggers deploy-infra afterward
 on:
   workflow_dispatch:
     inputs:
@@ -43,8 +43,6 @@ jobs:
             "infra/ansible/playbooks/06-sops.yml"
             "infra/ansible/playbooks/07-age.yml"
             "infra/ansible/playbooks/08-secrets.yml"
-            "infra/ansible/playbooks/09-traefik.yml"
-            "infra/ansible/playbooks/10-portainer.yml"
             "infra/ansible/playbooks/bootstrap.yml"
           )
 
@@ -55,14 +53,15 @@ jobs:
             fi
           done
 
-          echo "✅ All Ansible playbooks present"
+          echo "✅ All Ansible playbooks present (01-08 + bootstrap)"
 
   config:
-    name: Configure VPS Infrastructure
+    name: Configure VPS OS
     runs-on: ubuntu-latest
     environment: production
     permissions:
       contents: write
+      actions: write
     needs: validate
 
     steps:
@@ -168,18 +167,33 @@ jobs:
             "${{ github.event.inputs.vps_ip }}" \
             "${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
 
+      - name: Auto-trigger deploy-infra workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🚀 Auto-triggering deploy-infra workflow..."
+          gh workflow run deploy-infra.yml
+          echo "✅ deploy-infra triggered"
+          echo ""
+          echo "💡 Monitor deploy-infra progress:"
+          echo "   gh run list --workflow=deploy-infra.yml --limit 1"
+
       - name: Summary
         if: success()
         run: |
-          echo "🎉 VPS Configuration Complete!"
+          echo "🎉 VPS OS Configuration Complete!"
           echo ""
           echo "📊 Configuration details:"
           echo "  VPS Public IP: ${{ github.event.inputs.vps_ip }}"
           echo "  VPS Tailscale IP: ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo ""
-          echo "✅ Infrastructure deployed:"
-          echo "  • Traefik: https://traefik.hill90.com (Tailscale-only)"
-          echo "  • Portainer: https://portainer.hill90.com (Tailscale-only)"
+          echo "✅ OS configured:"
+          echo "  • Docker + Docker Compose installed"
+          echo "  • Tailscale connected"
+          echo "  • SSH locked down (Tailscale-only)"
+          echo "  • Firewall configured (HTTP/HTTPS public, SSH Tailscale-only)"
+          echo "  • SOPS + age installed"
+          echo "  • Secrets transferred"
           echo ""
           echo "🌐 DNS records updated:"
           echo "  • hill90.com → ${{ github.event.inputs.vps_ip }}"
@@ -188,10 +202,9 @@ jobs:
           echo "  • portainer.hill90.com → ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo "  • traefik.hill90.com → ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo ""
-          echo "⚠️  APPLICATION SERVICES NOT DEPLOYED"
-          echo "    Infrastructure only: Traefik + Portainer"
+          echo "🚀 Infrastructure deployment auto-triggered:"
+          echo "  • deploy-infra workflow will deploy Traefik, dns-manager, Portainer"
+          echo "  • Monitor progress: gh run list --workflow=deploy-infra.yml --limit 1"
           echo ""
-          echo "✅ Next steps:"
-          echo "  1. Setup Portainer admin: https://portainer.hill90.com"
-          echo "  2. Deploy application: Trigger 'Deploy' workflow"
-          echo "  3. SSH access: ssh -i ~/.ssh/remote.hill90.com deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
+          echo "✅ SSH access:"
+          echo "  ssh -i ~/.ssh/remote.hill90.com deploy@${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
