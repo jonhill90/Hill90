@@ -1,0 +1,43 @@
+version: '3.9'
+
+# API Gateway service
+# Deploy with: make deploy-api
+
+networks:
+  edge:
+    external: true
+    name: hill90_edge
+  internal:
+    external: true
+    name: hill90_internal
+
+services:
+  # API Gateway (TypeScript/Express)
+  api:
+    build:
+      context: ../../../src/services/api
+      dockerfile: Dockerfile
+    image: hill90/api:${VERSION:-latest}
+    container_name: api
+    restart: unless-stopped
+    networks:
+      - edge
+      - internal
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://auth:3001
+      - AI_SERVICE_URL=http://ai:8000
+      - JWT_SECRET=${JWT_SECRET}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.hill90.com`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=3000"
+      - "traefik.http.routers.api.middlewares=rate-limit@file"

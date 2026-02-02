@@ -56,11 +56,13 @@ The VPS can be rebuilt in ~5-10 minutes (2 commands). This makes it practical to
 - Infrastructure is ephemeral by design
 - Faster than investigating complex issues
 
-**The rebuild process is 2 commands:**
+**The rebuild process is 4 steps:**
 
 ```bash
 make recreate-vps                    # 1. Rebuild VPS (auto-waits, auto-updates secrets)
-make config-vps VPS_IP=<ip>          # 2. Bootstrap (auto-extracts Tailscale IP)
+make config-vps VPS_IP=<ip>          # 2. Configure OS (no containers)
+make deploy-infra                    # 3. Deploy infrastructure (Traefik, Portainer)
+make deploy-all                      # 4. Deploy all app services
 ```
 
 ## Important Guidelines
@@ -121,9 +123,13 @@ All operations are done via Makefile - check `make help` for full list.
 
 - `make help` - Show all available commands (organized by section)
 - `make recreate-vps` - Rebuild VPS (fully automated)
-- `make config-vps VPS_IP=<ip>` - Bootstrap VPS infrastructure
-- `make deploy` - Deploy all services (STAGING certificates)
-- `make deploy-production` - Deploy with PRODUCTION certificates (rate-limited!)
+- `make config-vps VPS_IP=<ip>` - Configure VPS OS (no containers)
+- `make deploy-infra` - Deploy infrastructure (Traefik, dns-manager, Portainer)
+- `make deploy-all` - Deploy all app services
+- `make deploy-auth` - Deploy auth + postgres only
+- `make deploy-api` - Deploy API only
+- `make deploy-ai` - Deploy AI only
+- `make deploy-mcp` - Deploy MCP only
 - `make health` - Check service health
 - `make ssh` - SSH to VPS
 - `make secrets-view KEY=<key>` - View a secret value
@@ -135,11 +141,13 @@ All operations are done via Makefile - check `make help` for full list.
 
 ### Quick Reference
 
-**Full rebuild (5-10 minutes):**
+**Full rebuild (4 steps):**
 
 ```bash
-make recreate-vps                    # 1. Rebuild (auto-waits, auto-updates secrets)
-make config-vps VPS_IP=<ip>          # 2. Bootstrap (auto-extracts Tailscale IP)
+make recreate-vps                    # 1. Rebuild VPS (auto-waits, auto-updates secrets)
+make config-vps VPS_IP=<ip>          # 2. Configure OS (no containers)
+make deploy-infra                    # 3. Deploy infrastructure
+make deploy-all                      # 4. Deploy all app services
 ```
 
 **When things break:** Rebuild is usually the fastest solution.
@@ -150,10 +158,22 @@ make config-vps VPS_IP=<ip>          # 2. Bootstrap (auto-extracts Tailscale IP)
 
 ### Quick Reference
 
+**Per-service deployment (recommended):**
+
 ```bash
-make deploy         # STAGING certs (safe, unlimited)
-make deploy-production  # PRODUCTION certs (rate-limited!)
-make health         # Verify services
+make deploy-infra   # Traefik, dns-manager, Portainer
+make deploy-auth    # Auth + PostgreSQL
+make deploy-api     # API service
+make deploy-ai      # AI service
+make deploy-mcp     # MCP service
+make deploy-all     # All app services (not infra)
+```
+
+**Legacy deployment:**
+
+```bash
+make deploy         # All services, STAGING certs
+make deploy-production  # All services, PRODUCTION certs (rate-limited!)
 ```
 
 **Important**: Deployments run on VPS via SSH, not locally on Mac.

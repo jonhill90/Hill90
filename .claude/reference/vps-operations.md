@@ -15,22 +15,27 @@ Both options use the same underlying automation and produce identical results.
 
 **Preferred method for speed and simplicity.**
 
-### Complete Rebuild Workflow (3 Steps)
+### Complete Rebuild Workflow (4 Steps)
 
 ```bash
 # Step 1: Rebuild VPS OS (auto-waits, auto-retrieves IP, auto-updates secrets)
 make recreate-vps
 
-# Step 2: Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets, deploys Traefik + Portainer)
+# Step 2: Bootstrap OS (auto-extracts Tailscale IP, auto-updates secrets)
+# NOTE: This only configures the OS - no containers deployed!
 make config-vps VPS_IP=<ip>
 
-# Step 3: Deploy application services
-make deploy  # Staging certificates (safe for testing)
-# OR
-make deploy-production  # Production certificates (rate-limited!)
-```
+# Step 3: Deploy infrastructure (Traefik, dns-manager, Portainer)
+make deploy-infra
 
-**Total time:** ~8-13 minutes (3-5 min + 3-5 min + 2-3 min)
+# Step 4: Deploy application services
+make deploy-all  # All services
+# OR deploy individually:
+make deploy-auth  # Auth + PostgreSQL
+make deploy-api   # API service
+make deploy-ai    # AI service
+make deploy-mcp   # MCP service
+```
 
 ### What Happens Automatically
 
@@ -45,7 +50,7 @@ make deploy-production  # Production certificates (rate-limited!)
 8. Displays next command to run
 
 **Step 2: `make config-vps VPS_IP=<ip>`** (~3-5 minutes):
-1. Runs Ansible bootstrap (9 stages)
+1. Runs Ansible bootstrap (8 stages)
    - System setup (deploy user, directories)
    - Firewall configuration
    - Tailscale installation and join
@@ -54,62 +59,60 @@ make deploy-production  # Production certificates (rate-limited!)
    - SOPS and age installation
    - Repository clone
    - Secrets transfer
-2. **Deploys Traefik + Portainer (infrastructure only)**
-3. **Automatically updates DNS records** to new VPS IP
-4. **Extracts Tailscale IP from Ansible output**
-5. **Updates TAILSCALE_IP secret automatically**
-6. Displays infrastructure summary
+2. **Extracts Tailscale IP from Ansible output**
+3. **Updates TAILSCALE_IP secret automatically**
+4. **NO containers deployed** - OS ready for containers
 
-**Step 3: `make deploy` or `make deploy-production`** (~2-3 minutes):
-1. Validates infrastructure configuration
-2. Decrypts secrets with SOPS
-3. Generates Traefik .htpasswd file
-4. Deploys application services (api, ai, mcp, auth, ui)
-5. Requests Let's Encrypt certificates (staging or production)
-6. Verifies service health
+**Step 3: `make deploy-infra`** (~2-3 minutes):
+1. Creates Docker networks (hill90_edge, hill90_internal)
+2. Generates Traefik .htpasswd file
+3. Deploys Traefik (reverse proxy with SSL)
+4. Deploys dns-manager (DNS-01 ACME challenges)
+5. Deploys Portainer (container management)
 
-### Infrastructure After Step 2 (Config VPS)
+**Step 4: `make deploy-all`** (~2-3 minutes):
+1. Deploys auth + postgres
+2. Deploys api
+3. Deploys ai
+4. Deploys mcp
+5. Verifies all services running
 
-✅ **Infrastructure services running:**
-- Docker 29.1.5 + Compose v5.0.1
-- SOPS 3.8.1 for secrets
-- age 1.1.1 for encryption
-- Tailscale connected
-- **Traefik running** (with DNS-01 certificates for Tailscale-only access)
-- **Portainer running** (with DNS-01 certificates for Tailscale-only access)
-- Repository cloned to `/opt/hill90/app`
-- Age key transferred to `/opt/hill90/secrets/keys/keys.txt`
-- SSH locked to Tailscale network only (public SSH blocked)
-- Firewall configured (HTTP/HTTPS public, SSH Tailscale-only)
-- **DNS records updated** to new VPS IP
+### Infrastructure After Each Step
 
-❌ **Application services NOT running:**
-- API, AI, MCP, Auth, UI services are NOT deployed yet
-- Step 3 (deployment) required to start application services
+**After Step 2 (Config VPS):**
+- ✅ Docker 29.1.5 + Compose v5.0.1 installed
+- ✅ SOPS 3.8.1 + age 1.1.1 installed
+- ✅ Tailscale connected
+- ✅ SSH locked to Tailscale network only
+- ✅ Firewall configured (HTTP/HTTPS public, SSH Tailscale-only)
+- ✅ Repository cloned to `/opt/hill90/app`
+- ✅ Age key transferred to `/opt/hill90/secrets/keys/keys.txt`
+- ❌ **No containers running**
 
-### Step 3: Deploy Application Services
+**After Step 3 (Deploy Infra):**
+- ✅ All above +
+- ✅ Traefik running (reverse proxy)
+- ✅ dns-manager running (DNS-01 challenges)
+- ✅ Portainer running (Tailscale-only access)
+- ✅ Docker networks created
+- ❌ **No application services running**
 
-**After Step 2 completes, deploy application services:**
+**After Step 4 (Deploy All):**
+- ✅ All services running
+- ✅ Production ready
+
+## Per-Service Deployment
+
+Deploy individual services without affecting others:
 
 ```bash
-# Option A: Deploy with staging certificates (safe for testing, unlimited)
-make deploy
-
-# Option B: Deploy with production certificates (rate-limited: 50/week)
-make deploy-production
-
-# Verify health
-make health
-
-# SSH access (via Tailscale IP only)
-make ssh
-# or
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
+make deploy-infra   # Traefik, dns-manager, Portainer
+make deploy-auth    # Auth + PostgreSQL
+make deploy-api     # API service
+make deploy-ai      # AI service
+make deploy-mcp     # MCP service
+make deploy-all     # All app services (not infra)
 ```
-
-**GitHub Actions deployment:**
-- Trigger "Deploy" workflow (uses production certificates by default)
-- Auto-triggered on push to `main` branch
 
 ## Safety Operations
 
@@ -168,68 +171,23 @@ If you can't SSH to VPS:
 - Team collaboration (anyone with repo access can trigger)
 - Local machine is unavailable
 
-### 3-Step Workflow
-
-**Complete VPS rebuild via GitHub Actions takes ~8-13 minutes:**
+### 4-Step Workflow
 
 #### Step 1: VPS Recreate (~3-5 minutes)
 
-**How to trigger:**
-1. Go to repository → **Actions** → **VPS Recreate (Automated)**
-2. Click **"Run workflow"**
-3. Type **"RECREATE"** exactly in the confirmation input
-4. Click **"Run workflow"** button
+**Trigger:** Manual - Actions → VPS Recreate → Type "RECREATE"
 
-**What happens:**
-1. Generates new Tailscale auth key via API
-2. Rebuilds VPS OS via Hostinger API
-3. Waits for rebuild completion
-4. Retrieves new VPS IP
-5. Updates VPS_IP secret
-6. **Auto-triggers config-vps workflow**
+#### Step 2: Config VPS (~3-5 minutes)
 
-#### Step 2: Config VPS (~3-5 minutes - Auto-triggered)
+**Trigger:** Auto-triggered after Step 1, or manual
 
-**Automatically triggered after Step 1 completes.**
+#### Step 3: Deploy Infrastructure (~2-3 minutes)
 
-**What happens:**
-1. Runs Ansible bootstrap (9 stages)
-2. Deploys Traefik + Portainer (infrastructure only)
-3. **Automatically updates DNS records**
-4. Extracts Tailscale IP
-5. Updates TAILSCALE_IP secret
-6. Commits updated secrets to repository
+**Trigger:** Manual - Actions → Deploy Infrastructure
 
-**After completion:**
-- Infrastructure ready (Traefik + Portainer running)
-- DNS records updated
-- Application services NOT deployed yet
+#### Step 4: Deploy Services (~2-3 minutes)
 
-#### Step 3: Deploy Application (~2-3 minutes - Manual)
-
-**How to trigger:**
-1. Go to repository → **Actions** → **Deploy**
-2. Click **"Run workflow"**
-3. Click **"Run workflow"** button
-
-**What happens:**
-1. Validates infrastructure
-2. Deploys application services (api, ai, mcp, auth, ui)
-3. Uses production Let's Encrypt certificates
-4. Runs health checks
-
-**Auto-trigger:**
-- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`)
-
-### Requirements
-
-- GitHub secrets configured (see `.claude/reference/github-actions.md`)
-- Workflow files:
-  - `.github/workflows/recreate-vps.yml` (Step 1)
-  - `.github/workflows/config-vps.yml` (Step 2)
-  - `.github/workflows/deploy.yml` (Step 3)
-
-**Full documentation:** See `.claude/reference/github-actions.md`
+**Trigger:** Manual or auto on push to main
 
 ## VPS Information
 
@@ -262,10 +220,16 @@ make health    # Check all services
 
 - `scripts/recreate-vps.sh` - Full rebuild automation
 - `scripts/config-vps.sh` - Ansible bootstrap wrapper
+- `scripts/deploy-infra.sh` - Infrastructure deployment
+- `scripts/deploy-auth.sh` - Auth service deployment
+- `scripts/deploy-api.sh` - API service deployment
+- `scripts/deploy-ai.sh` - AI service deployment
+- `scripts/deploy-mcp.sh` - MCP service deployment
+- `scripts/deploy-all.sh` - All app services deployment
 - `scripts/hostinger-api.sh` - VPS API operations
 - `scripts/tailscale-api.sh` - Tailscale auth key generation
 - `infra/ansible/playbooks/bootstrap.yml` - Master playbook
-- `infra/ansible/playbooks/01-*.yml` through `09-*.yml` - Individual bootstrap stages
+- `infra/ansible/playbooks/01-*.yml` through `08-*.yml` - Individual bootstrap stages
 
 ## Important Notes
 
@@ -273,5 +237,5 @@ make health    # Check all services
 2. **Always Snapshot**: Run `make snapshot` before rebuild (optional but recommended)
 3. **Backup Cleanup**: Secrets backups auto-cleanup (keeps last 5)
 4. **Zero Warnings**: Clean execution with no Ansible warnings
-5. **Cross-Platform**: Works on macOS and Linux (BSD/GNU grep compatible)
-6. **One-Shot Operations**: Both commands require single approval, no manual bash scripts
+5. **Separated Deployment**: Ansible no longer deploys containers - use deploy scripts
+6. **Per-Service Workflows**: Each service can be deployed independently

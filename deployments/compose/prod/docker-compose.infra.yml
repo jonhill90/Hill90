@@ -1,0 +1,91 @@
+version: '3.9'
+
+# Infrastructure services: Traefik, dns-manager, Portainer
+# Deploy with: make deploy-infra
+
+networks:
+  edge:
+    driver: bridge
+    name: hill90_edge
+  internal:
+    driver: bridge
+    internal: true
+    name: hill90_internal
+
+volumes:
+  traefik-certs:
+  portainer-data:
+
+services:
+  # DNS Manager for DNS-01 ACME challenges
+  dns-manager:
+    build:
+      context: ../../../src/services/dns-manager
+      dockerfile: Dockerfile
+    image: hill90/dns-manager:${VERSION:-latest}
+    container_name: dns-manager
+    restart: unless-stopped
+    networks:
+      - edge
+    environment:
+      - HOSTINGER_API_KEY=${HOSTINGER_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Traefik Edge Proxy
+  traefik:
+    image: traefik:v2.11
+    container_name: traefik
+    restart: unless-stopped
+    networks:
+      - edge
+    ports:
+      - "80:80"
+      - "443:443"
+    command:
+      # Override Let's Encrypt CA server to support staging/production switching
+      - "--certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
+      - "--certificatesresolvers.letsencrypt-dns.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../../platform/edge/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../../platform/edge/dynamic:/etc/traefik/dynamic:ro
+      - traefik-certs:/letsencrypt
+    environment:
+      - ACME_EMAIL=${ACME_EMAIL:-jonhill90@live.com}
+      - ACME_CA_SERVER=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
+      - TRAEFIK_ADMIN_PASSWORD_HASH=${TRAEFIK_ADMIN_PASSWORD_HASH}
+      # DNS-01 challenge via dns-manager service (httpreq provider)
+      - HTTPREQ_ENDPOINT=http://dns-manager:8080
+      - HTTPREQ_MODE=RAW
+    depends_on:
+      - dns-manager
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.hill90.com`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth@file"
+
+  # Portainer Container Management (Tailscale-only access)
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    networks:
+      - edge
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - portainer-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portainer.rule=Host(`portainer.hill90.com`)"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.routers.portainer.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.routers.portainer.service=portainer"
+      - "traefik.http.routers.portainer.middlewares=tailscale-only@file"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"

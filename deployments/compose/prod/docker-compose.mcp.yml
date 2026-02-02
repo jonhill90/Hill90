@@ -1,0 +1,42 @@
+version: '3.9'
+
+# MCP Gateway service
+# Deploy with: make deploy-mcp
+
+networks:
+  edge:
+    external: true
+    name: hill90_edge
+  internal:
+    external: true
+    name: hill90_internal
+
+services:
+  # MCP Gateway (Python/FastAPI)
+  mcp:
+    build:
+      context: ../../../src/services/mcp
+      dockerfile: Dockerfile
+    image: hill90/mcp:${VERSION:-latest}
+    container_name: mcp
+    restart: unless-stopped
+    networks:
+      - edge
+      - internal
+    environment:
+      - ENVIRONMENT=production
+      - PORT=8001
+      - AUTH_SERVICE_URL=http://auth:3001
+      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mcp.rule=Host(`ai.hill90.com`) && PathPrefix(`/mcp`)"
+      - "traefik.http.routers.mcp.entrypoints=websecure"
+      - "traefik.http.routers.mcp.tls.certresolver=letsencrypt"
+      - "traefik.http.services.mcp.loadbalancer.server.port=8001"
+      - "traefik.http.routers.mcp.middlewares=mcp-auth@file,mcp-strip@file"

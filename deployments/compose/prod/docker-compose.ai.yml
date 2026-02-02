@@ -1,0 +1,42 @@
+version: '3.9'
+
+# AI service
+# Deploy with: make deploy-ai
+
+networks:
+  edge:
+    external: true
+    name: hill90_edge
+  internal:
+    external: true
+    name: hill90_internal
+
+services:
+  # AI Service (Python/FastAPI)
+  ai:
+    build:
+      context: ../../../src/services/ai
+      dockerfile: Dockerfile
+    image: hill90/ai:${VERSION:-latest}
+    container_name: ai
+    restart: unless-stopped
+    networks:
+      - edge
+      - internal
+    environment:
+      - ENVIRONMENT=production
+      - PORT=8000
+      - AUTH_SERVICE_URL=http://auth:3001
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai.rule=Host(`ai.hill90.com`)"
+      - "traefik.http.routers.ai.entrypoints=websecure"
+      - "traefik.http.routers.ai.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ai.loadbalancer.server.port=8000"
