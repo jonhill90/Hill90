@@ -203,6 +203,10 @@ services:
       - CLAUDE_WEB_COOKIE=${CLAUDE_WEB_COOKIE}
       # Discord integration
       - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      # GitHub App credentials
+      - GITHUB_APP_ID=${GITHUB_APP_ID}
+      - GITHUB_INSTALLATION_ID=${GITHUB_INSTALLATION_ID}
+      - GITHUB_PRIVATE_KEY=${GITHUB_PRIVATE_KEY}
       # SSH config for host access
       - SSH_HOST=${TAILSCALE_IP}
       - SSH_USER=deploy
