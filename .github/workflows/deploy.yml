@@ -1,16 +1,6 @@
-name: Deploy
+name: Deploy All Services (Legacy)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/**'
-      - 'deployments/**'
-      - 'scripts/deploy.sh'
-      - 'scripts/build-and-deploy.sh'
-      - '.github/workflows/deploy.yml'
-
   workflow_dispatch:
     inputs:
       environment:
@@ -47,13 +37,13 @@ jobs:
         run: |
           echo "🔍 Validating deployment scripts..."
 
-          if [[ ! -f scripts/deploy.sh ]]; then
-            echo "❌ Missing deploy.sh"
+          if [[ ! -f scripts/deploy-all.sh ]]; then
+            echo "❌ Missing deploy-all.sh"
             exit 1
           fi
 
-          if [[ ! -x scripts/deploy.sh ]]; then
-            echo "❌ deploy.sh is not executable"
+          if [[ ! -x scripts/deploy-all.sh ]]; then
+            echo "❌ deploy-all.sh is not executable"
             exit 1
           fi
 
@@ -124,20 +114,19 @@ jobs:
           fi
           echo "✅ SSH connectivity verified"
 
-      - name: Deploy to VPS
+      - name: Deploy all services to VPS
         run: |
-          echo "🚀 Deploying to VPS"
+          echo "🚀 Deploying all application services to VPS"
           echo ""
 
-          # Deploy via SSH with production ACME server
+          # Deploy via SSH using deploy-all.sh
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && \
              git fetch origin && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             export ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory && \
-             bash scripts/deploy.sh prod"
+             bash scripts/deploy-all.sh prod"
 
       - name: Wait for services to start
         run: |
