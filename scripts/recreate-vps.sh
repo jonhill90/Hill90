@@ -60,7 +60,7 @@ echo -e "${YELLOW}Starting VPS rebuild via Hostinger API...${NC}"
 echo ""
 
 # Recreate WITHOUT post-install script - Ansible will handle all setup
-OUTPUT=$(bash "$SCRIPT_DIR/hostinger-api.sh" recreate 1183 "$ROOT_PASSWORD")
+OUTPUT=$(bash "$SCRIPT_DIR/hostinger.sh" vps recreate 1183 "$ROOT_PASSWORD")
 if [[ $? -ne 0 ]]; then
     echo -e "${RED}ERROR: VPS rebuild failed${NC}"
     exit 1
@@ -79,7 +79,7 @@ echo ""
 
 # Step 5: Wait for rebuild to complete
 echo -e "${BLUE}Step 4/4: Waiting for VPS rebuild to complete (~5 minutes)...${NC}"
-if ! bash "$SCRIPT_DIR/hostinger-api.sh" wait-action "$ACTION_ID" 600; then
+if ! bash "$SCRIPT_DIR/hostinger.sh" vps action wait "$ACTION_ID" 600; then
     echo -e "${RED}ERROR: VPS rebuild action failed or timed out${NC}"
     exit 1
 fi
@@ -90,12 +90,12 @@ echo ""
 
 # Step 6: Get new VPS IP
 echo -e "${BLUE}Retrieving new VPS IP address...${NC}"
-DETAILS=$(bash "$SCRIPT_DIR/hostinger-api.sh" get-details 2>/dev/null)
+DETAILS=$(bash "$SCRIPT_DIR/hostinger.sh" vps get 2>/dev/null)
 NEW_IP=$(echo "$DETAILS" | tail -1 | jq -r '.ipv4[0].address // empty')
 
 if [[ -z "$NEW_IP" ]]; then
     echo -e "${RED}ERROR: Could not retrieve VPS IP${NC}"
-    echo -e "${YELLOW}Run manually: bash scripts/hostinger-api.sh get-details | tail -1 | jq -r '.ipv4[0].address'${NC}"
+    echo -e "${YELLOW}Run manually: bash scripts/hostinger.sh vps get | jq -r '.ipv4[0].address'${NC}"
     exit 1
 fi
 
