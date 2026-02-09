@@ -65,8 +65,7 @@ secrets-update: ## Update a secret value (usage: make secrets-update KEY=VPS_IP 
 # ============================================================================
 
 snapshot: ## Create VPS snapshot (safety backup)
-	@echo "$(COLOR_BOLD)Creating VPS snapshot...$(COLOR_RESET)"
-	bash scripts/vps-snapshot.sh
+	@bash scripts/hostinger.sh vps snapshot create
 
 recreate-vps: ## Recreate VPS via API (DESTRUCTIVE - rebuilds OS, auto-rotates Tailscale key)
 	@bash scripts/recreate-vps.sh
@@ -229,19 +228,19 @@ ssh: ## SSH into VPS
 # ============================================================================
 
 dns-view: ## View current DNS records for hill90.com
-	@bash scripts/dns-manager.sh get-records
+	@bash scripts/hostinger.sh dns get
 
 dns-sync: ## Sync DNS A records to current VPS_IP
-	@bash scripts/dns-manager.sh sync-vps-dns
+	@bash scripts/hostinger.sh dns sync
 
 dns-snapshots: ## List DNS backup snapshots
-	@bash scripts/dns-manager.sh list-snapshots
+	@bash scripts/hostinger.sh dns snapshot list
 
 dns-restore: ## Restore DNS from snapshot (usage: make dns-restore SNAPSHOT_ID=123)
-	@bash scripts/dns-manager.sh restore-snapshot $(SNAPSHOT_ID)
+	@bash scripts/hostinger.sh dns snapshot restore $(SNAPSHOT_ID)
 
 dns-verify: ## Verify DNS propagation
-	@bash scripts/dns-manager.sh verify-dns
+	@bash scripts/hostinger.sh dns verify
 
 # ============================================================================
 # Service Management
