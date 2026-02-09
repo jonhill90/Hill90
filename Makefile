@@ -1,4 +1,4 @@
-.PHONY: help build deploy deploy-production deploy-infra deploy-auth deploy-api deploy-ai deploy-mcp deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update bootstrap lint format ps restart snapshot rebuild rebuild-bootstrap rebuild-full rebuild-full-auto rebuild-full-auto-post-mcp rebuild-optimized rebuild-optimized-post-mcp tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull exec-api exec-ai exec-auth
+.PHONY: help build deploy deploy-production deploy-infra deploy-infra-production deploy-auth deploy-api deploy-ai deploy-mcp deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps tailscale-setup tailscale-rotate validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -20,7 +20,12 @@ help: ## Show this help message
 	@echo "$(COLOR_BOLD)Hill90 VPS Management$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_BLUE)Available commands:$(COLOR_RESET)"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_GREEN)%-20s$(COLOR_RESET) %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_GREEN)%-25s$(COLOR_RESET) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(COLOR_BLUE)Per-service commands:$(COLOR_RESET)"
+	@echo "  $(COLOR_GREEN)logs-<service>            $(COLOR_RESET) Show logs (e.g., make logs-api)"
+	@echo "  $(COLOR_GREEN)restart-<service>         $(COLOR_RESET) Restart (e.g., make restart-traefik)"
+	@echo "  $(COLOR_GREEN)exec-<service>            $(COLOR_RESET) Shell in (e.g., make exec-auth)"
 	@echo ""
 	@echo "$(COLOR_YELLOW)Environment:$(COLOR_RESET) $(ENV)"
 	@echo "$(COLOR_YELLOW)Compose File:$(COLOR_RESET) $(COMPOSE_FILE)"
@@ -31,14 +36,14 @@ help: ## Show this help message
 
 tailscale-setup: ## Setup Tailscale infrastructure (Terraform + secrets) - AUTOMATED
 	@echo "$(COLOR_BOLD)Running automated Tailscale setup...$(COLOR_RESET)"
-	bash scripts/tailscale-setup.sh
+	bash scripts/infra/tailscale-setup.sh
 
 tailscale-rotate: tailscale-setup ## Rotate Tailscale auth key (generates new key and updates secrets)
 	@echo "$(COLOR_GREEN)Tailscale auth key rotated!$(COLOR_RESET)"
 
 secrets-init: ## Initialize SOPS keys
 	@echo "$(COLOR_BOLD)Initializing SOPS keys...$(COLOR_RESET)"
-	bash scripts/secrets-init.sh
+	bash scripts/secrets/secrets-init.sh
 
 secrets-edit: ## Edit encrypted secrets interactively
 	@echo "$(COLOR_BOLD)Editing $(ENV) secrets...$(COLOR_RESET)"
@@ -46,9 +51,9 @@ secrets-edit: ## Edit encrypted secrets interactively
 
 secrets-view: ## View all secrets or specific key (usage: make secrets-view KEY=VPS_IP)
 	@if [ -z "$(KEY)" ]; then \
-		bash scripts/secrets-view.sh infra/secrets/$(ENV).enc.env; \
+		bash scripts/secrets/secrets-view.sh infra/secrets/$(ENV).enc.env; \
 	else \
-		bash scripts/secrets-view.sh infra/secrets/$(ENV).enc.env $(KEY); \
+		bash scripts/secrets/secrets-view.sh infra/secrets/$(ENV).enc.env $(KEY); \
 	fi
 
 secrets-update: ## Update a secret value (usage: make secrets-update KEY=VPS_IP VALUE="1.2.3.4")
@@ -58,17 +63,17 @@ secrets-update: ## Update a secret value (usage: make secrets-update KEY=VPS_IP 
 		echo "$(COLOR_YELLOW)Example: make secrets-update KEY=VPS_IP VALUE=\"1.2.3.4\"$(COLOR_RESET)"; \
 		exit 1; \
 	fi
-	bash scripts/secrets-update.sh infra/secrets/$(ENV).enc.env "$(KEY)" "$(VALUE)"
+	bash scripts/secrets/secrets-update.sh infra/secrets/$(ENV).enc.env "$(KEY)" "$(VALUE)"
 
 # ============================================================================
 # VPS Rebuild & Bootstrap (DESTRUCTIVE)
 # ============================================================================
 
 snapshot: ## Create VPS snapshot (safety backup)
-	@bash scripts/hostinger.sh vps snapshot create
+	@bash scripts/infra/hostinger.sh vps snapshot create
 
 recreate-vps: ## Recreate VPS via API (DESTRUCTIVE - rebuilds OS, auto-rotates Tailscale key)
-	@bash scripts/recreate-vps.sh
+	@bash scripts/infra/recreate-vps.sh
 
 config-vps: ## Configure VPS OS only (no containers deployed)
 	@if [ -z "$(VPS_IP)" ]; then \
@@ -84,7 +89,7 @@ config-vps: ## Configure VPS OS only (no containers deployed)
 	@echo ""
 	@echo "$(COLOR_YELLOW)⚠️  No containers deployed$(COLOR_RESET)"
 	@echo ""
-	bash scripts/config-vps.sh $(VPS_IP)
+	bash scripts/infra/config-vps.sh $(VPS_IP)
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ VPS configured!$(COLOR_RESET)"
 	@echo ""
@@ -136,7 +141,7 @@ format: ## Format all code
 
 validate: ## Validate infrastructure configuration (Traefik, secrets, Docker Compose)
 	@echo "$(COLOR_BOLD)Validating infrastructure...$(COLOR_RESET)"
-	@bash scripts/validate-infra.sh $(ENV)
+	@bash scripts/validate/validate-infra.sh $(ENV)
 
 # ============================================================================
 # Deployment
@@ -146,46 +151,45 @@ build: ## Build all Docker images
 	@echo "$(COLOR_BOLD)Building all Docker images...$(COLOR_RESET)"
 	docker compose -f $(COMPOSE_FILE) build
 
-deploy: ## Deploy to VPS (STAGING certificates - safe for testing)
-	@echo "$(COLOR_YELLOW)Using Let's Encrypt STAGING environment$(COLOR_RESET)"
-	@echo "$(COLOR_YELLOW)Certificates will not be trusted by browsers$(COLOR_RESET)"
-	bash scripts/deploy.sh $(ENV)
+deploy: ## [DEPRECATED] Use 'make deploy-infra' + 'make deploy-all'
+	@echo "$(COLOR_YELLOW)⚠ 'make deploy' is deprecated. Use 'make deploy-infra' + 'make deploy-all'.$(COLOR_RESET)"
+	bash scripts/deploy/deploy-infra.sh $(ENV)
+	bash scripts/deploy/deploy-all.sh $(ENV)
 
-deploy-production: ## Deploy to VPS (PRODUCTION certificates - LIMITED RATE LIMIT)
-	@echo "$(COLOR_BOLD)⚠️  WARNING: PRODUCTION CERTIFICATES ⚠️$(COLOR_RESET)"
-	@echo "$(COLOR_YELLOW)This will use Let's Encrypt production API$(COLOR_RESET)"
-	@echo "$(COLOR_YELLOW)Rate limits apply: 5 failures/hour, 50 certs/week$(COLOR_RESET)"
+deploy-production: ## [DEPRECATED] Use 'make deploy-infra-production' + 'make deploy-all'
+	@echo "$(COLOR_YELLOW)⚠ 'make deploy-production' is deprecated. Use 'make deploy-infra-production' + 'make deploy-all'.$(COLOR_RESET)"
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
-	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy.sh $(ENV)
+	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy/deploy-infra.sh $(ENV)
+	bash scripts/deploy/deploy-all.sh $(ENV)
 
 deploy-infra: ## Deploy infrastructure (Traefik, dns-manager, Portainer)
 	@echo "$(COLOR_YELLOW)Deploying infrastructure services...$(COLOR_RESET)"
-	bash scripts/deploy-infra.sh $(ENV)
+	bash scripts/deploy/deploy-infra.sh $(ENV)
 
 deploy-infra-production: ## Deploy infrastructure with PRODUCTION certificates
 	@echo "$(COLOR_BOLD)⚠️  WARNING: PRODUCTION CERTIFICATES ⚠️$(COLOR_RESET)"
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
-	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy-infra.sh $(ENV)
+	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy/deploy-infra.sh $(ENV)
 
 deploy-auth: ## Deploy auth service (with PostgreSQL)
 	@echo "$(COLOR_YELLOW)Deploying auth service...$(COLOR_RESET)"
-	bash scripts/deploy-auth.sh $(ENV)
+	bash scripts/deploy/_service.sh auth $(ENV)
 
 deploy-api: ## Deploy API service
 	@echo "$(COLOR_YELLOW)Deploying API service...$(COLOR_RESET)"
-	bash scripts/deploy-api.sh $(ENV)
+	bash scripts/deploy/_service.sh api $(ENV)
 
 deploy-ai: ## Deploy AI service
 	@echo "$(COLOR_YELLOW)Deploying AI service...$(COLOR_RESET)"
-	bash scripts/deploy-ai.sh $(ENV)
+	bash scripts/deploy/_service.sh ai $(ENV)
 
 deploy-mcp: ## Deploy MCP service
 	@echo "$(COLOR_YELLOW)Deploying MCP service...$(COLOR_RESET)"
-	bash scripts/deploy-mcp.sh $(ENV)
+	bash scripts/deploy/_service.sh mcp $(ENV)
 
 deploy-all: ## Deploy all application services (NOT infrastructure)
 	@echo "$(COLOR_YELLOW)Deploying all application services...$(COLOR_RESET)"
-	bash scripts/deploy-all.sh $(ENV)
+	bash scripts/deploy/deploy-all.sh $(ENV)
 
 # ============================================================================
 # Monitoring & Maintenance
@@ -193,25 +197,13 @@ deploy-all: ## Deploy all application services (NOT infrastructure)
 
 health: ## Check service health
 	@echo "$(COLOR_BOLD)Checking service health...$(COLOR_RESET)"
-	bash scripts/health-check.sh
+	bash scripts/ops/health-check.sh
 
 logs: ## Show logs for all services
 	docker compose -f $(COMPOSE_FILE) logs -f
 
-logs-api: ## Show API service logs
-	docker logs -f api
-
-logs-ai: ## Show AI service logs
-	docker logs -f ai
-
-logs-mcp: ## Show MCP service logs
-	docker logs -f mcp
-
-logs-auth: ## Show Auth service logs
-	docker logs -f auth
-
-logs-traefik: ## Show Traefik logs
-	docker logs -f traefik
+logs-%: ## Show logs for a service (e.g., make logs-api)
+	docker logs -f $*
 
 ps: ## Show running containers
 	docker compose -f $(COMPOSE_FILE) ps
@@ -228,19 +220,19 @@ ssh: ## SSH into VPS
 # ============================================================================
 
 dns-view: ## View current DNS records for hill90.com
-	@bash scripts/hostinger.sh dns get
+	@bash scripts/infra/hostinger.sh dns get
 
 dns-sync: ## Sync DNS A records to current VPS_IP
-	@bash scripts/hostinger.sh dns sync
+	@bash scripts/infra/hostinger.sh dns sync
 
 dns-snapshots: ## List DNS backup snapshots
-	@bash scripts/hostinger.sh dns snapshot list
+	@bash scripts/infra/hostinger.sh dns snapshot list
 
 dns-restore: ## Restore DNS from snapshot (usage: make dns-restore SNAPSHOT_ID=123)
-	@bash scripts/hostinger.sh dns snapshot restore $(SNAPSHOT_ID)
+	@bash scripts/infra/hostinger.sh dns snapshot restore $(SNAPSHOT_ID)
 
 dns-verify: ## Verify DNS propagation
-	@bash scripts/hostinger.sh dns verify
+	@bash scripts/infra/hostinger.sh dns verify
 
 # ============================================================================
 # Service Management
@@ -256,32 +248,14 @@ restart: ## Restart all services
 	@echo "$(COLOR_BOLD)Restarting all services...$(COLOR_RESET)"
 	docker compose -f $(COMPOSE_FILE) restart
 
-restart-api: ## Restart API service
-	docker compose -f $(COMPOSE_FILE) restart api
-
-restart-ai: ## Restart AI service
-	docker compose -f $(COMPOSE_FILE) restart ai
-
-restart-mcp: ## Restart MCP service
-	docker compose -f $(COMPOSE_FILE) restart mcp
-
-restart-auth: ## Restart Auth service
-	docker compose -f $(COMPOSE_FILE) restart auth
-
-restart-traefik: ## Restart Traefik
-	docker compose -f $(COMPOSE_FILE) restart traefik
+restart-%: ## Restart a service (e.g., make restart-api)
+	docker compose -f $(COMPOSE_FILE) restart $*
 
 pull: ## Pull latest images
 	docker compose -f $(COMPOSE_FILE) pull
 
-exec-api: ## Execute shell in API container
-	docker compose -f $(COMPOSE_FILE) exec api sh
-
-exec-ai: ## Execute shell in AI container
-	docker compose -f $(COMPOSE_FILE) exec ai sh
-
-exec-auth: ## Execute shell in Auth container
-	docker compose -f $(COMPOSE_FILE) exec auth sh
+exec-%: ## Shell into a container (e.g., make exec-api)
+	docker compose -f $(COMPOSE_FILE) exec $* sh
 
 clean: ## Clean up Docker resources
 	@echo "$(COLOR_BOLD)Cleaning up Docker resources...$(COLOR_RESET)"
@@ -295,4 +269,4 @@ clean: ## Clean up Docker resources
 
 backup: ## Backup database and volumes
 	@echo "$(COLOR_BOLD)Creating backup...$(COLOR_RESET)"
-	bash scripts/backup.sh
+	bash scripts/ops/backup.sh

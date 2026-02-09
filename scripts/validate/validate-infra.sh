@@ -28,9 +28,9 @@ run_validation() {
 }
 
 # Run all validation scripts
-run_validation "scripts/validate-traefik.sh" "Traefik configuration"
-run_validation "scripts/validate-secrets.sh" "Secrets"
-run_validation "scripts/validate-compose.sh" "Docker Compose"
+run_validation "scripts/validate/validate-traefik.sh" "Traefik configuration"
+run_validation "scripts/validate/validate-secrets.sh" "Secrets"
+run_validation "scripts/validate/validate-compose.sh" "Docker Compose"
 
 # Final summary
 echo "========================================"
@@ -42,8 +42,8 @@ if [ "$all_valid" = true ]; then
   echo "✓ All validation checks passed!"
   echo ""
   echo "Ready to deploy:"
-  echo "  make deploy              # STAGING certificates"
-  echo "  make deploy-production   # PRODUCTION certificates"
+  echo "  make deploy-infra        # Infrastructure (Traefik, dns-manager, Portainer)"
+  echo "  make deploy-all          # All application services"
   echo ""
   echo "========================================"
   exit 0
@@ -56,9 +56,6 @@ else
   done
   echo ""
   echo "Fix the errors above before deploying."
-  echo ""
-  echo "To skip validation (NOT RECOMMENDED):"
-  echo "  SKIP_VALIDATION=true bash scripts/deploy.sh ${ENV}"
   echo ""
   echo "========================================"
   exit 1

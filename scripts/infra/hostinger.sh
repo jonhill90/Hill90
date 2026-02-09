@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -27,7 +27,7 @@ ensure_api_key() {
     _secrets_loaded=true
 
     if [[ -z "${HOSTINGER_API_KEY:-}" ]]; then
-        source "$SCRIPT_DIR/load-secrets.sh"
+        source "$PROJECT_ROOT/scripts/secrets/load-secrets.sh"
     fi
 
     API_KEY="${HOSTINGER_API_KEY:-}"

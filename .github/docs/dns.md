@@ -257,7 +257,7 @@ The `${VPS_IP}` variable is replaced with the value from `infra/secrets/prod.enc
 
 ## Reference
 
-- **Script:** `scripts/dns-manager.sh`
+- **Script:** `scripts/infra/hostinger.sh dns <command>`
 - **Template:** `infra/dns/hill90.com.json`
 - **Secrets:** `infra/secrets/prod.enc.env`
 - **MCP Settings:** `.claude/settings.local.json`

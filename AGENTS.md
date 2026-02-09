@@ -110,7 +110,7 @@ make deploy-all                      # 4. Deploy all app services
 
 ```bash
 # CORRECT - Run deploy script ON THE VPS via SSH
-ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
+ssh -i ~/.ssh/remote.hill90.com deploy@<vps-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy/deploy-all.sh prod'
 
 # INCORRECT - deploys locally instead of on VPS
 make deploy  # This runs LOCALLY on Mac, not on VPS
@@ -220,6 +220,31 @@ Hill90/
 │   ├── dns/                           # DNS templates
 │   └── secrets/                       # SOPS-encrypted secrets
 ├── scripts/                           # Automation and utility scripts
+│   ├── deploy/                       # Deployment scripts
+│   │   ├── _service.sh               # Per-service deploy helper
+│   │   ├── deploy-infra.sh
+│   │   └── deploy-all.sh
+│   ├── infra/                        # Infrastructure management
+│   │   ├── hostinger.sh              # Hostinger API CLI
+│   │   ├── recreate-vps.sh
+│   │   ├── config-vps.sh
+│   │   ├── tailscale-api.sh
+│   │   └── tailscale-setup.sh
+│   ├── secrets/                      # Secrets management
+│   │   ├── load-secrets.sh
+│   │   ├── secrets-init.sh
+│   │   ├── secrets-view.sh
+│   │   ├── secrets-update.sh
+│   │   ├── secrets-edit.sh
+│   │   └── generate-all-secrets.sh
+│   ├── validate/                     # Validation scripts
+│   │   ├── validate-infra.sh
+│   │   ├── validate-compose.sh
+│   │   ├── validate-secrets.sh
+│   │   └── validate-traefik.sh
+│   └── ops/                          # Operational scripts
+│       ├── health-check.sh
+│       └── backup.sh
 ├── src/                               # Application source code
 │   └── services/                      # Microservices (auth, api, ai, mcp)
 └── docs/                              # Project documentation
@@ -255,7 +280,7 @@ Hill90/
 
 - `make recreate-vps` - Rebuild OS (fully automated, destructive)
 - `make config-vps VPS_IP=<ip>` - Bootstrap infrastructure (Ansible)
-- `bash scripts/hostinger-api.sh get-details` - Get VPS info
+- `bash scripts/infra/hostinger.sh get-details` - Get VPS info
 - Full VPS lifecycle management via Makefile
 
 ### Makefile Commands
@@ -352,7 +377,12 @@ make secrets-edit                        # Interactive edit
 
 - Services: `auth`, `api`, `ai`, `mcp` (short, lowercase)
 - Compose files: `docker-compose.{service}.yml` in `deployments/compose/prod/`
-- Scripts: `deploy-{service}.sh`, `{tool}-api.sh` in `scripts/`
+- Scripts: organized by function in `scripts/` subdirectories:
+  - Deploy: `scripts/deploy/_service.sh`, `scripts/deploy/deploy-{target}.sh`
+  - Infra: `scripts/infra/hostinger.sh`, `scripts/infra/recreate-vps.sh`
+  - Secrets: `scripts/secrets/secrets-{action}.sh`
+  - Validate: `scripts/validate/validate-{target}.sh`
+  - Ops: `scripts/ops/health-check.sh`, `scripts/ops/backup.sh`
 - Workflows: `{action}.yml` in `.github/workflows/`
 
 ---

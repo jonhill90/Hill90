@@ -18,8 +18,8 @@ make secrets-view KEY=VPS_IP         # View specific secret
 
 **Using scripts directly:**
 ```bash
-bash scripts/secrets-view.sh infra/secrets/prod.enc.env              # All secrets
-bash scripts/secrets-view.sh infra/secrets/prod.enc.env VPS_IP       # Specific secret
+bash scripts/secrets/secrets-view.sh infra/secrets/prod.enc.env              # All secrets
+bash scripts/secrets/secrets-view.sh infra/secrets/prod.enc.env VPS_IP       # Specific secret
 ```
 
 ## Updating Secrets (RECOMMENDED - Safe, automatic backup)
@@ -33,7 +33,7 @@ make secrets-update KEY=VPS_IP VALUE="76.13.26.69"
 
 **Using scripts directly:**
 ```bash
-bash scripts/secrets-update.sh infra/secrets/prod.enc.env VPS_IP "76.13.26.69"
+bash scripts/secrets/secrets-update.sh infra/secrets/prod.enc.env VPS_IP "76.13.26.69"
 ```
 
 ## Editing Secrets Interactively
@@ -75,7 +75,7 @@ Bcrypt password hash for Traefik dashboard authentication.
 - Deployed to: `deployments/platform/edge/dynamic/.htpasswd`
 - Format: `$2y$05$...` (bcrypt hash)
 - Username: `admin`
-- Generated during: Every deployment via `scripts/deploy.sh`
+- Generated during: Every deployment via deploy scripts
 
 **To update the password:**
 
@@ -121,7 +121,7 @@ API key for Hostinger DNS and VPS management.
 - ✅ `make secrets-view KEY=<key>` - Safe viewing
 - ✅ `make secrets-update KEY=<key> VALUE=<value>` - Safe updates with auto-backup
 - ✅ `make secrets-edit` - Interactive editing
-- ✅ `bash scripts/secrets-*.sh` - Helper scripts with safety checks
+- ✅ `bash scripts/secrets/secrets-*.sh` - Helper scripts with safety checks
 - ✅ `sops --set` for values with special characters (like password hashes with $)
 
 **AVOID:**

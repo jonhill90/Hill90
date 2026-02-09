@@ -1,6 +1,6 @@
 #!/bin/bash
 # Safe secret updates - no corruption
-# Usage: bash scripts/secrets-update.sh <secret_file> <key> <value>
+# Usage: bash scripts/secrets/secrets-update.sh <secret_file> <key> <value>
 
 set -euo pipefail
 
@@ -17,10 +17,10 @@ VALUE="${3:-}"
 
 if [ -z "$SECRET_FILE" ] || [ -z "$KEY" ] || [ -z "$VALUE" ]; then
     echo -e "${COLOR_RED}Error: Missing arguments${COLOR_RESET}"
-    echo "Usage: bash scripts/secrets-update.sh <secret_file> <key> <value>"
+    echo "Usage: bash scripts/secrets/secrets-update.sh <secret_file> <key> <value>"
     echo ""
     echo "Example:"
-    echo "  bash scripts/secrets-update.sh infra/secrets/prod.enc.env VPS_IP \"76.13.26.69\""
+    echo "  bash scripts/secrets/secrets-update.sh infra/secrets/prod.enc.env VPS_IP \"76.13.26.69\""
     exit 1
 fi
 
