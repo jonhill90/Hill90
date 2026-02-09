@@ -106,14 +106,14 @@ This single command:
 
 ## Next Steps
 
-After bootstrap completes, deploy application services:
+After bootstrap completes, deploy infrastructure and application services:
 
 ```bash
-# Option A: Staging certificates (safe for testing, unlimited)
-make deploy
+# Deploy infrastructure (Traefik, dns-manager, Portainer)
+make deploy-infra
 
-# Option B: Production certificates (rate-limited: 50/week)
-make deploy-production
+# Deploy application services
+make deploy-all
 
 # Verify health
 make health

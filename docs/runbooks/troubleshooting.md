@@ -116,8 +116,8 @@ Common issues and solutions for Hill90 VPS infrastructure.
 5. **Check for rate limiting:**
    - Let's Encrypt production: 5 failures/hour, 50 certs/week
    - If rate limited, wait 1 hour and use staging certificates for testing
-   - Staging: `make deploy` (unlimited)
-   - Production: `make deploy-production` (rate-limited)
+   - Deploy infrastructure: `make deploy-infra`
+   - Deploy applications: `make deploy-all`
 
 ### DNS-01 Certificate Not Issued (Tailscale Services)
 
@@ -281,7 +281,8 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 4. **Redeploy to regenerate .htpasswd:**
    ```bash
-   make deploy
+   make deploy-infra
+   make deploy-all
    ```
 
 5. **Check middleware configuration:**

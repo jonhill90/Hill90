@@ -32,19 +32,19 @@ fi
 
 # Deploy in dependency order
 echo "Deploying auth service (with postgres)..."
-bash scripts/deploy-auth.sh "$ENV"
+bash scripts/deploy/_service.sh auth "$ENV"
 echo ""
 
 echo "Deploying API service..."
-bash scripts/deploy-api.sh "$ENV"
+bash scripts/deploy/_service.sh api "$ENV"
 echo ""
 
 echo "Deploying AI service..."
-bash scripts/deploy-ai.sh "$ENV"
+bash scripts/deploy/_service.sh ai "$ENV"
 echo ""
 
 echo "Deploying MCP service..."
-bash scripts/deploy-mcp.sh "$ENV"
+bash scripts/deploy/_service.sh mcp "$ENV"
 echo ""
 
 # Show all running containers

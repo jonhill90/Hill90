@@ -4,11 +4,12 @@ Complete automated rebuild of the Hill90 VPS from catastrophic failure.
 
 ## Overview
 
-The VPS rebuild is fully automated and requires **zero manual intervention**. The process takes ~8-13 minutes and consists of 3 steps:
+The VPS rebuild is fully automated and requires **zero manual intervention**. The process takes ~8-13 minutes and consists of 4 steps:
 
 1. **Recreate VPS** (~3-5 minutes) - OS rebuild via Hostinger API
 2. **Config VPS** (~3-5 minutes) - Infrastructure bootstrap via Ansible
-3. **Deploy** (~2-3 minutes) - Application service deployment
+3. **Deploy Infra** (~1-2 minutes) - Infrastructure service deployment (Traefik, dns-manager, Portainer)
+4. **Deploy All** (~2-3 minutes) - Application service deployment
 
 ## Prerequisites
 
@@ -97,16 +98,37 @@ Use the VPS IP displayed by Step 1.
 
 ---
 
-### Step 3: Deploy Application Services (~2-3 minutes)
+### Step 3: Deploy Infrastructure Services (~1-2 minutes)
 
-Deploy application services with Let's Encrypt certificates:
+Deploy infrastructure services (Traefik, dns-manager, Portainer):
 
 ```bash
-# Option A: Staging certificates (safe for testing, unlimited)
-make deploy
+make deploy-infra
+```
 
-# Option B: Production certificates (rate-limited: 50/week)
-make deploy-production
+**What happens automatically:**
+1. Decrypts secrets with SOPS
+2. Deploys Traefik, dns-manager, and Portainer
+3. Requests DNS-01 Let's Encrypt certificates for Tailscale-only services
+
+**Infrastructure services deployed:**
+- `traefik.hill90.com` - Traefik dashboard (Tailscale-only, authenticated)
+- `portainer.hill90.com` - Portainer UI (Tailscale-only)
+- `dns-manager` - DNS-01 challenge webhook (internal)
+
+**Result:**
+- ✅ Infrastructure services running
+- ✅ DNS-01 certificates active for Tailscale-only services
+- ❌ Application services NOT running yet
+
+---
+
+### Step 4: Deploy Application Services (~2-3 minutes)
+
+Deploy application services:
+
+```bash
+make deploy-all
 ```
 
 **What happens automatically:**
@@ -114,7 +136,7 @@ make deploy-production
 2. Decrypts secrets with SOPS
 3. Generates Traefik `.htpasswd` file for authentication
 4. Deploys application services (api, ai, mcp, auth, ui)
-5. Requests Let's Encrypt certificates (staging or production)
+5. Requests Let's Encrypt certificates
 6. Waits for services to start
 7. Verifies service health
 
@@ -133,7 +155,7 @@ make deploy-production
 
 ---
 
-### Step 4: Health Verification
+### Step 5: Health Verification
 
 Verify all services are healthy:
 
@@ -229,10 +251,10 @@ If you need to restore via API:
 
 ```bash
 # List available snapshots
-bash scripts/hostinger-api.sh get-snapshots
+bash scripts/infra/hostinger.sh vps snapshot get
 
 # Restore from snapshot (if snapshot exists)
-bash scripts/hostinger-api.sh restore-snapshot <snapshot_id>
+bash scripts/infra/hostinger.sh vps snapshot restore
 ```
 
 ---
@@ -246,11 +268,11 @@ bash scripts/hostinger-api.sh restore-snapshot <snapshot_id>
 **Resolution:**
 1. Check SSH connectivity: `ssh root@<vps-ip>`
 2. Review Ansible logs for specific error
-3. Re-run bootstrap: `bash scripts/vps-bootstrap-from-rebuild.sh "$ROOT_PASSWORD" "$VPS_IP"`
+3. Re-run bootstrap: `make config-vps VPS_IP=<ip>`
 
 ### Deploy Fails
 
-**Symptom:** `make deploy` fails
+**Symptom:** `make deploy-infra` or `make deploy-all` fails
 
 **Common causes:**
 - Age key not transferred correctly
@@ -286,8 +308,9 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 1. (Optional) Create snapshot: `make snapshot`
 2. Recreate VPS: `make recreate-vps`
 3. Bootstrap infrastructure: `make config-vps VPS_IP=<ip>`
-4. Deploy applications: `make deploy` or `make deploy-production`
-5. Verify health: `make health`
+4. Deploy infrastructure: `make deploy-infra`
+5. Deploy applications: `make deploy-all`
+6. Verify health: `make health`
 
 **Fully automated (no intervention):**
 - ✅ Tailscale auth key generation and rotation
@@ -330,4 +353,4 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 
 - [Bootstrap Runbook](bootstrap.md)
 - [Claude Code Operating Manual](../../CLAUDE.md)
-- [Health Check Script](../../scripts/health-check.sh)
+- [Health Check Script](../../scripts/ops/health-check.sh)

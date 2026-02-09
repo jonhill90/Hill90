@@ -5,7 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -33,7 +33,7 @@ echo -e "${GREEN}✓ Auth key generated${NC}"
 
 # Update secrets
 echo -e "${BLUE}Updating secrets with new auth key...${NC}"
-if ! bash "$SCRIPT_DIR/secrets-update.sh" infra/secrets/prod.enc.env "TAILSCALE_AUTH_KEY" "$AUTH_KEY"; then
+if ! bash "$PROJECT_ROOT/scripts/secrets/secrets-update.sh" infra/secrets/prod.enc.env "TAILSCALE_AUTH_KEY" "$AUTH_KEY"; then
     echo -e "${RED}ERROR: Failed to update secrets${NC}"
     exit 1
 fi
@@ -95,7 +95,7 @@ NEW_IP=$(echo "$DETAILS" | tail -1 | jq -r '.ipv4[0].address // empty')
 
 if [[ -z "$NEW_IP" ]]; then
     echo -e "${RED}ERROR: Could not retrieve VPS IP${NC}"
-    echo -e "${YELLOW}Run manually: bash scripts/hostinger.sh vps get | jq -r '.ipv4[0].address'${NC}"
+    echo -e "${YELLOW}Run manually: bash scripts/infra/hostinger.sh vps get | jq -r '.ipv4[0].address'${NC}"
     exit 1
 fi
 
@@ -104,7 +104,7 @@ echo ""
 
 # Update VPS_IP secret
 echo -e "${BLUE}Updating VPS_IP secret...${NC}"
-if bash "$SCRIPT_DIR/secrets-update.sh" infra/secrets/prod.enc.env "VPS_IP" "$NEW_IP"; then
+if bash "$PROJECT_ROOT/scripts/secrets/secrets-update.sh" infra/secrets/prod.enc.env "VPS_IP" "$NEW_IP"; then
     echo -e "${GREEN}✓ VPS_IP secret updated${NC}"
 else
     echo -e "${YELLOW}WARNING: Failed to update VPS_IP secret automatically${NC}"

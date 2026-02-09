@@ -5,7 +5,7 @@ set -euo pipefail
 # This script generates cryptographically secure secrets and updates prod.enc.env
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SECRETS_FILE="$PROJECT_ROOT/infra/secrets/prod.enc.env"
 
 echo "🔐 Generating all production secrets..."

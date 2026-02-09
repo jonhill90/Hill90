@@ -80,7 +80,7 @@
 
 **Certificate Management:**
 - Production certificates by default (workflow uses PRODUCTION ACME server)
-- For staging certificates during local development, use `make deploy` (uses STAGING ACME server)
+- For staging certificates during local development, use `make deploy-infra` + `make deploy-all` (uses STAGING ACME server)
 - Separation between local (staging) and CI/CD (production) certificates
 
 ### Tailscale ACL GitOps Workflow - ✅ OPERATIONAL
@@ -168,8 +168,7 @@ make config-vps VPS_IP=<ip>            # Bootstrap with Ansible
 
 **Certificate Note:**
 - GitHub Actions uses PRODUCTION certificates by default
-- Local `make deploy` uses STAGING certificates by default
-- Use `make deploy-production` locally for production certificates
+- Local `make deploy-infra` / `make deploy-all` uses STAGING certificates by default
 
 ### 4. Tailscale ACL GitOps Workflow
 
@@ -211,7 +210,7 @@ Before using GitHub Actions workflows, you must add the following secrets to you
 **Quick verification (local test):**
 ```bash
 export HOSTINGER_API_KEY="your-key-here"
-bash scripts/hostinger-api.sh get-details
+bash scripts/infra/hostinger.sh get-details
 ```
 
 ---
@@ -238,7 +237,7 @@ bash scripts/hostinger-api.sh get-details
 **Quick verification (local test):**
 ```bash
 export TAILSCALE_API_KEY="your-key-here"
-bash scripts/tailscale-api.sh generate-key
+bash scripts/infra/tailscale-api.sh generate-key
 ```
 
 ---
@@ -427,7 +426,7 @@ After setup, you should have these **5 secrets** configured:
 3. Click **"Run workflow"** button
 
 **Auto-trigger:**
-- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/deploy.sh`)
+- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/deploy/**`)
 
 **What happens:**
 1. Validates Docker Compose files and scripts
@@ -453,21 +452,22 @@ After setup, you should have these **5 secrets** configured:
 
 ### Hostinger API
 
-**`scripts/hostinger-api.sh`** - VPS Operations
+**`scripts/infra/hostinger.sh`** - VPS Operations
 - Operations: `get-details`, `recreate`, `snapshot`, `get-action`, `wait-action`
+- Also handles DNS operations via `scripts/infra/hostinger.sh dns <command>`
 - Used by local rebuild scripts
 - Used by GitHub Actions workflows
 - **Requires:** `HOSTINGER_API_KEY` environment variable
 
 **Example usage:**
 ```bash
-bash scripts/hostinger-api.sh get-details
-bash scripts/hostinger-api.sh recreate <template_id> <password> <post_install_script_id>
+bash scripts/infra/hostinger.sh get-details
+bash scripts/infra/hostinger.sh recreate <template_id> <password> <post_install_script_id>
 ```
 
 ### Tailscale API
 
-**`scripts/tailscale-api.sh`** - Auth Key Generation
+**`scripts/infra/tailscale-api.sh`** - Auth Key Generation
 - Operations: `generate-key`, `get-ip`, `wait-for-device`
 - Used by local rebuild scripts
 - Used by GitHub Actions workflows
@@ -475,9 +475,9 @@ bash scripts/hostinger-api.sh recreate <template_id> <password> <post_install_sc
 
 **Example usage:**
 ```bash
-source scripts/load-secrets.sh
-bash scripts/tailscale-api.sh generate-key
-bash scripts/tailscale-api.sh get-ip hill90-vps
+source scripts/secrets/load-secrets.sh
+bash scripts/infra/tailscale-api.sh generate-key
+bash scripts/infra/tailscale-api.sh get-ip hill90-vps
 ```
 
 ---
@@ -592,9 +592,9 @@ Then push to main - ACL GitOps workflow will deploy automatically.
 
 ## Key Files
 
-- `scripts/recreate-vps.sh` - Local rebuild automation (Hostinger API)
-- `scripts/config-vps.sh` - Local bootstrap automation (Ansible)
-- `scripts/hostinger-api.sh` - Hostinger API client
-- `scripts/tailscale-api.sh` - Tailscale API client
+- `scripts/infra/recreate-vps.sh` - Local rebuild automation (Hostinger API)
+- `scripts/infra/config-vps.sh` - Local bootstrap automation (Ansible)
+- `scripts/infra/hostinger.sh` - Hostinger API client (VPS + DNS operations)
+- `scripts/infra/tailscale-api.sh` - Tailscale API client
 - `.github/workflows/recreate-vps.yml` - GitHub Actions rebuild workflow
 - `.github/workflows/deploy.yml` - GitHub Actions deployment workflow

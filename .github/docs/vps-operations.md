@@ -128,10 +128,10 @@ Creates a VPS snapshot for recovery. **Note:** Creating a new snapshot overwrite
 
 ```bash
 # Get VPS details
-bash scripts/hostinger-api.sh get-details
+bash scripts/infra/hostinger.sh get-details
 
 # Check action status
-bash scripts/hostinger-api.sh get-action <action_id>
+bash scripts/infra/hostinger.sh get-action <action_id>
 ```
 
 ## Troubleshooting
@@ -149,7 +149,7 @@ make config-vps VPS_IP=<ip>
 Check action status:
 
 ```bash
-bash scripts/hostinger-api.sh get-action <action_id>
+bash scripts/infra/hostinger.sh get-action <action_id>
 ```
 
 ### Access Issues
@@ -218,16 +218,16 @@ make health    # Check all services
 
 ## Key Files
 
-- `scripts/recreate-vps.sh` - Full rebuild automation
-- `scripts/config-vps.sh` - Ansible bootstrap wrapper
-- `scripts/deploy-infra.sh` - Infrastructure deployment
-- `scripts/deploy-auth.sh` - Auth service deployment
-- `scripts/deploy-api.sh` - API service deployment
-- `scripts/deploy-ai.sh` - AI service deployment
-- `scripts/deploy-mcp.sh` - MCP service deployment
-- `scripts/deploy-all.sh` - All app services deployment
-- `scripts/hostinger-api.sh` - VPS API operations
-- `scripts/tailscale-api.sh` - Tailscale auth key generation
+- `scripts/infra/recreate-vps.sh` - Full rebuild automation
+- `scripts/infra/config-vps.sh` - Ansible bootstrap wrapper
+- `scripts/deploy/deploy-infra.sh` - Infrastructure deployment
+- `scripts/deploy/_service.sh auth` - Auth service deployment
+- `scripts/deploy/_service.sh api` - API service deployment
+- `scripts/deploy/_service.sh ai` - AI service deployment
+- `scripts/deploy/_service.sh mcp` - MCP service deployment
+- `scripts/deploy/deploy-all.sh` - All app services deployment
+- `scripts/infra/hostinger.sh` - VPS API operations
+- `scripts/infra/tailscale-api.sh` - Tailscale auth key generation
 - `infra/ansible/playbooks/bootstrap.yml` - Master playbook
 - `infra/ansible/playbooks/01-*.yml` through `08-*.yml` - Individual bootstrap stages
 

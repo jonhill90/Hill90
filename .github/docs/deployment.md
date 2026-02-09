@@ -44,11 +44,13 @@ make deploy-mcp     # MCP service
 make deploy-all     # All app services (not infra)
 ```
 
-### Legacy Deployment (Still Available)
+### Deprecated Aliases
+
+The following commands are deprecated aliases and should not be used for new workflows:
 
 ```bash
-make deploy              # Deploy all services (STAGING certs)
-make deploy-production   # Deploy all services (PRODUCTION certs)
+make deploy              # DEPRECATED - use make deploy-infra + make deploy-all
+make deploy-production   # DEPRECATED - use make deploy-infra + make deploy-all
 ```
 
 ## Docker Compose Files

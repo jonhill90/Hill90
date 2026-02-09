@@ -1,6 +1,6 @@
 #!/bin/bash
 # View a specific secret value
-# Usage: bash scripts/secrets-view.sh <secret_file> <key>
+# Usage: bash scripts/secrets/secrets-view.sh <secret_file> <key>
 
 set -euo pipefail
 
@@ -16,11 +16,11 @@ KEY="${2:-}"
 
 if [ -z "$SECRET_FILE" ]; then
     echo -e "${COLOR_RED}Error: Missing secret file${COLOR_RESET}"
-    echo "Usage: bash scripts/secrets-view.sh <secret_file> [key]"
+    echo "Usage: bash scripts/secrets/secrets-view.sh <secret_file> [key]"
     echo ""
     echo "Examples:"
-    echo "  bash scripts/secrets-view.sh infra/secrets/prod.enc.env           # View all secrets"
-    echo "  bash scripts/secrets-view.sh infra/secrets/prod.enc.env VPS_IP    # View specific secret"
+    echo "  bash scripts/secrets/secrets-view.sh infra/secrets/prod.enc.env           # View all secrets"
+    echo "  bash scripts/secrets/secrets-view.sh infra/secrets/prod.enc.env VPS_IP    # View specific secret"
     exit 1
 fi
 

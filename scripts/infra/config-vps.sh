@@ -6,7 +6,7 @@ set -euo pipefail
 # This is IDEMPOTENT - safe to re-run if it fails
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Colors
 RED='\033[0;31m'
@@ -34,7 +34,7 @@ echo ""
 
 # Load secrets only if not already set (e.g., from GitHub Actions)
 if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
-    source "$SCRIPT_DIR/load-secrets.sh"
+    source "$PROJECT_ROOT/scripts/secrets/load-secrets.sh"
 fi
 
 # Step 1: Run Ansible bootstrap
