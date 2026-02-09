@@ -175,3 +175,8 @@ HANDOFF.md
 # Temporary build/rebuild files
 scripts/load-secrets.sh
 infra/ansible/inventory/rebuild-temp.ini
+
+# Claude Code / Codex local overrides
+.claude/settings.local.json
+CLAUDE.local.md
+AGENTS.override.md
