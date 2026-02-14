@@ -4,8 +4,8 @@
 set -e
 
 ENV=${1:-prod}
-TRAEFIK_CONFIG="deployments/platform/edge/traefik.yml"
-DYNAMIC_DIR="deployments/platform/edge/dynamic"
+TRAEFIK_CONFIG="platform/edge/traefik.yml"
+DYNAMIC_DIR="platform/edge/dynamic"
 
 echo "================================"
 echo "Traefik Configuration Validation"

@@ -49,8 +49,8 @@ sops exec-env "$SECRETS_FILE" '
   done
 
   echo "Generating Traefik basic auth credentials..."
-  mkdir -p deployments/platform/edge/dynamic
-  echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > deployments/platform/edge/dynamic/.htpasswd
+  mkdir -p platform/edge/dynamic
+  echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
   echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
   echo "Building and pulling images..."
