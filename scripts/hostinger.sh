@@ -5,15 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-BOLD='\033[1m'
-NC='\033[0m'
+source "$SCRIPT_DIR/_common.sh"
 
 # Configuration
 API_BASE="${HOSTINGER_API_BASE:-https://developers.hostinger.com}"
@@ -27,7 +19,7 @@ ensure_api_key() {
     _secrets_loaded=true
 
     if [[ -z "${HOSTINGER_API_KEY:-}" ]]; then
-        source "$PROJECT_ROOT/scripts/secrets/load-secrets.sh"
+        load_secrets
     fi
 
     API_KEY="${HOSTINGER_API_KEY:-}"
