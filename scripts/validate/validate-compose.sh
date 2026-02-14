@@ -110,7 +110,7 @@ if [ -f "$COMPOSE_FILE" ]; then
 
   # Check traefik.yml
   echo -n "  traefik.yml... "
-  if [ -f "deployments/platform/edge/traefik.yml" ]; then
+  if [ -f "platform/edge/traefik.yml" ]; then
     echo "✓"
   else
     echo "✗ File not found"
@@ -119,7 +119,7 @@ if [ -f "$COMPOSE_FILE" ]; then
 
   # Check dynamic config directory
   echo -n "  dynamic config directory... "
-  if [ -d "deployments/platform/edge/dynamic" ]; then
+  if [ -d "platform/edge/dynamic" ]; then
     echo "✓"
   else
     echo "✗ Directory not found"
