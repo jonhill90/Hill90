@@ -251,10 +251,10 @@ If you need to restore via API:
 
 ```bash
 # List available snapshots
-bash scripts/infra/hostinger.sh vps snapshot get
+bash scripts/hostinger.sh vps snapshot get
 
 # Restore from snapshot (if snapshot exists)
-bash scripts/infra/hostinger.sh vps snapshot restore
+bash scripts/hostinger.sh vps snapshot restore
 ```
 
 ---
@@ -353,4 +353,4 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 
 - [Bootstrap Runbook](bootstrap.md)
 - [Claude Code Operating Manual](../../CLAUDE.md)
-- [Health Check Script](../../scripts/ops/health-check.sh)
+- [Health Check Script](../../scripts/ops.sh)

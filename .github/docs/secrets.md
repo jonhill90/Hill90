@@ -18,8 +18,8 @@ make secrets-view KEY=VPS_IP         # View specific secret
 
 **Using scripts directly:**
 ```bash
-bash scripts/secrets/secrets-view.sh infra/secrets/prod.enc.env              # All secrets
-bash scripts/secrets/secrets-view.sh infra/secrets/prod.enc.env VPS_IP       # Specific secret
+bash scripts/secrets.sh view infra/secrets/prod.enc.env              # All secrets
+bash scripts/secrets.sh view infra/secrets/prod.enc.env VPS_IP       # Specific secret
 ```
 
 ## Updating Secrets (RECOMMENDED - Safe, automatic backup)
@@ -33,7 +33,7 @@ make secrets-update KEY=VPS_IP VALUE="76.13.26.69"
 
 **Using scripts directly:**
 ```bash
-bash scripts/secrets/secrets-update.sh infra/secrets/prod.enc.env VPS_IP "76.13.26.69"
+bash scripts/secrets.sh update infra/secrets/prod.enc.env VPS_IP "76.13.26.69"
 ```
 
 ## Editing Secrets Interactively
@@ -121,7 +121,7 @@ API key for Hostinger DNS and VPS management.
 - ✅ `make secrets-view KEY=<key>` - Safe viewing
 - ✅ `make secrets-update KEY=<key> VALUE=<value>` - Safe updates with auto-backup
 - ✅ `make secrets-edit` - Interactive editing
-- ✅ `bash scripts/secrets/secrets-*.sh` - Helper scripts with safety checks
+- ✅ `bash scripts/secrets.sh <command>` - Helper scripts with safety checks
 - ✅ `sops --set` for values with special characters (like password hashes with $)
 
 **AVOID:**
@@ -133,5 +133,5 @@ API key for Hostinger DNS and VPS management.
 **If something goes wrong:**
 ```bash
 git checkout HEAD -- infra/secrets/prod.enc.env    # Restore from git
-# Or restore from backup created by secrets-update.sh
+# Or restore from backup created by secrets.sh update
 ```

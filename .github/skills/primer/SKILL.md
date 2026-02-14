@@ -48,7 +48,7 @@ If `$ARGUMENTS` specifies a subdirectory, focus on that subtree while noting its
 Read the most important documentation files in priority order, stopping when you have enough context:
 
 1. **Agent instructions** (highest priority):
-   CLAUDE.md, AGENTS.md, .cursorrules, .github/copilot-instructions.md
+   CLAUDE.md, AGENTS.md, .cursorrules
 
 2. **Project documentation**:
    README.md, CONTRIBUTING.md, DEVELOPMENT.md, docs/architecture.md

@@ -21,7 +21,7 @@ If you need to rotate the auth key outside of a rebuild:
 
 ```bash
 # Generate new auth key via API
-bash scripts/infra/tailscale-api.sh generate-key
+bash scripts/vps.sh tailscale-key
 
 # Update secrets
 make secrets-update KEY=TAILSCALE_AUTH_KEY VALUE="<new_key>"
@@ -181,7 +181,7 @@ make recreate-vps
 
 ```bash
 # Generate new auth key
-bash scripts/infra/tailscale-api.sh generate-key
+bash scripts/vps.sh tailscale-key
 
 # View current API key
 make secrets-view KEY=TAILSCALE_API_KEY
@@ -189,7 +189,6 @@ make secrets-view KEY=TAILSCALE_API_KEY
 
 ## Key Files
 
-- `scripts/infra/tailscale-api.sh` - Tailscale API client (auth key generation)
-- `scripts/infra/tailscale-setup.sh` - Tailscale setup helper
+- `scripts/vps.sh` - VPS operations CLI (includes Tailscale key generation)
 - `infra/ansible/playbooks/03-tailscale.yml` - Tailscale installation and configuration
 - `infra/secrets/prod.enc.env` - Encrypted secrets (TAILSCALE_AUTH_KEY, TAILSCALE_IP, TAILSCALE_API_KEY)

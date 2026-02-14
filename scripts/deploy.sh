@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+# Deploy CLI — deploy infrastructure and application services
+# Usage: deploy.sh {infra|auth|api|ai|mcp|all} [env]
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/_common.sh"
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+
+usage() {
+    cat <<EOF
+Deploy CLI — Hill90 service deployment
+
+Usage: deploy.sh <command> [env]
+
+Commands:
+  infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
+  auth     Deploy auth service (with PostgreSQL)
+  api      Deploy API service
+  ai       Deploy AI service
+  mcp      Deploy MCP service
+  all      Deploy all application services (NOT infrastructure)
+  help     Show this help message
+
+Environment: defaults to 'prod'
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Infrastructure deployment
+# ---------------------------------------------------------------------------
+
+cmd_infra() {
+    local env="${1:-prod}"
+    local compose_file="deployments/compose/${env}/docker-compose.infra.yml"
+    local secrets_file="infra/secrets/${env}.enc.env"
+
+    ensure_age_key "$env"
+    require_file "$compose_file" "Compose file"
+    require_file "$secrets_file" "Secrets file"
+
+    echo "================================"
+    echo "Infrastructure Deployment - ${env}"
+    echo "================================"
+
+    sops exec-env "$secrets_file" '
+        echo "Stopping existing infrastructure containers..."
+        docker compose -f '"$compose_file"' down --remove-orphans || true
+
+        for container in traefik dns-manager portainer; do
+            docker rm -f "$container" 2>/dev/null || true
+        done
+
+        echo "Generating Traefik basic auth credentials..."
+        mkdir -p platform/edge/dynamic
+        echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
+        echo "✓ Created .htpasswd for Traefik dashboard authentication"
+
+        echo "Building and pulling images..."
+        docker compose -f '"$compose_file"' build --parallel
+        docker compose -f '"$compose_file"' pull --ignore-buildable
+
+        echo "Deploying infrastructure services..."
+        docker compose -f '"$compose_file"' up -d
+    '
+
+    echo ""
+    echo "================================"
+    echo "Infrastructure Deployment Complete!"
+    echo "================================"
+    docker compose -f "$compose_file" ps
+
+    echo ""
+    echo "Services deployed:"
+    echo "  - Traefik (reverse proxy with SSL)"
+    echo "  - dns-manager (DNS-01 ACME challenges)"
+    echo "  - Portainer (container management, Tailscale-only)"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Application service deployment
+# ---------------------------------------------------------------------------
+
+cmd_service() {
+    local service="$1"
+    local env="${2:-prod}"
+
+    local compose_file banner containers summary
+    case "$service" in
+        auth)
+            compose_file="deployments/compose/${env}/docker-compose.auth.yml"
+            containers="auth postgres"
+            banner="Auth Service Deployment"
+            summary="Services deployed:
+  - postgres (database)
+  - auth (authentication service)"
+            ;;
+        api)
+            compose_file="deployments/compose/${env}/docker-compose.api.yml"
+            containers="api"
+            banner="API Service Deployment"
+            summary="Service deployed:
+  - api (API Gateway at api.hill90.com)"
+            ;;
+        ai)
+            compose_file="deployments/compose/${env}/docker-compose.ai.yml"
+            containers="ai"
+            banner="AI Service Deployment"
+            summary="Service deployed:
+  - ai (AI service at ai.hill90.com)"
+            ;;
+        mcp)
+            compose_file="deployments/compose/${env}/docker-compose.mcp.yml"
+            containers="mcp"
+            banner="MCP Service Deployment"
+            summary="Service deployed:
+  - mcp (MCP Gateway at ai.hill90.com/mcp)"
+            ;;
+    esac
+
+    local secrets_file="infra/secrets/${env}.enc.env"
+
+    ensure_age_key "$env"
+    require_file "$compose_file" "Compose file"
+    require_file "$secrets_file" "Secrets file"
+
+    # Check that networks exist (infrastructure must be deployed first)
+    if ! docker network inspect hill90_edge >/dev/null 2>&1; then
+        die "Network hill90_edge not found. Deploy infrastructure first: make deploy-infra"
+    fi
+    if ! docker network inspect hill90_internal >/dev/null 2>&1; then
+        die "Network hill90_internal not found. Deploy infrastructure first: make deploy-infra"
+    fi
+
+    echo "================================"
+    echo "${banner} - ${env}"
+    echo "================================"
+
+    sops exec-env "$secrets_file" '
+        echo "Stopping existing '"$service"' containers..."
+        docker compose -f '"$compose_file"' down --remove-orphans || true
+
+        for container in '"$containers"'; do
+            docker rm -f "$container" 2>/dev/null || true
+        done
+
+        echo "Building and pulling images..."
+        docker compose -f '"$compose_file"' build --parallel
+        docker compose -f '"$compose_file"' pull --ignore-buildable
+
+        echo "Deploying '"$service"' service..."
+        docker compose -f '"$compose_file"' up -d
+    '
+
+    echo ""
+    echo "================================"
+    echo "${banner} Complete!"
+    echo "================================"
+    docker compose -f "$compose_file" ps
+
+    echo ""
+    echo "$summary"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Deploy all application services
+# ---------------------------------------------------------------------------
+
+cmd_all() {
+    local env="${1:-prod}"
+
+    echo "================================"
+    echo "All Services Deployment - ${env}"
+    echo "================================"
+    echo ""
+    echo "This will deploy all application services:"
+    echo "  1. auth + postgres"
+    echo "  2. api"
+    echo "  3. ai"
+    echo "  4. mcp"
+    echo ""
+
+    if ! docker network inspect hill90_edge >/dev/null 2>&1; then
+        die "Network hill90_edge not found. Deploy infrastructure first: make deploy-infra"
+    fi
+
+    for svc in auth api ai mcp; do
+        echo "Deploying ${svc} service..."
+        cmd_service "$svc" "$env"
+        echo ""
+    done
+
+    echo ""
+    echo "================================"
+    echo "All Services Deployment Complete!"
+    echo "================================"
+    echo ""
+    echo "Running containers:"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|api|ai|mcp|auth|postgres)" || true
+    echo ""
+    echo "Check service health:"
+    echo "  make health"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# Main dispatcher
+# ---------------------------------------------------------------------------
+
+main() {
+    if [[ $# -lt 1 ]]; then
+        usage
+        exit 1
+    fi
+
+    local cmd="$1"
+    shift
+
+    case "$cmd" in
+        infra)          cmd_infra "$@" ;;
+        auth|api|ai|mcp) cmd_service "$cmd" "$@" ;;
+        all)            cmd_all "$@" ;;
+        help|--help|-h) usage ;;
+        *)
+            echo "Unknown command: $cmd"
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
