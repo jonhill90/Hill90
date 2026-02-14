@@ -51,8 +51,8 @@ services:
       - "--certificatesresolvers.letsencrypt-dns.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../../platform/edge/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ../../platform/edge/dynamic:/etc/traefik/dynamic:ro
+      - ../../../platform/edge/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../../../platform/edge/dynamic:/etc/traefik/dynamic:ro
       - traefik-certs:/letsencrypt
     environment:
       - ACME_EMAIL=${ACME_EMAIL:-jonhill90@live.com}

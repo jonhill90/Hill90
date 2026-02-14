@@ -1,0 +1,32 @@
+#!/usr/bin/env bats
+
+# Tests for scripts/secrets.sh CLI
+
+@test "secrets.sh with no args shows usage" {
+  run bash scripts/secrets.sh
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Usage"* ]]
+}
+
+@test "secrets.sh help shows usage" {
+  run bash scripts/secrets.sh help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Usage"* ]]
+}
+
+@test "secrets.sh invalid subcommand fails" {
+  run bash scripts/secrets.sh bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown"* ]]
+}
+
+@test "secrets.sh view defaults to prod secrets" {
+  run bash scripts/secrets.sh view
+  # exits 0 if secrets file exists, 1 if not — either way it should attempt
+  [[ "$output" == *"secrets"* ]] || [[ "$output" == *"Viewing"* ]] || [[ "$output" == *"Error"* ]]
+}
+
+@test "secrets.sh update with missing args fails" {
+  run bash scripts/secrets.sh update
+  [ "$status" -eq 1 ]
+}
