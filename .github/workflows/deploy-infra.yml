@@ -66,7 +66,7 @@ jobs:
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
              export ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory && \
-             bash scripts/deploy/deploy-infra.sh prod"
+             bash scripts/deploy.sh infra prod"
 
       - name: Wait for services to start
         run: sleep 30
