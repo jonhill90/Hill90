@@ -66,6 +66,12 @@ cmd_infra() {
 
         echo "Deploying infrastructure services..."
         docker compose -f '"$compose_file"' up -d
+
+        # Create internal network if not created by compose (no infra service uses it)
+        if ! docker network inspect hill90_internal >/dev/null 2>&1; then
+            docker network create --driver bridge --internal hill90_internal
+            echo "✓ Created hill90_internal network for app services"
+        fi
     '
 
     echo ""
