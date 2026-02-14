@@ -31,3 +31,54 @@
   run bash scripts/deploy.sh all nonexistent-env
   [ "$status" -eq 1 ]
 }
+
+# ---------------------------------------------------------------------------
+# Bug fix regression tests (post-merge fixes from e71c8e5, e72f93e)
+# ---------------------------------------------------------------------------
+
+@test "deploy.sh infra creates hill90_internal network if missing" {
+  # Bug: infra compose doesn't define hill90_internal, but app services need it.
+  # Fix (e71c8e5): cmd_infra creates the network after docker compose up.
+  run grep "docker network create.*hill90_internal" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"hill90_internal"* ]]
+}
+
+@test "deploy.sh infra checks if hill90_internal already exists before creating" {
+  # The fix should be idempotent — check with docker network inspect first.
+  run grep "docker network inspect hill90_internal" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy.sh per-service deploy does not use --remove-orphans" {
+  # Bug: per-service down with --remove-orphans killed containers from other
+  # compose files (e.g. deploying auth would stop api).
+  # Fix (e72f93e): cmd_service uses plain 'docker compose down' without the flag.
+  #
+  # Extract cmd_service function body and verify no --remove-orphans.
+  run bash -c 'sed -n "/^cmd_service()/,/^}/p" scripts/deploy.sh | grep -- "--remove-orphans"'
+  [ "$status" -eq 1 ]  # grep should NOT find it
+}
+
+@test "deploy.sh infra DOES use --remove-orphans for full infra teardown" {
+  # Infra deploy owns the full infra stack, so --remove-orphans is correct there.
+  run bash -c 'sed -n "/^cmd_infra()/,/^}/p" scripts/deploy.sh | grep -- "--remove-orphans"'
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy.sh all deploys auth api ai and mcp services" {
+  # cmd_all must iterate over all 4 app services.
+  run grep "for svc in" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"auth"* ]]
+  [[ "$output" == *"api"* ]]
+  [[ "$output" == *"ai"* ]]
+  [[ "$output" == *"mcp"* ]]
+}
+
+@test "deploy.sh service checks hill90_internal network exists" {
+  # App services require hill90_internal — deploy should fail fast if missing.
+  run grep -A2 "hill90_internal" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Deploy infrastructure first"* ]]
+}
