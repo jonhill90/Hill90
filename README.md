@@ -340,7 +340,7 @@ make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
 make deploy-all     # Application services
 
 # Or via SSH to VPS
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy/deploy-infra.sh && bash scripts/deploy/deploy-all.sh'
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra && bash scripts/deploy.sh all'
 ```
 
 ## Monitoring
