@@ -108,17 +108,26 @@ make config-vps VPS_IP=<ip>
 - Updates `TAILSCALE_IP` in encrypted secrets
 - **Time:** ~3-5 minutes
 
-#### Step 3: Deploy Application Services
+#### Step 3: Deploy Infrastructure Services
 
 ```bash
-make deploy  # Staging certificates (safe for testing)
-# OR
-make deploy-production  # Production certificates (rate-limited!)
+make deploy-infra
+```
+
+**What happens:**
+- Deploys Traefik, dns-manager, and Portainer
+- Requests DNS-01 Let's Encrypt certificates for Tailscale-only services
+- **Time:** ~1-2 minutes
+
+#### Step 4: Deploy Application Services
+
+```bash
+make deploy-all
 ```
 
 **What happens:**
 - Deploys application services (api, ai, mcp, auth, ui)
-- Requests Let's Encrypt certificates (staging or production)
+- Requests Let's Encrypt certificates
 - Verifies service health
 - **Time:** ~2-3 minutes
 
@@ -146,7 +155,8 @@ make deploy-production  # Production certificates (rate-limited!)
 ### 5. Deploy Services
 
 ```bash
-make deploy
+make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
+make deploy-all     # Application services
 ```
 
 ### 6. Verify Deployment
@@ -221,8 +231,8 @@ Run `make help` for a complete, organized list of commands. Key commands:
 | `make validate` | Validate infrastructure configuration |
 | **Deployment** | |
 | `make build` | Build all Docker images |
-| `make deploy` | Deploy to VPS (STAGING certificates) |
-| `make deploy-production` | Deploy to VPS (PRODUCTION certificates) |
+| `make deploy-infra` | Deploy infrastructure (Traefik, dns-manager, Portainer) |
+| `make deploy-all` | Deploy all application services |
 | **Monitoring** | |
 | `make health` | Check service health |
 | `make logs` | Show logs for all services |
@@ -326,10 +336,11 @@ To use GitHub Actions workflows, configure these secrets in repository settings:
 
 ```bash
 # Local deployment (recommended for development)
-make deploy
+make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
+make deploy-all     # Application services
 
 # Or via SSH to VPS
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh prod'
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy/deploy-infra.sh && bash scripts/deploy/deploy-all.sh'
 ```
 
 ## Monitoring
@@ -517,13 +528,13 @@ make recreate-vps
 # 3. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets, deploys Traefik + Portainer)
 make config-vps VPS_IP=<new_ip>
 
-# 4. Deploy application services (STAGING certificates - safe for testing)
-make deploy
+# 4. Deploy infrastructure (Traefik, dns-manager, Portainer)
+make deploy-infra
 
-# OR for production certificates (rate-limited!)
-make deploy-production
+# 5. Deploy application services
+make deploy-all
 
-# 5. Verify deployment
+# 6. Verify deployment
 make health
 ```
 
@@ -541,15 +552,18 @@ make health
 - Tailscale network join and IP capture
 - SOPS and age installation
 - Repository clone and encryption key transfer
-- Traefik + Portainer deployment (infrastructure only)
 - DNS record updates
 
-**Step 4 - Deploy Services (~2-3 minutes):**
+**Step 4 - Deploy Infrastructure (~1-2 minutes):**
+- Traefik + Portainer + dns-manager deployment
+- DNS-01 Let's Encrypt certificates for Tailscale-only services
+
+**Step 5 - Deploy Services (~2-3 minutes):**
 - Application service deployment (api, ai, mcp, auth, ui)
-- Let's Encrypt certificate acquisition (staging or production)
+- Let's Encrypt certificate acquisition
 - Service health verification
 
-**Why 3 steps?** Separating infrastructure from application deployment prevents Let's Encrypt rate limit exhaustion during VPS rebuild testing.
+**Why separate steps?** Separating infrastructure from application deployment prevents Let's Encrypt rate limit exhaustion during VPS rebuild testing.
 
 See `.claude/reference/vps-operations.md` for complete details.
 
