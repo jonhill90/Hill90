@@ -7,7 +7,7 @@ on:
     paths:
       - 'src/services/mcp/**'
       - 'deployments/compose/prod/docker-compose.mcp.yml'
-      - 'scripts/deploy-mcp.sh'
+      - 'scripts/deploy/_service.sh'
       - '.github/workflows/deploy-mcp.yml'
 
   workflow_dispatch:
@@ -74,7 +74,7 @@ jobs:
              git fetch origin && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             bash scripts/deploy-mcp.sh prod"
+             bash scripts/deploy/_service.sh mcp prod"
 
       - name: Wait for service to start
         run: sleep 30
