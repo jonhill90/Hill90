@@ -149,7 +149,7 @@ cmd_service() {
 
     sops exec-env "$secrets_file" '
         echo "Stopping existing '"$service"' containers..."
-        docker compose -f '"$compose_file"' down --remove-orphans || true
+        docker compose -f '"$compose_file"' down || true
 
         for container in '"$containers"'; do
             docker rm -f "$container" 2>/dev/null || true
