@@ -271,10 +271,10 @@ Hill90/
 ### SSH Access
 
 - **VPS Public IP:** 76.13.26.69 (public SSH blocked by firewall)
-- **VPS Tailscale IP:** 100.108.199.106 (use this for SSH)
+- **VPS Hostname:** `remote.hill90.com` (resolves via Tailscale DNS)
 - SSH as: `deploy` user (or `root` immediately after rebuild)
 - SSH key: `~/.ssh/remote.hill90.com`
-- **Example:** `ssh -i ~/.ssh/remote.hill90.com deploy@100.108.199.106`
+- **Example:** `ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com`
 
 ### VPS Management (via API)
 
@@ -342,7 +342,7 @@ make secrets-edit                        # Interactive edit
 ### Tailscale
 
 - Auth keys are **automatically generated** during `make recreate-vps` (90-day expiry)
-- **SSH via Tailscale IP**: 100.108.199.106 (public SSH blocked by firewall)
+- **SSH via hostname**: `remote.hill90.com` (public SSH blocked by firewall)
 - **ACL management via GitOps**: Edit `policy.hujson` -> push to main -> auto-deployed
 
 ### GitHub Actions
@@ -447,7 +447,7 @@ The VPS baseline is complete:
 
 1. VPS is bootstrapped (deploy user, Docker, firewall)
 2. Infrastructure fully automated (2 commands, zero warnings)
-3. **Tailscale SSH access works** (100.108.199.106)
+3. **Tailscale SSH access works** (`remote.hill90.com`)
 4. Public SSH is locked down (firewall blocks port 22)
 5. **GitHub Actions VPS recreate tested** (Run #21128156365)
 6. **Tailscale ACL GitOps operational** (automatic deployment on push)

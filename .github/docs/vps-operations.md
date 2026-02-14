@@ -194,7 +194,7 @@ If you can't SSH to VPS:
 - **VPS ID**: 1264324
 - **Template ID**: 1183 (AlmaLinux 10)
 - **Current Public IP**: 76.13.26.69 (not for SSH - public SSH blocked)
-- **Current Tailscale IP**: 100.108.199.106 (use this for SSH)
+- **SSH Hostname**: `remote.hill90.com` (use this for SSH)
 - **SSH Key**: `~/.ssh/remote.hill90.com`
 - **Deploy User**: `deploy` (or `root` immediately after rebuild)
 
