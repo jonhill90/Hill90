@@ -165,7 +165,7 @@ bash scripts/infra/hostinger.sh vps snapshot restore  # rollback if needed
 | VPS ID | 1264324 |
 | Template | 1183 (AlmaLinux 10) |
 | Domain | hill90.com |
-| Tailscale IP | 100.108.199.106 |
+| SSH Hostname | remote.hill90.com |
 | API Base | https://developers.hostinger.com |
 
 ## Environment Variables

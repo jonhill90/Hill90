@@ -28,7 +28,9 @@ export SOPS_AGE_KEY_FILE="$AGE_KEY_FILE"
 TEMP_FILE=$(mktemp)
 trap "rm -f '$TEMP_FILE'" EXIT
 
-sops -d "$SECRETS_FILE" | grep -v '^#' | grep -v '^$' > "$TEMP_FILE"
+sops -d "$SECRETS_FILE" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | while IFS='=' read -r key value; do
+    printf '%s=%q\n' "$key" "$value"
+done > "$TEMP_FILE"
 
 # Source the file with auto-export enabled
 set -a

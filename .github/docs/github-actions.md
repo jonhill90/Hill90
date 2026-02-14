@@ -32,7 +32,7 @@
 
 **Current VPS (from successful test):**
 - Public IP: 76.13.26.69 (SSH blocked by firewall)
-- Tailscale IP: 100.108.199.106 (use for SSH access)
+- SSH Hostname: remote.hill90.com (use for SSH access)
 - Hostname: srv1264324.hstgr.cloud
 
 ### Config VPS Workflow - ✅ INFRASTRUCTURE BOOTSTRAP
