@@ -210,7 +210,7 @@ Before using GitHub Actions workflows, you must add the following secrets to you
 **Quick verification (local test):**
 ```bash
 export HOSTINGER_API_KEY="your-key-here"
-bash scripts/infra/hostinger.sh get-details
+bash scripts/hostinger.sh vps get
 ```
 
 ---
@@ -237,7 +237,7 @@ bash scripts/infra/hostinger.sh get-details
 **Quick verification (local test):**
 ```bash
 export TAILSCALE_API_KEY="your-key-here"
-bash scripts/infra/tailscale-api.sh generate-key
+bash scripts/vps.sh tailscale-key
 ```
 
 ---
@@ -426,7 +426,7 @@ After setup, you should have these **5 secrets** configured:
 3. Click **"Run workflow"** button
 
 **Auto-trigger:**
-- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/deploy/**`)
+- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/**`)
 
 **What happens:**
 1. Validates Docker Compose files and scripts
@@ -452,32 +452,31 @@ After setup, you should have these **5 secrets** configured:
 
 ### Hostinger API
 
-**`scripts/infra/hostinger.sh`** - VPS Operations
-- Operations: `get-details`, `recreate`, `snapshot`, `get-action`, `wait-action`
-- Also handles DNS operations via `scripts/infra/hostinger.sh dns <command>`
+**`scripts/hostinger.sh`** - VPS Operations
+- Operations: `vps get`, `vps recreate`, `vps snapshot`, `vps action get`, `vps action wait`
+- Also handles DNS operations via `scripts/hostinger.sh dns <command>`
 - Used by local rebuild scripts
 - Used by GitHub Actions workflows
 - **Requires:** `HOSTINGER_API_KEY` environment variable
 
 **Example usage:**
 ```bash
-bash scripts/infra/hostinger.sh get-details
-bash scripts/infra/hostinger.sh recreate <template_id> <password> <post_install_script_id>
+bash scripts/hostinger.sh vps get
+bash scripts/hostinger.sh vps recreate <template_id> <password> <post_install_script_id>
 ```
 
 ### Tailscale API
 
-**`scripts/infra/tailscale-api.sh`** - Auth Key Generation
-- Operations: `generate-key`, `get-ip`, `wait-for-device`
+**`scripts/vps.sh`** - VPS Operations (includes Tailscale)
+- Operations: `tailscale-key`, `tailscale-ip`, `recreate`, `config`
 - Used by local rebuild scripts
 - Used by GitHub Actions workflows
-- **Requires:** `TAILSCALE_API_KEY` from secrets (loaded via `load-secrets.sh`)
+- **Requires:** `TAILSCALE_API_KEY` from secrets (auto-loaded via `_common.sh`)
 
 **Example usage:**
 ```bash
-source scripts/secrets/load-secrets.sh
-bash scripts/infra/tailscale-api.sh generate-key
-bash scripts/infra/tailscale-api.sh get-ip hill90-vps
+bash scripts/vps.sh tailscale-key
+bash scripts/vps.sh tailscale-ip hill90-vps
 ```
 
 ---
@@ -592,9 +591,7 @@ Then push to main - ACL GitOps workflow will deploy automatically.
 
 ## Key Files
 
-- `scripts/infra/recreate-vps.sh` - Local rebuild automation (Hostinger API)
-- `scripts/infra/config-vps.sh` - Local bootstrap automation (Ansible)
-- `scripts/infra/hostinger.sh` - Hostinger API client (VPS + DNS operations)
-- `scripts/infra/tailscale-api.sh` - Tailscale API client
+- `scripts/vps.sh` - VPS operations CLI (rebuild, config, Tailscale)
+- `scripts/hostinger.sh` - Hostinger API client (VPS + DNS operations)
 - `.github/workflows/recreate-vps.yml` - GitHub Actions rebuild workflow
 - `.github/workflows/deploy.yml` - GitHub Actions deployment workflow

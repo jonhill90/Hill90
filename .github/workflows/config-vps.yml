@@ -163,7 +163,7 @@ jobs:
           HOSTINGER_API_KEY: ${{ secrets.HOSTINGER_API_KEY }}
         run: |
           echo "🌐 Updating DNS records..."
-          bash scripts/infra/hostinger.sh dns sync \
+          bash scripts/hostinger.sh dns sync \
             "${{ github.event.inputs.vps_ip }}" \
             "${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
 

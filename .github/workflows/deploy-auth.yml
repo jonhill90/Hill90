@@ -7,7 +7,7 @@ on:
     paths:
       - 'src/services/auth/**'
       - 'deployments/compose/prod/docker-compose.auth.yml'
-      - 'scripts/deploy/_service.sh'
+      - 'scripts/deploy.sh'
       - '.github/workflows/deploy-auth.yml'
 
   workflow_dispatch:
@@ -74,7 +74,7 @@ jobs:
              git fetch origin && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             bash scripts/deploy/_service.sh auth prod"
+             bash scripts/deploy.sh auth prod"
 
       - name: Wait for services to start
         run: sleep 30
