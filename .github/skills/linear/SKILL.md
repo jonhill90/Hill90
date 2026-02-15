@@ -9,6 +9,20 @@ Manage Linear issues, teams, and projects using the `linear` command-line tool.
 
 **CLI:** [schpet/linear-cli](https://github.com/schpet/linear-cli) v1.9.1+
 
+## Hill90 Harness Usage
+
+Use this skill to keep issue state aligned with the required PR workflow in `AGENTS.md`:
+
+- `todo` before implementation starts
+- `doing` when active coding begins
+- `review` when PR is open and checks/review are in progress
+- `done` after merge and post-merge verification
+
+Team/project convention for this repo:
+
+- Team: `AI`
+- Project: `Hill90`
+
 ## Prerequisites
 
 ```bash

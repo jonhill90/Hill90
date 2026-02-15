@@ -74,7 +74,7 @@ This will generate age keypair and create initial encrypted secrets file.
 
 ### 4. Rebuild VPS (if needed)
 
-**Complete VPS rebuild is fully automated with a 3-step process:**
+**Complete VPS rebuild is fully automated with a 4-step process:**
 
 #### Step 1: Rebuild VPS OS
 
@@ -133,9 +133,9 @@ make deploy-all
 
 ---
 
-**Total rebuild time:** ~8-13 minutes (3 steps)
+**Total rebuild time:** ~8-13 minutes (4 steps)
 
-**Why 3 steps?**
+**Why 4 steps?**
 - **Infrastructure vs. Application**: Separating infrastructure (Traefik/Portainer) from application services prevents certificate exhaustion during VPS rebuild testing
 - **Certificate Rate Limits**: Let's Encrypt limits failures to 5/hour. Testing rebuild multiple times would hit this limit if certificates were requested during bootstrap.
 - **Flexibility**: Can rebuild infrastructure without redeploying applications
@@ -214,7 +214,6 @@ Run `make help` for a complete, organized list of commands. Key commands:
 |---------|-------------|
 | `make help` | Show all available commands (organized by section) |
 | **Infrastructure Setup** | |
-| `make tailscale-setup` | Setup Tailscale infrastructure (automated) |
 | `make secrets-init` | Initialize SOPS keys |
 | `make secrets-edit` | Edit encrypted secrets interactively |
 | `make secrets-view KEY=<key>` | View specific secret value |
@@ -330,7 +329,7 @@ To use GitHub Actions workflows, configure these secrets in repository settings:
 - `VPS_SSH_PRIVATE_KEY` - SSH access to VPS
 - `SOPS_AGE_KEY` - Secrets decryption
 
-**Full setup guide:** See `.claude/reference/github-actions.md`
+**Full setup guide:** See `.claude/references/github-actions.md`
 
 ### Manual Deployment
 
@@ -340,7 +339,7 @@ make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
 make deploy-all     # Application services
 
 # Or via SSH to VPS
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra && bash scripts/deploy.sh all'
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh all prod'
 ```
 
 ## Monitoring
@@ -417,7 +416,7 @@ docker logs -f mcp
 tailscale status
 
 # Test SSH via Tailscale
-ssh -i ~/.ssh/remote.hill90.com deploy@100.99.139.10
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
 ```
 
 ### Service Not Starting
@@ -516,7 +515,7 @@ make dns-sync
 
 ## VPS Rebuild
 
-For catastrophic failures or OS reinstalls, the VPS can be rebuilt in ~8-13 minutes using a 3-step process:
+For catastrophic failures or OS reinstalls, the VPS can be rebuilt in ~8-13 minutes using a 4-step process (plus optional snapshot and final health verification):
 
 ```bash
 # 1. Create safety snapshot (optional but recommended)
@@ -565,7 +564,7 @@ make health
 
 **Why separate steps?** Separating infrastructure from application deployment prevents Let's Encrypt rate limit exhaustion during VPS rebuild testing.
 
-See `.claude/reference/vps-operations.md` for complete details.
+See `.claude/references/vps-operations.md` for complete details.
 
 ## License
 

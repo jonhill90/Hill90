@@ -1,4 +1,7 @@
 # Codex command policy rules for commands requested outside the sandbox.
+# Hill90 harness policy: follow required PR workflow in AGENTS.md and
+# .github/docs/contribution-workflow.md for branch naming, commit format,
+# CI/review gates, merge, and post-merge deploy expectations.
 
 # Guard against destructive filesystem deletion.
 prefix_rule(

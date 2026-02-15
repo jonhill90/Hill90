@@ -33,6 +33,12 @@ All workflows depend on these GitHub repository secrets:
 - Include health checks after deployment
 - All deploy workflows must have `concurrency: group: deploy-prod`
 
+## Harness Workflow Alignment
+
+- Follow the required PR workflow in `AGENTS.md` and `.github/docs/contribution-workflow.md`.
+- Expect CI + Copilot review as mandatory quality gates before merge.
+- Keep workflow changes compatible with path-filtered post-merge deploy triggers.
+
 ## Certificate Management
 
 - GitHub Actions: PRODUCTION Let's Encrypt (trusted, rate-limited)

@@ -203,7 +203,7 @@ dig +short traefik.hill90.com    # Tailscale IP
 
 Check Tailscale status on VPS:
 ```bash
-ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66 'tailscale status'
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'tailscale status'
 # Should show: VPS online with Tailscale IP
 ```
 
@@ -217,12 +217,12 @@ tailscale status
 
 **Test SSH via Tailscale (should SUCCEED):**
 ```bash
-ssh -i ~/.ssh/remote.hill90.com deploy@100.68.116.66
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
 ```
 
 **Test SSH via public IP (should FAIL):**
 ```bash
-ssh -i ~/.ssh/remote.hill90.com deploy@76.13.26.69
+ssh -i ~/.ssh/remote.hill90.com deploy@<public-ip>
 # Connection refused - firewall blocks SSH from public internet
 ```
 

@@ -32,6 +32,12 @@ All workflows depend on these GitHub repository secrets:
 - Always validate infrastructure before deployment
 - Include health checks after deployment
 
+## Harness Workflow Alignment
+
+- Follow the required PR workflow in `AGENTS.md` and `.github/docs/contribution-workflow.md`.
+- Treat CI and automated review as release gates before merge.
+- Preserve post-merge deploy trigger behavior when editing workflow paths and filters.
+
 ## Certificate Management
 
 - GitHub Actions: PRODUCTION Let's Encrypt (trusted, rate-limited)
