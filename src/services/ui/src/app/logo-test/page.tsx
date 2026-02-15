@@ -32,7 +32,7 @@ function Hill({
       {/* Right peak (background, taller) — left edge follows gap boundary */}
       <path
         className="hill-right"
-        d="M 458,297 L 256,95 C 290,52 315,12 368,10 C 420,12 540,130 660,297 Z"
+        d="M 458,297 L 256,95 C 286,54 308,14 368,12 C 428,14 548,125 660,297 Z"
         fill={lightColor}
       />
       {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
@@ -64,7 +64,7 @@ function HillOutline({ className = '' }: { className?: string }) {
     >
       <path
         className="draw-right"
-        d="M 458,297 L 256,95 C 290,52 315,12 368,10 C 420,12 540,130 660,297 Z"
+        d="M 458,297 L 256,95 C 286,54 308,14 368,12 C 428,14 548,125 660,297 Z"
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
