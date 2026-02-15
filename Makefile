@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-auth deploy-api deploy-ai deploy-mcp deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -168,6 +168,10 @@ deploy-ai: ## Deploy AI service
 deploy-mcp: ## Deploy MCP service
 	@echo "$(COLOR_YELLOW)Deploying MCP service...$(COLOR_RESET)"
 	bash scripts/deploy.sh mcp $(ENV)
+
+deploy-ui: ## Deploy UI service
+	@echo "$(COLOR_YELLOW)Deploying UI service...$(COLOR_RESET)"
+	bash scripts/deploy.sh ui $(ENV)
 
 deploy-all: ## Deploy all application services (NOT infrastructure)
 	@echo "$(COLOR_YELLOW)Deploying all application services...$(COLOR_RESET)"
