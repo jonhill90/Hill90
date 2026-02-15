@@ -127,10 +127,10 @@ Hill90 uses Let's Encrypt for SSL/TLS certificates with two different challenge 
 **Certificate Resolvers:**
 
 ```yaml
-# deployments/platform/edge/traefik.yml
+# platform/edge/traefik.yml
 
 certificatesResolvers:
-  # HTTP-01 for public services
+  # HTTP-01 for public services (api, ai, mcp)
   letsencrypt:
     acme:
       email: admin@hill90.com
@@ -138,7 +138,7 @@ certificatesResolvers:
       httpChallenge:
         entryPoint: web
 
-  # DNS-01 for Tailscale-only services
+  # DNS-01 for Tailscale-only services (traefik, portainer)
   letsencrypt-dns:
     acme:
       email: admin@hill90.com
@@ -150,6 +150,11 @@ certificatesResolvers:
           - 1.1.1.1:53
           - 8.8.8.8:53
 ```
+
+> **Important:** Traefik does NOT interpolate `${VAR}` in its YAML config files.
+> Email must be hardcoded in `traefik.yml`. The `caServer` is set via Docker Compose
+> CLI args (`command:` in the compose file), because Docker Compose does interpolate
+> environment variables.
 
 **Environment Variables:**
 

@@ -30,3 +30,35 @@
   run bash scripts/validate.sh compose
   [[ "$output" == *"Compose"* ]]
 }
+
+# Traefik config regression tests
+
+@test "traefik.yml has letsencrypt-dns resolver" {
+  run grep "^  letsencrypt-dns:" platform/edge/traefik.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "traefik.yml has no uninterpolated env vars" {
+  run grep -c '\${' platform/edge/traefik.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "middlewares.yml has tailscale-only middleware" {
+  run grep "tailscale-only:" platform/edge/dynamic/middlewares.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "middlewares.yml auth uses usersFile not inline users" {
+  run grep "usersFile:" platform/edge/dynamic/middlewares.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "middlewares.yml has no uninterpolated env vars" {
+  run grep -c '\${' platform/edge/dynamic/middlewares.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "docker-compose.infra.yml traefik has tailscale-only middleware" {
+  run grep "traefik.http.routers.traefik.middlewares" deployments/compose/prod/docker-compose.infra.yml
+  [[ "$output" == *"tailscale-only@file"* ]]
+}

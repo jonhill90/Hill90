@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Validate CLI — validate infrastructure configuration
 # Usage: validate.sh {all|compose|secrets|traefik} [env]
+# shellcheck source=_common.sh
 
 set -e
 
@@ -106,6 +107,22 @@ cmd_traefik() {
             echo "✗ Docker provider not configured"
             all_valid=false
         fi
+
+        echo -n "Checking letsencrypt-dns resolver... "
+        if grep -q "^  letsencrypt-dns:" "$traefik_config"; then
+            echo "✓"
+        else
+            echo "✗ Missing letsencrypt-dns resolver (required for Tailscale-only services)"
+            all_valid=false
+        fi
+
+        echo -n "Checking for uninterpolated env vars in traefik.yml... "
+        if grep -q '\${' "$traefik_config"; then
+            echo "✗ Found \${...} — Traefik does not interpolate env vars in YAML"
+            all_valid=false
+        else
+            echo "✓"
+        fi
     fi
 
     echo -n "Checking dynamic config directory... "
@@ -134,6 +151,30 @@ cmd_traefik() {
             fi
         else
             echo "⊘ Skipped (PyYAML not installed)"
+        fi
+
+        echo -n "Checking tailscale-only middleware... "
+        if grep -q "tailscale-only:" "$dynamic_dir/middlewares.yml" 2>/dev/null; then
+            echo "✓"
+        else
+            echo "✗ Missing tailscale-only middleware (required for Portainer)"
+            all_valid=false
+        fi
+
+        echo -n "Checking auth uses usersFile... "
+        if grep -q "usersFile:" "$dynamic_dir/middlewares.yml" 2>/dev/null; then
+            echo "✓"
+        else
+            echo "✗ auth middleware should use usersFile, not inline users"
+            all_valid=false
+        fi
+
+        echo -n "Checking for uninterpolated env vars in middlewares... "
+        if grep -q '\${' "$dynamic_dir/middlewares.yml" 2>/dev/null; then
+            echo "✗ Found \${...} — Traefik does not interpolate env vars"
+            all_valid=false
+        else
+            echo "✓"
         fi
     fi
 

@@ -22,3 +22,19 @@ jobs:
 
       - name: Run bats tests
         run: bats tests/scripts/
+
+      - name: Validate compose files
+        run: |
+          for f in deployments/compose/prod/docker-compose*.yml; do
+            echo "Validating $f..."
+            docker compose -f "$f" config > /dev/null
+          done
+
+      - name: Validate Traefik config
+        run: bash scripts/validate.sh traefik
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint scripts
+        run: shellcheck --severity=error scripts/*.sh
