@@ -1,7 +1,7 @@
 ---
 paths:
   - infra/**
-  - deployments/**
+  - deploy/**
 ---
 
 # Infrastructure Authoring Rules

@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'src/services/ai/**'
-      - 'deployments/compose/prod/docker-compose.ai.yml'
+      - 'deploy/compose/prod/docker-compose.ai.yml'
       - 'scripts/deploy.sh'
       - '.github/workflows/deploy-ai.yml'
 

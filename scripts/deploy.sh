@@ -36,7 +36,7 @@ EOF
 
 cmd_infra() {
     local env="${1:-prod}"
-    local compose_file="deployments/compose/${env}/docker-compose.infra.yml"
+    local compose_file="deploy/compose/${env}/docker-compose.infra.yml"
     local secrets_file="infra/secrets/${env}.enc.env"
 
     ensure_age_key "$env"
@@ -99,7 +99,7 @@ cmd_service() {
     local compose_file banner containers summary
     case "$service" in
         auth)
-            compose_file="deployments/compose/${env}/docker-compose.auth.yml"
+            compose_file="deploy/compose/${env}/docker-compose.auth.yml"
             containers="auth postgres"
             banner="Auth Service Deployment"
             summary="Services deployed:
@@ -107,21 +107,21 @@ cmd_service() {
   - auth (authentication service)"
             ;;
         api)
-            compose_file="deployments/compose/${env}/docker-compose.api.yml"
+            compose_file="deploy/compose/${env}/docker-compose.api.yml"
             containers="api"
             banner="API Service Deployment"
             summary="Service deployed:
   - api (API Gateway at api.hill90.com)"
             ;;
         ai)
-            compose_file="deployments/compose/${env}/docker-compose.ai.yml"
+            compose_file="deploy/compose/${env}/docker-compose.ai.yml"
             containers="ai"
             banner="AI Service Deployment"
             summary="Service deployed:
   - ai (AI service at ai.hill90.com)"
             ;;
         mcp)
-            compose_file="deployments/compose/${env}/docker-compose.mcp.yml"
+            compose_file="deploy/compose/${env}/docker-compose.mcp.yml"
             containers="mcp"
             banner="MCP Service Deployment"
             summary="Service deployed:

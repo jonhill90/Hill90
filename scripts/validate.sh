@@ -316,7 +316,7 @@ cmd_secrets() {
 
 cmd_compose() {
     local env="${1:-prod}"
-    local compose_file="deployments/compose/${env}/docker-compose.yml"
+    local compose_file="deploy/compose/${env}/docker-compose.yml"
 
     echo "================================"
     echo "Docker Compose Validation"

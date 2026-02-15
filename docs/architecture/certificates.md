@@ -159,7 +159,7 @@ certificatesResolvers:
 **Environment Variables:**
 
 ```yaml
-# deployments/compose/prod/docker-compose.yml
+# deploy/compose/prod/docker-compose.yml
 
 environment:
   - HTTPREQ_ENDPOINT=http://dns-manager:8080
