@@ -8,8 +8,8 @@ import { useState, useEffect } from 'react';
 function Hill({
   className = '',
   id,
-  lightColor = '#657278',
-  darkColor = '#3B4851',
+  lightColor = '#60757D',
+  darkColor = '#3C4A52',
 }: {
   className?: string;
   id?: string;
@@ -26,22 +26,22 @@ function Hill({
       role="img"
       aria-label="Hill90 logo"
     >
-      {/* Right peak (background, taller) */}
+      {/* Right peak (background, taller) — straight slopes, slight convex right edge */}
       <path
         className="hill-right"
-        d="M 200,297 C 240,220 310,30 365,8 C 420,0 540,120 660,297 Z"
+        d="M 55,297 L 340,18 Q 365,-2 390,18 Q 530,130 660,297 Z"
         fill={lightColor}
       />
-      {/* Left peak (middle layer, shorter) */}
+      {/* Left peak (middle layer, shorter) — angular triangle, rounded peak */}
       <path
         className="hill-left"
-        d="M 0,297 C 40,220 150,100 198,88 C 240,78 340,170 430,297 Z"
+        d="M 0,297 L 180,100 Q 198,78 220,95 L 422,297 Z"
         fill={lightColor}
       />
-      {/* Front hill (foreground, darker) */}
+      {/* Front hill (foreground, darker) — smooth concave curve */}
       <path
         className="hill-front"
-        d="M 240,297 C 310,250 390,110 465,105 C 540,100 610,190 660,297 Z"
+        d="M 240,297 C 340,200 430,110 465,105 C 510,100 600,200 660,297 Z"
         fill={darkColor}
       />
     </svg>
@@ -61,23 +61,23 @@ function HillOutline({ className = '' }: { className?: string }) {
     >
       <path
         className="draw-right"
-        d="M 200,297 C 240,220 310,30 365,8 C 420,0 540,120 660,297 Z"
+        d="M 55,297 L 340,18 Q 365,-2 390,18 Q 530,130 660,297 Z"
         fill="none"
-        stroke="#657278"
+        stroke="#60757D"
         strokeWidth="3"
       />
       <path
         className="draw-left"
-        d="M 0,297 C 40,220 150,100 198,88 C 240,78 340,170 430,297 Z"
+        d="M 0,297 L 180,100 Q 198,78 220,95 L 422,297 Z"
         fill="none"
-        stroke="#657278"
+        stroke="#60757D"
         strokeWidth="3"
       />
       <path
         className="draw-front"
-        d="M 240,297 C 310,250 390,110 465,105 C 540,100 610,190 660,297 Z"
+        d="M 240,297 C 340,200 430,110 465,105 C 510,100 600,200 660,297 Z"
         fill="none"
-        stroke="#3B4851"
+        stroke="#3C4A52"
         strokeWidth="3"
       />
     </svg>
