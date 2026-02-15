@@ -132,7 +132,7 @@ The Traefik dashboard at `https://traefik.hill90.com` uses basic authentication.
 **Credentials are automatically generated during deployment:**
 
 1. Password hash stored in: `TRAEFIK_ADMIN_PASSWORD_HASH` (encrypted in secrets)
-2. Deploy script generates: `deployments/platform/edge/dynamic/.htpasswd`
+2. Deploy script generates: `platform/edge/dynamic/.htpasswd`
 
 **Access credentials:**
 - Username: `admin`
