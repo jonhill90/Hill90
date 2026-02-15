@@ -55,12 +55,12 @@ services:
       - ../../../platform/edge/dynamic:/etc/traefik/dynamic:ro
       - traefik-certs:/letsencrypt
     environment:
-      - ACME_EMAIL=${ACME_EMAIL:-jonhill90@live.com}
       - ACME_CA_SERVER=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
-      - TRAEFIK_ADMIN_PASSWORD_HASH=${TRAEFIK_ADMIN_PASSWORD_HASH}
       # DNS-01 challenge via dns-manager service (httpreq provider)
       - HTTPREQ_ENDPOINT=http://dns-manager:8080
       - HTTPREQ_MODE=RAW
+      - HTTPREQ_POLLING_INTERVAL=30s
+      - HTTPREQ_PROPAGATION_TIMEOUT=300s
     depends_on:
       - dns-manager
     labels:
@@ -69,7 +69,7 @@ services:
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.tls.certresolver=letsencrypt-dns"
       - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.middlewares=auth@file"
+      - "traefik.http.routers.traefik.middlewares=auth@file,tailscale-only@file"
 
   # Portainer Container Management (Tailscale-only access)
   portainer:

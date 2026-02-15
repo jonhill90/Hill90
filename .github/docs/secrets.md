@@ -72,7 +72,7 @@ sops -d --extract '["VPS_IP"]' infra/secrets/prod.enc.env
 Bcrypt password hash for Traefik dashboard authentication.
 
 **Usage:**
-- Deployed to: `deployments/platform/edge/dynamic/.htpasswd`
+- Deployed to: `platform/edge/dynamic/.htpasswd`
 - Format: `$2y$05$...` (bcrypt hash)
 - Username: `admin`
 - Generated during: Every deployment via deploy scripts

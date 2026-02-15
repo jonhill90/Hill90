@@ -11,6 +11,10 @@ on:
           - prod
         default: 'prod'
 
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
 jobs:
   deploy:
     name: Deploy Infrastructure Services
@@ -71,11 +75,50 @@ jobs:
       - name: Wait for services to start
         run: sleep 30
 
-      - name: Verify services
+      - name: Verify containers running
         run: |
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          echo "Checking required containers..."
+          for svc in traefik dns-manager portainer; do
+            STATUS=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+              deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+              "docker inspect -f '{{.State.Status}}' $svc 2>/dev/null || echo missing")
+            echo "$svc: $STATUS"
+            if [ "$STATUS" != "running" ]; then
+              echo "::error::Container $svc is not running (status: $STATUS)"
+              exit 1
+            fi
+          done
+
+      - name: Check Traefik logs for config errors
+        run: |
+          echo "Checking Traefik logs for errors..."
+          ERRORS=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "(traefik|dns-manager|portainer)"'
+            'docker logs traefik 2>&1 | grep -iE "nonexistent resolver|does not exist|error parsing" || true')
+          if [ -n "$ERRORS" ]; then
+            echo "::error::Traefik config errors detected:"
+            echo "$ERRORS"
+            exit 1
+          fi
+          echo "No config errors found"
+
+      - name: Verify TLS certificates
+        run: |
+          echo "Checking TLS certificate issuers..."
+          FAIL=0
+          for domain in api.hill90.com traefik.hill90.com portainer.hill90.com; do
+            ISSUER=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+              deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+              "echo | openssl s_client -connect localhost:443 -servername $domain 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null || echo 'issuer=NONE'")
+            echo "$domain: $ISSUER"
+            if echo "$ISSUER" | grep -qiE "TRAEFIK DEFAULT|FAKE|NONE"; then
+              echo "::warning::$domain does not have a valid Let's Encrypt certificate"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" -eq 1 ]; then
+            echo "::warning::Some certificates are not yet issued. DNS-01 certs may take 2-5 minutes."
+          fi
 
       - name: Summary
         if: success()
