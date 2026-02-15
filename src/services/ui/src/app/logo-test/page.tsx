@@ -29,7 +29,7 @@ function Hill({
       {/* Right peak (background, taller) — straight slopes, slight convex right edge */}
       <path
         className="hill-right"
-        d="M 55,297 L 340,18 Q 365,-2 390,18 Q 530,130 660,297 Z"
+        d="M 458,297 L 256,95 C 300,40 340,5 365,5 C 390,5 540,130 660,297 Z"
         fill={lightColor}
       />
       {/* Left peak (middle layer, shorter) — angular triangle, rounded peak */}
@@ -61,7 +61,7 @@ function HillOutline({ className = '' }: { className?: string }) {
     >
       <path
         className="draw-right"
-        d="M 55,297 L 340,18 Q 365,-2 390,18 Q 530,130 660,297 Z"
+        d="M 458,297 L 256,95 C 300,40 340,5 365,5 C 390,5 540,130 660,297 Z"
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
