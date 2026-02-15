@@ -28,8 +28,14 @@ http:
     # Basic Auth for Traefik Dashboard
     auth:
       basicAuth:
-        users:
-          - "${TRAEFIK_ADMIN_PASSWORD_HASH}"
+        usersFile: /etc/traefik/dynamic/.htpasswd
+
+    # Tailscale-only access (CGNAT range)
+    # NOTE: ipWhiteList is Traefik v2. If upgrading to v3, use ipAllowList.
+    tailscale-only:
+      ipWhiteList:
+        sourceRange:
+          - "100.64.0.0/10"
 
     # MCP Authentication (forward to auth service)
     mcp-auth:

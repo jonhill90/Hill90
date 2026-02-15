@@ -167,7 +167,7 @@ Common issues and solutions for Hill90 VPS infrastructure.
 
 5. **Verify Traefik DNS-01 configuration:**
    ```bash
-   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/deployments/platform/edge/traefik.yml | grep -A5 dnsChallenge'
+   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/platform/edge/traefik.yml | grep -A5 dnsChallenge'
    ```
 
 6. **Rate limiting:**
@@ -269,7 +269,7 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 2. **Check .htpasswd file:**
    ```bash
-   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/deployments/platform/edge/dynamic/.htpasswd'
+   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/platform/edge/dynamic/.htpasswd'
    # Should show: admin:$2y$05$...
    ```
 
@@ -287,7 +287,7 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 5. **Check middleware configuration:**
    ```bash
-   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/deployments/platform/edge/dynamic/middlewares.yml'
+   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/platform/edge/dynamic/middlewares.yml'
    ```
 
 ### Traefik Dashboard Not Accessible
