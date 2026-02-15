@@ -485,8 +485,8 @@ ok 1-47 (all tests passed)
 ## Appendix B: Files Modified
 
 ### B.1 New Files Created
-1. `tests/scripts/instructions.bats` (10 tests, 88 lines)
-2. `.github/skills/README.md` (comprehensive catalog, 144 lines)
+1. `tests/scripts/instructions.bats` (10 tests, 79 lines)
+2. `.github/skills/README.md` (comprehensive catalog, 109 lines)
 
 ### B.2 Existing Files Analyzed
 - `.github/copilot-instructions.md` (symlink verified)
