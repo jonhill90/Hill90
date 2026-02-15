@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 
 /* ------------------------------------------------------------------ */
 /*  Base SVG — each animation variant renders this with different CSS  */
@@ -8,11 +9,13 @@ import { useState, useEffect } from 'react';
 function Hill({
   className = '',
   id,
+  width = 200,
   lightColor = '#60757D',
   darkColor = '#3C4A52',
 }: {
   className?: string;
   id?: string;
+  width?: number;
   lightColor?: string;
   darkColor?: string;
 }) {
@@ -21,7 +24,7 @@ function Hill({
       id={id}
       viewBox="0 0 660 297"
       xmlns="http://www.w3.org/2000/svg"
-      width={200}
+      width={width}
       className={className}
       role="img"
       aria-label="Hill90 logo"
@@ -140,9 +143,29 @@ export default function LogoTestPage() {
     <div className="min-h-screen bg-navy-900 text-white p-8">
       <div className="max-w-5xl mx-auto">
         <h1 className="text-3xl font-bold mb-2">Logo Animation Picker</h1>
-        <p className="text-mountain-400 mb-8">
+        <p className="text-mountain-400 mb-4">
           Pick a number. Hit Replay to see it again.
         </p>
+
+        {/* Side-by-side comparison */}
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-6 mb-8">
+          <h2 className="text-lg font-semibold mb-4">PNG vs SVG Comparison</h2>
+          <div className="grid grid-cols-2 gap-8">
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-xs text-mountain-400 font-mono">Original PNG</span>
+              <Image
+                src="/Hill90-logo10-notext.png"
+                alt="PNG original"
+                width={300}
+                height={135}
+              />
+            </div>
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-xs text-mountain-400 font-mono">SVG Code</span>
+              <Hill className="" id="compare-svg" width={300} />
+            </div>
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* 1 — Fade In */}
