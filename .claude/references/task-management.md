@@ -76,6 +76,15 @@ mcp__MCP_DOCKER__list_issues(
 3. Context reset between planning & execution → Linear persists
 4. Update Linear issue with learnings as work progresses
 
+## PR Lifecycle Mapping (Hill90 Harness)
+
+- `todo`: Planned work, not yet started
+- `doing`: Implementation in progress
+- `review`: PR opened, CI/review feedback in progress
+- `done`: PR merged and post-merge checks complete
+
+Use this mapping with the required PR loop in `AGENTS.md` and `.github/docs/contribution-workflow.md`.
+
 ## Examples
 
 **VPS Rebuild Task**:

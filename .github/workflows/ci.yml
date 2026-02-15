@@ -15,6 +15,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Validate harness freshness
+        run: python3 scripts/checks/check_harness_freshness.py
+
+      - name: Validate markdown links
+        run: python3 scripts/checks/check_md_links.py
+
       - name: Install bats
         run: |
           sudo apt-get update

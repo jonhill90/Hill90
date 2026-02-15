@@ -97,11 +97,7 @@ Traefik (edge network)           ┌──────────────�
 - **VPS Provisioning**: Hostinger API (fully automated via Makefile)
 - **Configuration as Code**: Ansible playbooks (VPS bootstrap)
 - **Container Orchestration**: Docker Compose
-- **CI/CD**: GitHub Actions (4 workflows)
-  - VPS Recreate - OS rebuild via Hostinger API
-  - Config VPS - Infrastructure bootstrap via Ansible
-  - Deploy - Application service deployment
-  - Tailscale ACL - GitOps for network access control
+- **CI/CD**: GitHub Actions (CI, VPS lifecycle, per-service deploy, and Tailscale ACL workflows)
 - **DNS Management**: Automated via Hostinger DNS API (MCP tools)
 - **Certificate Management**: Automatic via Let's Encrypt (HTTP-01 + DNS-01)
 
