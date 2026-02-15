@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import { HILL_RIGHT, HILL_LEFT, HILL_FRONT } from '../../components/hill-paths';
 
 /* ------------------------------------------------------------------ */
 /*  Base SVG — each animation variant renders this with different CSS  */
@@ -10,12 +11,14 @@ function Hill({
   className = '',
   id,
   width = 200,
+  height,
   lightColor = '#60757D',
   darkColor = '#3C4A52',
 }: {
   className?: string;
   id?: string;
   width?: number;
+  height?: number;
   lightColor?: string;
   darkColor?: string;
 }) {
@@ -25,6 +28,7 @@ function Hill({
       viewBox="0 0 660 297"
       xmlns="http://www.w3.org/2000/svg"
       width={width}
+      height={height}
       className={className}
       role="img"
       aria-label="Hill90 logo"
@@ -32,19 +36,19 @@ function Hill({
       {/* Right peak (background, taller) — left edge follows gap boundary */}
       <path
         className="hill-right"
-        d="M 458,297 L 256,95 C 286,54 308,14 368,12 C 428,14 548,125 660,297 Z"
+        d={HILL_RIGHT}
         fill={lightColor}
       />
       {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
       <path
         className="hill-left"
-        d="M 0,297 L 180,100 Q 198,78 220,95 L 422,297 Z"
+        d={HILL_LEFT}
         fill={lightColor}
       />
       {/* Front hill (foreground, darker) — smooth concave curve */}
       <path
         className="hill-front"
-        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297 Z"
+        d={HILL_FRONT}
         fill={darkColor}
       />
     </svg>
@@ -64,21 +68,21 @@ function HillOutline({ className = '' }: { className?: string }) {
     >
       <path
         className="draw-right"
-        d="M 458,297 L 256,95 C 286,54 308,14 368,12 C 428,14 548,125 660,297 Z"
+        d={HILL_RIGHT}
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
       />
       <path
         className="draw-left"
-        d="M 0,297 L 180,100 Q 198,78 220,95 L 422,297 Z"
+        d={HILL_LEFT}
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
       />
       <path
         className="draw-front"
-        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297 Z"
+        d={HILL_FRONT}
         fill="none"
         stroke="#3C4A52"
         strokeWidth="3"
@@ -153,16 +157,15 @@ export default function LogoTestPage() {
           <div className="grid grid-cols-2 gap-8">
             <div className="flex flex-col items-center gap-2">
               <span className="text-xs text-mountain-400 font-mono">Original PNG</span>
-              <Image
-                src="/Hill90-logo10-notext.png"
-                alt="PNG original"
-                width={300}
-                height={135}
-              />
+              <div className="w-[300px] h-[135px] flex items-center justify-center">
+                <Image src="/Hill90-logo10-notext.png" alt="PNG original" width={300} height={135} />
+              </div>
             </div>
             <div className="flex flex-col items-center gap-2">
               <span className="text-xs text-mountain-400 font-mono">SVG Code</span>
-              <Hill className="" id="compare-svg" width={300} />
+              <div className="w-[300px] h-[135px] flex items-center justify-center">
+                <Hill id="compare-svg" width={300} height={135} />
+              </div>
             </div>
           </div>
         </div>
