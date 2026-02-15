@@ -180,3 +180,7 @@ infra/ansible/inventory/rebuild-temp.ini
 .claude/settings.local.json
 CLAUDE.local.md
 AGENTS.override.md
+
+# Playwright runtime output
+.playwright-cli/
+.playwright-mcp/
