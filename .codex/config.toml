@@ -9,6 +9,10 @@ url = "https://learn.microsoft.com/api/mcp"
 [mcp_servers.deepwiki]
 url = "https://mcp.deepwiki.com/mcp"
 
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@0.0.68", "--headless"]
+
 # Execution policy: require approval for non-read operations
 approval_policy = "on-request"
 
