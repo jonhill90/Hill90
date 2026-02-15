@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'src/services/mcp/**'
-      - 'deployments/compose/prod/docker-compose.mcp.yml'
+      - 'deploy/compose/prod/docker-compose.mcp.yml'
       - 'scripts/deploy.sh'
       - '.github/workflows/deploy-mcp.yml'
 

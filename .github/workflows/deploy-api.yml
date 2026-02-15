@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'src/services/api/**'
-      - 'deployments/compose/prod/docker-compose.api.yml'
+      - 'deploy/compose/prod/docker-compose.api.yml'
       - 'scripts/deploy.sh'
       - '.github/workflows/deploy-api.yml'
 

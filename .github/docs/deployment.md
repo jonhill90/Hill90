@@ -55,7 +55,7 @@ make deploy-production   # DEPRECATED - use make deploy-infra + make deploy-all
 
 ## Docker Compose Files
 
-Separate compose files in `deployments/compose/prod/`:
+Separate compose files in `deploy/compose/prod/`:
 
 | File | Services | Networks |
 |------|----------|----------|

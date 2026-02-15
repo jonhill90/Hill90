@@ -427,10 +427,10 @@ ssh -i ~/.ssh/remote.hill90.com deploy@100.99.139.10
 docker logs <service-name>
 
 # Check Docker Compose status
-docker compose -f deployments/compose/prod/docker-compose.yml ps
+docker compose -f deploy/compose/prod/docker-compose.yml ps
 
 # Restart service
-docker compose -f deployments/compose/prod/docker-compose.yml restart <service-name>
+docker compose -f deploy/compose/prod/docker-compose.yml restart <service-name>
 ```
 
 ### TLS Certificate Issues
