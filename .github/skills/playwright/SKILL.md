@@ -300,7 +300,7 @@ Default config runs **headless** (no visible browser window). To switch to heade
 "args": ["-y", "@playwright/mcp@0.0.68"]
 ```
 
-Update in both `.mcp.json` and `.vscode/mcp.json`, then restart the session.
+Update in `.mcp.json` (and `.vscode/mcp.json` if it exists locally), then restart the session.
 
 ### MCP Capabilities
 
@@ -324,7 +324,7 @@ Optional capabilities can be enabled by adding `--caps` flags to the MCP server 
 }
 ```
 
-**MCP Version:** Pinned at `@playwright/mcp@0.0.68` (pre-stable). Bump periodically by updating `args` in both `.mcp.json` and `.vscode/mcp.json`.
+**MCP Version:** Pinned at `@playwright/mcp@0.0.68` (pre-stable). Bump periodically by updating `args` in `.mcp.json`.
 
 ## References
 

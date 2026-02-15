@@ -202,8 +202,8 @@ Both scripts support `-S` (socket path) and `-L` (socket name) flags.
 Examples:
 
 ```bash
-{baseDir}/scripts/find-sessions.sh -S "$SOCKET"
-{baseDir}/scripts/wait-for-text.sh -S "$SOCKET" -t "$SESSION":shell -p 'ready|Done|❯|\\$'
+.github/skills/tmux/scripts/find-sessions.sh -S "$SOCKET"
+.github/skills/tmux/scripts/wait-for-text.sh -S "$SOCKET" -t "$SESSION":shell -p 'ready|Done|❯|\\$'
 ```
 
 ## Cleanup
