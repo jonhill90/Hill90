@@ -19,3 +19,6 @@ sandbox_mode = "workspace-write"
 
 # Fallback instruction filenames if AGENTS.md is missing
 project_doc_fallback_filenames = ["CLAUDE.md", "CODEX.md"]
+
+# Prevent AGENTS.md truncation as harness grows
+project_doc_max_bytes = 65536
