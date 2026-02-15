@@ -29,13 +29,13 @@ function Hill({
       role="img"
       aria-label="Hill90 logo"
     >
-      {/* Right peak (background, taller) — straight slopes, slight convex right edge */}
+      {/* Right peak (background, taller) — left edge follows gap boundary */}
       <path
         className="hill-right"
-        d="M 458,297 L 256,95 C 300,40 340,5 365,5 C 390,5 540,130 660,297 Z"
+        d="M 458,297 L 256,95 C 290,52 315,12 368,10 C 420,12 540,130 660,297 Z"
         fill={lightColor}
       />
-      {/* Left peak (middle layer, shorter) — angular triangle, rounded peak */}
+      {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
       <path
         className="hill-left"
         d="M 0,297 L 180,100 Q 198,78 220,95 L 422,297 Z"
@@ -44,7 +44,7 @@ function Hill({
       {/* Front hill (foreground, darker) — smooth concave curve */}
       <path
         className="hill-front"
-        d="M 240,297 C 340,200 430,110 465,105 C 510,100 600,200 660,297 Z"
+        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297 Z"
         fill={darkColor}
       />
     </svg>
@@ -64,7 +64,7 @@ function HillOutline({ className = '' }: { className?: string }) {
     >
       <path
         className="draw-right"
-        d="M 458,297 L 256,95 C 300,40 340,5 365,5 C 390,5 540,130 660,297 Z"
+        d="M 458,297 L 256,95 C 290,52 315,12 368,10 C 420,12 540,130 660,297 Z"
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
@@ -78,7 +78,7 @@ function HillOutline({ className = '' }: { className?: string }) {
       />
       <path
         className="draw-front"
-        d="M 240,297 C 340,200 430,110 465,105 C 510,100 600,200 660,297 Z"
+        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297 Z"
         fill="none"
         stroke="#3C4A52"
         strokeWidth="3"
