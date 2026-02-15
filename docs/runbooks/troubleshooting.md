@@ -64,13 +64,13 @@ Common issues and solutions for Hill90 VPS infrastructure.
 3. **Check Docker Compose status:**
    ```bash
    ssh deploy@<tailscale-ip> 'cd /opt/hill90/app && \
-     docker compose -f deployments/compose/prod/docker-compose.yml ps'
+     docker compose -f deploy/compose/prod/docker-compose.yml ps'
    ```
 
 4. **Restart service:**
    ```bash
    ssh deploy@<tailscale-ip> 'cd /opt/hill90/app && \
-     docker compose -f deployments/compose/prod/docker-compose.yml restart <service>'
+     docker compose -f deploy/compose/prod/docker-compose.yml restart <service>'
    ```
 
 5. **Check age key exists:**
@@ -393,7 +393,7 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 ## For More Help
 
 - **Check service logs:** `make logs` or `make logs-<service>`
-- **Review configuration:** Files in `deployments/` and `infra/`
+- **Review configuration:** Files in `deploy/` and `infra/`
 - **Consult documentation:**
   - [Architecture Overview](../architecture/overview.md)
   - [Certificate Management](../architecture/certificates.md)

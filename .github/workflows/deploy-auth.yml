@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - 'src/services/auth/**'
-      - 'deployments/compose/prod/docker-compose.auth.yml'
+      - 'deploy/compose/prod/docker-compose.auth.yml'
       - 'scripts/deploy.sh'
       - '.github/workflows/deploy-auth.yml'
 

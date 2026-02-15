@@ -25,7 +25,7 @@ jobs:
 
       - name: Validate compose files
         run: |
-          for f in deployments/compose/prod/docker-compose*.yml; do
+          for f in deploy/compose/prod/docker-compose*.yml; do
             echo "Validating $f..."
             docker compose -f "$f" config > /dev/null
           done

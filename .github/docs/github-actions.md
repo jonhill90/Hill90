@@ -426,7 +426,7 @@ After setup, you should have these **5 secrets** configured:
 3. Click **"Run workflow"** button
 
 **Auto-trigger:**
-- Push to `main` branch (if files changed in `src/**`, `deployments/**`, `scripts/**`)
+- Push to `main` branch (if files changed in `src/**`, `deploy/**`, `scripts/**`)
 
 **What happens:**
 1. Validates Docker Compose files and scripts

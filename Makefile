@@ -2,7 +2,7 @@
 
 # Environment
 ENV ?= prod
-COMPOSE_FILE = deployments/compose/$(ENV)/docker-compose.yml
+COMPOSE_FILE = deploy/compose/$(ENV)/docker-compose.yml
 VPS_HOST ?= $(shell grep VPS_HOST infra/secrets/$(ENV).dec.env 2>/dev/null | cut -d '=' -f 2)
 
 # Colors for output
@@ -96,13 +96,13 @@ config-vps: ## Configure VPS OS only (no containers deployed)
 # ============================================================================
 
 dev: ## Run development environment
-	docker compose -f deployments/compose/dev/docker-compose.yml up -d
+	docker compose -f deploy/compose/dev/docker-compose.yml up -d
 
 dev-logs: ## Show development logs
-	docker compose -f deployments/compose/dev/docker-compose.yml logs -f
+	docker compose -f deploy/compose/dev/docker-compose.yml logs -f
 
 dev-down: ## Stop development environment
-	docker compose -f deployments/compose/dev/docker-compose.yml down
+	docker compose -f deploy/compose/dev/docker-compose.yml down
 
 test: ## Run all tests
 	@echo "$(COLOR_BOLD)Running tests...$(COLOR_RESET)"

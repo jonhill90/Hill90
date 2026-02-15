@@ -2,7 +2,7 @@
 description: 'Rules for editing infrastructure, deployment, and platform configuration files'
 applyTo:
   - 'infra/**'
-  - 'deployments/**'
+  - 'deploy/**'
   - 'platform/**'
   - 'scripts/**'
 ---

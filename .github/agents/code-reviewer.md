@@ -47,7 +47,7 @@ You are a senior code reviewer for Hill90, a microservices platform on Hostinger
 - All deploy workflows have `concurrency: group: deploy-prod`
 
 ### Path Consistency
-- No stale `deployments/platform/edge/` paths (correct: `platform/edge/`)
+- No stale `deployments/` paths (correct: `deploy/` and `platform/`)
 - File paths in docs match actual repo structure
 - Symlinks point to correct targets
 

@@ -59,6 +59,6 @@
 }
 
 @test "docker-compose.infra.yml traefik has tailscale-only middleware" {
-  run grep "traefik.http.routers.traefik.middlewares" deployments/compose/prod/docker-compose.infra.yml
+  run grep "traefik.http.routers.traefik.middlewares" deploy/compose/prod/docker-compose.infra.yml
   [[ "$output" == *"tailscale-only@file"* ]]
 }

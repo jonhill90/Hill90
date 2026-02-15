@@ -136,7 +136,7 @@ Hill90/
 ├── .agents/                           # Codex-native skills discovery
 │   └── skills -> ../.github/skills
 │
-├── deployments/compose/prod/          # Docker compose files
+├── deploy/compose/prod/               # Docker compose files
 ├── platform/edge/                     # Traefik config (static + dynamic)
 ├── infra/
 │   ├── ansible/                       # Ansible playbooks
@@ -186,7 +186,7 @@ All AI platforms read from the same source of truth:
 | `agent-authoring` | `.github/agents/**/*.md` |
 | `documentation` | `.github/docs/**/*.md` |
 | `reference-freshness` | `.github/docs/**/*.md` |
-| `infrastructure` | `infra/**`, `deployments/**`, `platform/**`, `scripts/**` |
+| `infrastructure` | `infra/**`, `deploy/**`, `platform/**`, `scripts/**` |
 | `workflows` | `.github/workflows/**/*.yml` |
 | `testing` | `tests/**`, `**/*.py`, `**/*.sh` |
 
