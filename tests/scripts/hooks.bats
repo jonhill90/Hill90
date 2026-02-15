@@ -174,6 +174,24 @@ SCRIPT
   [[ "$output" == *"deny"* ]]
 }
 
+@test "block-local-deploy: blocks npm run build" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"npm run build\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deny"* ]]
+}
+
+@test "block-local-deploy: blocks next build" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"next build\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deny"* ]]
+}
+
+@test "block-local-deploy: allows git commit with build keyword in message" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"git commit -m \\\"block npm run build\\\"\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "block-local-deploy: allows empty command" {
   run bash -c 'echo "{\"tool_input\":{}}" | bash scripts/hooks/block-local-deploy.sh'
   [ "$status" -eq 0 ]

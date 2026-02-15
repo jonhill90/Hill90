@@ -100,6 +100,7 @@ Don't:
 - Use TodoWrite as persistent task tracking.
 - Run deploy scripts locally on Mac.
 - Use `gh pr merge --admin` or `gh pr merge --force`.
-- Run local app servers (`npm run dev`, `npm start`, `pnpm dev`, `yarn dev`) unless explicitly asked in the current turn.
+- Run local app servers or builds (`npm run dev`, `npm start`, `npm run build`, `pnpm dev`, `yarn dev`) unless explicitly asked in the current turn.
 - Skip CI/review feedback.
 - Add speculative features outside request scope.
+- If a hook blocks an action, do not retry or work around it. Stop immediately and ask the user what to do next.

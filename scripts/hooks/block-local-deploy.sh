@@ -48,6 +48,11 @@ check_segment() {
     return 1
   fi
 
+  # ALLOW: git commands (commit messages may contain blocked keywords)
+  if [[ "$seg" =~ ^git[[:space:]] ]]; then
+    return 1
+  fi
+
   # ALLOW: ssh-routed commands (non-deploy maintenance operations are valid)
   if [[ "$seg" =~ ^ssh[[:space:]] ]]; then
     return 1
@@ -60,8 +65,8 @@ check_segment() {
   fi
 
   # DENY: local app/dev servers (must be explicitly requested by user first)
-  if [[ "$seg" =~ (^|[[:space:]])(npm|pnpm|yarn)[[:space:]]+(run[[:space:]]+)?(dev|start)([[:space:]]|$) ]] || \
-     [[ "$seg" =~ (^|[[:space:]])next[[:space:]]+dev([[:space:]]|$) ]]; then
+  if [[ "$seg" =~ (^|[[:space:]])(npm|pnpm|yarn)[[:space:]]+(run[[:space:]]+)?(dev|start|build)([[:space:]]|$) ]] || \
+     [[ "$seg" =~ (^|[[:space:]])next[[:space:]]+(dev|build)([[:space:]]|$) ]]; then
     return 0
   fi
 
@@ -96,9 +101,9 @@ done <<< "$SEGMENTS"
 if [[ "$BLOCKED" == "true" ]]; then
   REASON="Blocked by Hill90 harness policy.
 - Never use gh pr merge with --admin or --force.
-- Do not run local app/dev servers unless the user explicitly asks in this turn.
+- Do not run local app/dev/build commands unless the user explicitly asks in this turn.
 - Do not run local deploy commands (make deploy-*, scripts/deploy.sh).
-Workflow: merge only after CI gates pass; deployment is automatic via GitHub Actions on push/merge to main."
+Deploys happen automatically via GitHub Actions on merge to main. Do nothing."
   jq -n --arg reason "$REASON" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
