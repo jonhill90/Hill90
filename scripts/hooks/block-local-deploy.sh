@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# PreToolUse hook: block deploy commands that should only run on VPS.
+# PreToolUse hook: block risky local commands that violate Hill90 workflow.
 # Input: JSON via stdin with tool_input.command
 # Output: JSON permissionDecision deny/allow
 
@@ -19,7 +19,7 @@ NORMALIZED="$COMMAND"
 NORMALIZED="${NORMALIZED#"${NORMALIZED%%[![:space:]]*}"}"
 
 # Check each segment of chained commands (&&, ||, ;)
-# We need to check if ANY segment contains a deploy command
+# We need to check if ANY segment contains a blocked command.
 check_segment() {
   local seg="$1"
   # Strip leading whitespace
@@ -48,9 +48,21 @@ check_segment() {
     return 1
   fi
 
-  # ALLOW: ssh-routed commands
+  # ALLOW: ssh-routed commands (non-deploy maintenance operations are valid)
   if [[ "$seg" =~ ^ssh[[:space:]] ]]; then
     return 1
+  fi
+
+  # DENY: bypassing branch protections
+  if [[ "$seg" =~ gh[[:space:]]+pr[[:space:]]+merge ]] && \
+     [[ "$seg" =~ (--admin|--force) ]]; then
+    return 0
+  fi
+
+  # DENY: local app/dev servers (must be explicitly requested by user first)
+  if [[ "$seg" =~ (^|[[:space:]])(npm|pnpm|yarn)[[:space:]]+(run[[:space:]]+)?(dev|start)([[:space:]]|$) ]] || \
+     [[ "$seg" =~ (^|[[:space:]])next[[:space:]]+dev([[:space:]]|$) ]]; then
+    return 0
   fi
 
   # DENY: make deploy-*
@@ -82,9 +94,11 @@ while IFS= read -r segment; do
 done <<< "$SEGMENTS"
 
 if [[ "$BLOCKED" == "true" ]]; then
-  REASON="Deploy commands must run on VPS, not locally. Use SSH:
-  ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com 'cd /opt/hill90/app && bash scripts/deploy.sh all prod'
-Or use: make recreate-vps / make config-vps / make health (these are local-safe)"
+  REASON="Blocked by Hill90 harness policy.
+- Never use gh pr merge with --admin or --force.
+- Do not run local app/dev servers unless the user explicitly asks in this turn.
+- Do not run local deploy commands (make deploy-*, scripts/deploy.sh).
+Workflow: merge only after CI gates pass; deployment is automatic via GitHub Actions on push/merge to main."
   jq -n --arg reason "$REASON" '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
