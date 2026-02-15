@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 SCAN_ROOTS = [
     ROOT / "README.md",
     ROOT / "AGENTS.md",
@@ -58,7 +58,8 @@ def main() -> int:
                 if not raw_link or is_external(raw_link):
                     continue
 
-                link_path = raw_link.split("#", 1)[0]
+                # Strip optional title (e.g. 'path "title"') and anchor
+                link_path = raw_link.split(" ", 1)[0].split("#", 1)[0]
                 if not link_path:
                     continue
 
