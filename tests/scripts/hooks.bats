@@ -144,6 +144,36 @@ SCRIPT
   [[ "$output" == *"deny"* ]]
 }
 
+@test "block-local-deploy: blocks gh pr merge with --admin" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"gh pr merge 23 --squash --delete-branch --admin\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deny"* ]]
+}
+
+@test "block-local-deploy: blocks gh pr merge with --force" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"gh pr merge 23 --squash --delete-branch --force\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deny"* ]]
+}
+
+@test "block-local-deploy: allows gh pr merge without bypass flags" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"gh pr merge 23 --squash --delete-branch\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "block-local-deploy: blocks npm run dev" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"cd src/services/ui && npm run dev\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deny"* ]]
+}
+
+@test "block-local-deploy: blocks pnpm dev" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"pnpm dev\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"deny"* ]]
+}
+
 @test "block-local-deploy: allows empty command" {
   run bash -c 'echo "{\"tool_input\":{}}" | bash scripts/hooks/block-local-deploy.sh'
   [ "$status" -eq 0 ]
