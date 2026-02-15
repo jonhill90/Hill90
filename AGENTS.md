@@ -172,7 +172,7 @@ All AI platforms read from the same source of truth:
 | Platform | Global Instructions | Scoped Rules | MCP Config |
 |----------|-------------------|--------------|------------|
 | Claude Code | `CLAUDE.md` → `AGENTS.md` | `.claude/rules/` (`paths:`) | `.mcp.json` |
-| GitHub Copilot | `.github/copilot-instructions.md` → `AGENTS.md` | `.github/instructions/` (`applyTo:`) | `.vscode/mcp.json` |
+| GitHub Copilot | `.github/copilot-instructions.md` → `AGENTS.md` | `.github/instructions/` (`applyTo:`) | `.vscode/mcp.json` (gitignored) |
 | Codex CLI | `AGENTS.md` (direct) | `.codex/rules/` | `.codex/config.toml` |
 
 **Copilot scoped instructions** (`.github/instructions/*.instructions.md`):
@@ -182,13 +182,13 @@ All AI platforms read from the same source of truth:
 
 | Instruction File | Scoped To |
 |-----------------|-----------|
-| `skill-authoring` | `.github/skills/**` |
-| `agent-authoring` | `.github/agents/**` |
-| `documentation` | `.github/docs/**` |
-| `reference-freshness` | `.github/docs/**` |
-| `infrastructure` | `infra/`, `deployments/`, `platform/`, `scripts/` |
-| `workflows` | `.github/workflows/**` |
-| `testing` | `tests/`, `**/*.py`, `**/*.sh` |
+| `skill-authoring` | `.github/skills/**/*.md` |
+| `agent-authoring` | `.github/agents/**/*.md` |
+| `documentation` | `.github/docs/**/*.md` |
+| `reference-freshness` | `.github/docs/**/*.md` |
+| `infrastructure` | `infra/**`, `deployments/**`, `platform/**`, `scripts/**` |
+| `workflows` | `.github/workflows/**/*.yml` |
+| `testing` | `tests/**`, `**/*.py`, `**/*.sh` |
 
 **Copilot code review** runs automatically on PRs (configured via branch rulesets).
 It reads both `copilot-instructions.md` and matching `*.instructions.md` files.
