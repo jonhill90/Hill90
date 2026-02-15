@@ -26,7 +26,7 @@ export default function HillLogo({
       {/* Right peak (background, taller) — left edge follows gap boundary */}
       <path
         className="hill-right"
-        d="M 458,297 L 256,95 C 300,40 340,5 365,5 C 390,5 540,130 660,297 Z"
+        d="M 458,297 L 256,95 C 298,48 332,10 368,8 C 404,6 540,130 660,297 Z"
         fill={lightColor}
       />
       {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
@@ -38,7 +38,7 @@ export default function HillLogo({
       {/* Front hill (foreground, darker) — smooth concave curve */}
       <path
         className="hill-front"
-        d="M 240,297 C 340,200 430,110 465,105 C 510,100 600,200 660,297 Z"
+        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297 Z"
         fill={darkColor}
       />
     </svg>
