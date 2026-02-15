@@ -30,10 +30,10 @@ export default function Home() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
         <Image
-          src="/hill90-logo10.png"
+          src="/Hill90-logo10-notext.png"
           alt="Hill90"
           width={120}
-          height={40}
+          height={54}
           priority
         />
         <Link
