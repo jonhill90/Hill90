@@ -13,19 +13,18 @@ When writing or editing subagent markdown files:
 
 ## Required Frontmatter
 - `name`: Unique identifier (lowercase, hyphens)
-- `description`: When the agent should be delegated to
+- `description`: When the agent should be delegated to — **must be a single-line quoted string** (VS Code parses `>-` multiline continuations as separate attributes)
 
 ## Optional Frontmatter
 - `tools`: Allowlist of tools as a **YAML array** (inherits all if omitted)
-- `disallowedTools`: Denylist as a **YAML array**
 - `model`: `sonnet`, `opus`, `haiku`, or `inherit`
-- `permissionMode`: Permission handling
-- `skills`: Skills to preload into context
-- `hooks`: Lifecycle hooks
+- `handoffs`: Copilot-only agent transitions as a **YAML array** (no-op on other platforms)
+
+VS Code supported attributes: `agents`, `argument-hint`, `description`, `disable-model-invocation`, `handoffs`, `model`, `name`, `target`, `tools`, `user-invokable`. Use `tools` allowlist instead of `disallowedTools` for cross-platform compatibility.
 
 ## Tools Syntax
 
-The `tools` and `disallowedTools` fields **must be YAML arrays**, not comma-separated strings.
+The `tools` field **must be a YAML array**, not a comma-separated string.
 
 ```yaml
 # Correct
@@ -45,6 +44,6 @@ tools: Read, Grep, Glob
 - Keep focused on one specific task
 
 ## Tool Restrictions
-- Grant only necessary permissions
-- Use `disallowedTools` for read-only agents
-- Common read-only set: `[Read, Grep, Glob, Bash]`
+- Grant only necessary permissions via the `tools` allowlist
+- For read-only agents, list only read tools: `[Read, Grep, Glob, Bash]`
+- Reinforce restrictions in the system prompt body as defense-in-depth

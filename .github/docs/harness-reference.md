@@ -23,8 +23,15 @@ Hill90/
 │   ├── docs/
 │   ├── skills/
 │   ├── agents/
+│   │   ├── code-reviewer.md
+│   │   ├── researcher.md
+│   │   ├── planner.md
+│   │   ├── tdd-red.md
+│   │   ├── tdd-green.md
+│   │   └── tdd-refactor.md
 │   └── workflows/
 ├── .claude/
+│   ├── settings.json
 │   ├── skills -> ../.github/skills
 │   ├── agents -> ../.github/agents
 │   ├── references/
@@ -49,7 +56,11 @@ Hill90/
 │   ├── hostinger.sh
 │   ├── vps.sh
 │   ├── ops.sh
-│   └── checks/
+│   ├── checks/
+│   └── hooks/
+│       ├── shellcheck-on-edit.sh
+│       ├── block-local-deploy.sh
+│       └── stop-gate.sh
 ├── tests/scripts/
 ├── src/services/
 └── docs/
@@ -98,6 +109,28 @@ ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
 | deepwiki | MCP tools | GitHub repo docs/wiki answers |
 | Hostinger MCP | `/hostinger` | VPS lifecycle + DNS management |
 | Linear MCP | `/linear` | Issue tracking and lifecycle |
+
+## Active Hooks (Claude Code Only)
+
+Hooks are configured in `.claude/settings.json` and run automatically during Claude Code sessions. Copilot and Codex enforce equivalent guardrails via CI workflows and scoped instructions.
+
+| Hook | Event | Script | Behavior |
+|------|-------|--------|----------|
+| shellcheck-on-edit | PostToolUse (Edit\|Write) | `scripts/hooks/shellcheck-on-edit.sh` | Runs shellcheck on edited `.sh` files (informational) |
+| block-local-deploy | PreToolUse (Bash) | `scripts/hooks/block-local-deploy.sh` | Blocks `make deploy-*` and `scripts/deploy.sh` locally (blocking) |
+| stop-gate | Stop | `scripts/hooks/stop-gate.sh` | Verifies required checks ran during session (blocking) |
+
+## TDD Agent Chain
+
+Three agents enforce Red-Green-Refactor phase separation:
+
+| Agent | Phase | Can Run Tests | Can Edit Files | Hands Off To |
+|-------|-------|---------------|---------------|-------------|
+| `tdd-red` | Write failing tests | No | No (Write only, in `tests/`) | `tdd-green` |
+| `tdd-green` | Minimum implementation | Yes | Yes | `tdd-refactor` |
+| `tdd-refactor` | Improve structure | Yes | Yes | `tdd-red` |
+
+Handoffs are Copilot-native (frontmatter `handoffs` key). Claude Code and Codex ignore unrecognized frontmatter.
 
 ## Guardrails
 
