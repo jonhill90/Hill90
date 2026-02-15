@@ -13,7 +13,7 @@ Chain: `AGENTS.md` (source) <- `CLAUDE.md` (symlink) <- `.github/copilot-instruc
    - Do not rely on stale memory for APIs/SDK patterns.
    - Use MCP docs tools first: `context7`, `microsoft-learn`, `deepwiki`.
 2. **Orient first**
-   - Run `/primer` at session start.
+   - Run primer at session start (`$primer` in Codex, `/primer` in Claude/Copilot).
 3. **Linear for persistent tracking**
    - Use Linear for all real work.
    - Status flow: `todo` -> `doing` -> `review` -> `done`.
@@ -24,7 +24,7 @@ Chain: `AGENTS.md` (source) <- `CLAUDE.md` (symlink) <- `.github/copilot-instruc
 
 This is the required flow for Claude, Codex, and Copilot-assisted changes.
 
-1. **Orient** — run `/primer`.
+1. **Orient** — run primer (`$primer` in Codex, `/primer` in Claude/Copilot).
 2. **Plan** — explore, produce plan, get approval.
 3. **Implement**
    - Code: Red -> Green -> Refactor
