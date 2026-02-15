@@ -73,6 +73,28 @@ services:
     depends_on:
       - postgres
 
+  # UI Service (Development)
+  ui:
+    build:
+      context: ../../../src/services/ui
+      dockerfile: Dockerfile.dev
+    container_name: ui-dev
+    networks:
+      - dev
+    ports:
+      - "3002:3000"
+    volumes:
+      - ../../../src/services/ui:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - API_URL=http://api:3000
+      - AI_URL=http://ai:8000
+      - AUTH_URL=http://auth:3001
+      - MCP_URL=http://mcp:8001
+    command: npm run dev
+
   # PostgreSQL (Development)
   postgres:
     image: postgres:16-alpine

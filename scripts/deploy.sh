@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|auth|api|ai|mcp|all} [env]
+# Usage: deploy.sh {infra|auth|api|ai|mcp|ui|all} [env]
 
 set -e
 
@@ -23,6 +23,7 @@ Commands:
   api      Deploy API service
   ai       Deploy AI service
   mcp      Deploy MCP service
+  ui       Deploy UI service
   all      Deploy all application services (NOT infrastructure)
   help     Show this help message
 
@@ -127,6 +128,13 @@ cmd_service() {
             summary="Service deployed:
   - mcp (MCP Gateway at ai.hill90.com/mcp)"
             ;;
+        ui)
+            compose_file="deploy/compose/${env}/docker-compose.ui.yml"
+            containers="ui"
+            banner="UI Service Deployment"
+            summary="Service deployed:
+  - ui (UI at hill90.com)"
+            ;;
     esac
 
     local secrets_file="infra/secrets/${env}.enc.env"
@@ -190,13 +198,14 @@ cmd_all() {
     echo "  2. api"
     echo "  3. ai"
     echo "  4. mcp"
+    echo "  5. ui"
     echo ""
 
     if ! docker network inspect hill90_edge >/dev/null 2>&1; then
         die "Network hill90_edge not found. Deploy infrastructure first: make deploy-infra"
     fi
 
-    for svc in auth api ai mcp; do
+    for svc in auth api ai mcp ui; do
         echo "Deploying ${svc} service..."
         cmd_service "$svc" "$env"
         echo ""
@@ -208,7 +217,7 @@ cmd_all() {
     echo "================================"
     echo ""
     echo "Running containers:"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|api|ai|mcp|auth|postgres)" || true
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|api|ai|mcp|auth|postgres|ui)" || true
     echo ""
     echo "Check service health:"
     echo "  make health"
@@ -230,7 +239,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        auth|api|ai|mcp) cmd_service "$cmd" "$@" ;;
+        auth|api|ai|mcp|ui) cmd_service "$cmd" "$@" ;;
         all)            cmd_all "$@" ;;
         help|--help|-h) usage ;;
         *)
