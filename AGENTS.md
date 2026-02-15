@@ -5,7 +5,7 @@
 Hill90 — a microservices platform on Hostinger VPS with full infrastructure automation, Tailscale-secured SSH, and Docker Compose deployments.
 
 This file is the single source of truth for all AI coding assistants.
-Chain: `AGENTS.md` (source) <- `CLAUDE.md` (symlink)
+Chain: `AGENTS.md` (source) <- `CLAUDE.md` (symlink) <- `.github/copilot-instructions.md` (symlink)
 
 ---
 
@@ -110,6 +110,8 @@ Hill90/
 ├── policy.hujson                      # Tailscale ACL policy (GitOps)
 │
 ├── .github/
+│   ├── copilot-instructions.md -> ../AGENTS.md
+│   ├── instructions/                  # Copilot scoped instructions (applyTo:)
 │   ├── docs/                          # Platform-agnostic reference docs
 │   ├── skills/                        # Skill definitions
 │   │   ├── primer/, linear/, gh-cli/, context7/, ms-learn/,
@@ -158,9 +160,38 @@ Hill90/
 - **`.github/`** is the source of truth for all skills, agents, docs
 - **`.claude/`**, **`.codex/`**, **`.agents/`** contain symlinks back to `.github/`
 - **`CLAUDE.md`** symlinks to `AGENTS.md` — Claude Code reads the same source
+- **`.github/copilot-instructions.md`** symlinks to `AGENTS.md` — Copilot reads the same source
 - **`.github/docs/`** holds platform-agnostic reference docs
 - **`.claude/references/`** holds Claude-specific knowledge + symlinks to `.github/docs/`
 - **`scripts/`** is flat — 6 CLI scripts with subcommands + 1 shared helper
+
+### Platform Parity
+
+All AI platforms read from the same source of truth:
+
+| Platform | Global Instructions | Scoped Rules | MCP Config |
+|----------|-------------------|--------------|------------|
+| Claude Code | `CLAUDE.md` → `AGENTS.md` | `.claude/rules/` (`paths:`) | `.mcp.json` |
+| GitHub Copilot | `.github/copilot-instructions.md` → `AGENTS.md` | `.github/instructions/` (`applyTo:`) | `.vscode/mcp.json` |
+| Codex CLI | `AGENTS.md` (direct) | `.codex/rules/` | `.codex/config.toml` |
+
+**Copilot scoped instructions** (`.github/instructions/*.instructions.md`):
+- Applied automatically to matching files via `applyTo:` glob patterns
+- Used by both Copilot coding agent and Copilot code review
+- Use `excludeAgent: "code-review"` to exclude from PR reviews
+
+| Instruction File | Scoped To |
+|-----------------|-----------|
+| `skill-authoring` | `.github/skills/**` |
+| `agent-authoring` | `.github/agents/**` |
+| `documentation` | `.github/docs/**` |
+| `reference-freshness` | `.github/docs/**` |
+| `infrastructure` | `infra/`, `deployments/`, `platform/`, `scripts/` |
+| `workflows` | `.github/workflows/**` |
+| `testing` | `tests/`, `**/*.py`, `**/*.sh` |
+
+**Copilot code review** runs automatically on PRs (configured via branch rulesets).
+It reads both `copilot-instructions.md` and matching `*.instructions.md` files.
 
 ---
 
