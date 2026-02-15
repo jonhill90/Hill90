@@ -31,8 +31,10 @@ See also: `.github/docs/harness-reference.md` for platform parity, repository to
    - Resolve CI failures and Copilot review findings, then push updates.
 11. **Merge**
    - Squash merge and delete branch: `gh pr merge --squash --delete-branch`
+   - Never use `--admin` or `--force` to bypass branch protections.
 12. **Post-Merge Deployment**
    - Push-to-main triggers path-filtered deploy workflows (`deploy-api.yml`, `deploy-auth.yml`, etc.) over SSH/Tailscale.
+   - Do not run manual deploy commands after merge unless explicitly requested for incident recovery.
 
 ## Branch Naming Convention
 

@@ -19,6 +19,8 @@ Chain: `AGENTS.md` (source) <- `CLAUDE.md` (symlink) <- `.github/copilot-instruc
    - Status flow: `todo` -> `doing` -> `review` -> `done`.
 4. **Deploy on VPS, not local Mac**
    - All deploy/rebuild actions run via `make` wrappers and VPS SSH.
+5. **Context collapse recovery is mandatory**
+   - After any context compaction/collapse, restate current task + active workflow from summary, then run primer before making changes or running commands.
 
 ## Required PR Workflow
 
@@ -37,7 +39,9 @@ This is the required flow for Claude, Codex, and Copilot-assisted changes.
 9. **CI gates** — tests, security scan, Copilot review.
 10. **Address feedback** — fix CI/review findings.
 11. **Merge** — `gh pr merge --squash --delete-branch`.
+   - Never use `--admin` or `--force` to bypass branch protections.
 12. **Post-merge deploy** — push-to-main triggers path-filtered deploy workflows.
+   - Do not run manual deploy commands after merge unless explicitly requested for incident recovery.
 
 ### Branch Naming
 
@@ -95,5 +99,7 @@ Do:
 Don't:
 - Use TodoWrite as persistent task tracking.
 - Run deploy scripts locally on Mac.
+- Use `gh pr merge --admin` or `gh pr merge --force`.
+- Run local app servers (`npm run dev`, `npm start`, `pnpm dev`, `yarn dev`) unless explicitly asked in the current turn.
 - Skip CI/review feedback.
 - Add speculative features outside request scope.

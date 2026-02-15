@@ -117,7 +117,7 @@ Hooks are configured in `.claude/settings.json` and run automatically during Cla
 | Hook | Event | Script | Behavior |
 |------|-------|--------|----------|
 | shellcheck-on-edit | PostToolUse (Edit\|Write) | `scripts/hooks/shellcheck-on-edit.sh` | Runs shellcheck on edited `.sh` files (informational) |
-| block-local-deploy | PreToolUse (Bash) | `scripts/hooks/block-local-deploy.sh` | Blocks `make deploy-*` and `scripts/deploy.sh` locally (blocking) |
+| block-local-deploy | PreToolUse (Bash) | `scripts/hooks/block-local-deploy.sh` | Blocks local deploy commands, privileged PR merges (`--admin`/`--force`), and local dev-server starts (blocking) |
 | stop-gate | Stop | `scripts/hooks/stop-gate.sh` | Verifies required checks ran during session (blocking) |
 
 ## TDD Agent Chain
@@ -139,6 +139,7 @@ Do:
 - Track real work in Linear (`todo` -> `doing` -> `review` -> `done`).
 - Validate locally before PR.
 - Use `make` wrappers and existing scripts.
+- After context compaction/collapse, restate task/workflow and run primer before acting.
 
 Don't:
 - Rely on stale memory for changing APIs/tooling.
