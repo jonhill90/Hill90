@@ -26,7 +26,7 @@ export default function HillLogo({
       {/* Right peak (background, taller) — left edge follows gap boundary */}
       <path
         className="hill-right"
-        d="M 458,297 L 256,95 C 298,48 332,10 368,8 C 404,6 540,130 660,297 Z"
+        d="M 458,297 L 256,95 C 290,52 315,12 368,10 C 420,12 540,130 660,297 Z"
         fill={lightColor}
       />
       {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
