@@ -308,3 +308,72 @@
 @test "src/services/auth directory does not exist" {
   [ ! -d "src/services/auth" ]
 }
+
+# ---------------------------------------------------------------------------
+# PR2: Auth.js integration (UI)
+# ---------------------------------------------------------------------------
+
+@test "auth.ts exists in UI service" {
+  [ -f "src/services/ui/src/auth.ts" ]
+}
+
+@test "auth.ts uses Keycloak provider" {
+  run grep "Keycloak" src/services/ui/src/auth.ts
+  [ "$status" -eq 0 ]
+}
+
+@test "nextauth route handler exists" {
+  [ -f "src/services/ui/src/app/api/auth/[...nextauth]/route.ts" ]
+}
+
+@test "docker-compose.ui.yml has AUTH_KEYCLOAK_ID" {
+  run grep "AUTH_KEYCLOAK_ID" deploy/compose/prod/docker-compose.ui.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.ui.yml has AUTH_SECRET" {
+  run grep "AUTH_SECRET" deploy/compose/prod/docker-compose.ui.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.ui.yml has AUTH_KEYCLOAK_ISSUER" {
+  run grep "AUTH_KEYCLOAK_ISSUER" deploy/compose/prod/docker-compose.ui.yml
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# PR2: API JWT middleware
+# ---------------------------------------------------------------------------
+
+@test "API jest.config.js uses ts-jest preset" {
+  run grep "ts-jest" src/services/api/jest.config.js
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# PR2: CORS update
+# ---------------------------------------------------------------------------
+
+@test "middlewares.yml CORS allows auth.hill90.com" {
+  run grep "auth.hill90.com" platform/edge/dynamic/middlewares.yml
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# PR2: .env.example auth integration vars
+# ---------------------------------------------------------------------------
+
+@test ".env.example has AUTH_SECRET" {
+  run grep "AUTH_SECRET" deploy/compose/prod/.env.example
+  [ "$status" -eq 0 ]
+}
+
+@test ".env.example has AUTH_KEYCLOAK_ID" {
+  run grep "AUTH_KEYCLOAK_ID" deploy/compose/prod/.env.example
+  [ "$status" -eq 0 ]
+}
+
+@test ".env.example has AUTH_KEYCLOAK_SECRET" {
+  run grep "AUTH_KEYCLOAK_SECRET" deploy/compose/prod/.env.example
+  [ "$status" -eq 0 ]
+}

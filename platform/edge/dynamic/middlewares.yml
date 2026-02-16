@@ -59,5 +59,6 @@ http:
         accessControlAllowOriginList:
           - "https://hill90.com"
           - "https://www.hill90.com"
+          - "https://auth.hill90.com"
         accessControlMaxAge: 100
         addVaryHeader: true
