@@ -291,6 +291,86 @@ export default function LogoTestPage() {
           <Card number={20} title="Zoom Out In" description="Starts large then lands" onReplay={() => replay(20)}>
             {mounted && <Hill key={keys[20]} className="anim-zoom-out-in" />}
           </Card>
+
+          {/* 21 — Neon Sweep */}
+          <Card number={21} title="Neon Sweep" description="Glow sweep across hills" onReplay={() => replay(21)}>
+            {mounted && <Hill key={keys[21]} className="anim-neon-sweep" />}
+          </Card>
+
+          {/* 22 — Shadow Drift */}
+          <Card number={22} title="Shadow Drift" description="Depth shift with soft shadow" onReplay={() => replay(22)}>
+            {mounted && <Hill key={keys[22]} className="anim-shadow-drift" />}
+          </Card>
+
+          {/* 23 — Signal Pulse */}
+          <Card number={23} title="Signal Pulse" description="Rhythmic brightness pulse" onReplay={() => replay(23)}>
+            {mounted && <Hill key={keys[23]} className="anim-signal-pulse" />}
+          </Card>
+
+          {/* 24 — Scanline Reveal */}
+          <Card number={24} title="Scanline Reveal" description="Top-down scanline appear" onReplay={() => replay(24)}>
+            {mounted && <Hill key={keys[24]} className="anim-scanline-reveal" />}
+          </Card>
+
+          {/* 25 — Terminal Boot */}
+          <Card number={25} title="Terminal Boot" description="Stepped boot-like reveal" onReplay={() => replay(25)}>
+            {mounted && <Hill key={keys[25]} className="anim-terminal-boot" />}
+          </Card>
+
+          {/* 26 — Aurora Tint */}
+          <Card number={26} title="Aurora Tint" description="Subtle hue glide" onReplay={() => replay(26)}>
+            {mounted && <Hill key={keys[26]} className="anim-aurora-tint" />}
+          </Card>
+
+          {/* 27 — Luma Pop */}
+          <Card number={27} title="Luma Pop" description="Contrast pop then settle" onReplay={() => replay(27)}>
+            {mounted && <Hill key={keys[27]} className="anim-luma-pop" />}
+          </Card>
+
+          {/* 28 — Beacon */}
+          <Card number={28} title="Beacon" description="Soft pulse + glow beacon" onReplay={() => replay(28)}>
+            {mounted && <Hill key={keys[28]} className="anim-beacon" />}
+          </Card>
+
+          {/* 29 — Boot Sequence */}
+          <Card number={29} title="Boot Sequence" description="Terminal-like stepped startup" onReplay={() => replay(29)}>
+            {mounted && <Hill key={keys[29]} className="anim-boot-sequence" />}
+          </Card>
+
+          {/* 30 — CRT Flicker */}
+          <Card number={30} title="CRT Flicker" description="Analog flicker settle-in" onReplay={() => replay(30)}>
+            {mounted && <Hill key={keys[30]} className="anim-crt-flicker" />}
+          </Card>
+
+          {/* 31 — Data Sweep */}
+          <Card number={31} title="Data Sweep" description="Horizontal scan pass reveal" onReplay={() => replay(31)}>
+            {mounted && <Hill key={keys[31]} className="anim-data-sweep" />}
+          </Card>
+
+          {/* 32 — Glitch Pop */}
+          <Card number={32} title="Glitch Pop" description="Brief split-channel glitch" onReplay={() => replay(32)}>
+            {mounted && <Hill key={keys[32]} className="anim-glitch-pop" />}
+          </Card>
+
+          {/* 33 — Lock-On */}
+          <Card number={33} title="Lock-On" description="Zoom lock with sharp settle" onReplay={() => replay(33)}>
+            {mounted && <Hill key={keys[33]} className="anim-lock-on" />}
+          </Card>
+
+          {/* 34 — Voltage Rise */}
+          <Card number={34} title="Voltage Rise" description="Brightness ramp then normalize" onReplay={() => replay(34)}>
+            {mounted && <Hill key={keys[34]} className="anim-voltage-rise" />}
+          </Card>
+
+          {/* 35 — Ghost Trail */}
+          <Card number={35} title="Ghost Trail" description="Afterimage trail fade-out" onReplay={() => replay(35)}>
+            {mounted && <Hill key={keys[35]} className="anim-ghost-trail" />}
+          </Card>
+
+          {/* 36 — Cold Start */}
+          <Card number={36} title="Cold Start" description="Dim boot to full signal" onReplay={() => replay(36)}>
+            {mounted && <Hill key={keys[36]} className="anim-cold-start" />}
+          </Card>
         </div>
       </div>
 
@@ -523,6 +603,173 @@ export default function LogoTestPage() {
         @keyframes zoomOutIn {
           from { opacity: 0; transform: scale(1.12); }
           to { opacity: 1; transform: scale(1); }
+        }
+
+        /* 21 — Neon Sweep */
+        .anim-neon-sweep {
+          animation: neonSweep 1.2s ease-out both;
+        }
+        @keyframes neonSweep {
+          0% { opacity: 0; filter: brightness(0.8) drop-shadow(0 0 0 rgba(128, 191, 230, 0)); clip-path: inset(0 100% 0 0); }
+          55% { opacity: 1; filter: brightness(1.2) drop-shadow(0 0 12px rgba(128, 191, 230, 0.45)); clip-path: inset(0 0 0 0); }
+          100% { opacity: 1; filter: brightness(1) drop-shadow(0 0 0 rgba(128, 191, 230, 0)); clip-path: inset(0 0 0 0); }
+        }
+
+        /* 22 — Shadow Drift */
+        .anim-shadow-drift {
+          animation: shadowDrift 1s ease-out both;
+        }
+        @keyframes shadowDrift {
+          from { opacity: 0; transform: translateY(10px); filter: drop-shadow(0 14px 20px rgba(0,0,0,0.35)); }
+          to { opacity: 1; transform: translateY(0); filter: drop-shadow(0 6px 8px rgba(0,0,0,0.18)); }
+        }
+
+        /* 23 — Signal Pulse */
+        .anim-signal-pulse {
+          animation: signalPulse 1.3s ease-in-out both;
+        }
+        @keyframes signalPulse {
+          0% { opacity: 0.55; filter: saturate(0.9) brightness(0.9); }
+          35% { opacity: 1; filter: saturate(1.15) brightness(1.12); }
+          70% { opacity: 0.95; filter: saturate(1.05) brightness(1.02); }
+          100% { opacity: 1; filter: saturate(1) brightness(1); }
+        }
+
+        /* 24 — Scanline Reveal */
+        .anim-scanline-reveal {
+          animation: scanlineReveal 0.95s steps(12, end) both;
+        }
+        @keyframes scanlineReveal {
+          from { opacity: 0; clip-path: inset(0 0 100% 0); }
+          to { opacity: 1; clip-path: inset(0 0 0 0); }
+        }
+
+        /* 25 — Terminal Boot */
+        .anim-terminal-boot {
+          animation: terminalBoot 1s steps(8, end) both;
+        }
+        @keyframes terminalBoot {
+          0% { opacity: 0; filter: contrast(1.25) brightness(0.8); clip-path: inset(0 100% 0 0); }
+          35% { opacity: 0.55; clip-path: inset(0 50% 0 0); }
+          65% { opacity: 0.85; clip-path: inset(0 18% 0 0); }
+          100% { opacity: 1; filter: contrast(1) brightness(1); clip-path: inset(0 0 0 0); }
+        }
+
+        /* 26 — Aurora Tint */
+        .anim-aurora-tint {
+          animation: auroraTint 1.5s ease-out both;
+        }
+        @keyframes auroraTint {
+          0% { opacity: 0.7; filter: hue-rotate(30deg) saturate(1.2); }
+          45% { opacity: 1; filter: hue-rotate(-8deg) saturate(1.15); }
+          100% { opacity: 1; filter: hue-rotate(0deg) saturate(1); }
+        }
+
+        /* 27 — Luma Pop */
+        .anim-luma-pop {
+          animation: lumaPop 0.8s cubic-bezier(0.28, 1.2, 0.4, 1) both;
+        }
+        @keyframes lumaPop {
+          from { opacity: 0; filter: contrast(1.35) brightness(1.2); transform: scale(0.96); }
+          to { opacity: 1; filter: contrast(1) brightness(1); transform: scale(1); }
+        }
+
+        /* 28 — Beacon */
+        .anim-beacon {
+          animation: beacon 1.4s ease-out both;
+        }
+        @keyframes beacon {
+          0% { opacity: 0; filter: drop-shadow(0 0 0 rgba(180, 218, 242, 0)); transform: scale(0.98); }
+          50% { opacity: 1; filter: drop-shadow(0 0 16px rgba(180, 218, 242, 0.55)); transform: scale(1.01); }
+          100% { opacity: 1; filter: drop-shadow(0 0 0 rgba(180, 218, 242, 0)); transform: scale(1); }
+        }
+
+        /* 29 — Boot Sequence */
+        .anim-boot-sequence {
+          animation: bootSequence 1.15s steps(10, end) both;
+        }
+        @keyframes bootSequence {
+          0% { opacity: 0; filter: brightness(0.7) contrast(1.2); clip-path: inset(0 100% 0 0); }
+          35% { opacity: 0.45; clip-path: inset(0 52% 0 0); }
+          70% { opacity: 0.85; clip-path: inset(0 18% 0 0); }
+          100% { opacity: 1; filter: brightness(1) contrast(1); clip-path: inset(0 0 0 0); }
+        }
+
+        /* 30 — CRT Flicker */
+        .anim-crt-flicker {
+          animation: crtFlicker 1.1s linear both;
+        }
+        @keyframes crtFlicker {
+          0% { opacity: 0; filter: brightness(0.75) contrast(1.2); }
+          18% { opacity: 0.55; filter: brightness(1.12) contrast(1.05); }
+          24% { opacity: 0.35; }
+          38% { opacity: 0.88; }
+          44% { opacity: 0.7; }
+          100% { opacity: 1; filter: brightness(1) contrast(1); }
+        }
+
+        /* 31 — Data Sweep */
+        .anim-data-sweep {
+          animation: dataSweep 1.05s ease-out both;
+        }
+        @keyframes dataSweep {
+          0% { opacity: 0; transform: translateX(-14px); clip-path: inset(0 100% 0 0); }
+          60% { opacity: 1; transform: translateX(0); clip-path: inset(0 10% 0 0); }
+          100% { opacity: 1; clip-path: inset(0 0 0 0); }
+        }
+
+        /* 32 — Glitch Pop */
+        .anim-glitch-pop {
+          animation: glitchPop 0.95s ease-out both;
+        }
+        @keyframes glitchPop {
+          0% { opacity: 0; filter: hue-rotate(20deg) saturate(1.25); transform: translateX(-3px); }
+          20% { opacity: 0.85; transform: translateX(3px); }
+          30% { transform: translateX(-2px); }
+          45% { transform: translateX(1px); }
+          100% { opacity: 1; filter: hue-rotate(0deg) saturate(1); transform: translateX(0); }
+        }
+
+        /* 33 — Lock-On */
+        .anim-lock-on {
+          animation: lockOn 0.9s cubic-bezier(0.2, 0.95, 0.2, 1) both;
+          transform-origin: center;
+        }
+        @keyframes lockOn {
+          0% { opacity: 0; transform: scale(1.08); filter: blur(2px); }
+          55% { opacity: 1; transform: scale(0.995); filter: blur(0.3px); }
+          100% { opacity: 1; transform: scale(1); filter: blur(0); }
+        }
+
+        /* 34 — Voltage Rise */
+        .anim-voltage-rise {
+          animation: voltageRise 1.2s ease-out both;
+        }
+        @keyframes voltageRise {
+          0% { opacity: 0.5; filter: brightness(0.78) saturate(0.95); }
+          45% { opacity: 1; filter: brightness(1.18) saturate(1.08); }
+          75% { filter: brightness(1.04) saturate(1.02); }
+          100% { opacity: 1; filter: brightness(1) saturate(1); }
+        }
+
+        /* 35 — Ghost Trail */
+        .anim-ghost-trail {
+          animation: ghostTrail 1.05s ease-out both;
+        }
+        @keyframes ghostTrail {
+          0% { opacity: 0; filter: drop-shadow(8px 0 0 rgba(156, 187, 205, 0.45)); transform: translateX(-8px); }
+          55% { opacity: 1; filter: drop-shadow(2px 0 0 rgba(156, 187, 205, 0.2)); transform: translateX(0); }
+          100% { opacity: 1; filter: drop-shadow(0 0 0 rgba(156, 187, 205, 0)); }
+        }
+
+        /* 36 — Cold Start */
+        .anim-cold-start {
+          animation: coldStart 1.25s ease-out both;
+        }
+        @keyframes coldStart {
+          0% { opacity: 0; filter: brightness(0.45) saturate(0.7) blur(1.6px); transform: translateY(6px); }
+          45% { opacity: 0.85; filter: brightness(0.9) saturate(0.92) blur(0.5px); }
+          100% { opacity: 1; filter: brightness(1) saturate(1) blur(0); transform: translateY(0); }
         }
       `}</style>
     </div>
