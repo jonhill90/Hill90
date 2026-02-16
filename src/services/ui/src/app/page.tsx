@@ -1,5 +1,5 @@
-import Image from 'next/image';
 import Link from 'next/link';
+import HillLogo from '@/components/HillLogo';
 
 const services = [
   {
@@ -29,13 +29,9 @@ export default function Home() {
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
-        <Image
-          src="/Hill90-logo10-notext.png"
-          alt="Hill90"
-          width={120}
-          height={54}
-          priority
-        />
+        <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
+          <HillLogo width={120} className="logo-glow-hold" />
+        </Link>
         <Link
           href="/dashboard"
           className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"

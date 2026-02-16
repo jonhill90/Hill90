@@ -1,8 +1,8 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
+import HillLogo from '@/components/HillLogo';
 
 interface ServiceHealth {
   name: string;
@@ -44,14 +44,8 @@ export default function Dashboard() {
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
-        <Link href="/">
-          <Image
-            src="/Hill90-logo10-notext.png"
-            alt="Hill90"
-            width={120}
-            height={54}
-            priority
-          />
+        <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
+          <HillLogo width={120} className="logo-glow-hold" />
         </Link>
         <span className="text-sm font-medium text-white">Dashboard</span>
       </nav>
