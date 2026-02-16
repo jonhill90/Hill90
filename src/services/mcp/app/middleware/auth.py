@@ -4,13 +4,14 @@ from fastapi import HTTPException, Request
 
 def make_verify_token(
     issuer: str,
-    get_signing_key: Callable[[], str],
+    get_signing_key: Callable[[dict], str],
 ):
     """Factory that returns a FastAPI dependency for JWT validation.
 
     Args:
         issuer: Expected token issuer (iss claim).
-        get_signing_key: Callable returning the PEM-encoded public key.
+        get_signing_key: Callable accepting the decoded token header dict
+            and returning the PEM-encoded public key.
     """
     from jose import jwt as jose_jwt, JWTError
 
@@ -22,18 +23,17 @@ def make_verify_token(
         token = auth_header[7:]
 
         try:
-            key = get_signing_key()
+            header = jose_jwt.get_unverified_header(token)
+            key = get_signing_key(header)
             payload = jose_jwt.decode(
                 token,
                 key,
                 algorithms=["RS256"],
-                options={"verify_aud": False},
+                issuer=issuer,
+                options={"verify_aud": False, "require_exp": True},
             )
         except JWTError:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-        if payload.get("iss") != issuer:
-            raise HTTPException(status_code=401, detail="Invalid token issuer")
 
         return payload
 

@@ -29,7 +29,12 @@ export function createRequireAuth(opts: AuthOptions) {
       const payload = jwt.verify(token, signingKey, {
         algorithms: ['RS256'],
         issuer: opts.issuer,
-      });
+      }) as jwt.JwtPayload;
+
+      if (typeof payload.exp !== 'number') {
+        res.status(401).json({ error: 'Token missing exp claim' });
+        return;
+      }
 
       (req as any).user = payload;
       next();
@@ -48,6 +53,9 @@ export function createJwksKeyResolver(jwksUri: string) {
   });
 
   return async (header: jwt.JwtHeader): Promise<string> => {
+    if (!header.kid) {
+      throw new Error('Token header missing kid');
+    }
     const key = await client.getSigningKey(header.kid);
     return key.getPublicKey();
   };

@@ -24,7 +24,7 @@ TEST_ISSUER = "https://auth.hill90.com/realms/hill90"
 # Build verify_token with test key — no JWKS fetch
 _verify_token = make_verify_token(
     issuer=TEST_ISSUER,
-    get_signing_key=lambda: _public_pem,
+    get_signing_key=lambda _header: _public_pem,
 )
 
 # Minimal FastAPI app with auth dependency on a protected route
@@ -55,6 +55,12 @@ def test_invalid_token_returns_401():
 
 def test_wrong_issuer_returns_401():
     token = _sign_token({"sub": "user1", "iss": "https://wrong-issuer.com", "exp": 9999999999})
+    response = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
+def test_missing_exp_returns_401():
+    token = _sign_token({"sub": "user1", "iss": TEST_ISSUER})
     response = client.get("/protected", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 401
 

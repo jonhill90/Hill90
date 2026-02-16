@@ -61,6 +61,19 @@ describe('JWT auth middleware', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it('returns 401 when token is missing exp claim', async () => {
+    const token = jwt.sign({ sub: 'user1' }, privateKey, {
+      algorithm: 'RS256',
+      issuer: TEST_ISSUER,
+      noTimestamp: true,
+    });
+    const middleware = buildMiddleware();
+    const { req, res, next } = mockExpress({ authorization: `Bearer ${token}` });
+    await middleware(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('calls next() for valid token with correct issuer and signature', async () => {
     const token = jwt.sign({ sub: 'user1' }, privateKey, {
       algorithm: 'RS256',
