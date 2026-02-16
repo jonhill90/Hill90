@@ -67,8 +67,8 @@ if has_modified_path 'tests/scripts/'; then
   fi
 fi
 
-# Rule: src/services/api/** or src/services/auth/** -> npm test
-if has_modified_path 'src/services/(api|auth)/'; then
+# Rule: src/services/api/** -> npm test
+if has_modified_path 'src/services/api/'; then
   if ! transcript_has_command 'npm test'; then
     MISSING_CHECKS+=("npm test (modified Node.js service files)")
   fi

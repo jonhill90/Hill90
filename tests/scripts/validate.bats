@@ -62,3 +62,249 @@
   run grep "traefik.http.routers.traefik.middlewares" deploy/compose/prod/docker-compose.infra.yml
   [[ "$output" == *"tailscale-only@file"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# Postgres separation (docker-compose.db.yml)
+# ---------------------------------------------------------------------------
+
+@test "docker-compose.db.yml exists" {
+  [ -f "deploy/compose/prod/docker-compose.db.yml" ]
+}
+
+@test "docker-compose.db.yml defines postgres service" {
+  run grep "postgres:" deploy/compose/prod/docker-compose.db.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.db.yml mounts init.sh not init.sql" {
+  run grep "init.sh" deploy/compose/prod/docker-compose.db.yml
+  [ "$status" -eq 0 ]
+  run grep "init.sql" deploy/compose/prod/docker-compose.db.yml
+  [ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
+# Keycloak (docker-compose.auth.yml)
+# ---------------------------------------------------------------------------
+
+@test "docker-compose.auth.yml defines keycloak service" {
+  run grep "keycloak:" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.auth.yml does NOT define postgres service" {
+  run grep "^  postgres:" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "docker-compose.auth.yml does NOT define old auth service" {
+  run grep "^  auth:" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "docker-compose.auth.yml keycloak has edge and internal networks" {
+  run grep "edge" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 0 ]
+  run grep "internal" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.auth.yml keycloak admin has tailscale-only middleware" {
+  run grep "tailscale-only@file" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.auth.yml keycloak uses start command with import-realm" {
+  run grep "start --import-realm" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.auth.yml healthcheck targets port 9000" {
+  run grep "9000" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.auth.yml has start_period for slow Keycloak boot" {
+  run grep "start_period" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Keycloak realm config
+# ---------------------------------------------------------------------------
+
+@test "hill90-realm.json exists" {
+  [ -f "platform/auth/keycloak/hill90-realm.json" ]
+}
+
+@test "hill90-realm.json is valid JSON" {
+  run python3 -c "import json; json.load(open('platform/auth/keycloak/hill90-realm.json'))"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json defines hill90 realm" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); assert d['realm']=='hill90'"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json has bruteForceProtected enabled" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); assert d['bruteForceProtected']==True"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json has hill90-ui client" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); ids=[c['clientId'] for c in d['clients']]; assert 'hill90-ui' in ids"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json has hill90-api client" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); ids=[c['clientId'] for c in d['clients']]; assert 'hill90-api' in ids"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json hill90-ui disallows direct access grants" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); ui=[c for c in d['clients'] if c['clientId']=='hill90-ui'][0]; assert ui['directAccessGrantsEnabled']==False"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json hill90-ui is not public client" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); ui=[c for c in d['clients'] if c['clientId']=='hill90-ui'][0]; assert ui['publicClient']==False"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json registration is disabled" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); assert d['registrationAllowed']==False"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# mcp-auth middleware removal
+# ---------------------------------------------------------------------------
+
+@test "middlewares.yml does NOT define mcp-auth" {
+  run grep "mcp-auth:" platform/edge/dynamic/middlewares.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "middlewares.yml does NOT reference forwardAuth to auth:3001" {
+  run grep "auth:3001" platform/edge/dynamic/middlewares.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "docker-compose.mcp.yml does NOT reference mcp-auth middleware" {
+  run grep "mcp-auth" deploy/compose/prod/docker-compose.mcp.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "docker-compose.mcp.yml still has mcp-strip middleware" {
+  run grep "mcp-strip@file" deploy/compose/prod/docker-compose.mcp.yml
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# UI health route + compose env
+# ---------------------------------------------------------------------------
+
+@test "UI health route probes Keycloak not old auth service" {
+  run grep "Keycloak" src/services/ui/src/app/api/services/health/route.ts
+  [ "$status" -eq 0 ]
+}
+
+@test "UI health route does NOT reference port 3001" {
+  run grep "3001" src/services/ui/src/app/api/services/health/route.ts
+  [ "$status" -eq 1 ]
+}
+
+@test "UI health route uses KEYCLOAK_INTERNAL_URL env var" {
+  run grep "KEYCLOAK_INTERNAL_URL" src/services/ui/src/app/api/services/health/route.ts
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.ui.yml has KEYCLOAK_INTERNAL_URL" {
+  run grep "KEYCLOAK_INTERNAL_URL" deploy/compose/prod/docker-compose.ui.yml
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Makefile updates
+# ---------------------------------------------------------------------------
+
+@test "Makefile has deploy-db target" {
+  run grep "deploy-db:" Makefile
+  [ "$status" -eq 0 ]
+}
+
+@test "Makefile test target does NOT reference src/services/auth" {
+  run bash -c 'sed -n "/^test:/,/^[a-z]/p" Makefile | grep "src/services/auth"'
+  [ "$status" -eq 1 ]
+}
+
+@test "Makefile lint target does NOT reference src/services/auth" {
+  run bash -c 'sed -n "/^lint:/,/^[a-z]/p" Makefile | grep "src/services/auth"'
+  [ "$status" -eq 1 ]
+}
+
+@test "Makefile format target does NOT reference src/services/auth" {
+  run bash -c 'sed -n "/^format:/,/^[a-z]/p" Makefile | grep "src/services/auth"'
+  [ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
+# .env.example Keycloak vars
+# ---------------------------------------------------------------------------
+
+@test ".env.example has KC_ADMIN_USERNAME" {
+  run grep "KC_ADMIN_USERNAME" deploy/compose/prod/.env.example
+  [ "$status" -eq 0 ]
+}
+
+@test ".env.example has KC_ADMIN_PASSWORD" {
+  run grep "KC_ADMIN_PASSWORD" deploy/compose/prod/.env.example
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# GitHub Actions workflows
+# ---------------------------------------------------------------------------
+
+@test "deploy-auth workflow watches keycloak realm config path" {
+  run grep "platform/auth/keycloak" .github/workflows/deploy-auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy-auth workflow watches scripts/deploy.sh" {
+  run grep "scripts/deploy.sh" .github/workflows/deploy-auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy-auth workflow does NOT watch src/services/auth" {
+  run grep "src/services/auth" .github/workflows/deploy-auth.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "deploy-auth workflow verifies keycloak container" {
+  run grep "keycloak" .github/workflows/deploy-auth.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy-db workflow exists" {
+  [ -f ".github/workflows/deploy-db.yml" ]
+}
+
+@test "deploy-db workflow watches docker-compose.db.yml" {
+  run grep "docker-compose.db.yml" .github/workflows/deploy-db.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy-db workflow watches postgres init scripts" {
+  run grep "platform/data/postgres" .github/workflows/deploy-db.yml
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Auth service deletion
+# ---------------------------------------------------------------------------
+
+@test "src/services/auth directory does not exist" {
+  [ ! -d "src/services/auth" ]
+}

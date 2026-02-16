@@ -39,4 +39,4 @@ services:
       - "traefik.http.routers.mcp.entrypoints=websecure"
       - "traefik.http.routers.mcp.tls.certresolver=letsencrypt"
       - "traefik.http.services.mcp.loadbalancer.server.port=8001"
-      - "traefik.http.routers.mcp.middlewares=mcp-auth@file,mcp-strip@file"
+      - "traefik.http.routers.mcp.middlewares=mcp-strip@file"

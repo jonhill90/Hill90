@@ -37,15 +37,6 @@ http:
         sourceRange:
           - "100.64.0.0/10"
 
-    # MCP Authentication (forward to auth service)
-    mcp-auth:
-      forwardAuth:
-        address: "http://auth:3001/validate"
-        trustForwardHeader: true
-        authResponseHeaders:
-          - "X-User-Id"
-          - "X-User-Email"
-
     # Strip /mcp prefix for MCP service
     mcp-strip:
       stripPrefix:
