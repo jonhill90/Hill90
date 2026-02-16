@@ -78,7 +78,7 @@ jobs:
              git fetch origin && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             bash scripts/deploy.sh db prod"
+             bash scripts/deploy.sh db ${{ inputs.environment || 'prod' }}"
 
       - name: Wait for services to start
         run: sleep 15

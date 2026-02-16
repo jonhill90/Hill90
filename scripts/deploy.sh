@@ -212,6 +212,12 @@ cmd_all() {
         die "Network hill90_edge not found. Deploy infrastructure first: make deploy-infra"
     fi
 
+    if ! docker ps --format '{{.Names}}' | grep -q '^postgres$'; then
+        echo "WARNING: postgres container not running. Keycloak requires it."
+        echo "Run 'make deploy-db' first, then re-run 'make deploy-all'."
+        die "Prerequisite not met: postgres must be running before deploy-all"
+    fi
+
     for svc in auth api ai mcp ui; do
         echo "Deploying ${svc} service..."
         cmd_service "$svc" "$env"
