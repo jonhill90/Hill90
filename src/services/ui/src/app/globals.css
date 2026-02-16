@@ -11,3 +11,20 @@
   --color-brand-500: #5b9a2f;
   --color-brand-400: #6db33a;
 }
+
+/* Top-nav logo animation + hover affordance */
+.logo-glow-hold {
+  animation: logoGlowHold 1.2s ease-out both;
+  filter: drop-shadow(0 0 10px rgba(109, 179, 58, 0.45));
+  transition: filter 180ms ease;
+}
+
+.logo-link:hover .logo-glow-hold {
+  filter: drop-shadow(0 0 16px rgba(109, 179, 58, 0.9));
+}
+
+@keyframes logoGlowHold {
+  0% { filter: drop-shadow(0 0 0 rgba(109, 179, 58, 0)); }
+  40% { filter: drop-shadow(0 0 14px rgba(109, 179, 58, 0.65)); }
+  100% { filter: drop-shadow(0 0 10px rgba(109, 179, 58, 0.45)); }
+}
