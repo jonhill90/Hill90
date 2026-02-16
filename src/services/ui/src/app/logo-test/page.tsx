@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { HILL_RIGHT, HILL_LEFT, HILL_FRONT } from '../../components/hill-paths';
+import { HILL_PATH_TRANSFORM, HILL_RIGHT, HILL_LEFT, HILL_FRONT } from '../../components/hill-paths';
 
 /* ------------------------------------------------------------------ */
 /*  Base SVG — each animation variant renders this with different CSS  */
@@ -47,27 +47,22 @@ function Hill({
       <path
         className="hill-right"
         d={HILL_RIGHT}
+        transform={HILL_PATH_TRANSFORM}
         fill={`url(#${id || 'hill'}-light-grad)`}
       />
       {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
       <path
         className="hill-left"
         d={HILL_LEFT}
+        transform={HILL_PATH_TRANSFORM}
         fill={`url(#${id || 'hill'}-light-grad)`}
       />
       {/* Front hill (foreground, darker) — smooth concave curve */}
       <path
         className="hill-front"
         d={HILL_FRONT}
+        transform={HILL_PATH_TRANSFORM}
         fill={`url(#${id || 'hill'}-front-grad)`}
-      />
-      {/* Subtle shoulder highlight to emulate PNG rim softness */}
-      <path
-        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297"
-        fill="none"
-        stroke="#91A2AA"
-        strokeOpacity="0.32"
-        strokeWidth="2"
       />
     </svg>
   );
@@ -87,6 +82,7 @@ function HillOutline({ className = '' }: { className?: string }) {
       <path
         className="draw-right"
         d={HILL_RIGHT}
+        transform={HILL_PATH_TRANSFORM}
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
@@ -94,6 +90,7 @@ function HillOutline({ className = '' }: { className?: string }) {
       <path
         className="draw-left"
         d={HILL_LEFT}
+        transform={HILL_PATH_TRANSFORM}
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
@@ -101,6 +98,7 @@ function HillOutline({ className = '' }: { className?: string }) {
       <path
         className="draw-front"
         d={HILL_FRONT}
+        transform={HILL_PATH_TRANSFORM}
         fill="none"
         stroke="#3C4A52"
         strokeWidth="3"
