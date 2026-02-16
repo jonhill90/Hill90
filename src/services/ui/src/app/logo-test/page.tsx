@@ -231,6 +231,66 @@ export default function LogoTestPage() {
           <Card number={8} title="Draw + Fill" description="Outline draws, then fills in" onReplay={() => replay(8)}>
             {mounted && <DrawFill key={keys[8]} />}
           </Card>
+
+          {/* 9 — Flash In */}
+          <Card number={9} title="Flash In" description="Quick bright reveal" onReplay={() => replay(9)}>
+            {mounted && <Hill key={keys[9]} className="anim-flash-in" />}
+          </Card>
+
+          {/* 10 — Rotate In */}
+          <Card number={10} title="Rotate In" description="Slight rotate + settle" onReplay={() => replay(10)}>
+            {mounted && <Hill key={keys[10]} className="anim-rotate-in" />}
+          </Card>
+
+          {/* 11 — Soft Focus */}
+          <Card number={11} title="Soft Focus" description="Blur to sharp" onReplay={() => replay(11)}>
+            {mounted && <Hill key={keys[11]} className="anim-soft-focus" />}
+          </Card>
+
+          {/* 12 — Color Shift */}
+          <Card number={12} title="Color Shift" description="Cool-to-neutral tint" onReplay={() => replay(12)}>
+            {mounted && <Hill key={keys[12]} className="anim-color-shift" />}
+          </Card>
+
+          {/* 13 — Shimmer */}
+          <Card number={13} title="Shimmer" description="Subtle highlight pulse" onReplay={() => replay(13)}>
+            {mounted && <Hill key={keys[13]} className="anim-shimmer" />}
+          </Card>
+
+          {/* 14 — Pop Fade */}
+          <Card number={14} title="Pop Fade" description="Pop from near-zero" onReplay={() => replay(14)}>
+            {mounted && <Hill key={keys[14]} className="anim-pop-fade" />}
+          </Card>
+
+          {/* 15 — Drift Up */}
+          <Card number={15} title="Drift Up" description="Slow lift into place" onReplay={() => replay(15)}>
+            {mounted && <Hill key={keys[15]} className="anim-drift-up" />}
+          </Card>
+
+          {/* 16 — Blur Lift */}
+          <Card number={16} title="Blur Lift" description="Blur + fade + rise" onReplay={() => replay(16)}>
+            {mounted && <Hill key={keys[16]} className="anim-blur-lift" />}
+          </Card>
+
+          {/* 17 — Glow Hold */}
+          <Card number={17} title="Glow Hold" description="Glow pulse then settle" onReplay={() => replay(17)}>
+            {mounted && <Hill key={keys[17]} className="anim-glow-hold" />}
+          </Card>
+
+          {/* 18 — Cascade Fade */}
+          <Card number={18} title="Cascade Fade" description="Paths fade in sequence" onReplay={() => replay(18)}>
+            {mounted && <Hill key={keys[18]} className="anim-cascade-fade" />}
+          </Card>
+
+          {/* 19 — Wobble In */}
+          <Card number={19} title="Wobble In" description="Gentle settle wobble" onReplay={() => replay(19)}>
+            {mounted && <Hill key={keys[19]} className="anim-wobble-in" />}
+          </Card>
+
+          {/* 20 — Zoom Out In */}
+          <Card number={20} title="Zoom Out In" description="Starts large then lands" onReplay={() => replay(20)}>
+            {mounted && <Hill key={keys[20]} className="anim-zoom-out-in" />}
+          </Card>
         </div>
       </div>
 
@@ -275,20 +335,17 @@ export default function LogoTestPage() {
 
         /* 4 — Staggered Rise */
         .anim-stagger .hill-right {
-          animation: staggerRise 0.7s ease-out 0s both;
-          transform-origin: bottom center;
+          animation: staggerFade 0.6s ease-out 0s both;
         }
         .anim-stagger .hill-left {
-          animation: staggerRise 0.7s ease-out 0.2s both;
-          transform-origin: bottom center;
+          animation: staggerFade 0.6s ease-out 0.18s both;
         }
         .anim-stagger .hill-front {
-          animation: staggerRise 0.7s ease-out 0.4s both;
-          transform-origin: bottom center;
+          animation: staggerFade 0.6s ease-out 0.36s both;
         }
-        @keyframes staggerRise {
-          from { opacity: 0; transform: translateY(40px) scaleY(0.3); }
-          to { opacity: 1; transform: translateY(0) scaleY(1); }
+        @keyframes staggerFade {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
 
         /* 5 — Scale Bounce */
@@ -303,21 +360,17 @@ export default function LogoTestPage() {
 
         /* 6 — Parallax Slide */
         .anim-parallax .hill-right {
-          animation: slideFromRight 1s ease-out 0s both;
+          animation: pathWipe 0.9s ease-out 0s both;
         }
         .anim-parallax .hill-left {
-          animation: slideFromLeft 1s ease-out 0.15s both;
+          animation: pathWipe 0.9s ease-out 0.15s both;
         }
         .anim-parallax .hill-front {
-          animation: slideFromRight 0.8s ease-out 0.3s both;
+          animation: pathWipe 0.8s ease-out 0.3s both;
         }
-        @keyframes slideFromLeft {
-          from { opacity: 0; transform: translateX(-60px); }
-          to { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes slideFromRight {
-          from { opacity: 0; transform: translateX(60px); }
-          to { opacity: 1; transform: translateX(0); }
+        @keyframes pathWipe {
+          from { opacity: 0; clip-path: inset(0 100% 0 0); }
+          to { opacity: 1; clip-path: inset(0 0 0 0); }
         }
 
         /* 7 — Gentle Breathe (loops) */
@@ -347,6 +400,129 @@ export default function LogoTestPage() {
         }
         .draw-fill-solid {
           animation: fadeIn 0.6s ease-out 1.2s both;
+        }
+
+        /* 9 — Flash In */
+        .anim-flash-in {
+          animation: flashIn 0.7s ease-out both;
+        }
+        @keyframes flashIn {
+          0% { opacity: 0; filter: brightness(2.5); }
+          35% { opacity: 1; filter: brightness(1.6); }
+          100% { opacity: 1; filter: brightness(1); }
+        }
+
+        /* 10 — Rotate In */
+        .anim-rotate-in {
+          animation: rotateIn 0.9s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+          transform-origin: center;
+        }
+        @keyframes rotateIn {
+          from { opacity: 0; transform: rotate(-8deg) scale(0.9); }
+          to { opacity: 1; transform: rotate(0deg) scale(1); }
+        }
+
+        /* 11 — Soft Focus */
+        .anim-soft-focus {
+          animation: softFocus 0.9s ease-out both;
+        }
+        @keyframes softFocus {
+          from { opacity: 0.4; filter: blur(8px); }
+          to { opacity: 1; filter: blur(0px); }
+        }
+
+        /* 12 — Color Shift */
+        .anim-color-shift {
+          animation: colorShift 1.2s ease-out both;
+        }
+        @keyframes colorShift {
+          from { filter: hue-rotate(20deg) saturate(1.25); }
+          to { filter: hue-rotate(0deg) saturate(1); }
+        }
+
+        /* 13 — Shimmer */
+        .anim-shimmer {
+          animation: shimmer 1.4s ease-in-out both;
+        }
+        @keyframes shimmer {
+          0% { filter: brightness(0.9) contrast(0.95); }
+          50% { filter: brightness(1.12) contrast(1.05); }
+          100% { filter: brightness(1) contrast(1); }
+        }
+
+        /* 14 — Pop Fade */
+        .anim-pop-fade {
+          animation: popFade 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          transform-origin: center bottom;
+        }
+        @keyframes popFade {
+          from { opacity: 0; transform: scale(0.78); }
+          to { opacity: 1; transform: scale(1); }
+        }
+
+        /* 15 — Drift Up */
+        .anim-drift-up {
+          animation: driftUp 1s ease-out both;
+        }
+        @keyframes driftUp {
+          from { opacity: 0; transform: translateY(14px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 16 — Blur Lift */
+        .anim-blur-lift {
+          animation: blurLift 0.9s ease-out both;
+        }
+        @keyframes blurLift {
+          from { opacity: 0; transform: translateY(16px); filter: blur(7px); }
+          to { opacity: 1; transform: translateY(0); filter: blur(0px); }
+        }
+
+        /* 17 — Glow Hold */
+        .anim-glow-hold {
+          animation: glowHold 1.2s ease-out both;
+        }
+        @keyframes glowHold {
+          0% { filter: drop-shadow(0 0 0 rgba(154, 186, 201, 0)); }
+          40% { filter: drop-shadow(0 0 14px rgba(154, 186, 201, 0.55)); }
+          100% { filter: drop-shadow(0 0 0 rgba(154, 186, 201, 0)); }
+        }
+
+        /* 18 — Cascade Fade */
+        .anim-cascade-fade .hill-right {
+          animation: cascadeFade 0.55s ease-out 0s both;
+        }
+        .anim-cascade-fade .hill-left {
+          animation: cascadeFade 0.55s ease-out 0.18s both;
+        }
+        .anim-cascade-fade .hill-front {
+          animation: cascadeFade 0.55s ease-out 0.36s both;
+        }
+        @keyframes cascadeFade {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        /* 19 — Wobble In */
+        .anim-wobble-in {
+          animation: wobbleIn 0.95s ease-out both;
+          transform-origin: center bottom;
+        }
+        @keyframes wobbleIn {
+          0% { opacity: 0; transform: rotate(-3deg) scale(0.94); }
+          45% { opacity: 1; transform: rotate(2deg) scale(1.02); }
+          70% { transform: rotate(-1deg) scale(0.995); }
+          100% { transform: rotate(0deg) scale(1); }
+        }
+
+        /* 20 — Zoom Out In */
+        .anim-zoom-out-in {
+          animation: zoomOutIn 0.85s ease-out both;
+          transform-origin: center;
+        }
+        @keyframes zoomOutIn {
+          from { opacity: 0; transform: scale(1.12); }
+          to { opacity: 1; transform: scale(1); }
         }
       `}</style>
     </div>
