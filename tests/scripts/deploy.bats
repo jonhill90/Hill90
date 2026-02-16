@@ -66,14 +66,14 @@
   [ "$status" -eq 0 ]
 }
 
-@test "deploy.sh all deploys auth api ai and mcp services" {
-  # cmd_all must iterate over all 4 app services.
+@test "deploy.sh all deploys auth api ai mcp and ui services" {
   run grep "for svc in" scripts/deploy.sh
   [ "$status" -eq 0 ]
   [[ "$output" == *"auth"* ]]
   [[ "$output" == *"api"* ]]
   [[ "$output" == *"ai"* ]]
   [[ "$output" == *"mcp"* ]]
+  [[ "$output" == *"ui"* ]]
 }
 
 @test "deploy.sh service checks hill90_internal network exists" {
@@ -81,4 +81,36 @@
   run grep -A2 "hill90_internal" scripts/deploy.sh
   [ "$status" -eq 0 ]
   [[ "$output" == *"Deploy infrastructure first"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Keycloak / Postgres separation tests
+# ---------------------------------------------------------------------------
+
+@test "deploy.sh usage lists db command" {
+  run bash scripts/deploy.sh help
+  [[ "$output" == *"db"* ]]
+}
+
+@test "deploy.sh db requires compose file" {
+  run bash scripts/deploy.sh db nonexistent-env
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not found"* ]] || [[ "$output" == *"Error"* ]]
+}
+
+@test "deploy.sh dispatcher accepts db command" {
+  # db must be routed through cmd_service, not rejected as unknown
+  run bash scripts/deploy.sh db nonexistent-env
+  [[ "$output" != *"Unknown"* ]]
+}
+
+@test "deploy.sh all does NOT include db in service loop" {
+  # DB is infrastructure, not an app service
+  run bash -c 'sed -n "/^cmd_all/,/^}/p" scripts/deploy.sh | grep "for svc in"'
+  [[ "$output" != *"db"* ]]
+}
+
+@test "deploy.sh all includes keycloak check in docker ps" {
+  run grep -E "docker ps.*keycloak" scripts/deploy.sh
+  [ "$status" -eq 0 ]
 }

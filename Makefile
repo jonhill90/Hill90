@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -110,8 +110,6 @@ test: ## Run all tests
 	cd src/services/api && npm test || true
 	@echo "$(COLOR_BLUE)Testing AI service...$(COLOR_RESET)"
 	cd src/services/ai && poetry run pytest || true
-	@echo "$(COLOR_BLUE)Testing Auth service...$(COLOR_RESET)"
-	cd src/services/auth && npm test || true
 	@echo "$(COLOR_GREEN)Tests complete!$(COLOR_RESET)"
 
 lint: ## Lint all code
@@ -120,8 +118,6 @@ lint: ## Lint all code
 	cd src/services/api && npm run lint || true
 	@echo "$(COLOR_BLUE)Linting AI service...$(COLOR_RESET)"
 	cd src/services/ai && poetry run ruff check app/ || true
-	@echo "$(COLOR_BLUE)Linting Auth service...$(COLOR_RESET)"
-	cd src/services/auth && npm run lint || true
 
 format: ## Format all code
 	@echo "$(COLOR_BOLD)Formatting code...$(COLOR_RESET)"
@@ -129,8 +125,6 @@ format: ## Format all code
 	cd src/services/api && npm run format || true
 	@echo "$(COLOR_BLUE)Formatting AI service...$(COLOR_RESET)"
 	cd src/services/ai && poetry run black app/ || true
-	@echo "$(COLOR_BLUE)Formatting Auth service...$(COLOR_RESET)"
-	cd src/services/auth && npm run format || true
 
 validate: ## Validate infrastructure configuration (Traefik, secrets, Docker Compose)
 	@echo "$(COLOR_BOLD)Validating infrastructure...$(COLOR_RESET)"
@@ -153,8 +147,12 @@ deploy-infra-production: ## Deploy infrastructure with PRODUCTION certificates
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
 	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy.sh infra $(ENV)
 
-deploy-auth: ## Deploy auth service (with PostgreSQL)
-	@echo "$(COLOR_YELLOW)Deploying auth service...$(COLOR_RESET)"
+deploy-db: ## Deploy database (PostgreSQL)
+	@echo "$(COLOR_YELLOW)Deploying database...$(COLOR_RESET)"
+	bash scripts/deploy.sh db $(ENV)
+
+deploy-auth: ## Deploy Keycloak identity provider
+	@echo "$(COLOR_YELLOW)Deploying Keycloak...$(COLOR_RESET)"
 	bash scripts/deploy.sh auth $(ENV)
 
 deploy-api: ## Deploy API service

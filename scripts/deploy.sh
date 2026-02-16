@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|auth|api|ai|mcp|ui|all} [env]
+# Usage: deploy.sh {infra|db|auth|api|ai|mcp|ui|all} [env]
 
 set -e
 
@@ -19,12 +19,13 @@ Usage: deploy.sh <command> [env]
 
 Commands:
   infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
-  auth     Deploy auth service (with PostgreSQL)
+  db       Deploy database (PostgreSQL)
+  auth     Deploy Keycloak identity provider
   api      Deploy API service
   ai       Deploy AI service
   mcp      Deploy MCP service
   ui       Deploy UI service
-  all      Deploy all application services (NOT infrastructure)
+  all      Deploy all application services (NOT infrastructure or db)
   help     Show this help message
 
 Environment: defaults to 'prod'
@@ -99,13 +100,19 @@ cmd_service() {
 
     local compose_file banner containers summary
     case "$service" in
+        db)
+            compose_file="deploy/compose/${env}/docker-compose.db.yml"
+            containers="postgres"
+            banner="Database Deployment"
+            summary="Service deployed:
+  - postgres (PostgreSQL database)"
+            ;;
         auth)
             compose_file="deploy/compose/${env}/docker-compose.auth.yml"
-            containers="auth postgres"
-            banner="Auth Service Deployment"
-            summary="Services deployed:
-  - postgres (database)
-  - auth (authentication service)"
+            containers="keycloak"
+            banner="Keycloak Deployment"
+            summary="Service deployed:
+  - keycloak (identity provider at auth.hill90.com)"
             ;;
         api)
             compose_file="deploy/compose/${env}/docker-compose.api.yml"
@@ -194,7 +201,7 @@ cmd_all() {
     echo "================================"
     echo ""
     echo "This will deploy all application services:"
-    echo "  1. auth + postgres"
+    echo "  1. keycloak (auth)"
     echo "  2. api"
     echo "  3. ai"
     echo "  4. mcp"
@@ -217,7 +224,7 @@ cmd_all() {
     echo "================================"
     echo ""
     echo "Running containers:"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|api|ai|mcp|auth|postgres|ui)" || true
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|api|ai|mcp|keycloak|ui)" || true
     echo ""
     echo "Check service health:"
     echo "  make health"
@@ -239,7 +246,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        auth|api|ai|mcp|ui) cmd_service "$cmd" "$@" ;;
+        db|auth|api|ai|mcp|ui) cmd_service "$cmd" "$@" ;;
         all)            cmd_all "$@" ;;
         help|--help|-h) usage ;;
         *)
