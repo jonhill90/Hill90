@@ -1,4 +1,4 @@
-import { HILL_PATH_TRANSFORM, HILL_RIGHT, HILL_LEFT, HILL_FRONT } from './hill-paths';
+import { HILL_RIGHT, HILL_LEFT, HILL_FRONT, HILL_TRACE_TRANSFORM } from './hill-paths';
 
 interface HillLogoProps {
   width?: number | string;
@@ -34,28 +34,33 @@ export default function HillLogo({
           <stop offset="0%" stopColor="#4C5A63" />
           <stop offset="100%" stopColor={darkColor} />
         </linearGradient>
+        <clipPath id="hill90-corner-clip" clipPathUnits="userSpaceOnUse">
+          <path d="M0 0 H660 V287 Q660 297 650 297 H10 Q0 297 0 287 Z" />
+        </clipPath>
       </defs>
-      {/* Right peak (background, taller) — left edge follows gap boundary */}
-      <path
-        className="hill-right"
-        d={HILL_RIGHT}
-        transform={HILL_PATH_TRANSFORM}
-        fill="url(#hill90-light-grad)"
-      />
-      {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
-      <path
-        className="hill-left"
-        d={HILL_LEFT}
-        transform={HILL_PATH_TRANSFORM}
-        fill="url(#hill90-light-grad)"
-      />
-      {/* Front hill (foreground, darker) — smooth concave curve */}
-      <path
-        className="hill-front"
-        d={HILL_FRONT}
-        transform={HILL_PATH_TRANSFORM}
-        fill="url(#hill90-front-grad)"
-      />
+      <g clipPath="url(#hill90-corner-clip)">
+        {/* Right peak (background, taller) — left edge follows gap boundary */}
+        <path
+          className="hill-right"
+          d={HILL_RIGHT}
+          transform={HILL_TRACE_TRANSFORM}
+          fill="url(#hill90-light-grad)"
+        />
+        {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
+        <path
+          className="hill-left"
+          d={HILL_LEFT}
+          transform={HILL_TRACE_TRANSFORM}
+          fill="url(#hill90-light-grad)"
+        />
+        {/* Front hill (foreground, darker) — smooth concave curve */}
+        <path
+          className="hill-front"
+          d={HILL_FRONT}
+          transform={HILL_TRACE_TRANSFORM}
+          fill="url(#hill90-front-grad)"
+        />
+      </g>
     </svg>
   );
 }

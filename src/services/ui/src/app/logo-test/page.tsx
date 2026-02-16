@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { HILL_PATH_TRANSFORM, HILL_RIGHT, HILL_LEFT, HILL_FRONT } from '../../components/hill-paths';
+import { HILL_RIGHT, HILL_LEFT, HILL_FRONT, HILL_TRACE_TRANSFORM } from '../../components/hill-paths';
 
 /* ------------------------------------------------------------------ */
 /*  Base SVG — each animation variant renders this with different CSS  */
@@ -42,28 +42,33 @@ function Hill({
           <stop offset="0%" stopColor="#4C5A63" />
           <stop offset="100%" stopColor={darkColor} />
         </linearGradient>
+        <clipPath id={`${id || 'hill'}-corner-clip`} clipPathUnits="userSpaceOnUse">
+          <path d="M0 0 H660 V287 Q660 297 650 297 H10 Q0 297 0 287 Z" />
+        </clipPath>
       </defs>
-      {/* Right peak (background, taller) — left edge follows gap boundary */}
-      <path
-        className="hill-right"
-        d={HILL_RIGHT}
-        transform={HILL_PATH_TRANSFORM}
-        fill={`url(#${id || 'hill'}-light-grad)`}
-      />
-      {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
-      <path
-        className="hill-left"
-        d={HILL_LEFT}
-        transform={HILL_PATH_TRANSFORM}
-        fill={`url(#${id || 'hill'}-light-grad)`}
-      />
-      {/* Front hill (foreground, darker) — smooth concave curve */}
-      <path
-        className="hill-front"
-        d={HILL_FRONT}
-        transform={HILL_PATH_TRANSFORM}
-        fill={`url(#${id || 'hill'}-front-grad)`}
-      />
+      <g clipPath={`url(#${id || 'hill'}-corner-clip)`}>
+        {/* Right peak (background, taller) — left edge follows gap boundary */}
+        <path
+          className="hill-right"
+          d={HILL_RIGHT}
+          transform={HILL_TRACE_TRANSFORM}
+          fill={`url(#${id || 'hill'}-light-grad)`}
+        />
+        {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
+        <path
+          className="hill-left"
+          d={HILL_LEFT}
+          transform={HILL_TRACE_TRANSFORM}
+          fill={`url(#${id || 'hill'}-light-grad)`}
+        />
+        {/* Front hill (foreground, darker) — smooth concave curve */}
+        <path
+          className="hill-front"
+          d={HILL_FRONT}
+          transform={HILL_TRACE_TRANSFORM}
+          fill={`url(#${id || 'hill'}-front-grad)`}
+        />
+      </g>
     </svg>
   );
 }
@@ -82,7 +87,7 @@ function HillOutline({ className = '' }: { className?: string }) {
       <path
         className="draw-right"
         d={HILL_RIGHT}
-        transform={HILL_PATH_TRANSFORM}
+        transform={HILL_TRACE_TRANSFORM}
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
@@ -90,7 +95,7 @@ function HillOutline({ className = '' }: { className?: string }) {
       <path
         className="draw-left"
         d={HILL_LEFT}
-        transform={HILL_PATH_TRANSFORM}
+        transform={HILL_TRACE_TRANSFORM}
         fill="none"
         stroke="#60757D"
         strokeWidth="3"
@@ -98,7 +103,7 @@ function HillOutline({ className = '' }: { className?: string }) {
       <path
         className="draw-front"
         d={HILL_FRONT}
-        transform={HILL_PATH_TRANSFORM}
+        transform={HILL_TRACE_TRANSFORM}
         fill="none"
         stroke="#3C4A52"
         strokeWidth="3"
