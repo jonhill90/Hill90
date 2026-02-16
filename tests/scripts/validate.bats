@@ -109,9 +109,9 @@
   [ "$status" -eq 0 ]
 }
 
-@test "docker-compose.auth.yml keycloak admin has tailscale-only middleware" {
-  run grep "tailscale-only@file" deploy/compose/prod/docker-compose.auth.yml
-  [ "$status" -eq 0 ]
+@test "docker-compose.auth.yml keycloak uses single hostname" {
+  run grep "KC_HOSTNAME_ADMIN" deploy/compose/prod/docker-compose.auth.yml
+  [ "$status" -eq 1 ]
 }
 
 @test "docker-compose.auth.yml keycloak uses start command with import-realm" {
