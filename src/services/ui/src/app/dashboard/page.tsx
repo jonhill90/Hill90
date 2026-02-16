@@ -45,7 +45,7 @@ export default function Dashboard() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
         <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
-          <HillLogo width={120} className="logo-glow-hold" />
+          <HillLogo width={96} className="logo-glow-hold" />
         </Link>
         <span className="text-sm font-medium text-white">Dashboard</span>
       </nav>
