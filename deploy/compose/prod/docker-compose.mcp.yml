@@ -26,8 +26,8 @@ services:
     environment:
       - ENVIRONMENT=production
       - PORT=8001
-      - AUTH_SERVICE_URL=http://auth:3001
-      - JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}
+      - KEYCLOAK_ISSUER=https://auth.hill90.com/realms/hill90
+      - KEYCLOAK_JWKS_URI=https://auth.hill90.com/realms/hill90/protocol/openid-connect/certs
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
       interval: 30s
