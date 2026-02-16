@@ -33,23 +33,41 @@ function Hill({
       role="img"
       aria-label="Hill90 logo"
     >
+      <defs>
+        <linearGradient id={`${id || 'hill'}-light-grad`} x1="0" y1="0" x2="660" y2="297" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#7A8E96" />
+          <stop offset="100%" stopColor={lightColor} />
+        </linearGradient>
+        <linearGradient id={`${id || 'hill'}-front-grad`} x1="240" y1="110" x2="660" y2="297" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#4C5A63" />
+          <stop offset="100%" stopColor={darkColor} />
+        </linearGradient>
+      </defs>
       {/* Right peak (background, taller) — left edge follows gap boundary */}
       <path
         className="hill-right"
         d={HILL_RIGHT}
-        fill={lightColor}
+        fill={`url(#${id || 'hill'}-light-grad)`}
       />
       {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
       <path
         className="hill-left"
         d={HILL_LEFT}
-        fill={lightColor}
+        fill={`url(#${id || 'hill'}-light-grad)`}
       />
       {/* Front hill (foreground, darker) — smooth concave curve */}
       <path
         className="hill-front"
         d={HILL_FRONT}
-        fill={darkColor}
+        fill={`url(#${id || 'hill'}-front-grad)`}
+      />
+      {/* Subtle shoulder highlight to emulate PNG rim softness */}
+      <path
+        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297"
+        fill="none"
+        stroke="#91A2AA"
+        strokeOpacity="0.32"
+        strokeWidth="2"
       />
     </svg>
   );
