@@ -29,6 +29,11 @@ services:
       - AI_URL=http://ai:8000
       - KEYCLOAK_INTERNAL_URL=http://keycloak:8080
       - MCP_URL=http://mcp:8001
+      - AUTH_KEYCLOAK_ID=${AUTH_KEYCLOAK_ID}
+      - AUTH_KEYCLOAK_SECRET=${AUTH_KEYCLOAK_SECRET}
+      - AUTH_KEYCLOAK_ISSUER=https://auth.hill90.com/realms/hill90
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_URL=https://hill90.com
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s

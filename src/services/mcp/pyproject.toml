@@ -17,6 +17,10 @@ pytest = "^7.4.0"
 black = "^24.1.0"
 ruff = "^0.1.0"
 
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
