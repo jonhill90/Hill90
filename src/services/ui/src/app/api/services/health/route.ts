@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 const SERVICES = [
   { name: 'API', url: process.env.API_URL || 'http://localhost:3000', path: '/health' },
   { name: 'AI', url: process.env.AI_URL || 'http://localhost:8000', path: '/health' },
-  { name: 'Auth', url: process.env.AUTH_URL || 'http://localhost:3001', path: '/health' },
+  { name: 'Keycloak', url: process.env.KEYCLOAK_INTERNAL_URL || 'http://localhost:8080', path: '/realms/hill90/.well-known/openid-configuration' },
   { name: 'MCP', url: process.env.MCP_URL || 'http://localhost:8001', path: '/health' },
 ];
 

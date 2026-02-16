@@ -1,14 +1,14 @@
-name: Deploy Keycloak
+name: Deploy Database
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'platform/auth/keycloak/**'
-      - 'deploy/compose/prod/docker-compose.auth.yml'
+      - 'deploy/compose/prod/docker-compose.db.yml'
+      - 'platform/data/postgres/**'
       - 'scripts/deploy.sh'
-      - '.github/workflows/deploy-auth.yml'
+      - '.github/workflows/deploy-db.yml'
 
   workflow_dispatch:
     inputs:
@@ -26,7 +26,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy Keycloak
+    name: Deploy Database
     runs-on: ubuntu-latest
     environment: production
 
@@ -69,28 +69,28 @@ jobs:
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
 
-      - name: Deploy keycloak
+      - name: Deploy database
         run: |
-          echo "Deploying keycloak..."
+          echo "Deploying database..."
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && \
              git fetch origin && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             bash scripts/deploy.sh auth prod"
+             bash scripts/deploy.sh db ${{ inputs.environment || 'prod' }}"
 
       - name: Wait for services to start
-        run: sleep 30
+        run: sleep 15
 
       - name: Verify services
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "keycloak"'
+            'docker ps --format "table {{.Names}}\t{{.Status}}" | grep postgres'
 
       - name: Summary
         if: success()
         run: |
-          echo "Keycloak deployment complete!"
-          echo "Services: keycloak"
+          echo "Database deployment complete!"
+          echo "Services: postgres"

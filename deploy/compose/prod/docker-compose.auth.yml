@@ -1,6 +1,6 @@
 version: '3.9'
 
-# Auth service with PostgreSQL database
+# Keycloak identity provider
 # Deploy with: make deploy-auth
 
 networks:
@@ -11,54 +11,47 @@ networks:
     external: true
     name: hill90_internal
 
-volumes:
-  postgres-data:
-
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:16-alpine
-    container_name: postgres
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.0
+    container_name: keycloak
     restart: unless-stopped
     networks:
+      - edge
       - internal
     volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ../../../platform/data/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ../../../platform/auth/keycloak/hill90-realm.json:/opt/keycloak/data/import/hill90-realm.json:ro
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_DB=hill90
+      - KC_DB=postgres
+      - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
+      - KC_DB_USERNAME=${DB_USER}
+      - KC_DB_PASSWORD=${DB_PASSWORD}
+      - KC_HOSTNAME=auth.hill90.com
+      - KC_HOSTNAME_ADMIN=admin.hill90.com
+      - KC_PROXY_HEADERS=xforwarded
+      - KC_HTTP_ENABLED=true
+      - KC_HEALTH_ENABLED=true
+      - KC_METRICS_ENABLED=true
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_ADMIN_USERNAME}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}
+      - JAVA_OPTS_APPEND=-Xms256m -Xmx768m
+    command: start --import-realm
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Auth Service (TypeScript/Express)
-  auth:
-    build:
-      context: ../../../src/services/auth
-      dockerfile: Dockerfile
-    image: hill90/auth:${VERSION:-latest}
-    container_name: auth
-    restart: unless-stopped
-    networks:
-      - internal
-    environment:
-      - NODE_ENV=production
-      - PORT=3001
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=hill90_auth
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9000"]
       interval: 30s
       timeout: 10s
-      retries: 3
-    depends_on:
-      - postgres
+      retries: 5
+      start_period: 90s
+    labels:
+      - "traefik.enable=true"
+      # Public OIDC/login (auth.hill90.com)
+      - "traefik.http.routers.keycloak.rule=Host(`auth.hill90.com`)"
+      - "traefik.http.routers.keycloak.entrypoints=websecure"
+      - "traefik.http.routers.keycloak.tls.certresolver=letsencrypt"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+      # Admin console (admin.hill90.com) — Tailscale only
+      - "traefik.http.routers.keycloak-admin.rule=Host(`admin.hill90.com`)"
+      - "traefik.http.routers.keycloak-admin.entrypoints=websecure"
+      - "traefik.http.routers.keycloak-admin.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.routers.keycloak-admin.middlewares=tailscale-only@file"
+      - "traefik.http.services.keycloak-admin.loadbalancer.server.port=8080"
