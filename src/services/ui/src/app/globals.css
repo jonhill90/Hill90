@@ -14,13 +14,13 @@
 
 /* Top-nav logo animation + hover affordance */
 .logo-glow-hold {
-  animation: logoGlowHold 1.2s ease-out both;
+  animation: logoGlowHold 1.2s ease-out 1;
   filter: none;
   transition: filter 180ms ease;
 }
 
 .logo-link:hover .logo-glow-hold {
-  filter: drop-shadow(0 0 16px rgba(109, 179, 58, 0.9));
+  filter: drop-shadow(0 0 16px rgba(109, 179, 58, 0.9)) !important;
 }
 
 @keyframes logoGlowHold {
