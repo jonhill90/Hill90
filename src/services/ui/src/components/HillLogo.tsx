@@ -1,4 +1,4 @@
-import { HILL_RIGHT, HILL_LEFT, HILL_FRONT } from './hill-paths';
+import { HILL_PATH_TRANSFORM, HILL_RIGHT, HILL_LEFT, HILL_FRONT } from './hill-paths';
 
 interface HillLogoProps {
   width?: number | string;
@@ -39,27 +39,22 @@ export default function HillLogo({
       <path
         className="hill-right"
         d={HILL_RIGHT}
+        transform={HILL_PATH_TRANSFORM}
         fill="url(#hill90-light-grad)"
       />
       {/* Left peak (middle layer, shorter) — right edge follows gap boundary */}
       <path
         className="hill-left"
         d={HILL_LEFT}
+        transform={HILL_PATH_TRANSFORM}
         fill="url(#hill90-light-grad)"
       />
       {/* Front hill (foreground, darker) — smooth concave curve */}
       <path
         className="hill-front"
         d={HILL_FRONT}
+        transform={HILL_PATH_TRANSFORM}
         fill="url(#hill90-front-grad)"
-      />
-      {/* Subtle shoulder highlight to emulate PNG rim softness */}
-      <path
-        d="M 240,297 C 330,205 420,118 462,108 C 508,98 598,200 660,297"
-        fill="none"
-        stroke="#91A2AA"
-        strokeOpacity="0.32"
-        strokeWidth="2"
       />
     </svg>
   );
