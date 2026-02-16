@@ -26,8 +26,8 @@ services:
       - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
       - KC_DB_USERNAME=${DB_USER}
       - KC_DB_PASSWORD=${DB_PASSWORD}
-      - KC_HOSTNAME=auth.hill90.com
-      - KC_HOSTNAME_ADMIN=admin.hill90.com
+      - KC_HOSTNAME=https://auth.hill90.com
+      - KC_HOSTNAME_ADMIN=https://admin.hill90.com
       - KC_PROXY_HEADERS=xforwarded
       - KC_HTTP_ENABLED=true
       - KC_HEALTH_ENABLED=true
@@ -44,14 +44,16 @@ services:
       start_period: 90s
     labels:
       - "traefik.enable=true"
+      # Single service definition for both routers
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
       # Public OIDC/login (auth.hill90.com)
       - "traefik.http.routers.keycloak.rule=Host(`auth.hill90.com`)"
       - "traefik.http.routers.keycloak.entrypoints=websecure"
       - "traefik.http.routers.keycloak.tls.certresolver=letsencrypt"
-      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+      - "traefik.http.routers.keycloak.service=keycloak"
       # Admin console (admin.hill90.com) — Tailscale only
       - "traefik.http.routers.keycloak-admin.rule=Host(`admin.hill90.com`)"
       - "traefik.http.routers.keycloak-admin.entrypoints=websecure"
       - "traefik.http.routers.keycloak-admin.tls.certresolver=letsencrypt-dns"
       - "traefik.http.routers.keycloak-admin.middlewares=tailscale-only@file"
-      - "traefik.http.services.keycloak-admin.loadbalancer.server.port=8080"
+      - "traefik.http.routers.keycloak-admin.service=keycloak"

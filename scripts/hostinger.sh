@@ -353,7 +353,7 @@ dns_sync() {
     current_records=$(api_call GET "/api/dns/v1/zones/$DOMAIN")
 
     local needs_update=false
-    for pair in "@:$vps_ip" "api:$vps_ip" "ai:$vps_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip"; do
+    for pair in "@:$vps_ip" "api:$vps_ip" "ai:$vps_ip" "auth:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip"; do
         local name="${pair%%:*}"
         local expected="${pair##*:}"
         local current
@@ -385,6 +385,8 @@ dns_sync() {
                 {name: "@",         type: "A", ttl: 3600, records: [{content: $vps}]},
                 {name: "api",       type: "A", ttl: 3600, records: [{content: $vps}]},
                 {name: "ai",        type: "A", ttl: 3600, records: [{content: $vps}]},
+                {name: "auth",      type: "A", ttl: 3600, records: [{content: $vps}]},
+                {name: "admin",     type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "portainer", type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "traefik",   type: "A", ttl: 3600, records: [{content: $ts}]}
             ]
