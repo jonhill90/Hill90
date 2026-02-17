@@ -267,6 +267,7 @@ cmd_secrets() {
     )
     local optional_secrets=(
         "ANTHROPIC_API_KEY" "OPENAI_API_KEY" "JWT_PRIVATE_KEY" "JWT_PUBLIC_KEY"
+        "MINIO_ROOT_USER" "MINIO_ROOT_PASSWORD"
     )
 
     echo ""
@@ -371,6 +372,22 @@ cmd_compose() {
         echo "Run to see errors:"
         echo "  docker compose -f $compose_file config"
     fi
+
+    echo ""
+    echo "Validating per-service compose files..."
+    for extra in deploy/compose/${env}/docker-compose.*.yml; do
+        [ -f "$extra" ] || continue
+        local basename
+        basename=$(basename "$extra")
+        echo -n "  $basename... "
+        if docker compose -f "$extra" config > /dev/null 2>&1; then
+            echo "✓"
+        else
+            echo "✗ Invalid"
+            all_valid=false
+            echo "    Run: docker compose -f $extra config"
+        fi
+    done
 
     if [ -f "$compose_file" ]; then
         echo ""

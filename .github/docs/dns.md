@@ -15,6 +15,7 @@ The Hill90 domain (hill90.com) uses DNS records to route traffic to the VPS and 
 **Tailscale-Only Services (accessible only on Tailscale network):**
 - `portainer.hill90.com` → 100.78.82.89 (Tailscale IP)
 - `traefik.hill90.com` → 100.78.82.89 (Tailscale IP)
+- `storage.hill90.com` → 100.78.82.89 (MinIO console, Tailscale IP)
 
 **Other Records:**
 - `remote.hill90.com` → 31.97.42.69 (Remote Mac server)

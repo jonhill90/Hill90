@@ -114,3 +114,32 @@
   run grep -E "docker ps.*keycloak" scripts/deploy.sh
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# MinIO storage tests
+# ---------------------------------------------------------------------------
+
+@test "deploy.sh usage includes minio command" {
+  run bash scripts/deploy.sh help
+  [[ "$output" == *"minio"* ]]
+  [[ "$output" == *"MinIO"* ]]
+}
+
+@test "deploy.sh minio is accepted by main dispatcher" {
+  # Should fail on missing compose/secrets, not 'Unknown command'
+  run bash scripts/deploy.sh minio nonexistent-env
+  [ "$status" -eq 1 ]
+  [[ "$output" != *"Unknown"* ]]
+}
+
+@test "deploy.sh all does NOT include minio in service loop" {
+  # MinIO is infrastructure, not an app service — same as db
+  run bash -c 'sed -n "/^cmd_all/,/^}/p" scripts/deploy.sh | grep "for svc in"'
+  [[ "$output" != *"minio"* ]]
+}
+
+@test "deploy.sh cmd_service has minio case with correct compose file" {
+  run bash -c 'sed -n "/^cmd_service/,/^}/p" scripts/deploy.sh | grep -A1 "minio)"'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"docker-compose.minio.yml"* ]]
+}

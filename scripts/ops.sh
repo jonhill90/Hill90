@@ -54,6 +54,27 @@ cmd_health() {
     done
 
     echo ""
+    echo "Checking internal services..."
+    echo -n "Checking MinIO... "
+    if docker container inspect minio > /dev/null 2>&1; then
+        local minio_health
+        minio_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' minio 2>/dev/null || echo "error")
+        local minio_running
+        minio_running=$(docker inspect --format='{{.State.Running}}' minio 2>/dev/null || echo "false")
+        if [[ "$minio_running" != "true" ]]; then
+            echo "✗ Stopped/crashed"
+            all_healthy=false
+        elif [[ "$minio_health" == "healthy" ]]; then
+            echo "✓ Healthy"
+        else
+            echo "✗ Unhealthy ($minio_health)"
+            all_healthy=false
+        fi
+    else
+        echo "- Not deployed (skipped)"
+    fi
+
+    echo ""
     echo "================================"
     echo "DNS Verification"
     echo "================================"
@@ -73,10 +94,10 @@ cmd_health() {
         echo "Expected VPS IP: $vps_ip"
         echo ""
 
-        local domains=("api.hill90.com" "ai.hill90.com" "hill90.com")
+        local public_domains=("api.hill90.com" "ai.hill90.com" "auth.hill90.com" "hill90.com")
         local dns_all_correct=true
 
-        for domain in "${domains[@]}"; do
+        for domain in "${public_domains[@]}"; do
             echo -n "Checking DNS for $domain... "
             local resolved_ip
             resolved_ip=$(dig +short "$domain" @8.8.8.8 | tail -n1)
@@ -90,6 +111,36 @@ cmd_health() {
                 echo "✓ Correct ($resolved_ip)"
             fi
         done
+
+        # Tailscale-only hosts
+        local tailscale_ip=""
+        if [ -f "infra/secrets/prod.dec.env" ]; then
+            tailscale_ip=$(grep "^TAILSCALE_IP=" infra/secrets/prod.dec.env 2>/dev/null | cut -d '=' -f 2)
+        fi
+        if [ -z "$tailscale_ip" ] && [ -f "infra/secrets/prod.enc.env" ]; then
+            tailscale_ip=$(sops -d infra/secrets/prod.enc.env 2>/dev/null | grep "^TAILSCALE_IP=" | cut -d '=' -f 2 || echo "")
+        fi
+
+        if [ -n "$tailscale_ip" ]; then
+            echo ""
+            echo "Expected Tailscale IP: $tailscale_ip"
+            echo ""
+            local tailscale_domains=("storage.hill90.com" "portainer.hill90.com" "traefik.hill90.com")
+            for domain in "${tailscale_domains[@]}"; do
+                echo -n "Checking DNS for $domain... "
+                local resolved_ip
+                resolved_ip=$(dig +short "$domain" @8.8.8.8 | tail -n1)
+                if [ -z "$resolved_ip" ]; then
+                    echo "✗ No DNS record found"
+                    dns_all_correct=false
+                elif [ "$resolved_ip" != "$tailscale_ip" ]; then
+                    echo "✗ Mismatch (resolves to $resolved_ip)"
+                    dns_all_correct=false
+                else
+                    echo "✓ Correct ($resolved_ip)"
+                fi
+            done
+        fi
 
         echo ""
         if [ "$dns_all_correct" = false ]; then
@@ -132,6 +183,16 @@ cmd_backup() {
         -v traefik-certs:/data \
         -v "$(pwd)/$backup_dir":/backup \
         alpine tar czf /backup/traefik-certs.tar.gz -C /data .
+
+    if docker volume inspect minio-data > /dev/null 2>&1; then
+        echo "Backing up MinIO data..."
+        docker run --rm \
+            -v minio-data:/data \
+            -v "$(pwd)/$backup_dir":/backup \
+            alpine tar czf /backup/minio-data.tar.gz -C /data .
+    else
+        echo "Skipping MinIO backup (volume not found)"
+    fi
 
     echo "Backing up database..."
     docker exec postgres pg_dumpall -U hill90 > "$backup_dir/database.sql"

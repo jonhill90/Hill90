@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|db|auth|api|ai|mcp|ui|all} [env]
+# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|ui|all} [env]
 
 set -e
 
@@ -20,6 +20,7 @@ Usage: deploy.sh <command> [env]
 Commands:
   infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
   db       Deploy database (PostgreSQL)
+  minio    Deploy MinIO object storage
   auth     Deploy Keycloak identity provider
   api      Deploy API service
   ai       Deploy AI service
@@ -135,6 +136,13 @@ cmd_service() {
             summary="Service deployed:
   - mcp (MCP Gateway at ai.hill90.com/mcp)"
             ;;
+        minio)
+            compose_file="deploy/compose/${env}/docker-compose.minio.yml"
+            containers="minio"
+            banner="MinIO Storage Deployment"
+            summary="Service deployed:
+  - minio (S3-compatible object storage, console at storage.hill90.com)"
+            ;;
         ui)
             compose_file="deploy/compose/${env}/docker-compose.ui.yml"
             containers="ui"
@@ -149,6 +157,12 @@ cmd_service() {
     ensure_age_key "$env"
     require_file "$compose_file" "Compose file"
     require_file "$secrets_file" "Secrets file"
+
+    # Service-specific preflight checks
+    if [[ "$service" == "minio" ]]; then
+        sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \
+            || die "MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must be set in secrets. Run: make secrets-update KEY=MINIO_ROOT_USER VALUE=..."
+    fi
 
     # Check that networks exist (infrastructure must be deployed first)
     if ! docker network inspect hill90_edge >/dev/null 2>&1; then
@@ -252,7 +266,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|api|ai|mcp|ui) cmd_service "$cmd" "$@" ;;
+        db|auth|api|ai|mcp|minio|ui) cmd_service "$cmd" "$@" ;;
         all)            cmd_all "$@" ;;
         help|--help|-h) usage ;;
         *)

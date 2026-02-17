@@ -133,6 +133,16 @@ Deploys PostgreSQL to the internal network. Required before application services
 
 ---
 
+### Step 3c: Deploy MinIO (Optional)
+
+```bash
+make deploy-minio
+```
+
+Deploys MinIO S3-compatible object storage. Console accessible at `storage.hill90.com` (Tailscale-only). S3 API available internally at `http://minio:9000` on `hill90_internal`.
+
+---
+
 ### Step 4: Deploy Application Services (~2-3 minutes)
 
 Deploy application services:
@@ -197,6 +207,7 @@ DNS records are **automatically updated** during Step 2 (config-vps).
 - `auth.hill90.com` → A record to new VPS IP
 - `portainer.hill90.com` → A record to new Tailscale IP
 - `traefik.hill90.com` → A record to new Tailscale IP
+- `storage.hill90.com` → A record to new Tailscale IP
 
 **Verification:**
 ```bash
@@ -208,6 +219,7 @@ dig +short ai.hill90.com
 dig +short hill90.com
 dig +short portainer.hill90.com  # Tailscale IP
 dig +short traefik.hill90.com    # Tailscale IP
+dig +short storage.hill90.com    # Tailscale IP
 ```
 
 ### 2. Verify Tailscale Connection
@@ -321,8 +333,9 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 3. Bootstrap infrastructure: `make config-vps VPS_IP=<ip>`
 4. Deploy infrastructure: `make deploy-infra`
 5. Deploy database: `make deploy-db`
-6. Deploy applications: `make deploy-all`
-7. Verify health: `make health`
+6. (Optional) Deploy MinIO: `make deploy-minio`
+7. Deploy applications: `make deploy-all`
+8. Verify health: `make health`
 
 **Fully automated (no intervention):**
 - ✅ Tailscale auth key generation and rotation
