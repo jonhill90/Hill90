@@ -102,7 +102,7 @@ This single command:
 - DNS records updated to new VPS IP
 
 ❌ **Application services NOT running:**
-- API, AI, MCP, Auth, UI services require deployment (Step 3)
+- Database (PostgreSQL), Keycloak, API, AI, MCP, UI services require deployment
 
 ## Next Steps
 
@@ -111,6 +111,9 @@ After bootstrap completes, deploy infrastructure and application services:
 ```bash
 # Deploy infrastructure (Traefik, dns-manager, Portainer)
 make deploy-infra
+
+# Deploy database (required before app services)
+make deploy-db
 
 # Deploy application services
 make deploy-all
@@ -157,6 +160,7 @@ On first setup, point these domains to your VPS:
 - `@` (hill90.com)
 - `api.hill90.com`
 - `ai.hill90.com`
+- `auth.hill90.com`
 
 **Tailscale-only services (Tailscale IP):**
 - `traefik.hill90.com`

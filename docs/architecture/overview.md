@@ -9,7 +9,7 @@ Hill90 is a Docker-based microservices platform hosted on a single Hostinger VPS
 ### Components
 
 - **Edge Layer**: Traefik reverse proxy with automatic HTTPS (dual certificate resolvers)
-- **Application Layer**: Microservices (API, AI, MCP, Auth, UI)
+- **Application Layer**: Microservices (API, AI, MCP, UI) with Keycloak identity provider
 - **Data Layer**: PostgreSQL database
 - **Infrastructure Layer**:
   - Docker Compose orchestration
@@ -29,12 +29,12 @@ Traefik (edge network)           ┌──────────────�
 │ - API (HTTP-01 cert)        │  └──────────────────────────┘
 │ - AI (HTTP-01 cert)         │           ↓ (DNS-01 certs)
 │ - MCP (HTTP-01, auth)       │           ↓
-│ - UI (HTTP-01 cert)         │  ┌──────────────────────────┐
-└─────────────────────────────┘  │ DNS Manager              │
-   ↓                             │ (Webhook for ACME)       │
-┌─────────────────────────────┐  └──────────────────────────┘
-│ Internal Services (internal)│           ↓
-│ - Auth                      │  Hostinger DNS API
+│ - Keycloak (HTTP-01 cert)   │  ┌──────────────────────────┐
+│ - UI (HTTP-01 cert)         │  │ DNS Manager              │
+└─────────────────────────────┘  │ (Webhook for ACME)       │
+   ↓                             └──────────────────────────┘
+┌─────────────────────────────┐           ↓
+│ Internal Services (internal)│  Hostinger DNS API
 │ - PostgreSQL                │  (TXT record management)
 └─────────────────────────────┘
 ```
@@ -45,8 +45,8 @@ Traefik (edge network)           ┌──────────────�
 - DNS Manager translates Traefik ACME requests to Hostinger DNS API calls
 
 **Network Isolation:**
-- **edge network**: Public-facing services (Traefik → API, AI, MCP, UI)
-- **internal network**: Private services (Auth, PostgreSQL)
+- **edge network**: Public-facing services (Traefik → API, AI, MCP, Keycloak, UI)
+- **internal network**: Private services (Keycloak, PostgreSQL)
 - **Tailscale network**: Admin-only services (Traefik dashboard, Portainer)
 - **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via middleware
 
@@ -56,8 +56,8 @@ Traefik (edge network)           ┌──────────────�
 
 - **API**: REST API gateway, orchestrates requests
 - **AI**: LangChain/LangGraph agents, AI operations
-- **MCP**: Model Context Protocol gateway (JWT authenticated)
-- **Auth**: JWT-based authentication service
+- **MCP**: Model Context Protocol gateway (Keycloak JWT authenticated)
+- **Keycloak**: Identity provider (OIDC/OAuth2) at auth.hill90.com
 - **UI**: Next.js frontend application
 
 ### Infrastructure Services
@@ -70,7 +70,7 @@ Traefik (edge network)           ┌──────────────�
 - **DNS Manager**: HTTP webhook for Let's Encrypt DNS-01 challenges
   - Translates Lego httpreq provider format to Hostinger DNS API
   - Creates/deletes DNS TXT records for ACME validation
-- **PostgreSQL**: Relational database for persistent storage
+- **PostgreSQL**: Relational database for persistent storage (separate deploy: `make deploy-db`)
 
 ## Technology Stack
 
@@ -87,6 +87,8 @@ Traefik (edge network)           ┌──────────────�
   - Let's Encrypt (automatic HTTPS)
   - IP whitelist middleware (Tailscale CGNAT range)
   - bcrypt (password hashing for Traefik auth)
+  - Keycloak 26.4 (identity provider, OIDC/OAuth2)
+  - Auth.js v5 (session management)
 - **DNS**: Hostinger DNS API (automated via MCP tools)
 - **APIs**:
   - Hostinger VPS API (infrastructure automation)
