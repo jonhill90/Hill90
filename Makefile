@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -150,6 +150,10 @@ deploy-infra-production: ## Deploy infrastructure with PRODUCTION certificates
 deploy-db: ## Deploy database (PostgreSQL)
 	@echo "$(COLOR_YELLOW)Deploying database...$(COLOR_RESET)"
 	bash scripts/deploy.sh db $(ENV)
+
+deploy-minio: ## Deploy MinIO object storage
+	@echo "$(COLOR_YELLOW)Deploying MinIO storage...$(COLOR_RESET)"
+	bash scripts/deploy.sh minio $(ENV)
 
 deploy-auth: ## Deploy Keycloak identity provider
 	@echo "$(COLOR_YELLOW)Deploying Keycloak...$(COLOR_RESET)"

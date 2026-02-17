@@ -377,3 +377,40 @@
   run grep "AUTH_KEYCLOAK_SECRET" deploy/compose/prod/.env.example
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# MinIO compose file tests
+# ---------------------------------------------------------------------------
+
+@test "docker-compose.minio.yml exists" {
+  [ -f deploy/compose/prod/docker-compose.minio.yml ]
+}
+
+@test "docker-compose.minio.yml pins volume name explicitly" {
+  # Without explicit name, Docker Compose prefixes project name (e.g. prod_minio-data)
+  run grep "name: minio-data" deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.minio.yml uses pinned minio image (not latest)" {
+  run grep "minio/minio:" deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"RELEASE"* ]]
+  [[ "$output" != *"latest"* ]]
+}
+
+@test "docker-compose.minio.yml uses tailscale-only middleware" {
+  run grep "tailscale-only@file" deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.minio.yml uses letsencrypt-dns cert resolver (not letsencrypt)" {
+  run grep "certresolver=letsencrypt-dns" deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "docker-compose.minio.yml does NOT expose S3 API via Traefik" {
+  # S3 API (9000) is internal-only — only console (9001) has a Traefik router
+  run grep "loadbalancer.server.port=9000" deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 1 ]
+}

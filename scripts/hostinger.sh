@@ -353,7 +353,7 @@ dns_sync() {
     current_records=$(api_call GET "/api/dns/v1/zones/$DOMAIN")
 
     local needs_update=false
-    for pair in "@:$vps_ip" "api:$vps_ip" "ai:$vps_ip" "auth:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip"; do
+    for pair in "@:$vps_ip" "api:$vps_ip" "ai:$vps_ip" "auth:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "storage:$tailscale_ip"; do
         local name="${pair%%:*}"
         local expected="${pair##*:}"
         local current
@@ -388,7 +388,8 @@ dns_sync() {
                 {name: "auth",      type: "A", ttl: 3600, records: [{content: $vps}]},
                 {name: "admin",     type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "portainer", type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "traefik",   type: "A", ttl: 3600, records: [{content: $ts}]}
+                {name: "traefik",   type: "A", ttl: 3600, records: [{content: $ts}]},
+                {name: "storage",   type: "A", ttl: 3600, records: [{content: $ts}]}
             ]
         }')
 
@@ -408,6 +409,7 @@ dns_sync() {
 
 dns_verify() {
     local expected_ip="${1:-}"
+    local all_correct=true
 
     # Try to get expected IP from secrets if not passed
     if [[ -z "$expected_ip" ]]; then
@@ -422,7 +424,8 @@ dns_verify() {
     fi
     echo "" >&2
 
-    for host in "$DOMAIN" "www.$DOMAIN" "api.$DOMAIN" "ai.$DOMAIN"; do
+    # Public hosts — verify against VPS_IP
+    for host in "$DOMAIN" "api.$DOMAIN" "ai.$DOMAIN" "auth.$DOMAIN"; do
         local resolved
         resolved=$(dig +short "$host" 2>/dev/null | head -n1)
         if [[ -n "$expected_ip" && "$resolved" == "$expected_ip" ]]; then
@@ -430,13 +433,42 @@ dns_verify() {
         elif [[ -n "$resolved" ]]; then
             if [[ -n "$expected_ip" ]]; then
                 echo -e "  ${YELLOW}$host -> $resolved (expected $expected_ip)${NC}" >&2
+                all_correct=false
             else
                 echo -e "  ${BLUE}$host -> $resolved${NC}" >&2
             fi
         else
             echo -e "  ${RED}$host -> (no record)${NC}" >&2
+            all_correct=false
         fi
     done
+
+    # Tailscale-only hosts — verify against TAILSCALE_IP
+    local tailscale_ip
+    tailscale_ip=$(sops --decrypt "$PROJECT_ROOT/infra/secrets/prod.enc.env" 2>/dev/null \
+        | grep "^TAILSCALE_IP=" | cut -d'=' -f2 | tr -d '"' || true)
+    if [[ -n "$tailscale_ip" ]]; then
+        echo "" >&2
+        echo -e "${BLUE}Verifying Tailscale-only DNS (expected: $tailscale_ip)...${NC}" >&2
+        for host in "portainer.$DOMAIN" "traefik.$DOMAIN" "storage.$DOMAIN"; do
+            local resolved
+            resolved=$(dig +short "$host" 2>/dev/null | head -n1)
+            if [[ "$resolved" == "$tailscale_ip" ]]; then
+                echo -e "  ${GREEN}$host -> $resolved${NC}" >&2
+            elif [[ -n "$resolved" ]]; then
+                echo -e "  ${YELLOW}$host -> $resolved (expected $tailscale_ip)${NC}" >&2
+                all_correct=false
+            else
+                echo -e "  ${RED}$host -> (no record)${NC}" >&2
+                all_correct=false
+            fi
+        done
+    fi
+
+    if [[ "$all_correct" == "false" ]]; then
+        echo -e "${YELLOW}Some DNS records need updating${NC}" >&2
+        return 1
+    fi
 }
 
 dns_snapshot() {
