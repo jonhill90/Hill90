@@ -31,6 +31,9 @@ make deploy-infra
 # Step 3b: Deploy database (required before app services)
 make deploy-db
 
+# Step 3c: Deploy MinIO storage (optional)
+make deploy-minio
+
 # Step 4: Deploy application services
 make deploy-all  # All services
 # OR deploy individually:
@@ -116,6 +119,7 @@ make deploy-auth    # Keycloak identity provider
 make deploy-api     # API service
 make deploy-ai      # AI service
 make deploy-mcp     # MCP service
+make deploy-minio   # MinIO object storage
 make deploy-all     # All app services (not infra or db)
 ```
 
@@ -230,6 +234,7 @@ make health    # Check all services
 - `scripts/deploy.sh api` - API service deployment
 - `scripts/deploy.sh ai` - AI service deployment
 - `scripts/deploy.sh mcp` - MCP service deployment
+- `scripts/deploy.sh minio` - MinIO storage deployment
 - `scripts/deploy.sh all` - All app services deployment
 - `scripts/hostinger.sh` - VPS API operations
 - `infra/ansible/playbooks/bootstrap.yml` - Master playbook

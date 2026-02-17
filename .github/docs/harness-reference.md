@@ -95,6 +95,7 @@ ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
 - `make recreate-vps`
 - `make config-vps VPS_IP=<ip>`
 - `make deploy-infra`
+- `make deploy-minio`
 - `make deploy-all`
 - `make health`
 - `make secrets-view KEY=<key>`

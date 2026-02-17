@@ -170,7 +170,17 @@ make config-vps VPS_IP=<ip>            # Bootstrap with Ansible
 - GitHub Actions uses PRODUCTION certificates by default
 - Local `make deploy-infra` / `make deploy-all` uses STAGING certificates by default
 
-### 4. Tailscale ACL GitOps Workflow
+### 4. Deploy MinIO Workflow
+
+**`.github/workflows/deploy-minio.yml`** - MinIO Storage Deployment
+- **Trigger:** Push to `main` (for MinIO compose/deploy changes), manual dispatch
+- **Features:**
+  - MinIO storage deployment via SSH over Tailscale
+  - Container health verification
+- **Duration:** ~1 minute
+- **Status:** ✅ Operational
+
+### 5. Tailscale ACL GitOps Workflow
 
 **`.github/workflows/tailscale.yml`** - Network Access Control
 - **Trigger:** Automatic on push to main (for `policy.hujson` changes)
@@ -507,6 +517,7 @@ bash scripts/vps.sh tailscale-ip hill90-vps
 - `.github/workflows/recreate-vps.yml` - VPS OS rebuild (Step 1, auto-triggers config-vps)
 - `.github/workflows/config-vps.yml` - Infrastructure bootstrap (Step 2, auto-triggered or manual)
 - `.github/workflows/deploy.yml` - Application deployment (Step 3, production certificates)
+- `.github/workflows/deploy-minio.yml` - MinIO storage deployment (auto on push to main)
 - `.github/workflows/tailscale.yml` - Tailscale ACL GitOps workflow
 
 ---

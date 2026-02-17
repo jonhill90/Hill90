@@ -111,6 +111,14 @@ Tailscale VPN IP address (automatically updated by Ansible during `make config-v
 
 Ephemeral auth key for Tailscale (90-day expiry, automatically generated during VPS recreate).
 
+### MINIO_ROOT_USER
+
+Admin username for MinIO S3 storage (used by `docker-compose.minio.yml`).
+
+### MINIO_ROOT_PASSWORD
+
+Admin password for MinIO S3 storage (used by `docker-compose.minio.yml`).
+
 ### HOSTINGER_API_KEY
 
 API key for Hostinger DNS and VPS management.
