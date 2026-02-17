@@ -28,10 +28,13 @@ make config-vps VPS_IP=<ip>
 # Step 3: Deploy infrastructure (Traefik, dns-manager, Portainer)
 make deploy-infra
 
+# Step 3b: Deploy database (required before app services)
+make deploy-db
+
 # Step 4: Deploy application services
 make deploy-all  # All services
 # OR deploy individually:
-make deploy-auth  # Auth + PostgreSQL
+make deploy-auth  # Keycloak identity provider
 make deploy-api   # API service
 make deploy-ai    # AI service
 make deploy-mcp   # MCP service
@@ -71,11 +74,12 @@ make deploy-mcp   # MCP service
 5. Deploys Portainer (container management)
 
 **Step 4: `make deploy-all`** (~2-3 minutes):
-1. Deploys auth + postgres
+1. Deploys keycloak
 2. Deploys api
 3. Deploys ai
 4. Deploys mcp
-5. Verifies all services running
+5. Deploys ui
+6. Verifies all services running
 
 ### Infrastructure After Each Step
 
@@ -107,11 +111,12 @@ Deploy individual services without affecting others:
 
 ```bash
 make deploy-infra   # Traefik, dns-manager, Portainer
-make deploy-auth    # Auth + PostgreSQL
+make deploy-db      # PostgreSQL database
+make deploy-auth    # Keycloak identity provider
 make deploy-api     # API service
 make deploy-ai      # AI service
 make deploy-mcp     # MCP service
-make deploy-all     # All app services (not infra)
+make deploy-all     # All app services (not infra or db)
 ```
 
 ## Safety Operations

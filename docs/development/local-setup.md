@@ -30,7 +30,7 @@ This starts all services in development mode with hot reload.
 
 - API: http://localhost:3000
 - AI: http://localhost:8000
-- Auth: http://localhost:3001
+- Keycloak: http://localhost:8080 (when running locally)
 - PostgreSQL: localhost:5432
 
 ## Service Development
@@ -51,13 +51,15 @@ poetry install
 poetry run uvicorn app.main:app --reload
 ```
 
-### Auth Service (TypeScript)
+### Keycloak (Identity Provider)
 
+Keycloak runs as a Docker container — no local build needed:
 ```bash
-cd src/services/auth
-npm install
-npm run dev
+make deploy-db   # Start PostgreSQL first
+make deploy-auth # Start Keycloak
 ```
+
+Admin console: http://localhost:8080/admin/master/console/
 
 ## Testing
 

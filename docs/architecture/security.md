@@ -14,10 +14,19 @@ Hill90 uses layered controls to keep public services reachable while restricting
 - Runtime secrets are stored in `infra/secrets/prod.enc.env` and encrypted with SOPS + age.
 - Secrets are decrypted only at deploy/runtime (`sops exec-env`) and not committed in plaintext.
 
+## Application Authentication
+
+- Keycloak 26.4 serves as the identity provider at auth.hill90.com (OIDC/OAuth2).
+- Auth.js v5 manages browser sessions in the UI and handles the authorization code flow.
+- API (Express) and MCP (FastAPI) validate Keycloak-issued JWTs on protected routes.
+- The hill90 realm disables self-registration and enables brute force detection.
+- Keycloak admin console is credential-protected with MFA capability.
+
 ## Network Segmentation
 
 - `hill90_edge`: ingress-facing network for Traefik and public app routes.
 - `hill90_internal`: internal-only network for private service communication.
+- Keycloak bridges both edge (public OIDC) and internal (database) networks.
 - Tailscale-only routes are protected with Traefik middleware and IP allowlists.
 
 ## TLS And Certificate Controls
