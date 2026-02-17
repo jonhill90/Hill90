@@ -8,7 +8,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - **Runtime**: Docker Engine + Docker Compose
 - **Edge Proxy**: Traefik with Let's Encrypt TLS
   - **HTTP-01 Challenge**: For public services (api, ai, mcp)
-  - **DNS-01 Challenge**: For Tailscale-only services (traefik, portainer)
+  - **DNS-01 Challenge**: For Tailscale-only services (traefik, portainer, storage)
 - **Languages**:
   - Python (FastAPI) for AI and MCP services
   - TypeScript (Express) for API, Auth, and UI services
@@ -25,6 +25,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 |---------|----------|-----|-------------|
 | Traefik | - | https://traefik.hill90.com | Edge proxy & load balancer |
 | Portainer | - | https://portainer.hill90.com | Docker container management |
+| MinIO | - | https://storage.hill90.com | S3-compatible object storage |
 | DNS Manager | Python | Internal | DNS-01 challenge webhook for Let's Encrypt |
 | API | TypeScript | https://api.hill90.com | API Gateway |
 | AI | Python | https://ai.hill90.com | LangChain/LangGraph agents |
@@ -32,7 +33,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | Auth | TypeScript | Internal | JWT authentication |
 | UI | TypeScript | https://hill90.com | Frontend |
 
-**Note:** Traefik and Portainer are accessible only via Tailscale network (100.64.0.0/10).
+**Note:** Traefik, Portainer, and MinIO console are accessible only via Tailscale network (100.64.0.0/10).
 
 ## Prerequisites
 
@@ -118,6 +119,18 @@ make deploy-infra
 - Deploys Traefik, dns-manager, and Portainer
 - Requests DNS-01 Let's Encrypt certificates for Tailscale-only services
 - **Time:** ~1-2 minutes
+
+#### Step 3b: Deploy MinIO Storage (Optional)
+
+```bash
+make deploy-minio
+```
+
+**What happens:**
+- Deploys MinIO S3-compatible object storage
+- Console accessible at storage.hill90.com (Tailscale-only)
+- S3 API available internally at minio:9000
+- **Time:** ~1 minute
 
 #### Step 4: Deploy Application Services
 
@@ -231,6 +244,7 @@ Run `make help` for a complete, organized list of commands. Key commands:
 | **Deployment** | |
 | `make build` | Build all Docker images |
 | `make deploy-infra` | Deploy infrastructure (Traefik, dns-manager, Portainer) |
+| `make deploy-minio` | Deploy MinIO object storage |
 | `make deploy-all` | Deploy all application services |
 | **Monitoring** | |
 | `make health` | Check service health |
@@ -278,7 +292,7 @@ infra/secrets/
 
 ### GitHub Actions Workflows
 
-**Four GitHub Actions workflows are available:**
+**Five GitHub Actions workflows are available:**
 
 1. **VPS Recreate Workflow** - `.github/workflows/recreate-vps.yml`
    - ✅ **Status:** Tested and operational (Run #21128156365)
@@ -310,13 +324,21 @@ infra/secrets/
      - Health check validation
      - Deploys via SSH over Tailscale
 
-4. **Tailscale ACL GitOps** - `.github/workflows/tailscale.yml`
+5. **Tailscale ACL GitOps** - `.github/workflows/tailscale.yml`
    - ✅ **Status:** Operational
    - **Trigger:** Automatic on push to main (for `policy.hujson` changes)
    - **Features:**
      - Automatic ACL deployment to Tailscale network
      - ACL testing on pull requests
      - Full audit trail in git
+
+4. **Deploy MinIO Workflow** - `.github/workflows/deploy-minio.yml`
+   - ✅ **Status:** Operational
+   - **Trigger:** Automatic on push to main (for MinIO compose/deploy changes)
+   - **Duration:** ~1 minute
+   - **Features:**
+     - MinIO storage deployment via SSH over Tailscale
+     - Container health verification
 
 ### GitHub Secrets Required
 
@@ -530,6 +552,9 @@ make config-vps VPS_IP=<new_ip>
 # 4. Deploy infrastructure (Traefik, dns-manager, Portainer)
 make deploy-infra
 
+# 4b. Deploy MinIO storage (optional)
+make deploy-minio
+
 # 5. Deploy application services
 make deploy-all
 
@@ -556,6 +581,10 @@ make health
 **Step 4 - Deploy Infrastructure (~1-2 minutes):**
 - Traefik + Portainer + dns-manager deployment
 - DNS-01 Let's Encrypt certificates for Tailscale-only services
+
+**Step 4b - Deploy MinIO (~1 minute):**
+- MinIO S3-compatible object storage
+- Console at storage.hill90.com (Tailscale-only)
 
 **Step 5 - Deploy Services (~2-3 minutes):**
 - Application service deployment (api, ai, mcp, auth, ui)

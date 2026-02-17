@@ -5,7 +5,7 @@
 Hill90 uses Let's Encrypt for SSL/TLS certificates with two different challenge methods:
 
 1. **HTTP-01** - For public services (api, ai, mcp)
-2. **DNS-01** - For Tailscale-only services (traefik, portainer)
+2. **DNS-01** - For Tailscale-only services (traefik, portainer, storage)
 
 ## Why DNS-01 for Tailscale Services?
 
@@ -138,7 +138,7 @@ certificatesResolvers:
       httpChallenge:
         entryPoint: web
 
-  # DNS-01 for Tailscale-only services (traefik, portainer)
+  # DNS-01 for Tailscale-only services (traefik, portainer, storage)
   letsencrypt-dns:
     acme:
       email: admin@hill90.com

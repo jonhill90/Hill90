@@ -6,7 +6,8 @@
 
 1. **Infrastructure** (Traefik, dns-manager, Portainer) - Deploy once after VPS config
 2. **Database** (PostgreSQL) - Deploy before application services
-3. **Application services** (keycloak, api, ai, mcp, ui) - Deploy independently as needed
+3. **Storage** (MinIO) - Deploy independently, before application services if needed
+4. **Application services** (keycloak, api, ai, mcp, ui) - Deploy independently as needed
 
 ## Deployment Location
 
@@ -43,6 +44,7 @@ make deploy-auth    # Keycloak identity provider
 make deploy-api     # API service
 make deploy-ai      # AI service
 make deploy-mcp     # MCP service
+make deploy-minio   # MinIO object storage
 make deploy-all     # All app services (not infra or db)
 ```
 
@@ -67,6 +69,7 @@ Separate compose files in `deploy/compose/prod/`:
 | `docker-compose.api.yml` | api | Uses external networks |
 | `docker-compose.ai.yml` | ai | Uses external networks |
 | `docker-compose.mcp.yml` | mcp | Uses external networks |
+| `docker-compose.minio.yml` | minio | Uses external networks |
 | `docker-compose.ui.yml` | ui | Uses external networks |
 | `docker-compose.yml` | All services (legacy) | Creates networks |
 
@@ -82,6 +85,7 @@ Separate compose files in `deploy/compose/prod/`:
 | `deploy-api.yml` | `src/services/api/**` changes | api |
 | `deploy-ai.yml` | `src/services/ai/**` changes | ai |
 | `deploy-mcp.yml` | `src/services/mcp/**` changes | mcp |
+| `deploy-minio.yml` | `docker-compose.minio.yml`, `scripts/deploy.sh` | minio |
 | `deploy-ui.yml` | `src/services/ui/**` changes | ui |
 | `deploy.yml` | Any `src/**` changes (legacy) | All services |
 
@@ -94,6 +98,7 @@ When you push changes to `main`:
 - Changes to `src/services/ai/**` → Only AI service deploys
 - Changes to `src/services/mcp/**` → Only MCP service deploys
 - Changes to `src/services/ui/**` → Only UI service deploys
+- Changes to `docker-compose.minio.yml` → Only MinIO deploys
 
 ## Let's Encrypt Configuration
 
@@ -118,6 +123,9 @@ When you push changes to `main`:
 **Database (deploy-db):**
 - **postgres** - PostgreSQL database
 
+**Storage (deploy-minio):**
+- **minio** - S3-compatible object storage (console at storage.hill90.com, Tailscale-only)
+
 **API (deploy-api):**
 - **api** - API Gateway
 
@@ -129,10 +137,10 @@ When you push changes to `main`:
 
 ### Networks
 - **hill90_edge** - Public-facing (traefik, api, ai, mcp, keycloak, ui)
-- **hill90_internal** - Private services (postgres, keycloak, all apps)
+- **hill90_internal** - Private services (postgres, minio, keycloak, all apps)
 
 ### Dependencies
-- Deploy order: infra → db → auth (Keycloak) → remaining app services
+- Deploy order: infra → db → minio → auth (Keycloak) → remaining app services
 
 ## Traefik Dashboard Authentication
 

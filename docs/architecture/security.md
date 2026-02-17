@@ -5,7 +5,7 @@ Hill90 uses layered controls to keep public services reachable while restricting
 ## Access Boundaries
 
 - Public internet access is limited to HTTP/HTTPS entrypoints handled by Traefik.
-- Administrative surfaces (Traefik dashboard and Portainer) are reachable only through Tailscale.
+- Administrative surfaces (Traefik dashboard, Portainer, and MinIO console) are reachable only through Tailscale.
 - SSH access is restricted to the Tailscale CIDR (`100.64.0.0/10`) via firewall rules.
 
 ## Identity And Secrets
@@ -27,6 +27,7 @@ Hill90 uses layered controls to keep public services reachable while restricting
 - `hill90_edge`: ingress-facing network for Traefik and public app routes.
 - `hill90_internal`: internal-only network for private service communication.
 - Keycloak bridges both edge (public OIDC) and internal (database) networks.
+- MinIO connects to both edge (Tailscale console) and internal (S3 API for app containers) networks.
 - Tailscale-only routes are protected with Traefik middleware and IP allowlists.
 
 ## TLS And Certificate Controls

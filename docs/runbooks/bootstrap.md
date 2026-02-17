@@ -102,7 +102,7 @@ This single command:
 - DNS records updated to new VPS IP
 
 ❌ **Application services NOT running:**
-- Database (PostgreSQL), Keycloak, API, AI, MCP, UI services require deployment
+- Database (PostgreSQL), MinIO, Keycloak, API, AI, MCP, UI services require deployment
 
 ## Next Steps
 
@@ -114,6 +114,9 @@ make deploy-infra
 
 # Deploy database (required before app services)
 make deploy-db
+
+# Deploy storage (optional)
+make deploy-minio
 
 # Deploy application services
 make deploy-all
@@ -165,6 +168,7 @@ On first setup, point these domains to your VPS:
 **Tailscale-only services (Tailscale IP):**
 - `traefik.hill90.com`
 - `portainer.hill90.com`
+- `storage.hill90.com`
 
 **Note:** After initial setup, DNS is automatically updated during VPS rebuilds.
 
