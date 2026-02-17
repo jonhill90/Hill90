@@ -19,6 +19,16 @@ Expected outcome:
 - `hill90_edge` and `hill90_internal` Docker networks exist.
 - DNS-01 certificate flow is functional for Tailscale-only routes.
 
+## Deploy Database
+
+```bash
+make deploy-db
+```
+
+Expected outcome:
+- `postgres` container is healthy on the internal network.
+- Required before `make deploy-all` (Keycloak depends on PostgreSQL).
+
 ## Deploy Application Services
 
 ```bash
@@ -26,7 +36,7 @@ make deploy-all
 ```
 
 Expected outcome:
-- `api`, `ai`, `mcp`, `auth`, `postgres` (and `ui` when enabled in compose) are running.
+- `keycloak`, `api`, `ai`, `mcp`, `ui` are running.
 - Public routes respond through Traefik with valid certificates.
 
 ## Validate Deployment
@@ -42,13 +52,14 @@ Optional targeted checks:
 make logs-traefik
 curl -f https://api.hill90.com/health
 curl -f https://ai.hill90.com/health
+curl -f https://auth.hill90.com/realms/hill90/.well-known/openid-configuration
 ```
 
 ## SSH-Based Deployment (On VPS)
 
 ```bash
 ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
-  'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh all prod'
+  'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh all prod'
 ```
 
 ## Rollback Guidance

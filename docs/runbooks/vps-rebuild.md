@@ -123,6 +123,16 @@ make deploy-infra
 
 ---
 
+### Step 3b: Deploy Database
+
+```bash
+make deploy-db
+```
+
+Deploys PostgreSQL to the internal network. Required before application services.
+
+---
+
 ### Step 4: Deploy Application Services (~2-3 minutes)
 
 Deploy application services:
@@ -135,7 +145,7 @@ make deploy-all
 1. Validates infrastructure configuration
 2. Decrypts secrets with SOPS
 3. Generates Traefik `.htpasswd` file for authentication
-4. Deploys application services (api, ai, mcp, auth, ui)
+4. Deploys application services (keycloak, api, ai, mcp, ui)
 5. Requests Let's Encrypt certificates
 6. Waits for services to start
 7. Verifies service health
@@ -145,8 +155,7 @@ make deploy-all
 - `ai.hill90.com` - LangChain/LangGraph agents
 - `ai.hill90.com/mcp` - MCP Gateway (authenticated)
 - `hill90.com` - Frontend UI
-- `auth` - JWT authentication (internal)
-- `postgres` - PostgreSQL database (internal)
+- `keycloak` - Keycloak identity provider (auth.hill90.com)
 
 **Result:**
 - ✅ All services running
@@ -169,6 +178,7 @@ make health
 - ✅ Portainer accessible (https://portainer.hill90.com via Tailscale)
 - ✅ API service responding (https://api.hill90.com/health)
 - ✅ AI service responding (https://ai.hill90.com/health)
+- ✅ Keycloak OIDC responding (https://auth.hill90.com/realms/hill90)
 - ✅ DNS resolution correct for all domains
 - ✅ SSL certificates valid
 
@@ -184,6 +194,7 @@ DNS records are **automatically updated** during Step 2 (config-vps).
 - `@` (hill90.com) → A record to new VPS IP
 - `api.hill90.com` → A record to new VPS IP
 - `ai.hill90.com` → A record to new VPS IP
+- `auth.hill90.com` → A record to new VPS IP
 - `portainer.hill90.com` → A record to new Tailscale IP
 - `traefik.hill90.com` → A record to new Tailscale IP
 
@@ -309,8 +320,9 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 2. Recreate VPS: `make recreate-vps`
 3. Bootstrap infrastructure: `make config-vps VPS_IP=<ip>`
 4. Deploy infrastructure: `make deploy-infra`
-5. Deploy applications: `make deploy-all`
-6. Verify health: `make health`
+5. Deploy database: `make deploy-db`
+6. Deploy applications: `make deploy-all`
+7. Verify health: `make health`
 
 **Fully automated (no intervention):**
 - ✅ Tailscale auth key generation and rotation

@@ -328,8 +328,8 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 2. **Verify credentials in secrets:**
    ```bash
-   make secrets-view KEY=POSTGRES_PASSWORD
-   make secrets-view KEY=POSTGRES_USER
+   make secrets-view KEY=DB_PASSWORD
+   make secrets-view KEY=DB_USER
    make secrets-view KEY=POSTGRES_DB
    ```
 
@@ -346,6 +346,55 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 5. **Test database connection:**
    ```bash
    ssh deploy@<tailscale-ip> 'docker exec -it postgres psql -U <user> -d <database> -c "\l"'
+   ```
+
+---
+
+## Keycloak Issues
+
+### Keycloak Not Starting
+
+**Problem**: Keycloak container exits or fails health check
+
+**Solutions**:
+
+1. **Verify PostgreSQL is running:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'docker ps | grep postgres'
+   ```
+   Keycloak requires PostgreSQL. Deploy it first: `make deploy-db`
+
+2. **Check Keycloak logs:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'docker logs keycloak --tail 50'
+   ```
+
+3. **Verify OIDC endpoint:**
+   ```bash
+   curl -f https://auth.hill90.com/realms/hill90/.well-known/openid-configuration
+   ```
+
+### Authentication Flow Not Working
+
+**Problem**: Users cannot log in via the UI
+
+**Solutions**:
+
+1. **Check Keycloak is accessible:**
+   ```bash
+   curl -f https://auth.hill90.com/realms/hill90
+   ```
+
+2. **Verify secrets:**
+   ```bash
+   make secrets-view KEY=AUTH_KEYCLOAK_ID
+   make secrets-view KEY=AUTH_KEYCLOAK_SECRET
+   make secrets-view KEY=AUTH_SECRET
+   ```
+
+3. **Check UI logs:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'docker logs ui --tail 50'
    ```
 
 ---

@@ -5,7 +5,8 @@
 **Infrastructure and applications are deployed separately:**
 
 1. **Infrastructure** (Traefik, dns-manager, Portainer) - Deploy once after VPS config
-2. **Application services** (auth, api, ai, mcp) - Deploy independently as needed
+2. **Database** (PostgreSQL) - Deploy before application services
+3. **Application services** (keycloak, api, ai, mcp, ui) - Deploy independently as needed
 
 ## Deployment Location
 
@@ -37,11 +38,12 @@ Deploy individual services without affecting others:
 
 ```bash
 make deploy-infra   # Traefik, dns-manager, Portainer
-make deploy-auth    # Auth + PostgreSQL
+make deploy-db      # PostgreSQL database
+make deploy-auth    # Keycloak identity provider
 make deploy-api     # API service
 make deploy-ai      # AI service
 make deploy-mcp     # MCP service
-make deploy-all     # All app services (not infra)
+make deploy-all     # All app services (not infra or db)
 ```
 
 ### Deprecated Aliases
@@ -60,10 +62,12 @@ Separate compose files in `deploy/compose/prod/`:
 | File | Services | Networks |
 |------|----------|----------|
 | `docker-compose.infra.yml` | traefik, dns-manager, portainer | Creates hill90_edge, hill90_internal |
-| `docker-compose.auth.yml` | auth, postgres | Uses external networks |
+| `docker-compose.auth.yml` | keycloak | Uses external networks |
+| `docker-compose.db.yml` | postgres | Uses external networks |
 | `docker-compose.api.yml` | api | Uses external networks |
 | `docker-compose.ai.yml` | ai | Uses external networks |
 | `docker-compose.mcp.yml` | mcp | Uses external networks |
+| `docker-compose.ui.yml` | ui | Uses external networks |
 | `docker-compose.yml` | All services (legacy) | Creates networks |
 
 ## GitHub Actions Deployment
@@ -73,19 +77,23 @@ Separate compose files in `deploy/compose/prod/`:
 | Workflow | Trigger | Services |
 |----------|---------|----------|
 | `deploy-infra.yml` | Manual only | traefik, dns-manager, portainer |
-| `deploy-auth.yml` | `src/services/auth/**` changes | auth, postgres |
+| `deploy-auth.yml` | `platform/auth/keycloak/**` changes | keycloak |
+| `deploy-db.yml` | `docker-compose.db.yml`, `platform/data/postgres/**` | postgres |
 | `deploy-api.yml` | `src/services/api/**` changes | api |
 | `deploy-ai.yml` | `src/services/ai/**` changes | ai |
 | `deploy-mcp.yml` | `src/services/mcp/**` changes | mcp |
+| `deploy-ui.yml` | `src/services/ui/**` changes | ui |
 | `deploy.yml` | Any `src/**` changes (legacy) | All services |
 
 ### Path-Based Auto-Deployment
 
 When you push changes to `main`:
-- Changes to `src/services/auth/**` → Only auth service deploys
+- Changes to `platform/auth/keycloak/**` → Only Keycloak deploys
+- Changes to `platform/data/postgres/**` → Only database deploys
 - Changes to `src/services/api/**` → Only API service deploys
 - Changes to `src/services/ai/**` → Only AI service deploys
 - Changes to `src/services/mcp/**` → Only MCP service deploys
+- Changes to `src/services/ui/**` → Only UI service deploys
 
 ## Let's Encrypt Configuration
 
@@ -105,7 +113,9 @@ When you push changes to `main`:
 - **portainer** - Container management (Tailscale-only)
 
 **Auth (deploy-auth):**
-- **auth** - Authentication service
+- **keycloak** - Keycloak identity provider (auth.hill90.com)
+
+**Database (deploy-db):**
 - **postgres** - PostgreSQL database
 
 **API (deploy-api):**
@@ -118,12 +128,11 @@ When you push changes to `main`:
 - **mcp** - MCP Gateway
 
 ### Networks
-- **hill90_edge** - Public-facing (traefik, api, ai, mcp)
-- **hill90_internal** - Private services (postgres, auth, all apps)
+- **hill90_edge** - Public-facing (traefik, api, ai, mcp, keycloak, ui)
+- **hill90_internal** - Private services (postgres, keycloak, all apps)
 
 ### Dependencies
-- Infrastructure must be deployed first (creates networks)
-- Auth (with postgres) should be deployed before api, ai, mcp
+- Deploy order: infra → db → auth (Keycloak) → remaining app services
 
 ## Traefik Dashboard Authentication
 
