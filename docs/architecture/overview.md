@@ -10,7 +10,7 @@ Hill90 is a Docker-based microservices platform hosted on a single Hostinger VPS
 
 - **Edge Layer**: Traefik reverse proxy with automatic HTTPS (dual certificate resolvers)
 - **Application Layer**: Microservices (API, AI, MCP, UI) with Keycloak identity provider
-- **Data Layer**: PostgreSQL database
+- **Data Layer**: PostgreSQL database, MinIO S3-compatible object storage
 - **Infrastructure Layer**:
   - Docker Compose orchestration
   - DNS Manager (Let's Encrypt DNS-01 challenge webhook)
@@ -36,6 +36,7 @@ Traefik (edge network)           ┌──────────────�
 ┌─────────────────────────────┐           ↓
 │ Internal Services (internal)│  Hostinger DNS API
 │ - PostgreSQL                │  (TXT record management)
+│ - MinIO (S3 API)            │
 └─────────────────────────────┘
 ```
 
@@ -47,7 +48,7 @@ Traefik (edge network)           ┌──────────────�
 **Network Isolation:**
 - **edge network**: Public-facing services (Traefik → API, AI, MCP, Keycloak, UI)
 - **internal network**: Private services (Keycloak, PostgreSQL)
-- **Tailscale network**: Admin-only services (Traefik dashboard, Portainer)
+- **Tailscale network**: Admin-only services (Traefik dashboard, Portainer, MinIO console)
 - **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via middleware
 
 ## Service Responsibilities
@@ -67,6 +68,7 @@ Traefik (edge network)           ┌──────────────�
   - DNS-01 challenge for Tailscale-only services
   - Dashboard accessible at https://traefik.hill90.com (Tailscale-only)
 - **Portainer**: Docker container management UI at https://portainer.hill90.com (Tailscale-only)
+- **MinIO**: S3-compatible object storage, console at https://storage.hill90.com (Tailscale-only), S3 API internal-only on `hill90_internal`
 - **DNS Manager**: HTTP webhook for Let's Encrypt DNS-01 challenges
   - Translates Lego httpreq provider format to Hostinger DNS API
   - Creates/deletes DNS TXT records for ACME validation
@@ -81,6 +83,7 @@ Traefik (edge network)           ┌──────────────�
   - Traefik (reverse proxy with Let's Encrypt integration)
   - Portainer (container management)
   - PostgreSQL
+  - MinIO (S3-compatible object storage)
 - **Security**:
   - SOPS + age (secrets encryption)
   - Tailscale VPN (admin access)
