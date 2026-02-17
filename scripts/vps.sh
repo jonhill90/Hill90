@@ -245,10 +245,12 @@ cmd_config() {
     echo ""
 
     # Step 3: Update TAILSCALE_IP in secrets
-    echo -e "${CYAN}[3/3] Updating TAILSCALE_IP in encrypted secrets...${NC}"
+    echo -e "${CYAN}[3/3] Updating TAILSCALE_IP and VPS_HOST in encrypted secrets...${NC}"
     cd "$PROJECT_ROOT"
     make secrets-update KEY=TAILSCALE_IP VALUE="$tailscale_ip" > /dev/null 2>&1
     success "   ✓ TAILSCALE_IP updated"
+    make secrets-update KEY=VPS_HOST VALUE="$tailscale_ip" > /dev/null 2>&1
+    success "   ✓ VPS_HOST updated (SSH via Tailscale)"
     echo ""
 
     echo ""
