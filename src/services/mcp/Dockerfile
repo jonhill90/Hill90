@@ -14,4 +14,4 @@ COPY app ./app
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 EXPOSE 8001
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["opentelemetry-instrument", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
