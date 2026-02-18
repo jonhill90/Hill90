@@ -144,7 +144,7 @@ Use CLAUDE.local.md for individual settings:
 
 ## Workflow
 - My test data: fixtures/my-data/
-- Local API: http://localhost:3001
+- Local API: http://localhost:3000
 ```
 
 CLAUDE.local.md is auto-gitignored.
