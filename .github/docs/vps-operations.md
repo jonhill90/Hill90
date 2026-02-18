@@ -34,6 +34,9 @@ make deploy-db
 # Step 3c: Deploy MinIO storage (optional)
 make deploy-minio
 
+# Step 3d: Deploy observability stack
+make deploy-observability  # or: bash scripts/deploy.sh observability prod
+
 # Step 4: Deploy application services
 make deploy-all  # All services
 # OR deploy individually:
@@ -96,12 +99,15 @@ make deploy-mcp   # MCP service
 - ✅ Age key transferred to `/opt/hill90/secrets/keys/keys.txt`
 - ❌ **No containers running**
 
-**After Step 3 (Deploy Infra):**
+**After Step 3 (Deploy Infra + DB + MinIO + Observability):**
 - ✅ All above +
 - ✅ Traefik running (reverse proxy)
 - ✅ dns-manager running (DNS-01 challenges)
 - ✅ Portainer running (Tailscale-only access)
 - ✅ Docker networks created
+- ✅ PostgreSQL + postgres-exporter running
+- ✅ MinIO running (optional)
+- ✅ Observability stack running (Prometheus, Grafana, Loki, Tempo, collectors)
 - ❌ **No application services running**
 
 **After Step 4 (Deploy All):**
@@ -119,8 +125,9 @@ make deploy-auth    # Keycloak identity provider
 make deploy-api     # API service
 make deploy-ai      # AI service
 make deploy-mcp     # MCP service
-make deploy-minio   # MinIO object storage
-make deploy-all     # All app services (not infra or db)
+make deploy-minio          # MinIO object storage
+make deploy-observability  # Prometheus, Grafana, Loki, Tempo + collectors (or: bash scripts/deploy.sh observability prod)
+make deploy-all            # All app services (not infra or db)
 ```
 
 ## Safety Operations
@@ -235,6 +242,7 @@ make health    # Check all services
 - `scripts/deploy.sh ai` - AI service deployment
 - `scripts/deploy.sh mcp` - MCP service deployment
 - `scripts/deploy.sh minio` - MinIO storage deployment
+- `scripts/deploy.sh observability` - Observability stack deployment
 - `scripts/deploy.sh all` - All app services deployment
 - `scripts/hostinger.sh` - VPS API operations
 - `infra/ansible/playbooks/bootstrap.yml` - Master playbook

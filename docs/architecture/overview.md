@@ -11,6 +11,7 @@ Hill90 is a Docker-based microservices platform hosted on a single Hostinger VPS
 - **Edge Layer**: Traefik reverse proxy with automatic HTTPS (dual certificate resolvers)
 - **Application Layer**: Microservices (API, AI, MCP, UI) with Keycloak identity provider
 - **Data Layer**: PostgreSQL database, MinIO S3-compatible object storage
+- **Observability Layer**: LGTM stack (Loki, Grafana, Tempo, Prometheus) with collectors and exporters
 - **Infrastructure Layer**:
   - Docker Compose orchestration
   - DNS Manager (Let's Encrypt DNS-01 challenge webhook)
@@ -37,6 +38,17 @@ Traefik (edge network)           ┌──────────────�
 │ Internal Services (internal)│  Hostinger DNS API
 │ - PostgreSQL                │  (TXT record management)
 │ - MinIO (S3 API)            │
+│ - postgres-exporter         │
+└─────────────────────────────┘
+   ↓
+┌─────────────────────────────┐
+│ Observability (internal)    │  ┌──────────────────────────┐
+│ - Prometheus (metrics)      │  │ Grafana Dashboard        │
+│ - Loki (logs)               │  │ (grafana.hill90.com,     │
+│ - Tempo (traces)            │  │  Tailscale-only)         │
+│ - Promtail (log collector)  │  └──────────────────────────┘
+│ - Node Exporter (host)      │
+│ - cAdvisor (containers)     │
 └─────────────────────────────┘
 ```
 
@@ -47,8 +59,8 @@ Traefik (edge network)           ┌──────────────�
 
 **Network Isolation:**
 - **edge network**: Public-facing services (Traefik → API, AI, MCP, Keycloak, UI)
-- **internal network**: Private services (Keycloak, PostgreSQL)
-- **Tailscale network**: Admin-only services (Traefik dashboard, Portainer, MinIO console)
+- **internal network**: Private services (Keycloak, PostgreSQL, observability stack)
+- **Tailscale network**: Admin-only services (Traefik dashboard, Portainer, MinIO console, Grafana)
 - **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via middleware
 
 ## Service Responsibilities
@@ -84,6 +96,13 @@ Traefik (edge network)           ┌──────────────�
   - Portainer (container management)
   - PostgreSQL
   - MinIO (S3-compatible object storage)
+- **Observability**:
+  - Prometheus (metrics collection and alerting)
+  - Grafana (dashboards and exploration)
+  - Loki (log aggregation)
+  - Tempo (distributed tracing)
+  - OpenTelemetry (application tracing instrumentation)
+  - Promtail, Node Exporter, cAdvisor, postgres-exporter (collectors)
 - **Security**:
   - SOPS + age (secrets encryption)
   - Tailscale VPN (admin access)
@@ -110,5 +129,6 @@ Traefik (edge network)           ┌──────────────�
 
 - [Certificate Management](./certificates.md) - HTTP-01 vs DNS-01 challenges, DNS Manager implementation
 - [Security Architecture](./security.md)
+- [Observability Runbook](../runbooks/observability.md) - LGTM stack operations, dashboards, alerts
 - [Deployment Guide](../runbooks/deployment.md)
 - [VPS Rebuild Runbook](../runbooks/vps-rebuild.md)

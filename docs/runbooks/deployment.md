@@ -40,6 +40,18 @@ Expected outcome:
 - S3 API available at `http://minio:9000` from internal containers.
 - Console at `https://storage.hill90.com` (Tailscale-only).
 
+## Deploy Observability
+
+```bash
+bash scripts/deploy.sh observability prod   # canonical (VPS/CI)
+make deploy-observability                    # convenience (local Mac)
+```
+
+Expected outcome:
+- 7 containers healthy: `prometheus`, `grafana`, `loki`, `tempo`, `promtail`, `node-exporter`, `cadvisor`.
+- Grafana accessible at `https://grafana.hill90.com` (Tailscale-only).
+- Prometheus scrape targets all show `up`.
+
 ## Deploy Application Services
 
 ```bash
@@ -73,7 +85,7 @@ curl -f https://storage.hill90.com
 
 ```bash
 ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
-  'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh minio prod && bash scripts/deploy.sh all prod'
+  'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh minio prod && bash scripts/deploy.sh observability prod && bash scripts/deploy.sh all prod'
 ```
 
 ## Rollback Guidance
