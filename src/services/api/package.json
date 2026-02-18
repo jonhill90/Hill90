@@ -20,6 +20,11 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^3.2.2",
+    "@opentelemetry/auto-instrumentations-node": "^0.70.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.212.0",
+    "@opentelemetry/resources": "^2.5.1",
+    "@opentelemetry/sdk-node": "^0.212.0",
+    "@opentelemetry/semantic-conventions": "^1.39.0",
     "pino": "^8.17.2",
     "pino-http": "^9.0.0"
   },
