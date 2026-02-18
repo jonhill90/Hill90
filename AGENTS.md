@@ -18,7 +18,8 @@ Chain: `AGENTS.md` (source) <- `CLAUDE.md` (symlink) <- `.github/copilot-instruc
    - Use Linear for all real work.
    - Status flow: `todo` -> `doing` -> `review` -> `done`.
 4. **Deploy on VPS, not local Mac**
-   - All deploy/rebuild actions run via `make` wrappers and VPS SSH.
+   - All deploy/rebuild actions run on VPS over SSH/Tailscale.
+   - Use `bash scripts/deploy.sh <service> prod` (canonical) or `make deploy-<service>` (convenience).
 5. **Context collapse recovery is mandatory**
    - After any context compaction/collapse, restate current task + active workflow from summary, then run primer before making changes or running commands.
 
@@ -64,19 +65,28 @@ When an AI assistant contributes to a commit, append the co-author trailer using
 ## Deployment Rule
 
 Deployments must run on VPS over SSH/Tailscale, not on local Mac.
-Always use `make deploy-*` targets. For manual VPS access, see `docs/runbooks/deployment.md`.
+
+- **Canonical (VPS/CI)**: `bash scripts/deploy.sh <service> prod` — works everywhere, no `make` required.
+- **Convenience (local Mac)**: `make deploy-<service>` — thin wrappers that call the scripts above.
+
+For manual VPS access, see `docs/runbooks/deployment.md`.
 
 ## Quick Command Map
 
-- `make recreate-vps`
-- `make config-vps VPS_IP=<ip>`
-- `make deploy-infra`
-- `make deploy-db`
-- `make deploy-minio`
-- `make deploy-all`
-- `make health`
-- `make secrets-view KEY=<key>`
-- `make secrets-update KEY=<key> VALUE=<v>`
+`make` targets are convenience wrappers for local Mac. On VPS/CI, use the script form directly.
+
+| Operation | Script (canonical) | Make (convenience) |
+|-----------|-------------------|--------------------|
+| Recreate VPS | `bash scripts/vps.sh recreate` | `make recreate-vps` |
+| Configure VPS | `bash scripts/vps.sh config <ip>` | `make config-vps VPS_IP=<ip>` |
+| Deploy infra | `bash scripts/deploy.sh infra prod` | `make deploy-infra` |
+| Deploy database | `bash scripts/deploy.sh db prod` | `make deploy-db` |
+| Deploy MinIO | `bash scripts/deploy.sh minio prod` | `make deploy-minio` |
+| Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |
+| Deploy all apps | `bash scripts/deploy.sh all prod` | `make deploy-all` |
+| Health check | `bash scripts/ops.sh health` | `make health` |
+| View secret | `bash scripts/secrets.sh view infra/secrets/prod.enc.env <key>` | `make secrets-view KEY=<key>` |
+| Update secret | `bash scripts/secrets.sh update infra/secrets/prod.enc.env <key> <val>` | `make secrets-update KEY=<key> VALUE=<v>` |
 
 ## Reference Map
 
@@ -91,7 +101,7 @@ Always use `make deploy-*` targets. For manual VPS access, see `docs/runbooks/de
 Do:
 - Use MCP tools for fresh documentation before implementation.
 - Track work in Linear and keep state current.
-- Use `make` commands for operations.
+- Use `bash scripts/*.sh` or `make` wrappers for operations.
 - Validate behavior locally before PR.
 
 Don't:
