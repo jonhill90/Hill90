@@ -26,6 +26,7 @@ Commands:
   ai       Deploy AI service
   mcp      Deploy MCP service
   ui       Deploy UI service
+  observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   all      Deploy all application services (NOT infrastructure or db)
   help     Show this help message
 
@@ -150,6 +151,19 @@ cmd_service() {
             summary="Service deployed:
   - ui (UI at hill90.com)"
             ;;
+        observability)
+            compose_file="deploy/compose/${env}/docker-compose.observability.yml"
+            containers="prometheus loki tempo grafana promtail node-exporter cadvisor"
+            banner="Observability Stack Deployment"
+            summary="Services deployed:
+  - grafana (dashboards at grafana.hill90.com, Tailscale-only)
+  - prometheus (metrics at :9090)
+  - loki (logs at :3100)
+  - tempo (traces at :3200)
+  - promtail (log collector)
+  - node-exporter (host metrics)
+  - cadvisor (container metrics)"
+            ;;
     esac
 
     local secrets_file="infra/secrets/${env}.enc.env"
@@ -266,7 +280,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|api|ai|mcp|minio|ui) cmd_service "$cmd" "$@" ;;
+        db|auth|api|ai|mcp|minio|ui|observability) cmd_service "$cmd" "$@" ;;
         all)            cmd_all "$@" ;;
         help|--help|-h) usage ;;
         *)

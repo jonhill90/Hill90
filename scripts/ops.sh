@@ -75,6 +75,30 @@ cmd_health() {
     fi
 
     echo ""
+    echo "Checking observability services..."
+    local obs_containers=("prometheus" "grafana" "loki" "tempo" "promtail" "node-exporter" "cadvisor")
+    for container in "${obs_containers[@]}"; do
+        echo -n "Checking $container... "
+        if docker container inspect "$container" > /dev/null 2>&1; then
+            local obs_health
+            obs_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$container" 2>/dev/null || echo "error")
+            local obs_running
+            obs_running=$(docker inspect --format='{{.State.Running}}' "$container" 2>/dev/null || echo "false")
+            if [[ "$obs_running" != "true" ]]; then
+                echo "✗ Stopped/crashed"
+                all_healthy=false
+            elif [[ "$obs_health" == "healthy" ]]; then
+                echo "✓ Healthy"
+            else
+                echo "✗ Unhealthy ($obs_health)"
+                all_healthy=false
+            fi
+        else
+            echo "- Not deployed (skipped)"
+        fi
+    done
+
+    echo ""
     echo "================================"
     echo "DNS Verification"
     echo "================================"
@@ -125,7 +149,7 @@ cmd_health() {
             echo ""
             echo "Expected Tailscale IP: $tailscale_ip"
             echo ""
-            local tailscale_domains=("storage.hill90.com" "portainer.hill90.com" "traefik.hill90.com")
+            local tailscale_domains=("storage.hill90.com" "portainer.hill90.com" "traefik.hill90.com" "grafana.hill90.com")
             for domain in "${tailscale_domains[@]}"; do
                 echo -n "Checking DNS for $domain... "
                 local resolved_ip
@@ -192,6 +216,26 @@ cmd_backup() {
             alpine tar czf /backup/minio-data.tar.gz -C /data .
     else
         echo "Skipping MinIO backup (volume not found)"
+    fi
+
+    if docker volume inspect prometheus-data > /dev/null 2>&1; then
+        echo "Backing up Prometheus data..."
+        docker run --rm \
+            -v prometheus-data:/data \
+            -v "$(pwd)/$backup_dir":/backup \
+            alpine tar czf /backup/prometheus-data.tar.gz -C /data .
+    else
+        echo "Skipping Prometheus backup (volume not found)"
+    fi
+
+    if docker volume inspect grafana-data > /dev/null 2>&1; then
+        echo "Backing up Grafana data..."
+        docker run --rm \
+            -v grafana-data:/data \
+            -v "$(pwd)/$backup_dir":/backup \
+            alpine tar czf /backup/grafana-data.tar.gz -C /data .
+    else
+        echo "Skipping Grafana backup (volume not found)"
     fi
 
     echo "Backing up database..."
