@@ -18,6 +18,13 @@ NORMALIZED="$COMMAND"
 # Strip leading whitespace
 NORMALIZED="${NORMALIZED#"${NORMALIZED%%[![:space:]]*}"}"
 
+# ALLOW: entire command is SSH-routed (deploy runs on VPS, not locally).
+# Must check before &&/;/|| splitting, since the remote command string
+# contains those operators inside the ssh quoted argument.
+if [[ "$NORMALIZED" =~ ^ssh[[:space:]] ]]; then
+  exit 0
+fi
+
 # Check each segment of chained commands (&&, ||, ;)
 # We need to check if ANY segment contains a blocked command.
 check_segment() {
