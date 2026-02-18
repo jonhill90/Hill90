@@ -439,6 +439,130 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 ---
 
+## Observability Issues
+
+### Grafana Not Accessible
+
+**Problem**: Cannot reach `grafana.hill90.com`
+
+**Solutions**:
+
+1. **Verify Tailscale connection** — Grafana is Tailscale-only:
+   ```bash
+   tailscale status
+   ```
+
+2. **Check DNS points to Tailscale IP:**
+   ```bash
+   dig +short grafana.hill90.com
+   # Should return 100.x.x.x (Tailscale IP)
+   ```
+
+3. **Check Grafana container:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'docker ps | grep grafana'
+   ssh deploy@<tailscale-ip> 'docker logs grafana --tail 20'
+   ```
+
+### Prometheus Targets Down
+
+**Problem**: Scrape targets show `down` in Prometheus
+
+**Solutions**:
+
+1. **Check target status:**
+   ```bash
+   curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.health != "up") | {job: .labels.job, health: .health, lastError: .lastError}'
+   ```
+
+2. **Verify network connectivity** — all targets must be on `hill90_internal`:
+   ```bash
+   docker network inspect hill90_internal --format '{{range .Containers}}{{.Name}} {{end}}'
+   ```
+
+3. **Check scrape config** — verify job exists in `platform/observability/prometheus/prometheus.yml`.
+
+### No Traces in Tempo
+
+**Problem**: Grafana Explore → Tempo shows no traces
+
+**Solutions**:
+
+1. **Verify OTEL env vars** in service compose files:
+   - `OTEL_EXPORTER_OTLP_ENDPOINT` should point to `http://tempo:4318` (HTTP) or `http://tempo:4317` (gRPC)
+   - `OTEL_TRACES_EXPORTER=otlp`
+
+2. **Check Tempo receiver health:**
+   ```bash
+   curl -s http://localhost:3200/ready
+   ```
+
+3. **Check service logs for OTEL errors:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'docker logs api --tail 50 | grep -i otel'
+   ```
+
+4. **Verify Tempo distributor is receiving traces:**
+   ```bash
+   curl -s http://localhost:3200/metrics | grep tempo_distributor
+   ```
+
+### No Logs in Loki
+
+**Problem**: Grafana Explore → Loki shows no logs
+
+**Solutions**:
+
+1. **Check Promtail is running and connected:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'docker ps | grep promtail'
+   ssh deploy@<tailscale-ip> 'docker logs promtail --tail 20'
+   ```
+
+2. **Verify Docker socket mount** — Promtail needs `/var/run/docker.sock`.
+
+3. **Check Promtail positions** — if positions file is corrupted, delete the `promtail-positions` volume and redeploy.
+
+### Alert Rules Not Loading
+
+**Problem**: Prometheus Alerts page shows no rules
+
+**Solutions**:
+
+1. **Verify `rule_files` in prometheus.yml** includes `/etc/prometheus/alerts.yml`.
+
+2. **Check alerts.yml is mounted** in `docker-compose.observability.yml`.
+
+3. **Validate syntax:**
+   ```bash
+   docker exec prometheus promtool check rules /etc/prometheus/alerts.yml
+   ```
+
+### Dashboard Not Showing Data
+
+**Problem**: Grafana dashboard panels show "No data"
+
+**Solutions**:
+
+1. **Check datasource configuration** — Settings → Data Sources → test connection.
+
+2. **Verify time range** — default dashboards may expect recent data. Expand the time range.
+
+3. **Check Prometheus has the expected metrics:**
+   ```bash
+   curl -s 'http://localhost:9090/api/v1/query?query=up' | jq '.data.result[] | {job: .metric.job, value: .value[1]}'
+   ```
+
+### Exporter Healthcheck Caveats
+
+Docker healthchecks for `promtail` and `postgres-exporter` use `--version` flags, which only validate binary presence. This means:
+
+- Docker reports `healthy` even if the upstream connection (Loki, PostgreSQL) is broken.
+- `ops.sh health` relies on Docker health state and will show green for these exporters regardless.
+- **Always verify Prometheus target status** for connection truth, especially after infrastructure changes.
+
+---
+
 ## For More Help
 
 - **Check service logs:** `make logs` or `make logs-<service>`
@@ -446,6 +570,7 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 - **Consult documentation:**
   - [Architecture Overview](../architecture/overview.md)
   - [Certificate Management](../architecture/certificates.md)
+  - [Observability Runbook](./observability.md)
   - [VPS Rebuild Runbook](./vps-rebuild.md)
   - [Bootstrap Runbook](./bootstrap.md)
 - **GitHub Actions logs:** Repository → Actions → Recent workflow runs
