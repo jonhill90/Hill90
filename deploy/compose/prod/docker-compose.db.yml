@@ -30,3 +30,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: postgres-exporter
+    restart: unless-stopped
+    mem_limit: 64m
+    networks:
+      - internal
+    environment:
+      - DATA_SOURCE_URI=postgres:5432/hill90?sslmode=disable
+      - DATA_SOURCE_USER=${DB_USER}
+      - DATA_SOURCE_PASS=${DB_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "postgres_exporter", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

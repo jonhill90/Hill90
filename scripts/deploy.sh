@@ -104,10 +104,11 @@ cmd_service() {
     case "$service" in
         db)
             compose_file="deploy/compose/${env}/docker-compose.db.yml"
-            containers="postgres"
+            containers="postgres postgres-exporter"
             banner="Database Deployment"
-            summary="Service deployed:
-  - postgres (PostgreSQL database)"
+            summary="Services deployed:
+  - postgres (PostgreSQL database)
+  - postgres-exporter (Prometheus metrics on :9187)"
             ;;
         auth)
             compose_file="deploy/compose/${env}/docker-compose.auth.yml"
