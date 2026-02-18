@@ -7,11 +7,11 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - **VPS**: AlmaLinux 10 on Hostinger
 - **Runtime**: Docker Engine + Docker Compose
 - **Edge Proxy**: Traefik with Let's Encrypt TLS
-  - **HTTP-01 Challenge**: For public services (api, ai, mcp)
+  - **HTTP-01 Challenge**: For public services (api, ai, mcp, keycloak, ui)
   - **DNS-01 Challenge**: For Tailscale-only services (traefik, portainer, storage)
 - **Languages**:
   - Python (FastAPI) for AI and MCP services
-  - TypeScript (Express) for API, Auth, and UI services
+  - TypeScript (Express/Next.js) for API and UI services
 - **Secrets**: SOPS + age encryption
 - **Admin Access**: Tailscale VPN + SSH key authentication
 - **Infrastructure**: Hostinger API + Tailscale API (fully automated)
@@ -30,7 +30,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | API | TypeScript | https://api.hill90.com | API Gateway |
 | AI | Python | https://ai.hill90.com | LangChain/LangGraph agents |
 | MCP | Python | https://ai.hill90.com/mcp | MCP Gateway (authenticated) |
-| Auth | TypeScript | Internal | JWT authentication |
+| Keycloak | Java | https://auth.hill90.com | OIDC/OAuth2 identity provider |
 | UI | TypeScript | https://hill90.com | Frontend |
 
 **Note:** Traefik, Portainer, and MinIO console are accessible only via Tailscale network (100.64.0.0/10).
@@ -132,6 +132,16 @@ make deploy-minio
 - S3 API available internally at minio:9000
 - **Time:** ~1 minute
 
+#### Step 3c: Deploy Database
+
+```bash
+make deploy-db
+```
+
+**What happens:**
+- Deploys PostgreSQL database for Keycloak and application services
+- **Time:** ~1 minute
+
 #### Step 4: Deploy Application Services
 
 ```bash
@@ -139,7 +149,7 @@ make deploy-all
 ```
 
 **What happens:**
-- Deploys application services (api, ai, mcp, auth, ui)
+- Deploys application services (keycloak, api, ai, mcp, ui)
 - Requests Let's Encrypt certificates
 - Verifies service health
 - **Time:** ~2-3 minutes
@@ -169,6 +179,7 @@ make deploy-all
 
 ```bash
 make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
+make deploy-db      # Database (PostgreSQL)
 make deploy-all     # Application services
 ```
 
@@ -245,6 +256,7 @@ Run `make help` for a complete, organized list of commands. Key commands:
 | `make build` | Build all Docker images |
 | `make deploy-infra` | Deploy infrastructure (Traefik, dns-manager, Portainer) |
 | `make deploy-minio` | Deploy MinIO object storage |
+| `make deploy-db` | Deploy PostgreSQL database |
 | `make deploy-all` | Deploy all application services |
 | **Monitoring** | |
 | `make health` | Check service health |
@@ -319,7 +331,7 @@ infra/secrets/
    - **Trigger:** Automatic on push to main, or manual via GitHub UI
    - **Duration:** ~2-3 minutes
    - **Features:**
-     - Application service deployment (api, ai, mcp, auth, ui)
+     - Application service deployment (keycloak, api, ai, mcp, ui)
      - Production Let's Encrypt certificates
      - Health check validation
      - Deploys via SSH over Tailscale
@@ -358,10 +370,11 @@ To use GitHub Actions workflows, configure these secrets in repository settings:
 ```bash
 # Local deployment (recommended for development)
 make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
+make deploy-db      # Database (PostgreSQL)
 make deploy-all     # Application services
 
 # Or via SSH to VPS
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh all prod'
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh all prod'
 ```
 
 ## Monitoring
@@ -375,6 +388,7 @@ make health
 # Manual checks
 curl https://api.hill90.com/health
 curl https://ai.hill90.com/health
+curl https://auth.hill90.com/realms/hill90
 ```
 
 ### Traefik Dashboard
@@ -417,8 +431,8 @@ docker logs -f mcp
 
 ### Application Security
 
-- MCP gateway requires JWT authentication
-- Service-to-service authentication via shared secrets
+- API and MCP validate Keycloak-issued JWTs
+- Keycloak (OIDC/OAuth2) identity provider at auth.hill90.com; Auth.js v5 for UI sessions
 - TLS certificates automatically renewed via Let's Encrypt
   - HTTP-01 challenge for public services
   - DNS-01 challenge for Tailscale-only services
@@ -555,6 +569,9 @@ make deploy-infra
 # 4b. Deploy MinIO storage (optional)
 make deploy-minio
 
+# 4c. Deploy database (PostgreSQL)
+make deploy-db
+
 # 5. Deploy application services
 make deploy-all
 
@@ -587,7 +604,7 @@ make health
 - Console at storage.hill90.com (Tailscale-only)
 
 **Step 5 - Deploy Services (~2-3 minutes):**
-- Application service deployment (api, ai, mcp, auth, ui)
+- Application service deployment (keycloak, api, ai, mcp, ui)
 - Let's Encrypt certificate acquisition
 - Service health verification
 
