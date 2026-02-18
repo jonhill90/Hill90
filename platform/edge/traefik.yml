@@ -42,6 +42,9 @@ entryPoints:
       middlewares:
         - security-headers@file
 
+  metrics:
+    address: ":8082"
+
 # Providers
 providers:
   docker:
@@ -75,8 +78,9 @@ certificatesResolvers:
           - 1.1.1.1:53
           - 8.8.8.8:53
 
-# Metrics (optional)
-# metrics:
-#   prometheus:
-#     addEntryPointsLabels: true
-#     addServicesLabels: true
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    addRoutersLabels: true
