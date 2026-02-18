@@ -75,6 +75,27 @@ cmd_health() {
     fi
 
     echo ""
+    echo "Checking database exporters..."
+    echo -n "Checking postgres-exporter... "
+    if docker container inspect postgres-exporter > /dev/null 2>&1; then
+        local pgexp_health
+        pgexp_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' postgres-exporter 2>/dev/null || echo "error")
+        local pgexp_running
+        pgexp_running=$(docker inspect --format='{{.State.Running}}' postgres-exporter 2>/dev/null || echo "false")
+        if [[ "$pgexp_running" != "true" ]]; then
+            echo "✗ Stopped/crashed"
+            all_healthy=false
+        elif [[ "$pgexp_health" == "healthy" ]]; then
+            echo "✓ Healthy"
+        else
+            echo "✗ Unhealthy ($pgexp_health)"
+            all_healthy=false
+        fi
+    else
+        echo "- Not deployed (skipped)"
+    fi
+
+    echo ""
     echo "Checking observability services..."
     local obs_containers=("prometheus" "grafana" "loki" "tempo" "promtail" "node-exporter" "cadvisor")
     for container in "${obs_containers[@]}"; do
