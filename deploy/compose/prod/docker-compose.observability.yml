@@ -34,6 +34,7 @@ services:
       - internal
     volumes:
       - ../../../platform/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../../platform/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
