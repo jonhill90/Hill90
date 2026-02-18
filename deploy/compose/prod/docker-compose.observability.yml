@@ -20,6 +20,8 @@ volumes:
     name: tempo-data
   grafana-data:
     name: grafana-data
+  promtail-positions:
+    name: promtail-positions
 
 services:
   prometheus:
@@ -37,6 +39,7 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=7d"
+      - "--storage.tsdb.retention.size=20GB"
       - "--web.enable-lifecycle"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
@@ -117,6 +120,7 @@ services:
       - ../../../platform/observability/promtail/promtail.yml:/etc/promtail/promtail.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail-positions:/var/lib/promtail
     command: -config.file=/etc/promtail/promtail.yml
     depends_on:
       - loki
@@ -153,6 +157,7 @@ services:
     container_name: cadvisor
     restart: unless-stopped
     mem_limit: 128m
+    # cAdvisor requires privileged mode to access cgroup and kernel metrics
     privileged: true
     networks:
       - internal
