@@ -57,18 +57,14 @@ This is the required flow for Claude, Codex, and Copilot-assisted changes.
 <type>: <short description>
 
 <body explaining why, not what>
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
+
+When an AI assistant contributes to a commit, append the co-author trailer using the format recommended by that assistant's provider (e.g., `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` for Claude).
 
 ## Deployment Rule
 
 Deployments must run on VPS over SSH/Tailscale, not on local Mac.
-
-```bash
-ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
-  'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh all prod'
-```
+Always use `make deploy-*` targets. For manual VPS access, see `docs/runbooks/deployment.md`.
 
 ## Quick Command Map
 
@@ -102,7 +98,7 @@ Don't:
 - Use TodoWrite as persistent task tracking.
 - Run deploy scripts locally on Mac.
 - Use `gh pr merge --admin` or `gh pr merge --force`.
-- Run local app servers or builds (`npm run dev`, `npm start`, `npm run build`, `pnpm dev`, `yarn dev`) unless explicitly asked in the current turn.
+- Run local long-running dev servers (`npm run dev`, `npm start`, `pnpm dev`, `yarn dev`) unless explicitly asked in the current turn.
 - Skip CI/review feedback.
 - Add speculative features outside request scope.
 - If a hook blocks an action, do not retry or work around it. Stop immediately and ask the user what to do next.
