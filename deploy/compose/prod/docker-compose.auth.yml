@@ -40,7 +40,7 @@ services:
       - KC_TRACING_ENDPOINT=http://tempo:4317
       - KC_TRACING_PROTOCOL=grpc
       - KC_TELEMETRY_SERVICE_NAME=keycloak
-    command: start --import-realm
+    command: start --import-realm --spi-theme-cache-themes=false
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9000"]
       interval: 30s
