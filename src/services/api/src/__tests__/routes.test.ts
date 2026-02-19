@@ -1,8 +1,7 @@
 import request from 'supertest';
 import * as crypto from 'crypto';
 import * as jwt from 'jsonwebtoken';
-import express, { Application } from 'express';
-import { createRequireAuth } from '../middleware/auth';
+import { createApp } from '../app';
 
 // Generate a throwaway RSA keypair for test signing
 const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
@@ -13,28 +12,11 @@ const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
 
 const TEST_ISSUER = 'https://auth.hill90.com/realms/hill90';
 
-// Build a test app that mirrors src/app.ts wiring but with a test key resolver
-function buildTestApp(): Application {
-  const app = express();
-  app.use(express.json());
-
-  app.get('/health', (_req, res) => {
-    res.json({ status: 'healthy', service: 'api' });
-  });
-
-  const requireAuth = createRequireAuth({
-    issuer: TEST_ISSUER,
-    getSigningKey: async () => publicKey,
-  });
-
-  app.get('/me', requireAuth, (req, res) => {
-    res.json((req as any).user);
-  });
-
-  return app;
-}
-
-const app = buildTestApp();
+// Use the real createApp with an injected test key resolver
+const app = createApp({
+  issuer: TEST_ISSUER,
+  getSigningKey: async () => publicKey,
+});
 
 describe('API routes', () => {
   it('GET /health returns 200', async () => {

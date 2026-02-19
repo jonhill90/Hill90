@@ -1,26 +1,38 @@
 import express, { Application } from 'express';
 import { createRequireAuth, createJwksKeyResolver } from './middleware/auth';
+import type { JwtHeader } from 'jsonwebtoken';
 
-const app: Application = express();
+interface AppOptions {
+  issuer?: string;
+  getSigningKey?: (header: JwtHeader) => Promise<string>;
+}
 
-app.use(express.json());
+export function createApp(opts: AppOptions = {}): Application {
+  const app = express();
 
-// Health check — public
-app.get('/health', (_req, res) => {
-  res.json({ status: 'healthy', service: 'api' });
-});
+  app.use(express.json());
 
-// Protected routes
-const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';
-const KEYCLOAK_JWKS_URI = process.env.KEYCLOAK_JWKS_URI || `${KEYCLOAK_ISSUER}/protocol/openid-connect/certs`;
+  // Health check — public
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'healthy', service: 'api' });
+  });
 
-const requireAuth = createRequireAuth({
-  issuer: KEYCLOAK_ISSUER,
-  getSigningKey: createJwksKeyResolver(KEYCLOAK_JWKS_URI),
-});
+  // Protected routes
+  const issuer = opts.issuer || process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';
+  const jwksUri = process.env.KEYCLOAK_JWKS_URI || `${issuer}/protocol/openid-connect/certs`;
 
-app.get('/me', requireAuth, (req, res) => {
-  res.json((req as any).user);
-});
+  const requireAuth = createRequireAuth({
+    issuer,
+    getSigningKey: opts.getSigningKey || createJwksKeyResolver(jwksUri),
+  });
 
+  app.get('/me', requireAuth, (req, res) => {
+    res.json((req as any).user);
+  });
+
+  return app;
+}
+
+// Default app instance for production
+const app = createApp();
 export { app };

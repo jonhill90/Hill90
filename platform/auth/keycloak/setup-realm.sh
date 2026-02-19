@@ -39,9 +39,11 @@ echo "=== Keycloak Realm Setup ==="
 echo ""
 echo "1. Authenticating to Keycloak admin API..."
 
-ADMIN_TOKEN=$(curl -sf -X POST "${KC_BASE_URL}/realms/master/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=password&client_id=admin-cli&username=${KC_ADMIN_USERNAME}&password=${KC_ADMIN_PASSWORD}" \
+ADMIN_TOKEN=$(printf 'grant_type=password&client_id=admin-cli&username=%s&password=%s' \
+  "$KC_ADMIN_USERNAME" "$KC_ADMIN_PASSWORD" \
+  | curl -sf -X POST "${KC_BASE_URL}/realms/master/protocol/openid-connect/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" \
+    --data-binary @- \
   | jq -r '.access_token') || die "Failed to acquire admin token. Check KC_ADMIN_USERNAME/KC_ADMIN_PASSWORD."
 
 [ "$ADMIN_TOKEN" = "null" ] || [ -z "$ADMIN_TOKEN" ] && die "Admin token is empty. Check credentials."
@@ -101,17 +103,19 @@ if [ "$EXISTING_COUNT" -gt 0 ]; then
     die "User '${SEED_USERNAME}' exists but has email '${EXISTING_EMAIL}' instead of '${SEED_EMAIL}'. Resolve manually in Keycloak admin console."
   fi
 else
-  # Create the seed user
-  CREATE_RESPONSE=$(curl -sf -w "\n%{http_code}" -X POST "${KC_BASE_URL}/admin/realms/${REALM}/users" \
-    "${AUTH[@]}" \
-    -d "{
-      \"username\": \"${SEED_USERNAME}\",
-      \"email\": \"${SEED_EMAIL}\",
-      \"enabled\": true,
-      \"emailVerified\": true,
-      \"credentials\": [{\"type\": \"password\", \"value\": \"${SEED_USER_PASSWORD}\", \"temporary\": true}],
-      \"requiredActions\": [\"UPDATE_PASSWORD\"]
-    }")
+  # Create the seed user (pipe JSON body via stdin to keep password out of ps)
+  USER_JSON=$(jq -n \
+    --arg user "$SEED_USERNAME" \
+    --arg email "$SEED_EMAIL" \
+    --arg pw "$SEED_USER_PASSWORD" \
+    '{username: $user, email: $email, enabled: true, emailVerified: true,
+      credentials: [{type: "password", value: $pw, temporary: true}],
+      requiredActions: ["UPDATE_PASSWORD"]}')
+
+  CREATE_RESPONSE=$(printf '%s' "$USER_JSON" \
+    | curl -sf -w "\n%{http_code}" -X POST "${KC_BASE_URL}/admin/realms/${REALM}/users" \
+      "${AUTH[@]}" \
+      --data-binary @-)
 
   CREATE_CODE=$(echo "$CREATE_RESPONSE" | tail -1)
   [ "$CREATE_CODE" = "201" ] || die "Failed to create seed user (HTTP ${CREATE_CODE})."
@@ -195,14 +199,17 @@ SECRET_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/clients/${UI_CLIENT
 CLIENT_SECRET=$(echo "$SECRET_JSON" | jq -r '.value // empty')
 [ -n "$CLIENT_SECRET" ] || die "Client secret is empty. Check client configuration."
 
+SECRET_FILE="$(mktemp)"
+chmod 600 "$SECRET_FILE"
+printf '%s' "$CLIENT_SECRET" > "$SECRET_FILE"
+
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "Next steps:"
-echo "  1. make secrets-update KEY=AUTH_KEYCLOAK_SECRET VALUE=\"<secret below>\""
-echo "  2. make secrets-update KEY=AUTH_SECRET VALUE=\"\$(openssl rand -base64 32)\""
-echo "  3. Deploy services: make deploy-all"
+echo "Client secret written to: ${SECRET_FILE}  (mode 600, readable by current user only)"
 echo ""
-# Output secret on a separate line to stderr so it can be captured without
-# leaking into CI logs that capture stdout.
-echo "AUTH_KEYCLOAK_SECRET=${CLIENT_SECRET}" >&2
+echo "Next steps:"
+echo "  1. make secrets-update KEY=AUTH_KEYCLOAK_SECRET VALUE=\"\$(cat ${SECRET_FILE})\""
+echo "  2. make secrets-update KEY=AUTH_SECRET VALUE=\"\$(openssl rand -base64 32)\""
+echo "  3. rm ${SECRET_FILE}"
+echo "  4. Deploy services: make deploy-all"

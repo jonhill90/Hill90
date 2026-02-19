@@ -1,3 +1,4 @@
+import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from jose import jwt as jose_jwt
@@ -21,13 +22,19 @@ _public_pem = _public_key.public_bytes(
 
 TEST_ISSUER = "https://auth.hill90.com/realms/hill90"
 
-# Override the production verify_token with a test verifier
 _test_verify_token = make_verify_token(
     issuer=TEST_ISSUER,
     get_signing_key=lambda _header: _public_pem,
 )
 
-app.dependency_overrides[verify_token] = _test_verify_token
+
+@pytest.fixture(autouse=True)
+def _override_auth():
+    """Override production auth with test verifier, restore after tests."""
+    app.dependency_overrides[verify_token] = _test_verify_token
+    yield
+    app.dependency_overrides.clear()
+
 
 client = TestClient(app)
 
