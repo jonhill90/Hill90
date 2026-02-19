@@ -26,6 +26,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | Traefik | - | https://traefik.hill90.com | Edge proxy & load balancer |
 | Portainer | - | https://portainer.hill90.com | Docker container management |
 | MinIO | - | https://storage.hill90.com | S3-compatible object storage |
+| Grafana | - | https://grafana.hill90.com | Observability dashboards (metrics, logs, traces) |
 | DNS Manager | Python | Internal | DNS-01 challenge webhook for Let's Encrypt |
 | API | TypeScript | https://api.hill90.com | API Gateway |
 | AI | Python | https://ai.hill90.com | LangChain/LangGraph agents |
@@ -33,7 +34,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | Keycloak | Java | https://auth.hill90.com | OIDC/OAuth2 identity provider |
 | UI | TypeScript | https://hill90.com | Frontend |
 
-**Note:** Traefik, Portainer, and MinIO console are accessible only via Tailscale network (100.64.0.0/10).
+**Note:** Traefik, Portainer, MinIO console, and Grafana are accessible only via Tailscale network (100.64.0.0/10).
 
 ## Prerequisites
 
@@ -142,6 +143,18 @@ make deploy-db
 - Deploys PostgreSQL database for Keycloak and application services
 - **Time:** ~1 minute
 
+#### Step 3d: Deploy Observability
+
+```bash
+bash scripts/deploy.sh observability prod
+# Or local convenience: make deploy-observability
+```
+
+**What happens:**
+- Deploys LGTM stack (Prometheus, Grafana, Loki, Tempo) + collectors (Promtail, Node Exporter, cAdvisor)
+- Grafana accessible at grafana.hill90.com (Tailscale-only)
+- **Time:** ~1 minute
+
 #### Step 4: Deploy Application Services
 
 ```bash
@@ -178,9 +191,10 @@ make deploy-all
 ### 5. Deploy Services
 
 ```bash
-make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
-make deploy-db      # Database (PostgreSQL)
-make deploy-all     # Application services
+make deploy-infra          # Infrastructure (Traefik, dns-manager, Portainer)
+make deploy-db             # Database (PostgreSQL)
+make deploy-observability  # Observability (Prometheus, Grafana, Loki, Tempo)
+make deploy-all            # Application services
 ```
 
 ### 6. Verify Deployment
@@ -257,6 +271,7 @@ Run `make help` for a complete, organized list of commands. Key commands:
 | `make deploy-infra` | Deploy infrastructure (Traefik, dns-manager, Portainer) |
 | `make deploy-minio` | Deploy MinIO object storage |
 | `make deploy-db` | Deploy PostgreSQL database |
+| `make deploy-observability` | Deploy observability stack (Prometheus, Grafana, Loki, Tempo) |
 | `make deploy-all` | Deploy all application services |
 | **Monitoring** | |
 | `make health` | Check service health |
@@ -369,12 +384,13 @@ To use GitHub Actions workflows, configure these secrets in repository settings:
 
 ```bash
 # Local deployment (recommended for development)
-make deploy-infra   # Infrastructure (Traefik, dns-manager, Portainer)
-make deploy-db      # Database (PostgreSQL)
-make deploy-all     # Application services
+make deploy-infra          # Infrastructure (Traefik, dns-manager, Portainer)
+make deploy-db             # Database (PostgreSQL)
+make deploy-observability  # Observability (Prometheus, Grafana, Loki, Tempo)
+make deploy-all            # Application services
 
 # Or via SSH to VPS
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh all prod'
+ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh observability prod && bash scripts/deploy.sh all prod'
 ```
 
 ## Monitoring
@@ -400,6 +416,14 @@ Access at https://traefik.hill90.com (requires authentication).
 - Password: Auto-generated during deployment (stored in password manager)
 - Credentials file (`.htpasswd`) is automatically generated from `TRAEFIK_ADMIN_PASSWORD_HASH` secret
 - Accessible only via Tailscale network (IP whitelist: 100.64.0.0/10)
+
+### Grafana Dashboards
+
+Access at https://grafana.hill90.com (requires Tailscale VPN).
+
+Pre-provisioned dashboards: Node Exporter, cAdvisor, Traefik, PostgreSQL, MinIO, Keycloak, Loki Logs.
+
+See [Observability Runbook](docs/runbooks/observability.md) for full details.
 
 ### Logs
 
@@ -544,6 +568,7 @@ make dns-sync
 ### Runbooks
 - [Bootstrap Runbook](docs/runbooks/bootstrap.md)
 - [Deployment Runbook](docs/runbooks/deployment.md)
+- [Observability Runbook](docs/runbooks/observability.md)
 - [Troubleshooting Guide](docs/runbooks/troubleshooting.md)
 
 ### Development
@@ -571,6 +596,10 @@ make deploy-minio
 
 # 4c. Deploy database (PostgreSQL)
 make deploy-db
+
+# 4d. Deploy observability stack
+bash scripts/deploy.sh observability prod
+# Or: make deploy-observability
 
 # 5. Deploy application services
 make deploy-all
@@ -602,6 +631,11 @@ make health
 **Step 4b - Deploy MinIO (~1 minute):**
 - MinIO S3-compatible object storage
 - Console at storage.hill90.com (Tailscale-only)
+
+**Step 4d - Deploy Observability (~1 minute):**
+- LGTM stack (Prometheus, Grafana, Loki, Tempo)
+- Collectors (Promtail, Node Exporter, cAdvisor)
+- Grafana dashboards provisioned automatically
 
 **Step 5 - Deploy Services (~2-3 minutes):**
 - Application service deployment (keycloak, api, ai, mcp, ui)

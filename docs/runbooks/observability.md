@@ -117,9 +117,9 @@ When investigating an issue, follow this signal hierarchy:
 | Node Exporter | Provisioned | CPU, memory, disk, network (host) |
 | cAdvisor | Provisioned | Container CPU, memory, network |
 | Traefik | Provisioned | Request rates, latencies, errors |
-| PostgreSQL | Grafana ID 9628 rev 7 | Connections, transactions, cache hits |
-| MinIO | Grafana ID 13502 rev 2 | Bucket operations, storage usage |
-| Keycloak | Grafana ID 19659 rev 1 | Login events, active sessions |
+| PostgreSQL | Custom (`postgres.json`) | Version, connections, transactions, cache hit ratio, locks, DB size |
+| MinIO | Custom (`minio.json`) | Cluster health, drive status, capacity, S3 traffic, node resources |
+| Keycloak | Custom (`keycloak.json`) | JVM memory, HTTP requests/latency, Agroal pool, threads, CPU, cache |
 | Loki Logs | Provisioned | Log search and exploration |
 
 All dashboards are file-provisioned from `platform/observability/grafana/provisioning/dashboards/`.
