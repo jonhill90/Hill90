@@ -2,10 +2,30 @@
  * Extends keycloak.v2 (PatternFly 5) — CSS-only, no .ftl overrides
  */
 
+/* ── Glow animation (matches homepage logoGlowHold) ── */
+@keyframes logoGlowHold {
+  0%  { filter: drop-shadow(0 0 0 rgba(109, 179, 58, 0)); }
+  40% { filter: drop-shadow(0 0 14px rgba(109, 179, 58, 0.65)); }
+  100%{ filter: drop-shadow(0 0 0 rgba(109, 179, 58, 0)); }
+}
+
 /* ── Page background ── */
 .pf-v5-c-login {
   background-color: #0f1720;
   background-image: none;
+}
+
+/* ── Hide side-panel header — logo moved into the card ── */
+.pf-v5-c-login__header {
+  display: none !important;
+}
+
+/* ── Center the login card ── */
+.pf-v5-c-login__container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
 }
 
 /* ── Login card ── */
@@ -14,25 +34,35 @@
   border: 1px solid #243044;
   border-radius: 12px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-}
-
-/* ── Hide side-panel header — logo moved into the card ── */
-.pf-v5-c-login__header {
-  display: none !important;
+  max-width: 450px;
+  width: 100%;
 }
 
 /* ── Card header accent + logo above title ── */
 .pf-v5-c-login__main-header {
   border-top: 3px solid #5b9a2f;
+  text-align: center;
 }
 
 .pf-v5-c-login__main-header::before {
   content: '';
   display: block;
-  width: 180px;
-  height: 80px;
-  background: url('../img/logo.svg') center / contain no-repeat;
+  width: 160px;
+  height: 72px;
+  background: url("data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNjYwIDI5NyIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkhpbGw5MCBsb2dvIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iaGlsbDkwLWxpZ2h0LWdyYWQiIHgxPSIwIiB5MT0iMCIgeDI9IjY2MCIgeTI9IjI5NyIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjN0E4RTk2IiAvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiM2MDc1N0QiIC8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJoaWxsOTAtZnJvbnQtZ3JhZCIgeDE9IjI0MCIgeTE9IjExMCIgeDI9IjY2MCIgeTI9IjI5NyIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAlIiBzdG9wLWNvbG9yPSIjNEM1QTYzIiAvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMzQzRBNTIiIC8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGNsaXBQYXRoIGlkPSJoaWxsOTAtY29ybmVyLWNsaXAiIGNsaXBQYXRoVW5pdHM9InVzZXJTcGFjZU9uVXNlIj4KICAgICAgPHBhdGggZD0iTTAgMCBINjYwIFYyODcgUTY2MCAyOTcgNjUwIDI5NyBIMTAgUTAgMjk3IDAgMjg3IFoiIC8+CiAgICA8L2NsaXBQYXRoPgogIDwvZGVmcz4KICA8ZyBjbGlwLXBhdGg9InVybCgjaGlsbDkwLWNvcm5lci1jbGlwKSI+CiAgICA8cGF0aCBkPSJNMTk4MyAyMDIyIGMtNzcgLTI4IC0xMzIgLTc1IC00MzkgLTM3OSAtMTU1IC0xNTMgLTU2NSAtNTU5IC05MTMgLTkwMiBsLTYzMSAtNjI0IDAgLTU5IDAgLTU4IDExMzQgMCBjOTk5IDAgMTEzNSAyIDExNDAgMTUgMyA4IDE2IDE1IDI5IDE1IDkxIDAgMjYyIDcyIDQxMiAxNzMgODkgNjAgNjk1IDY0NyA2OTUgNjcyIDAgNiAtMjQ2IDI1NiAtNTQ3IDU1NiAtNjIwIDYxOCAtNjAwIDYwMiAtNzQ4IDYwNyAtNTggMiAtOTQgLTMgLTEzMiAtMTZ6IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwIDI5Nykgc2NhbGUoMC4xIC0wLjEpIiBmaWxsPSJ1cmwoI2hpbGw5MC1saWdodC1ncmFkKSIgLz4KICAgIDxwYXRoIGQ9Ik0zNTI0IDI5NTEgYy0yOCAtMTAgLTcxIC0zMSAtOTUgLTQ2IC01MSAtMzEgLTg5MyAtODY5IC04ODggLTg4MyA2IC0xNiA5OTYgLTEwMTIgMTAwNiAtMTAxMiA0IDAgNjQgNTcgMTMzIDEyNiA2OSA2OSAxNjEgMTU2IDIwNSAxOTMgMzQ4IDI5MiA3MTMgMzc3IDEwODcgMjUxIDEwMSAtMzUgMzEwIC0xMzIgMzcyIC0xNzUgMTI0IC04NSAtMSA1MCAtNjg2IDczOCAtNzMwIDczMyAtNzQ0IDc0NiAtODIyIDc4MyAtOTggNDcgLTIyNCA1NyAtMzEyIDI1eiIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCAyOTcpIHNjYWxlKDAuMSAtMC4xKSIgZmlsbD0idXJsKCNoaWxsOTAtbGlnaHQtZ3JhZCkiIC8+CiAgICA8cGF0aCBkPSJNNDQ5NCAxNjI1IGMtMjE0IC0zMyAtNDA2IC0xMjYgLTYwOSAtMjk1IC00NCAtMzcgLTMwNSAtMjkyIC01ODAgLTU2NyAtNTI2IC01MjUgLTU3NSAtNTY3IC03NTIgLTY1NiAtNjQgLTMzIC0xODcgLTcxIC0yNTIgLTc5IC0xNCAtMiAtMjYgLTkgLTI5IC0xNSAtMyAtMTAgNDM1IC0xMyAyMTY3IC0xMyBsMjE3MSAwIDAgODAgMCA4MCAtMTAyIDEwOCBjLTMwNCAzMTggLTEwOTcgMTExMiAtMTExMSAxMTEyIC05IDAgLTMzIDEyIC01NCAyNiAtMjEgMTQgLTkyIDUyIC0xNTggODQgLTI2OCAxMzAgLTQ3MSAxNzAgLTY5MSAxMzV6IiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwIDI5Nykgc2NhbGUoMC4xIC0wLjEpIiBmaWxsPSJ1cmwoI2hpbGw5MC1mcm9udC1ncmFkKSIgLz4KICA8L2c+Cjwvc3ZnPgo=") center / contain no-repeat;
   margin: 0 auto 1rem;
+  animation: logoGlowHold 1.2s ease-out 1;
+  filter: none;
+  transition: filter 180ms ease;
+}
+
+.pf-v5-c-login__main-header:hover::before {
+  filter: drop-shadow(0 0 16px rgba(109, 179, 58, 0.9)) !important;
+}
+
+/* ── Title text ── */
+.pf-v5-c-login__main-header .pf-v5-c-title {
+  color: #ffffff;
 }
 
 /* ── Form inputs ── */
@@ -92,11 +122,6 @@
 .pf-v5-c-login__main-footer-band {
   background-color: #243044;
   border-top: 1px solid #2d3748;
-}
-
-/* ── Title text ── */
-.pf-v5-c-login__main-header .pf-v5-c-title {
-  color: #ffffff;
 }
 
 /* ── Body text ── */
