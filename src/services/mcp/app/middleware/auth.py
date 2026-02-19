@@ -32,7 +32,7 @@ def make_verify_token(
                 issuer=issuer,
                 options={"verify_aud": False, "require_exp": True},
             )
-        except JWTError:
+        except (JWTError, ValueError, KeyError):
             raise HTTPException(status_code=401, detail="Invalid or expired token")
 
         return payload
