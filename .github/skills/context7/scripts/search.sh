@@ -11,7 +11,9 @@ QUERY="${2:-$1}"
 
 # Load API key from .env file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/../../.env"
+# Walk up to repo root and look in .claude/.env
+REPO_ROOT="$(cd "$SCRIPT_DIR" && git rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR/../../../..")"
+ENV_FILE="$REPO_ROOT/.claude/.env"
 API_KEY=""
 if [ -f "$ENV_FILE" ]; then
     API_KEY=$(grep "^CONTEXT7_API_KEY=" "$ENV_FILE" | cut -d'=' -f2- | tr -d '"' | tr -d "'")

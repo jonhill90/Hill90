@@ -309,7 +309,7 @@ dns_delete() {
     payload=$(jq -n \
         --arg name "$name" \
         --arg type "$type" \
-        '{zone: [{name: $name, type: $type}]}')
+        '{filters: [{name: $name, type: $type}]}')
 
     echo -e "${YELLOW}Deleting $type record for $name.$DOMAIN...${NC}" >&2
     api_call DELETE "/api/dns/v1/zones/$DOMAIN" "$payload" | jq '.'
