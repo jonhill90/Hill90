@@ -16,21 +16,23 @@
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
-/* ── Card header accent ── */
+/* ── Hide side-panel header — logo moved into the card ── */
+.pf-v5-c-login__header {
+  display: none !important;
+}
+
+/* ── Card header accent + logo above title ── */
 .pf-v5-c-login__main-header {
   border-top: 3px solid #5b9a2f;
 }
 
-/* ── Logo ── */
-#kc-header-wrapper.pf-v5-c-brand {
-  font-size: 0;
-  color: transparent;
-  overflow: hidden;
+.pf-v5-c-login__main-header::before {
+  content: '';
   display: block;
   width: 180px;
   height: 80px;
   background: url('../img/logo.svg') center / contain no-repeat;
-  margin: 0 auto;
+  margin: 0 auto 1rem;
 }
 
 /* ── Form inputs ── */
@@ -122,6 +124,10 @@
   .pf-v5-c-login {
     background-color: #0f1720;
     background-image: none;
+  }
+
+  .pf-v5-c-login__header {
+    display: none !important;
   }
 
   .pf-v5-c-login__main {
