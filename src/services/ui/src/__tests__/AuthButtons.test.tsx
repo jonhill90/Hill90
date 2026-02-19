@@ -17,31 +17,32 @@ vi.mock('next-auth/react', () => ({
 import AuthButtons from '@/components/AuthButtons'
 
 describe('AuthButtons', () => {
-  it('renders "Sign in" when session status is unauthenticated', () => {
+  it('renders sign-in avatar button when unauthenticated', () => {
     mockSession = { data: null, status: 'unauthenticated' }
 
     render(<AuthButtons />)
 
-    expect(screen.getByText('Sign in')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument()
   })
 
-  it('renders username and "Sign out" when session exists', () => {
+  it('renders initials circle and "Sign out" when authenticated', () => {
     mockSession = {
-      data: { user: { name: 'Jon Hill' } },
+      data: { user: { name: 'Admin Hill90' } },
       status: 'authenticated',
     }
 
     render(<AuthButtons />)
 
-    expect(screen.getByText('Jon Hill')).toBeInTheDocument()
-    expect(screen.getByText('Sign out')).toBeInTheDocument()
+    expect(screen.getByText('AH')).toBeInTheDocument()
+    expect(screen.getByTitle('Admin Hill90')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
   })
 
-  it('renders loading state', () => {
+  it('renders pulsing placeholder during loading', () => {
     mockSession = { data: null, status: 'loading' }
 
-    render(<AuthButtons />)
+    const { container } = render(<AuthButtons />)
 
-    expect(screen.getByText('Loading...')).toBeInTheDocument()
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 })

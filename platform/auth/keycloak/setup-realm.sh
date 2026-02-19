@@ -3,11 +3,26 @@
 # Configures the existing hill90 realm in-place — no deletion, no outage.
 # Every operation checks before creating (GET then conditional POST).
 #
-# Usage: KC_ADMIN_USERNAME=admin KC_ADMIN_PASSWORD=secret SEED_USER_PASSWORD=changeme ./setup-realm.sh
+# Two-phase gated setup:
+#   phase1 — theme + SMTP + seed user + mappers + default roles + client secret
+#   phase2 — enable registration + email verification (only after SMTP verified)
+#
+# Usage:
+#   KC_ADMIN_USERNAME=admin KC_ADMIN_PASSWORD=secret SEED_USER_PASSWORD=changeme ./setup-realm.sh <phase1|phase2>
 #
 # Requires: curl, jq
 
 set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Phase argument
+# ---------------------------------------------------------------------------
+
+PHASE="${1:-}"
+if [[ "$PHASE" != "phase1" && "$PHASE" != "phase2" ]]; then
+  echo "Usage: setup-realm.sh <phase1|phase2>" >&2
+  exit 2
+fi
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -22,7 +37,6 @@ SEED_EMAIL="admin@hill90.com"
 # Required env vars
 : "${KC_ADMIN_USERNAME:?KC_ADMIN_USERNAME is required}"
 : "${KC_ADMIN_PASSWORD:?KC_ADMIN_PASSWORD is required}"
-: "${SEED_USER_PASSWORD:?SEED_USER_PASSWORD is required}"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -35,7 +49,7 @@ info() { echo "  $*"; }
 # Step 1: Authenticate to Keycloak admin API
 # ---------------------------------------------------------------------------
 
-echo "=== Keycloak Realm Setup ==="
+echo "=== Keycloak Realm Setup (${PHASE}) ==="
 echo ""
 echo "1. Authenticating to Keycloak admin API..."
 
@@ -80,136 +94,215 @@ ADMIN_ROLE_EXISTS=$(echo "$ROLES_JSON" | jq -r '[.[] | select(.name == "admin")]
 [ "$ADMIN_ROLE_EXISTS" -gt 0 ] || die "Realm role 'admin' not found."
 info "Realm roles 'user' and 'admin' exist."
 
-# ---------------------------------------------------------------------------
-# Step 3: Create seed user
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# PHASE 1: Theme + SMTP + seed user + mappers + default roles + client secret
+# ===========================================================================
 
-echo ""
-echo "3. Creating seed user..."
+if [ "$PHASE" = "phase1" ]; then
 
-EXISTING_USERS=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/users?username=${SEED_USERNAME}&exact=true" "${AUTH[@]}") \
-  || die "Failed to query users."
+  : "${SEED_USER_PASSWORD:?SEED_USER_PASSWORD is required}"
 
-EXISTING_COUNT=$(echo "$EXISTING_USERS" | jq 'length')
+  # -------------------------------------------------------------------------
+  # Step 3: Apply theme + SMTP config
+  # -------------------------------------------------------------------------
 
-if [ "$EXISTING_COUNT" -gt 0 ]; then
-  EXISTING_EMAIL=$(echo "$EXISTING_USERS" | jq -r '.[0].email // empty')
-  EXISTING_ID=$(echo "$EXISTING_USERS" | jq -r '.[0].id')
+  echo ""
+  echo "3. Applying login theme + SMTP configuration..."
 
-  if [ "$EXISTING_EMAIL" = "$SEED_EMAIL" ]; then
-    info "User '${SEED_USERNAME}' already exists with correct email. Skipping creation."
-    SEED_USER_ID="$EXISTING_ID"
+  SENDGRID_KEY=$(bash scripts/secrets.sh view infra/secrets/prod.enc.env SENDGRID_API_KEY) \
+    || die "Failed to retrieve SENDGRID_API_KEY from SOPS."
+  [ -n "$SENDGRID_KEY" ] || die "SENDGRID_API_KEY is empty."
+
+  REALM_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}" "${AUTH[@]}") \
+    || die "Failed to fetch realm config."
+
+  UPDATED=$(echo "$REALM_JSON" | jq --arg sgkey "$SENDGRID_KEY" '. + {
+    loginTheme: "hill90",
+    smtpServer: {
+      host: "smtp.sendgrid.net",
+      port: "587",
+      from: "noreply@hill90.com",
+      fromDisplayName: "Hill90",
+      envelopeFrom: "noreply@hill90.com",
+      ssl: "false",
+      starttls: "true",
+      auth: "true",
+      user: "apikey",
+      password: $sgkey
+    }
+  }')
+
+  echo "$UPDATED" | curl -sf -X PUT "${KC_BASE_URL}/admin/realms/${REALM}" \
+    "${AUTH[@]}" -d @- > /dev/null \
+    || die "Failed to update realm with theme + SMTP."
+  info "Login theme 'hill90' and SMTP configured."
+
+  # -------------------------------------------------------------------------
+  # Step 4: Create seed user
+  # -------------------------------------------------------------------------
+
+  echo ""
+  echo "4. Creating seed user..."
+
+  EXISTING_USERS=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/users?username=${SEED_USERNAME}&exact=true" "${AUTH[@]}") \
+    || die "Failed to query users."
+
+  EXISTING_COUNT=$(echo "$EXISTING_USERS" | jq 'length')
+
+  if [ "$EXISTING_COUNT" -gt 0 ]; then
+    EXISTING_EMAIL=$(echo "$EXISTING_USERS" | jq -r '.[0].email // empty')
+    EXISTING_ID=$(echo "$EXISTING_USERS" | jq -r '.[0].id')
+
+    if [ "$EXISTING_EMAIL" = "$SEED_EMAIL" ]; then
+      info "User '${SEED_USERNAME}' already exists with correct email. Skipping creation."
+      SEED_USER_ID="$EXISTING_ID"
+    else
+      die "User '${SEED_USERNAME}' exists but has email '${EXISTING_EMAIL}' instead of '${SEED_EMAIL}'. Resolve manually in Keycloak admin console."
+    fi
   else
-    die "User '${SEED_USERNAME}' exists but has email '${EXISTING_EMAIL}' instead of '${SEED_EMAIL}'. Resolve manually in Keycloak admin console."
+    # Create the seed user (pipe JSON body via stdin to keep password out of ps)
+    USER_JSON=$(jq -n \
+      --arg user "$SEED_USERNAME" \
+      --arg email "$SEED_EMAIL" \
+      --arg pw "$SEED_USER_PASSWORD" \
+      '{username: $user, email: $email, enabled: true, emailVerified: true,
+        credentials: [{type: "password", value: $pw, temporary: true}],
+        requiredActions: ["UPDATE_PASSWORD"]}')
+
+    CREATE_RESPONSE=$(printf '%s' "$USER_JSON" \
+      | curl -sf -w "\n%{http_code}" -X POST "${KC_BASE_URL}/admin/realms/${REALM}/users" \
+        "${AUTH[@]}" \
+        --data-binary @-)
+
+    CREATE_CODE=$(echo "$CREATE_RESPONSE" | tail -1)
+    [ "$CREATE_CODE" = "201" ] || die "Failed to create seed user (HTTP ${CREATE_CODE})."
+
+    # Fetch the new user ID
+    SEED_USER_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/users?username=${SEED_USERNAME}&exact=true" "${AUTH[@]}") \
+      || die "Failed to query newly created user."
+    SEED_USER_ID=$(echo "$SEED_USER_JSON" | jq -r '.[0].id')
+    info "User '${SEED_USERNAME}' created (ID: ${SEED_USER_ID})."
   fi
-else
-  # Create the seed user (pipe JSON body via stdin to keep password out of ps)
-  USER_JSON=$(jq -n \
-    --arg user "$SEED_USERNAME" \
-    --arg email "$SEED_EMAIL" \
-    --arg pw "$SEED_USER_PASSWORD" \
-    '{username: $user, email: $email, enabled: true, emailVerified: true,
-      credentials: [{type: "password", value: $pw, temporary: true}],
-      requiredActions: ["UPDATE_PASSWORD"]}')
 
-  CREATE_RESPONSE=$(printf '%s' "$USER_JSON" \
-    | curl -sf -w "\n%{http_code}" -X POST "${KC_BASE_URL}/admin/realms/${REALM}/users" \
-      "${AUTH[@]}" \
-      --data-binary @-)
-
-  CREATE_CODE=$(echo "$CREATE_RESPONSE" | tail -1)
-  [ "$CREATE_CODE" = "201" ] || die "Failed to create seed user (HTTP ${CREATE_CODE})."
-
-  # Fetch the new user ID
-  SEED_USER_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/users?username=${SEED_USERNAME}&exact=true" "${AUTH[@]}") \
-    || die "Failed to query newly created user."
-  SEED_USER_ID=$(echo "$SEED_USER_JSON" | jq -r '.[0].id')
-  info "User '${SEED_USERNAME}' created (ID: ${SEED_USER_ID})."
-fi
-
-# Assign admin + user realm roles
-USER_ROLE_JSON=$(echo "$ROLES_JSON" | jq '[.[] | select(.name == "user" or .name == "admin")]')
-curl -sf -X POST "${KC_BASE_URL}/admin/realms/${REALM}/users/${SEED_USER_ID}/role-mappings/realm" \
-  "${AUTH[@]}" \
-  -d "$USER_ROLE_JSON" > /dev/null \
-  || die "Failed to assign roles to seed user."
-info "Roles 'admin' + 'user' assigned to '${SEED_USERNAME}'."
-
-# ---------------------------------------------------------------------------
-# Step 4: Add protocol mapper for realm roles
-# ---------------------------------------------------------------------------
-
-echo ""
-echo "4. Configuring protocol mapper..."
-
-MAPPERS_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models" "${AUTH[@]}") \
-  || die "Failed to list protocol mappers."
-
-REALM_ROLES_MAPPER=$(echo "$MAPPERS_JSON" | jq '[.[] | select(.name == "realm-roles")] | length')
-
-if [ "$REALM_ROLES_MAPPER" -gt 0 ]; then
-  info "Protocol mapper 'realm-roles' already exists. Skipping."
-else
-  curl -sf -X POST "${KC_BASE_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models" \
+  # Assign admin + user realm roles
+  USER_ROLE_JSON=$(echo "$ROLES_JSON" | jq '[.[] | select(.name == "user" or .name == "admin")]')
+  curl -sf -X POST "${KC_BASE_URL}/admin/realms/${REALM}/users/${SEED_USER_ID}/role-mappings/realm" \
     "${AUTH[@]}" \
-    -d '{
-      "name": "realm-roles",
-      "protocol": "openid-connect",
-      "protocolMapper": "oidc-usermodel-realm-role-mapper",
-      "config": {
-        "multivalued": "true",
-        "claim.name": "realm_roles",
-        "id.token.claim": "true",
-        "access.token.claim": "true",
-        "userinfo.token.claim": "true"
-      }
-    }' > /dev/null \
-    || die "Failed to create realm-roles protocol mapper."
-  info "Protocol mapper 'realm-roles' created."
+    -d "$USER_ROLE_JSON" > /dev/null \
+    || die "Failed to assign roles to seed user."
+  info "Roles 'admin' + 'user' assigned to '${SEED_USERNAME}'."
+
+  # -------------------------------------------------------------------------
+  # Step 5: Add protocol mapper for realm roles
+  # -------------------------------------------------------------------------
+
+  echo ""
+  echo "5. Configuring protocol mapper..."
+
+  MAPPERS_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models" "${AUTH[@]}") \
+    || die "Failed to list protocol mappers."
+
+  REALM_ROLES_MAPPER=$(echo "$MAPPERS_JSON" | jq '[.[] | select(.name == "realm-roles")] | length')
+
+  if [ "$REALM_ROLES_MAPPER" -gt 0 ]; then
+    info "Protocol mapper 'realm-roles' already exists. Skipping."
+  else
+    curl -sf -X POST "${KC_BASE_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/protocol-mappers/models" \
+      "${AUTH[@]}" \
+      -d '{
+        "name": "realm-roles",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-usermodel-realm-role-mapper",
+        "config": {
+          "multivalued": "true",
+          "claim.name": "realm_roles",
+          "id.token.claim": "true",
+          "access.token.claim": "true",
+          "userinfo.token.claim": "true"
+        }
+      }' > /dev/null \
+      || die "Failed to create realm-roles protocol mapper."
+    info "Protocol mapper 'realm-roles' created."
+  fi
+
+  # -------------------------------------------------------------------------
+  # Step 6: Configure default roles
+  # -------------------------------------------------------------------------
+
+  echo ""
+  echo "6. Configuring default roles..."
+
+  # Verify the default-roles composite role exists, then add 'user' to it
+  curl -sf -o /dev/null "${KC_BASE_URL}/admin/realms/${REALM}/roles/default-roles-${REALM}" "${AUTH[@]}" \
+    || die "Failed to fetch default-roles-${REALM}."
+
+  USER_ROLE_OBJ=$(echo "$ROLES_JSON" | jq '[.[] | select(.name == "user")]')
+  curl -sf -X POST "${KC_BASE_URL}/admin/realms/${REALM}/roles/default-roles-${REALM}/composites" \
+    "${AUTH[@]}" \
+    -d "$USER_ROLE_OBJ" > /dev/null \
+    || die "Failed to add 'user' role to default composites."
+  info "Role 'user' added to default-roles-${REALM} composites."
+
+  # -------------------------------------------------------------------------
+  # Step 7: Retrieve client secret
+  # -------------------------------------------------------------------------
+
+  echo ""
+  echo "7. Retrieving client secret..."
+
+  SECRET_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/client-secret" "${AUTH[@]}") \
+    || die "Failed to retrieve client secret."
+
+  CLIENT_SECRET=$(echo "$SECRET_JSON" | jq -r '.value // empty')
+  [ -n "$CLIENT_SECRET" ] || die "Client secret is empty. Check client configuration."
+
+  SECRET_FILE="$(mktemp)"
+  chmod 600 "$SECRET_FILE"
+  printf '%s' "$CLIENT_SECRET" > "$SECRET_FILE"
+
+  echo ""
+  echo "=== Phase 1 Complete ==="
+  echo ""
+  echo "Client secret written to: ${SECRET_FILE}  (mode 600, readable by current user only)"
+  echo ""
+  echo "Next steps:"
+  echo "  1. make secrets-update KEY=AUTH_KEYCLOAK_SECRET VALUE=\"\$(cat ${SECRET_FILE})\""
+  echo "  2. make secrets-update KEY=AUTH_SECRET VALUE=\"\$(openssl rand -base64 32)\""
+  echo "  3. rm ${SECRET_FILE}"
+  echo "  4. Test SMTP from Keycloak admin console (Realm Settings > Email > Test connection)"
+  echo "  5. Only after email test succeeds: ./setup-realm.sh phase2"
+
 fi
 
-# ---------------------------------------------------------------------------
-# Step 5: Configure default roles
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# PHASE 2: Enable registration (only after SMTP verified)
+# ===========================================================================
 
-echo ""
-echo "5. Configuring default roles..."
+if [ "$PHASE" = "phase2" ]; then
 
-# Verify the default-roles composite role exists, then add 'user' to it
-curl -sf -o /dev/null "${KC_BASE_URL}/admin/realms/${REALM}/roles/default-roles-${REALM}" "${AUTH[@]}" \
-  || die "Failed to fetch default-roles-${REALM}."
+  echo ""
+  echo "3. Enabling registration + email verification..."
 
-USER_ROLE_OBJ=$(echo "$ROLES_JSON" | jq '[.[] | select(.name == "user")]')
-curl -sf -X POST "${KC_BASE_URL}/admin/realms/${REALM}/roles/default-roles-${REALM}/composites" \
-  "${AUTH[@]}" \
-  -d "$USER_ROLE_OBJ" > /dev/null \
-  || die "Failed to add 'user' role to default composites."
-info "Role 'user' added to default-roles-${REALM} composites."
+  REALM_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}" "${AUTH[@]}") \
+    || die "Failed to fetch realm config."
 
-# ---------------------------------------------------------------------------
-# Step 6: Retrieve client secret
-# ---------------------------------------------------------------------------
+  # Verify SMTP is configured before enabling registration
+  SMTP_HOST=$(echo "$REALM_JSON" | jq -r '.smtpServer.host // empty')
+  [ -n "$SMTP_HOST" ] || die "SMTP is not configured. Run phase1 first and verify email delivery before enabling registration."
 
-echo ""
-echo "6. Retrieving client secret..."
+  UPDATED=$(echo "$REALM_JSON" | jq '. + {
+    registrationAllowed: true,
+    verifyEmail: true
+  }')
 
-SECRET_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/clients/${UI_CLIENT_ID}/client-secret" "${AUTH[@]}") \
-  || die "Failed to retrieve client secret."
+  echo "$UPDATED" | curl -sf -X PUT "${KC_BASE_URL}/admin/realms/${REALM}" \
+    "${AUTH[@]}" -d @- > /dev/null \
+    || die "Failed to enable registration."
+  info "Registration enabled with email verification required."
 
-CLIENT_SECRET=$(echo "$SECRET_JSON" | jq -r '.value // empty')
-[ -n "$CLIENT_SECRET" ] || die "Client secret is empty. Check client configuration."
+  echo ""
+  echo "=== Phase 2 Complete ==="
+  echo ""
+  echo "Registration is now live. New users must verify their email before gaining access."
 
-SECRET_FILE="$(mktemp)"
-chmod 600 "$SECRET_FILE"
-printf '%s' "$CLIENT_SECRET" > "$SECRET_FILE"
-
-echo ""
-echo "=== Setup Complete ==="
-echo ""
-echo "Client secret written to: ${SECRET_FILE}  (mode 600, readable by current user only)"
-echo ""
-echo "Next steps:"
-echo "  1. make secrets-update KEY=AUTH_KEYCLOAK_SECRET VALUE=\"\$(cat ${SECRET_FILE})\""
-echo "  2. make secrets-update KEY=AUTH_SECRET VALUE=\"\$(openssl rand -base64 32)\""
-echo "  3. rm ${SECRET_FILE}"
-echo "  4. Deploy services: make deploy-all"
+fi
