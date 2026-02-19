@@ -38,11 +38,36 @@ describe('AuthButtons', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
   })
 
+  it('renders single initial for single-word names', () => {
+    mockSession = {
+      data: { user: { name: 'Madonna' } },
+      status: 'authenticated',
+    }
+
+    render(<AuthButtons />)
+
+    expect(screen.getByText('M')).toBeInTheDocument()
+    expect(screen.getByTitle('Madonna')).toBeInTheDocument()
+  })
+
+  it('renders initials from the first two words for multi-word names', () => {
+    mockSession = {
+      data: { user: { name: 'John Paul Jones' } },
+      status: 'authenticated',
+    }
+
+    render(<AuthButtons />)
+
+    expect(screen.getByText('JP')).toBeInTheDocument()
+    expect(screen.getByTitle('John Paul Jones')).toBeInTheDocument()
+  })
+
   it('renders pulsing placeholder during loading', () => {
     mockSession = { data: null, status: 'loading' }
 
-    const { container } = render(<AuthButtons />)
+    render(<AuthButtons />)
 
-    expect(container.querySelector('.animate-pulse')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(screen.getByLabelText('Loading user information')).toBeInTheDocument()
   })
 })

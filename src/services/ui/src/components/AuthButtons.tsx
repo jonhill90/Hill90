@@ -7,7 +7,7 @@ function getInitials(name: string): string {
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
-    .map(part => part[0].toUpperCase())
+    .map(part => part.charAt(0).toUpperCase())
     .join('')
 }
 
@@ -16,7 +16,11 @@ export default function AuthButtons() {
 
   if (status === "loading") {
     return (
-      <div className="h-9 w-9 rounded-full bg-navy-800 animate-pulse" />
+      <div
+        className="h-9 w-9 rounded-full bg-navy-800 animate-pulse"
+        role="status"
+        aria-label="Loading user information"
+      />
     )
   }
 
@@ -28,6 +32,8 @@ export default function AuthButtons() {
       <div className="flex items-center gap-3">
         <div
           className="h-9 w-9 rounded-full bg-brand-500 flex items-center justify-center text-sm font-semibold text-white select-none"
+          role="img"
+          aria-label={`User avatar: ${name}`}
           title={name}
         >
           {initials || (
