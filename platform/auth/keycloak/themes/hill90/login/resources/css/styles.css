@@ -1,0 +1,165 @@
+/* Hill90 custom Keycloak login theme
+ * Extends keycloak.v2 (PatternFly 5) — CSS-only, no .ftl overrides
+ */
+
+/* ── Page background ── */
+.pf-v5-c-login {
+  background-color: #0f1720;
+  background-image: none;
+}
+
+/* ── Login card ── */
+.pf-v5-c-login__main {
+  background-color: #1a2332;
+  border: 1px solid #243044;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Card header accent ── */
+.pf-v5-c-login__main-header {
+  border-top: 3px solid #5b9a2f;
+}
+
+/* ── Logo ── */
+:root {
+  --keycloak-logo-url: url('../img/logo.png');
+  --keycloak-logo-height: 60px;
+  --keycloak-logo-width: 180px;
+}
+
+.pf-v5-c-brand {
+  --pf-v5-c-brand--Height: 60px;
+  --pf-v5-c-brand--Width: 180px;
+}
+
+/* ── Form inputs ── */
+.pf-v5-c-form-control {
+  --pf-v5-c-form-control--BackgroundColor: #243044;
+  --pf-v5-c-form-control--BorderTopColor: #2d3748;
+  --pf-v5-c-form-control--BorderRightColor: #2d3748;
+  --pf-v5-c-form-control--BorderBottomColor: #2d3748;
+  --pf-v5-c-form-control--BorderLeftColor: #2d3748;
+  --pf-v5-c-form-control--Color: #ffffff;
+}
+
+.pf-v5-c-form-control > :is(input, textarea, select) {
+  background-color: #243044;
+  border-color: #2d3748;
+  color: #ffffff;
+}
+
+.pf-v5-c-form-control:focus-within {
+  --pf-v5-c-form-control--BorderBottomColor: #5b9a2f;
+  box-shadow: 0 0 0 1px #5b9a2f;
+}
+
+/* ── Primary button ── */
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: #5b9a2f;
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: #4a8024;
+  --pf-v5-c-button--m-primary--focus--BackgroundColor: #4a8024;
+  --pf-v5-c-button--m-primary--active--BackgroundColor: #3d6b1e;
+  background-color: #5b9a2f;
+  border: none;
+}
+
+.pf-v5-c-button.pf-m-primary:hover {
+  background-color: #4a8024;
+}
+
+/* ── Labels ── */
+.pf-v5-c-form__label-text {
+  color: #718096;
+}
+
+/* ── Links ── */
+.pf-v5-c-login__main-footer a,
+.pf-v5-c-login__main-footer-links a,
+.pf-v5-c-login__main-footer-band a {
+  color: #6db33a;
+}
+
+.pf-v5-c-login__main-footer a:hover,
+.pf-v5-c-login__main-footer-links a:hover,
+.pf-v5-c-login__main-footer-band a:hover {
+  color: #5b9a2f;
+}
+
+/* ── Footer band ── */
+.pf-v5-c-login__main-footer-band {
+  background-color: #243044;
+  border-top: 1px solid #2d3748;
+}
+
+/* ── Title text ── */
+.pf-v5-c-login__main-header .pf-v5-c-title {
+  color: #ffffff;
+}
+
+/* ── Body text ── */
+.pf-v5-c-login__main-body {
+  color: #e2e8f0;
+}
+
+/* ── Alert / error messages ── */
+.pf-v5-c-alert.pf-m-danger {
+  --pf-v5-c-alert--BackgroundColor: rgba(229, 62, 62, 0.1);
+}
+
+/* ── Helper text / descriptions ── */
+.pf-v5-c-helper-text__item-text {
+  color: #a0aec0;
+}
+
+/* ── Checkbox / remember me ── */
+.pf-v5-c-check__label {
+  color: #a0aec0;
+}
+
+/* ── Force dark overrides in light mode ── */
+@media (prefers-color-scheme: light) {
+  .pf-v5-c-login {
+    background-color: #0f1720;
+    background-image: none;
+  }
+
+  .pf-v5-c-login__main {
+    background-color: #1a2332;
+    border-color: #243044;
+  }
+
+  .pf-v5-c-login__main-header {
+    border-top-color: #5b9a2f;
+  }
+
+  .pf-v5-c-form-control > :is(input, textarea, select) {
+    background-color: #243044;
+    border-color: #2d3748;
+    color: #ffffff;
+  }
+
+  .pf-v5-c-button.pf-m-primary {
+    background-color: #5b9a2f;
+  }
+
+  .pf-v5-c-button.pf-m-primary:hover {
+    background-color: #4a8024;
+  }
+
+  .pf-v5-c-form__label-text {
+    color: #718096;
+  }
+
+  .pf-v5-c-login__main-footer-band {
+    background-color: #243044;
+  }
+
+  .pf-v5-c-login__main-header .pf-v5-c-title {
+    color: #ffffff;
+  }
+
+  .pf-v5-c-login__main-body {
+    color: #e2e8f0;
+  }
+}
