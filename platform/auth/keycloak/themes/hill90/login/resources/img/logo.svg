@@ -1,0 +1,20 @@
+<svg viewBox="0 0 660 297" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Hill90 logo">
+  <defs>
+    <linearGradient id="hill90-light-grad" x1="0" y1="0" x2="660" y2="297" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7A8E96" />
+      <stop offset="100%" stop-color="#60757D" />
+    </linearGradient>
+    <linearGradient id="hill90-front-grad" x1="240" y1="110" x2="660" y2="297" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4C5A63" />
+      <stop offset="100%" stop-color="#3C4A52" />
+    </linearGradient>
+    <clipPath id="hill90-corner-clip" clipPathUnits="userSpaceOnUse">
+      <path d="M0 0 H660 V287 Q660 297 650 297 H10 Q0 297 0 287 Z" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#hill90-corner-clip)">
+    <path d="M1983 2022 c-77 -28 -132 -75 -439 -379 -155 -153 -565 -559 -913 -902 l-631 -624 0 -59 0 -58 1134 0 c999 0 1135 2 1140 15 3 8 16 15 29 15 91 0 262 72 412 173 89 60 695 647 695 672 0 6 -246 256 -547 556 -620 618 -600 602 -748 607 -58 2 -94 -3 -132 -16z" transform="translate(0 297) scale(0.1 -0.1)" fill="url(#hill90-light-grad)" />
+    <path d="M3524 2951 c-28 -10 -71 -31 -95 -46 -51 -31 -893 -869 -888 -883 6 -16 996 -1012 1006 -1012 4 0 64 57 133 126 69 69 161 156 205 193 348 292 713 377 1087 251 101 -35 310 -132 372 -175 124 -85 -1 50 -686 738 -730 733 -744 746 -822 783 -98 47 -224 57 -312 25z" transform="translate(0 297) scale(0.1 -0.1)" fill="url(#hill90-light-grad)" />
+    <path d="M4494 1625 c-214 -33 -406 -126 -609 -295 -44 -37 -305 -292 -580 -567 -526 -525 -575 -567 -752 -656 -64 -33 -187 -71 -252 -79 -14 -2 -26 -9 -29 -15 -3 -10 435 -13 2167 -13 l2171 0 0 80 0 80 -102 108 c-304 318 -1097 1112 -1111 1112 -9 0 -33 12 -54 26 -21 14 -92 52 -158 84 -268 130 -471 170 -691 135z" transform="translate(0 297) scale(0.1 -0.1)" fill="url(#hill90-front-grad)" />
+  </g>
+</svg>
