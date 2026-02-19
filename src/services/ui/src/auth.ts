@@ -2,22 +2,22 @@ import NextAuth from "next-auth"
 import Keycloak from "next-auth/providers/keycloak"
 import type { JWT } from "next-auth/jwt"
 
-const requiredEnvVars = ["AUTH_KEYCLOAK_ID", "AUTH_KEYCLOAK_SECRET", "AUTH_KEYCLOAK_ISSUER"] as const
-const missing = requiredEnvVars.filter((v) => !process.env[v])
-if (missing.length > 0) {
-  throw new Error(`Missing required env var(s): ${missing.join(", ")}`)
+function requireEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) throw new Error(`Missing required env var: ${name}`)
+  return value
 }
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   const params = new URLSearchParams({
-    client_id: process.env.AUTH_KEYCLOAK_ID!,
-    client_secret: process.env.AUTH_KEYCLOAK_SECRET!,
+    client_id: requireEnv("AUTH_KEYCLOAK_ID"),
+    client_secret: requireEnv("AUTH_KEYCLOAK_SECRET"),
     grant_type: "refresh_token",
     refresh_token: token.refreshToken!,
   })
 
   const response = await fetch(
-    `${process.env.AUTH_KEYCLOAK_ISSUER}/protocol/openid-connect/token`,
+    `${requireEnv("AUTH_KEYCLOAK_ISSUER")}/protocol/openid-connect/token`,
     {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -43,9 +43,9 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     Keycloak({
-      clientId: process.env.AUTH_KEYCLOAK_ID!,
-      clientSecret: process.env.AUTH_KEYCLOAK_SECRET!,
-      issuer: process.env.AUTH_KEYCLOAK_ISSUER!,
+      clientId: process.env.AUTH_KEYCLOAK_ID,
+      clientSecret: process.env.AUTH_KEYCLOAK_SECRET,
+      issuer: process.env.AUTH_KEYCLOAK_ISSUER,
     }),
   ],
   callbacks: {
