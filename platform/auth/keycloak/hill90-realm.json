@@ -4,6 +4,8 @@
   "displayName": "Hill90",
   "sslRequired": "external",
   "registrationAllowed": false,
+  "verifyEmail": true,
+  "loginTheme": "hill90",
   "loginWithEmailAllowed": true,
   "resetPasswordAllowed": true,
   "bruteForceProtected": true,
@@ -17,6 +19,18 @@
       { "name": "user" },
       { "name": "admin" }
     ]
+  },
+  "smtpServer": {
+    "host": "smtp.sendgrid.net",
+    "port": "587",
+    "from": "noreply@hill90.com",
+    "fromDisplayName": "Hill90",
+    "envelopeFrom": "noreply@hill90.com",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "apikey",
+    "password": ""
   },
   "clients": [
     {

@@ -21,6 +21,7 @@ services:
       - internal
     volumes:
       - ../../../platform/auth/keycloak/hill90-realm.json:/opt/keycloak/data/import/hill90-realm.json:ro
+      - ../../../platform/auth/keycloak/themes/hill90:/opt/keycloak/themes/hill90:ro
     environment:
       - KC_DB=postgres
       - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
