@@ -22,10 +22,10 @@
 
 /* ── Center the login card ── */
 .pf-v5-c-login__container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  min-height: 100vh !important;
 }
 
 /* ── Login card ── */
@@ -40,6 +40,7 @@
 
 /* ── Card header accent + logo above title ── */
 .pf-v5-c-login__main-header {
+  display: block !important;
   border-top: 3px solid #5b9a2f;
   text-align: center;
 }
