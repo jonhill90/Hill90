@@ -44,3 +44,28 @@ jobs:
 
       - name: Lint scripts
         run: shellcheck --severity=error scripts/*.sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run API tests
+        working-directory: src/services/api
+        run: npm ci && npm test
+
+      - name: Run UI tests
+        working-directory: src/services/ui
+        run: npm ci && npm test
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run MCP tests
+        working-directory: src/services/mcp
+        run: |
+          pip install poetry
+          poetry install --no-root
+          poetry run pytest tests/ -v

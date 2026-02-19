@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import HillLogo from '@/components/HillLogo';
+import AuthButtons from '@/components/AuthButtons';
 
 const services = [
   {
@@ -32,12 +33,15 @@ export default function Home() {
         <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
           <HillLogo width={96} className="logo-glow-hold" />
         </Link>
-        <Link
-          href="/dashboard"
-          className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
-        >
-          Dashboard
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/dashboard"
+            className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
+          >
+            Dashboard
+          </Link>
+          <AuthButtons />
+        </div>
       </nav>
 
       {/* Hero */}

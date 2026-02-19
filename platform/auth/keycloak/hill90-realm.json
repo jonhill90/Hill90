@@ -27,7 +27,21 @@
       "redirectUris": ["https://hill90.com/api/auth/callback/keycloak"],
       "webOrigins": ["https://hill90.com"],
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false
+      "directAccessGrantsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "claim.name": "realm_roles",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
     },
     {
       "clientId": "hill90-api",
