@@ -22,15 +22,15 @@
 }
 
 /* ── Logo ── */
-:root {
-  --keycloak-logo-url: url('../img/logo.png');
-  --keycloak-logo-height: 60px;
-  --keycloak-logo-width: 180px;
-}
-
-.pf-v5-c-brand {
-  --pf-v5-c-brand--Height: 60px;
-  --pf-v5-c-brand--Width: 180px;
+#kc-header-wrapper.pf-v5-c-brand {
+  font-size: 0;
+  color: transparent;
+  overflow: hidden;
+  display: block;
+  width: 180px;
+  height: 80px;
+  background: url('../img/logo.svg') center / contain no-repeat;
+  margin: 0 auto;
 }
 
 /* ── Form inputs ── */
