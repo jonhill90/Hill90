@@ -109,7 +109,7 @@ if [ "$PHASE" = "phase1" ]; then
   echo ""
   echo "3. Applying login theme + SMTP configuration..."
 
-  SENDGRID_KEY=$(bash scripts/secrets.sh view infra/secrets/prod.enc.env SENDGRID_API_KEY | tail -1 | cut -d= -f2-) \
+  SENDGRID_KEY=$(sops -d --extract '["SENDGRID_API_KEY"]' infra/secrets/prod.enc.env) \
     || die "Failed to retrieve SENDGRID_API_KEY from SOPS."
   [ -n "$SENDGRID_KEY" ] || die "SENDGRID_API_KEY is empty."
 
