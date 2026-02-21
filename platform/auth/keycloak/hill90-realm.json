@@ -21,7 +21,7 @@
     ]
   },
   "smtpServer": {
-    "host": "smtp.sendgrid.net",
+    "host": "smtp.hostinger.com",
     "port": "587",
     "from": "noreply@hill90.com",
     "fromDisplayName": "Hill90",
@@ -29,7 +29,7 @@
     "ssl": "false",
     "starttls": "true",
     "auth": "true",
-    "user": "apikey",
+    "user": "noreply@hill90.com",
     "password": ""
   },
   "clients": [
