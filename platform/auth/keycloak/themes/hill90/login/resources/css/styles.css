@@ -58,10 +58,6 @@
   transition: filter 180ms ease;
 }
 
-.pf-v5-c-login__main-header:hover::before {
-  filter: drop-shadow(0 0 16px rgba(109, 179, 58, 0.9)) !important;
-}
-
 /* ── Title text ── */
 .pf-v5-c-login__main-header .pf-v5-c-title {
   color: #ffffff;
