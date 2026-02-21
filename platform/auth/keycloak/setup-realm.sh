@@ -109,17 +109,17 @@ if [ "$PHASE" = "phase1" ]; then
   echo ""
   echo "3. Applying login theme + SMTP configuration..."
 
-  SENDGRID_KEY=$(sops -d --extract '["SENDGRID_API_KEY"]' infra/secrets/prod.enc.env) \
-    || die "Failed to retrieve SENDGRID_API_KEY from SOPS."
-  [ -n "$SENDGRID_KEY" ] || die "SENDGRID_API_KEY is empty."
+  SMTP_PASS=$(sops -d --extract '["SMTP_PASSWORD"]' infra/secrets/prod.enc.env) \
+    || die "Failed to retrieve SMTP_PASSWORD from SOPS."
+  [ -n "$SMTP_PASS" ] || die "SMTP_PASSWORD is empty."
 
   REALM_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}" "${AUTH[@]}") \
     || die "Failed to fetch realm config."
 
-  UPDATED=$(echo "$REALM_JSON" | jq --arg sgkey "$SENDGRID_KEY" '. + {
+  UPDATED=$(echo "$REALM_JSON" | jq --arg smtppw "$SMTP_PASS" '. + {
     loginTheme: "hill90",
     smtpServer: {
-      host: "smtp.sendgrid.net",
+      host: "smtp.hostinger.com",
       port: "587",
       from: "noreply@hill90.com",
       fromDisplayName: "Hill90",
@@ -127,8 +127,8 @@ if [ "$PHASE" = "phase1" ]; then
       ssl: "false",
       starttls: "true",
       auth: "true",
-      user: "apikey",
-      password: $sgkey
+      user: "noreply@hill90.com",
+      password: $smtppw
     }
   }')
 
