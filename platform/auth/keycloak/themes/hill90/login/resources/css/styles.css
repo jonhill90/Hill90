@@ -58,6 +58,15 @@
   transition: filter 180ms ease;
 }
 
+.pf-v5-c-login__main-header:hover::before {
+  filter: drop-shadow(0 0 16px rgba(109, 179, 58, 0.9));
+}
+
+/* Keep logo hover glow, but suppress it when hovering header text (e.g. "Sign in to your account"). */
+.pf-v5-c-login__main-header:has(.pf-v5-c-title:hover)::before {
+  filter: none !important;
+}
+
 /* ── Title text ── */
 .pf-v5-c-login__main-header .pf-v5-c-title {
   color: #ffffff;
