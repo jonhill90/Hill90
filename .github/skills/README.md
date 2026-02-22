@@ -44,6 +44,14 @@ Skills are modular, task-specific workflows that can be invoked during AI-assist
 | **obsidian** | Manage Obsidian notes | Read, write, search notes in vaults using obsidian-cli |
 | **youtube-transcript** | Fetch YouTube transcripts | Get video transcripts and metadata from YouTube links |
 
+### Process & Discipline
+
+| Skill | Description | Usage |
+|-------|-------------|-------|
+| **using-git-worktrees** | Isolated workspaces for feature work | Invoke before starting feature branches needing isolation |
+| **dispatching-parallel-agents** | Parallel subagent dispatch framework | Invoke when facing 2+ independent tasks |
+| **test-driven-development** | TDD discipline and philosophy | Invoke when implementing features or fixing bugs |
+
 ## How to Use
 
 Skills are automatically available in AI coding sessions. Invoke them by calling the skill tool with the skill name:
