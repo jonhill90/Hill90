@@ -88,6 +88,38 @@ ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
   'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh minio prod && bash scripts/deploy.sh observability prod && bash scripts/deploy.sh all prod'
 ```
 
+## Stack-Level Project Isolation
+
+All Docker Compose operations use explicit project names to prevent cross-stack interference:
+
+| Stack | Project Name | Services |
+|-------|-------------|----------|
+| edge | `hill90-prod-edge` | traefik, dns-manager, portainer |
+| platform | `hill90-prod-platform` | postgres, minio |
+| identity | `hill90-prod-identity` | keycloak |
+| apps | `hill90-prod-apps` | api, ai, mcp, ui |
+| agentbox | `hill90-prod-agentbox` | agentbox-* |
+| observability | `hill90-prod-observability` | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor |
+
+### Operational Invariants
+
+1. **No `--remove-orphans`** — banned globally in all scripts and workflows.
+2. **All `docker compose` calls use explicit `-p <project>`** — no implicit project names.
+3. **Stateless apps use `up -d --force-recreate --no-deps`** — no `down` step, zero-downtime replacement.
+4. **Edge deploy is manual-only** — never auto-triggered by push.
+5. **No local VPS file edits** — all changes go through git + CI.
+
+### Inspecting Stacks
+
+```bash
+docker compose -p hill90-prod-edge ps          # Edge services
+docker compose -p hill90-prod-platform ps       # Database + storage
+docker compose -p hill90-prod-identity ps       # Auth
+docker compose -p hill90-prod-apps ps           # App services
+docker compose -p hill90-prod-agentbox ps       # Agent containers
+docker compose -p hill90-prod-observability ps  # Monitoring
+```
+
 ## Rollback Guidance
 
 - If a service deploy fails, redeploy the last known good compose revision and rerun `make health`.

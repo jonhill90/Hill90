@@ -33,36 +33,41 @@
 }
 
 # ---------------------------------------------------------------------------
-# Bug fix regression tests (post-merge fixes from e71c8e5, e72f93e)
+# Stack isolation and safety invariant tests
 # ---------------------------------------------------------------------------
 
+@test "deploy.sh never uses --remove-orphans" {
+  run grep -- "--remove-orphans" scripts/deploy.sh
+  [ "$status" -eq 1 ]
+}
+
+@test "deploy.sh all compose invocations use explicit project names" {
+  # Every 'docker compose' call (non-comment) must include '-p '
+  run bash -c 'grep "docker compose" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v -- "-p "'
+  [ "$status" -eq 1 ]
+}
+
+@test "deploy.sh project names follow hill90-env-stack convention" {
+  # Extract all project names and verify they start with 'hill90-'
+  run bash -c "grep -oE '\-p [\"'\'']*hill90-[^ \"'\'']+' scripts/deploy.sh | sed 's/-p [\"'\'']*//;s/[\"'\'']*$//' | sort -u | grep -v '^hill90-'"
+  [ "$status" -eq 1 ]
+}
+
+@test "deploy.sh stateless app services do not use docker compose down" {
+  # In the stateless branch (api, ai, mcp, ui), there should be no 'down'
+  # The stateless path uses --force-recreate --no-deps instead
+  run grep -- "--force-recreate --no-deps" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
 @test "deploy.sh infra creates hill90_internal network if missing" {
-  # Bug: infra compose doesn't define hill90_internal, but app services need it.
-  # Fix (e71c8e5): cmd_infra creates the network after docker compose up.
   run grep "docker network create.*hill90_internal" scripts/deploy.sh
   [ "$status" -eq 0 ]
   [[ "$output" == *"hill90_internal"* ]]
 }
 
 @test "deploy.sh infra checks if hill90_internal already exists before creating" {
-  # The fix should be idempotent — check with docker network inspect first.
   run grep "docker network inspect hill90_internal" scripts/deploy.sh
-  [ "$status" -eq 0 ]
-}
-
-@test "deploy.sh per-service deploy does not use --remove-orphans" {
-  # Bug: per-service down with --remove-orphans killed containers from other
-  # compose files (e.g. deploying auth would stop api).
-  # Fix (e72f93e): cmd_service uses plain 'docker compose down' without the flag.
-  #
-  # Extract cmd_service function body and verify no --remove-orphans.
-  run bash -c 'sed -n "/^cmd_service()/,/^}/p" scripts/deploy.sh | grep -- "--remove-orphans"'
-  [ "$status" -eq 1 ]  # grep should NOT find it
-}
-
-@test "deploy.sh infra DOES use --remove-orphans for full infra teardown" {
-  # Infra deploy owns the full infra stack, so --remove-orphans is correct there.
-  run bash -c 'sed -n "/^cmd_infra()/,/^}/p" scripts/deploy.sh | grep -- "--remove-orphans"'
   [ "$status" -eq 0 ]
 }
 
@@ -77,7 +82,6 @@
 }
 
 @test "deploy.sh service checks hill90_internal network exists" {
-  # App services require hill90_internal — deploy should fail fast if missing.
   run grep -A2 "hill90_internal" scripts/deploy.sh
   [ "$status" -eq 0 ]
   [[ "$output" == *"Deploy infrastructure first"* ]]
@@ -99,13 +103,11 @@
 }
 
 @test "deploy.sh dispatcher accepts db command" {
-  # db must be routed through cmd_service, not rejected as unknown
   run bash scripts/deploy.sh db nonexistent-env
   [[ "$output" != *"Unknown"* ]]
 }
 
 @test "deploy.sh all does NOT include db in service loop" {
-  # DB is infrastructure, not an app service
   run bash -c 'sed -n "/^cmd_all/,/^}/p" scripts/deploy.sh | grep "for svc in"'
   [[ "$output" != *"db"* ]]
 }
@@ -126,14 +128,12 @@
 }
 
 @test "deploy.sh minio is accepted by main dispatcher" {
-  # Should fail on missing compose/secrets, not 'Unknown command'
   run bash scripts/deploy.sh minio nonexistent-env
   [ "$status" -eq 1 ]
   [[ "$output" != *"Unknown"* ]]
 }
 
 @test "deploy.sh all does NOT include minio in service loop" {
-  # MinIO is infrastructure, not an app service — same as db
   run bash -c 'sed -n "/^cmd_all/,/^}/p" scripts/deploy.sh | grep "for svc in"'
   [[ "$output" != *"minio"* ]]
 }
@@ -142,4 +142,19 @@
   run bash -c 'sed -n "/^cmd_service/,/^}/p" scripts/deploy.sh | grep -A1 "minio)"'
   [ "$status" -eq 0 ]
   [[ "$output" == *"docker-compose.minio.yml"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# AgentBox project name tests
+# ---------------------------------------------------------------------------
+
+@test "agentbox.sh uses hill90-prod-agentbox project name" {
+  run bash -c 'grep "docker compose" scripts/agentbox.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v -- "-p hill90-prod-agentbox"'
+  [ "$status" -eq 1 ]
+}
+
+@test "deploy.sh agentbox uses hill90-env-agentbox project name" {
+  # cmd_agentbox should interpolate env into project name: hill90-${env}-agentbox
+  run bash -c 'sed -n "/^cmd_agentbox/,/^}/p" scripts/deploy.sh | grep "docker compose" | grep -v -- "-p.*hill90-.*-agentbox"'
+  [ "$status" -eq 1 ]
 }

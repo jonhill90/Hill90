@@ -78,10 +78,10 @@ cmd_start() {
 
     if [ -n "$agent_id" ]; then
         echo "Starting agentbox-${agent_id}..."
-        docker compose -p agentbox -f "$COMPOSE_FILE" up -d "agentbox-${agent_id}"
+        docker compose -p hill90-prod-agentbox -f "$COMPOSE_FILE" up -d "agentbox-${agent_id}"
     else
         echo "Starting all agent containers..."
-        docker compose -p agentbox -f "$COMPOSE_FILE" up -d
+        docker compose -p hill90-prod-agentbox -f "$COMPOSE_FILE" up -d
     fi
 }
 
@@ -90,16 +90,16 @@ cmd_stop() {
 
     if [ -n "$agent_id" ]; then
         echo "Stopping agentbox-${agent_id}..."
-        docker compose -p agentbox -f "$COMPOSE_FILE" stop "agentbox-${agent_id}"
+        docker compose -p hill90-prod-agentbox -f "$COMPOSE_FILE" stop "agentbox-${agent_id}"
     else
         echo "Stopping all agent containers..."
-        docker compose -p agentbox -f "$COMPOSE_FILE" stop
+        docker compose -p hill90-prod-agentbox -f "$COMPOSE_FILE" stop
     fi
 }
 
 cmd_status() {
     if [ -f "$COMPOSE_FILE" ]; then
-        docker compose -p agentbox -f "$COMPOSE_FILE" ps
+        docker compose -p hill90-prod-agentbox -f "$COMPOSE_FILE" ps
     else
         echo "No compose file found. Run 'agentbox.sh generate' first."
     fi
@@ -109,9 +109,9 @@ cmd_logs() {
     local agent_id="${1:-}"
 
     if [ -n "$agent_id" ]; then
-        docker compose -p agentbox -f "$COMPOSE_FILE" logs -f "agentbox-${agent_id}"
+        docker compose -p hill90-prod-agentbox -f "$COMPOSE_FILE" logs -f "agentbox-${agent_id}"
     else
-        docker compose -p agentbox -f "$COMPOSE_FILE" logs -f
+        docker compose -p hill90-prod-agentbox -f "$COMPOSE_FILE" logs -f
     fi
 }
 

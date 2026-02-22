@@ -48,31 +48,36 @@ make deploy-minio   # MinIO object storage
 make deploy-all     # All app services (not infra or db)
 ```
 
-### Deprecated Aliases
-
-The following commands are deprecated aliases and should not be used for new workflows:
-
-```bash
-make deploy              # DEPRECATED - use make deploy-infra + make deploy-all
-make deploy-production   # DEPRECATED - use make deploy-infra + make deploy-all
-```
-
 ## Docker Compose Files
 
-Separate compose files in `deploy/compose/prod/`:
+Separate compose files in `deploy/compose/prod/`, grouped into stacks with explicit Docker Compose project names:
 
-| File | Services | Networks |
-|------|----------|----------|
-| `docker-compose.infra.yml` | traefik, dns-manager, portainer | Creates hill90_edge, hill90_internal |
-| `docker-compose.auth.yml` | keycloak | Uses external networks |
-| `docker-compose.db.yml` | postgres | Uses external networks |
-| `docker-compose.api.yml` | api | Uses external networks |
-| `docker-compose.ai.yml` | ai | Uses external networks |
-| `docker-compose.mcp.yml` | mcp | Uses external networks |
-| `docker-compose.minio.yml` | minio | Uses external networks |
-| `docker-compose.ui.yml` | ui | Uses external networks |
-| `docker-compose.observability.yml` | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor | Uses external networks |
-| `docker-compose.yml` | All services (legacy) | Creates networks |
+| Stack | Project Name | File | Services |
+|-------|-------------|------|----------|
+| edge | `hill90-prod-edge` | `docker-compose.infra.yml` | traefik, dns-manager, portainer |
+| platform | `hill90-prod-platform` | `docker-compose.db.yml` | postgres, postgres-exporter |
+| platform | `hill90-prod-platform` | `docker-compose.minio.yml` | minio |
+| identity | `hill90-prod-identity` | `docker-compose.auth.yml` | keycloak |
+| apps | `hill90-prod-apps` | `docker-compose.api.yml` | api |
+| apps | `hill90-prod-apps` | `docker-compose.ai.yml` | ai |
+| apps | `hill90-prod-apps` | `docker-compose.mcp.yml` | mcp |
+| apps | `hill90-prod-apps` | `docker-compose.ui.yml` | ui |
+| agentbox | `hill90-prod-agentbox` | `docker-compose.agentbox.yml` | agentbox-* |
+| observability | `hill90-prod-observability` | `docker-compose.observability.yml` | full LGTM stack |
+
+### Stack-Level Isolation
+
+Each stack has a dedicated Docker Compose project name (`hill90-{env}-{stack}`). This prevents an errant `docker compose down` from affecting services in other stacks. For example, deploying the API cannot affect the database or edge proxy.
+
+### Deploy Safety Policy
+
+| Context | Docker Command | When Allowed |
+|---------|---------------|--------------|
+| Routine stateless deploy (api, ai, mcp, ui) | `up -d --force-recreate --no-deps` | Default |
+| Routine stateful deploy (db, auth, minio, observability) | Stack-scoped `down` + `up -d` | Default |
+| Edge stack deploy (traefik, dns, portainer) | `up -d --force-recreate` | Manual only via `workflow_dispatch` |
+| Full platform teardown | Multiple stack-scoped `down` | Maintenance windows only |
+| `--remove-orphans` | **NEVER** | Banned globally |
 
 ## GitHub Actions Deployment
 
@@ -88,7 +93,6 @@ Separate compose files in `deploy/compose/prod/`:
 | `deploy-mcp.yml` | `src/services/mcp/**` changes | mcp |
 | `deploy-minio.yml` | `docker-compose.minio.yml`, `scripts/deploy.sh` | minio |
 | `deploy-ui.yml` | `src/services/ui/**` changes | ui |
-| `deploy.yml` | Any `src/**` changes (legacy) | All services |
 
 ### Path-Based Auto-Deployment
 
