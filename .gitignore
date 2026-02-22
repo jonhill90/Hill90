@@ -185,3 +185,5 @@ AGENTS.override.md
 # Playwright runtime output
 .playwright-cli/
 .playwright-mcp/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
