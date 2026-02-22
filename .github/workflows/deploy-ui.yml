@@ -1,15 +1,8 @@
 name: Deploy UI Service
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/services/ui/**'
-      - 'deploy/compose/prod/docker-compose.ui.yml'
-      - 'scripts/deploy.sh'
-      - '.github/workflows/deploy-ui.yml'
-
+  # Push trigger disabled — orchestrator workflow (deploy.yml) handles push-based deploys.
+  # This workflow is kept for manual dispatch only.
   workflow_dispatch:
     inputs:
       environment:

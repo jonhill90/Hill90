@@ -1,25 +1,15 @@
-name: Deploy AI Service
+name: _deploy-service
 
 on:
-  # Push trigger disabled — orchestrator workflow (deploy.yml) handles push-based deploys.
-  # This workflow is kept for manual dispatch only.
-  workflow_dispatch:
+  workflow_call:
     inputs:
-      environment:
-        description: 'Deployment environment'
+      service:
         required: true
-        type: choice
-        options:
-          - prod
-        default: 'prod'
-
-concurrency:
-  group: deploy-prod
-  cancel-in-progress: false
+        type: string
 
 jobs:
   deploy:
-    name: Deploy AI Service
+    name: Deploy ${{ inputs.service }}
     runs-on: ubuntu-latest
     environment: production
 
@@ -62,28 +52,25 @@ jobs:
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
 
-      - name: Deploy AI service
+      - name: Deploy ${{ inputs.service }}
         run: |
-          echo "Deploying AI service..."
+          echo "Deploying ${{ inputs.service }}..."
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && \
              git fetch origin && \
+             git diff --stat HEAD origin/main && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             bash scripts/deploy.sh ai prod"
+             bash scripts/deploy.sh ${{ inputs.service }} prod"
 
-      - name: Wait for service to start
-        run: sleep 30
-
-      - name: Verify service
+      - name: Verify readiness
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'docker ps --format "table {{.Names}}\t{{.Status}}" | grep ai'
+            "bash scripts/deploy.sh verify ${{ inputs.service }}"
 
       - name: Summary
         if: success()
         run: |
-          echo "AI service deployment complete!"
-          echo "Service: ai (ai.hill90.com)"
+          echo "${{ inputs.service }} deployment complete!"
