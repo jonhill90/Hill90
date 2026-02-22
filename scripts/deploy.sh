@@ -72,10 +72,15 @@ cmd_infra() {
         echo "Deploying infrastructure services..."
         docker compose -f '"$compose_file"' up -d
 
-        # Create internal network if not created by compose (no infra service uses it)
+        # Create internal networks if not created by compose (no infra service uses them)
         if ! docker network inspect hill90_internal >/dev/null 2>&1; then
             docker network create --driver bridge --internal hill90_internal
             echo "✓ Created hill90_internal network for app services"
+        fi
+
+        if ! docker network inspect hill90_agent_internal >/dev/null 2>&1; then
+            docker network create --driver bridge --internal hill90_agent_internal
+            echo "✓ Created hill90_agent_internal network for agent containers"
         fi
     '
 
@@ -175,6 +180,14 @@ cmd_service() {
     require_file "$secrets_file" "Secrets file"
 
     # Service-specific preflight checks
+    if [[ "$service" == "api" ]]; then
+        # Ensure agentbox config directory exists
+        mkdir -p /opt/hill90/agentbox-configs
+        chown 1000:1000 /opt/hill90/agentbox-configs 2>/dev/null || true
+        # Resolve Docker GID for socket access
+        export DOCKER_GID
+        DOCKER_GID="$(getent group docker | cut -d: -f3 2>/dev/null || echo 999)"
+    fi
     if [[ "$service" == "minio" ]]; then
         sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \
             || die "MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must be set in secrets. Run: make secrets-update KEY=MINIO_ROOT_USER VALUE=..."
