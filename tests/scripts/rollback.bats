@@ -93,6 +93,29 @@
   [[ "$output" == *"none"* ]]
 }
 
+@test "rollback.sh auto-redeploys after git checkout" {
+  run grep 'deploy.sh.*\$service.*prod' scripts/rollback.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "rollback.sh exits non-zero if deploy fails after rollback" {
+  run grep 'exit 1' scripts/rollback.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "rollback.sh has paths subcommand in dispatcher" {
+  run grep 'paths)' scripts/rollback.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "rollback.sh paths outputs only path tokens (shell-safe for command substitution)" {
+  run bash scripts/rollback.sh paths api
+  [ "$status" -eq 0 ]
+  # No blank lines, no prose — every line must start with a path-like character
+  [[ ! "$output" =~ ^[[:space:]]*$ ]]
+  [[ "$output" == *"src/services/api"* ]]
+}
+
 @test "rollback.sh classify outputs change class field" {
   run bash scripts/rollback.sh classify api HEAD~1
   [ "$status" -eq 0 ]

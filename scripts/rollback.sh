@@ -20,6 +20,7 @@ Usage: rollback.sh <command> [args]
 Commands:
   rollback <service> [ref]  Rollback a service to a previous git ref (default: HEAD~1)
   classify <service> [ref]  Show what kind of change occurred (without rolling back)
+  paths <service>           Print file paths for a service (used by rollback undo)
   help                      Show this help message
 
 Change classes:
@@ -236,16 +237,33 @@ cmd_rollback() {
     git checkout "$target_ref" -- $paths
 
     echo ""
-    echo "Files rolled back. Redeploying ${service}..."
-    echo ""
-    echo "To complete the rollback, run:"
-    echo "  bash scripts/deploy.sh ${service} prod"
-    echo "  bash scripts/deploy.sh verify ${service}"
+    echo "Redeploying ${service}..."
+    if ! bash "$SCRIPT_DIR/deploy.sh" "$service" prod; then
+        warn "Deploy failed after rollback. Working tree has rolled-back files."
+        echo ""
+        echo "Manual recovery options:"
+        echo "  1. Fix and retry:  bash scripts/deploy.sh ${service} prod"
+        echo "  2. Undo rollback:  git checkout HEAD -- \$(bash scripts/rollback.sh paths ${service})"
+        echo ""
+        exit 1
+    fi
+
+    if ! bash "$SCRIPT_DIR/deploy.sh" verify "$service"; then
+        warn "Service deployed but failed readiness check."
+        echo ""
+        echo "Manual recovery options:"
+        echo "  1. Check logs:     docker logs ${service}"
+        echo "  2. Retry verify:   bash scripts/deploy.sh verify ${service}"
+        echo "  3. Undo rollback:  git checkout HEAD -- \$(bash scripts/rollback.sh paths ${service})"
+        echo ""
+        exit 1
+    fi
+
     echo ""
     echo "To commit the rollback:"
     echo "  git add -A && git commit -m 'rollback: revert ${service} to ${target_ref}'"
     echo ""
-    echo "✓ Rollback files restored from ${target_ref}"
+    echo "✓ Rollback complete: ${service} redeployed from ${target_ref}"
 }
 
 # ---------------------------------------------------------------------------
@@ -264,6 +282,7 @@ main() {
     case "$cmd" in
         rollback)       cmd_rollback "$@" ;;
         classify)       cmd_classify "$@" ;;
+        paths)          service_paths "$@" ;;
         help|--help|-h) usage ;;
         *)
             echo "Unknown command: $cmd"
