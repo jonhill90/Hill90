@@ -37,7 +37,9 @@ This is the required flow for Claude, Codex, and Copilot-assisted changes.
 6. **Commit** — required format below.
 7. **Push** — `git push -u origin <branch>`.
 8. **Create PR** — `gh pr create` with summary bullets + test plan checklist.
+   - Use `.github/pull_request_template.md` and include validation evidence per `.github/docs/validation-matrix.md`.
 9. **CI gates** — tests, security scan, Copilot review.
+   - Advisory process signal: `Agent Loop (Advisory)` workflow warns on missing Linear/validation evidence.
 10. **Address feedback** — fix CI/review findings.
 11. **Merge** — `gh pr merge --squash --delete-branch`.
    - Never use `--admin` or `--force` to bypass branch protections.
@@ -92,6 +94,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 
 - Harness details and platform parity: `.github/docs/harness-reference.md`
 - Contribution/PR operations: `.github/docs/contribution-workflow.md`
+- Validation evidence expectations: `.github/docs/validation-matrix.md`
 - Linear task lifecycle details: `.claude/references/task-management.md`
 - VPS rebuild runbook: `docs/runbooks/vps-rebuild.md`
 - Architecture overview: `docs/architecture/overview.md`
