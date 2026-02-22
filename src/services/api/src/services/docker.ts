@@ -1,6 +1,19 @@
 import Docker from 'dockerode';
 
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+function createDockerClient(): Docker {
+  const dockerHost = process.env.DOCKER_HOST;
+  if (!dockerHost) {
+    return new Docker({ socketPath: '/var/run/docker.sock' });
+  }
+  try {
+    const url = new URL(dockerHost);
+    return new Docker({ host: url.hostname, port: Number(url.port) });
+  } catch {
+    throw new Error(`Invalid DOCKER_HOST: "${dockerHost}" — expected format: tcp://host:port`);
+  }
+}
+
+const docker = createDockerClient();
 
 const CONTAINER_PREFIX = 'agentbox-';
 const MANAGED_LABEL = 'managed-by';

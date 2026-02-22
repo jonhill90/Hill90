@@ -15,6 +15,56 @@ networks:
     name: hill90_agent_internal
 
 services:
+  # Docker Socket Proxy — limits API surface for agentbox container management
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    container_name: docker-proxy
+    restart: unless-stopped
+    networks:
+      - agent_internal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # Allow container lifecycle operations (create, start, stop, remove, inspect, logs)
+      - CONTAINERS=1
+      # Allow volume operations (create, remove for agentbox workspace/logs/data volumes)
+      - VOLUMES=1
+      # POST required for container create/start/stop/remove
+      - POST=1
+      # Deny everything else
+      - EVENTS=0
+      - IMAGES=0
+      - NETWORKS=0
+      - VERSION=0
+      - SERVICES=0
+      - TASKS=0
+      - NODES=0
+      - BUILD=0
+      - COMMIT=0
+      - CONFIGS=0
+      - DISTRIBUTION=0
+      - EXEC=0
+      - GRPC=0
+      - PLUGINS=0
+      - SECRETS=0
+      - SESSION=0
+      - SWARM=0
+      - SYSTEM=0
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 50
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # API Gateway (TypeScript/Express)
   api:
     build:
@@ -27,8 +77,10 @@ services:
       - edge
       - internal
       - agent_internal
+    depends_on:
+      docker-proxy:
+        condition: service_healthy
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - /opt/hill90/agentbox-configs:/data/agentbox
     environment:
       - NODE_ENV=production
@@ -37,6 +89,7 @@ services:
       - KEYCLOAK_ISSUER=https://auth.hill90.com/realms/hill90
       - KEYCLOAK_JWKS_URI=https://auth.hill90.com/realms/hill90/protocol/openid-connect/certs
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/hill90_api
+      - DOCKER_HOST=tcp://docker-proxy:2375
       - AGENTBOX_CONFIG_HOST_PATH=/opt/hill90/agentbox-configs
       - ENVIRONMENT=production
       - OTEL_SERVICE_NAME=api
@@ -45,8 +98,6 @@ services:
       - OTEL_TRACES_EXPORTER=otlp
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
-    group_add:
-      - "${DOCKER_GID:-999}"
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
