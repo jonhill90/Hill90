@@ -1,0 +1,12 @@
+{
+  "name": "hill90-e2e",
+  "private": true,
+  "description": "Playwright smoke tests for Hill90 auth infrastructure",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  }
+}
