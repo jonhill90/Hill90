@@ -53,6 +53,19 @@ describe('jwt callback', () => {
     expect(result.accessTokenExpires).toBeGreaterThan(Date.now())
   })
 
+  it('stores idToken from account.id_token on initial sign-in', async () => {
+    const account = {
+      access_token: mockAccessToken(),
+      id_token: 'my-id-token-value',
+      refresh_token: 'refresh-123',
+      expires_at: Math.floor(Date.now() / 1000) + 300,
+    }
+
+    const result = await jwtCallback({ token: { name: 'Test' }, account })
+
+    expect(result.idToken).toBe('my-id-token-value')
+  })
+
   it('returns token as-is when not expired', async () => {
     const token = {
       accessToken: 'at-123',
@@ -132,5 +145,22 @@ describe('session callback', () => {
     expect(result.accessToken).toBe('at-123')
     expect(result.user.roles).toEqual(['admin', 'user'])
     expect(result.error).toBeUndefined()
+  })
+
+  it('exposes idToken on session from token', async () => {
+    const token = {
+      accessToken: 'at-123',
+      idToken: 'id-token-value',
+      roles: ['user'],
+      error: undefined,
+    }
+    const session = {
+      user: { name: 'Test', email: 'test@test.com' },
+      expires: '2099-01-01',
+    }
+
+    const result = await sessionCallback({ session, token })
+
+    expect(result.idToken).toBe('id-token-value')
   })
 })

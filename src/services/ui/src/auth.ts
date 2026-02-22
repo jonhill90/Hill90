@@ -50,7 +50,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     authorized({ auth, request }) {
-      const isProtected = request.nextUrl.pathname.startsWith("/dashboard")
+      const path = request.nextUrl.pathname
+      const isProtected =
+        path.startsWith("/dashboard") ||
+        path.startsWith("/profile") ||
+        path.startsWith("/settings")
       if (isProtected && !auth) return false
       return true
     },
@@ -64,6 +68,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return {
           ...token,
           accessToken: account.access_token,
+          idToken: account.id_token,
           refreshToken: account.refresh_token,
           accessTokenExpires: account.expires_at ? account.expires_at * 1000 : Date.now() + 300_000,
           roles: decoded.realm_roles ?? [],
@@ -80,6 +85,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     async session({ session, token }) {
       session.accessToken = token.accessToken
+      session.idToken = token.idToken
       session.error = token.error
       if (session.user) {
         session.user.roles = token.roles

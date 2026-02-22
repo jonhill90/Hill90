@@ -91,7 +91,7 @@ services:
       - NODE_ENV=development
       - API_URL=http://api:3000
       - AI_URL=http://ai:8000
-      - AUTH_URL=http://auth:3001
+      - AUTH_URL=http://localhost:3002
       - MCP_URL=http://mcp:8001
     command: npm run dev
 

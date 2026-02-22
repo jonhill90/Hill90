@@ -53,4 +53,46 @@ describe('middleware', () => {
     // When auth is present, handler returns undefined (no redirect)
     expect(result).toBeUndefined()
   })
+
+  it('redirects to /api/auth/signin for /profile when unauthenticated', () => {
+    mockSession = null
+    const req = makeRequest('/profile')
+
+    const result = middleware(req as any)
+
+    expect(NextResponse.redirect).toHaveBeenCalledWith(
+      new URL('/api/auth/signin', 'https://hill90.com/profile')
+    )
+    expect(result).toBeDefined()
+  })
+
+  it('redirects to /api/auth/signin for /settings when unauthenticated', () => {
+    mockSession = null
+    const req = makeRequest('/settings')
+
+    const result = middleware(req as any)
+
+    expect(NextResponse.redirect).toHaveBeenCalledWith(
+      new URL('/api/auth/signin', 'https://hill90.com/settings')
+    )
+    expect(result).toBeDefined()
+  })
+
+  it('passes through /profile when authenticated', () => {
+    mockSession = { user: { name: 'Test' } }
+    const req = makeRequest('/profile')
+
+    const result = middleware(req as any)
+
+    expect(result).toBeUndefined()
+  })
+
+  it('passes through /settings when authenticated', () => {
+    mockSession = { user: { name: 'Test' } }
+    const req = makeRequest('/settings')
+
+    const result = middleware(req as any)
+
+    expect(result).toBeUndefined()
+  })
 })

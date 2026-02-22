@@ -45,6 +45,9 @@
       "webOrigins": ["https://hill90.com"],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
+      "attributes": {
+        "post.logout.redirect.uris": "https://hill90.com/"
+      },
       "protocolMappers": [
         {
           "name": "realm-roles",
