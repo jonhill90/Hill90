@@ -27,8 +27,16 @@ export async function GET() {
   const response = NextResponse.redirect(logoutUrl)
   const cookieStore = await cookies()
   for (const cookie of cookieStore.getAll()) {
-    if (cookie.name.startsWith("authjs.") || cookie.name.startsWith("__Secure-authjs.")) {
-      response.cookies.set(cookie.name, "", { maxAge: 0, path: "/" })
+    if (
+      cookie.name.startsWith("authjs.") ||
+      cookie.name.startsWith("__Secure-authjs.") ||
+      cookie.name.startsWith("__Host-authjs.")
+    ) {
+      response.cookies.set(cookie.name, "", {
+        maxAge: 0,
+        path: "/",
+        secure: cookie.name.startsWith("__Secure-") || cookie.name.startsWith("__Host-"),
+      })
     }
   }
 

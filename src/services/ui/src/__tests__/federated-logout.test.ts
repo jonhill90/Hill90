@@ -58,6 +58,7 @@ describe('federated-logout route', () => {
       { name: 'authjs.session-token.1', value: 'chunk1' },
       { name: 'authjs.callback-url', value: 'https://hill90.com' },
       { name: '__Secure-authjs.session-token', value: 'secure-abc' },
+      { name: '__Host-authjs.csrf-token', value: 'csrf-abc' },
       { name: 'other-cookie', value: 'keep-me' },
     ]
   })
@@ -102,13 +103,13 @@ describe('federated-logout route', () => {
     expect(redirectUrl!.searchParams.get('post_logout_redirect_uri')).toBe('https://hill90.com/')
   })
 
-  it('clears all cookies with authjs. or __Secure-authjs. prefix', async () => {
+  it('clears all cookies with authjs., __Secure-authjs., or __Host-authjs. prefix', async () => {
     mockSession = { idToken: 'tok', user: { name: 'Test' } }
 
     await GET()
 
-    // Should clear 5 Auth.js cookies, not the 'other-cookie'
-    expect(mockResponseCookies.set).toHaveBeenCalledTimes(5)
+    // Should clear 6 Auth.js cookies, not the 'other-cookie'
+    expect(mockResponseCookies.set).toHaveBeenCalledTimes(6)
 
     const clearedNames = mockResponseCookies.set.mock.calls.map((c: any) => c[0])
     expect(clearedNames).toContain('authjs.session-token')
@@ -116,13 +117,28 @@ describe('federated-logout route', () => {
     expect(clearedNames).toContain('authjs.session-token.1')
     expect(clearedNames).toContain('authjs.callback-url')
     expect(clearedNames).toContain('__Secure-authjs.session-token')
+    expect(clearedNames).toContain('__Host-authjs.csrf-token')
     expect(clearedNames).not.toContain('other-cookie')
 
-    // All cleared with maxAge: 0
+    // All cleared with maxAge: 0 and path /
     for (const call of mockResponseCookies.set.mock.calls) {
       expect(call[1]).toBe('')
-      expect(call[2]).toEqual({ maxAge: 0, path: '/' })
+      expect(call[2].maxAge).toBe(0)
+      expect(call[2].path).toBe('/')
     }
+  })
+
+  it('sets secure flag on __Secure- and __Host- prefixed cookies', async () => {
+    mockSession = { idToken: 'tok', user: { name: 'Test' } }
+
+    await GET()
+
+    const calls = mockResponseCookies.set.mock.calls
+    const byName = (name: string) => calls.find((c: any) => c[0] === name)
+
+    expect(byName('authjs.session-token')![2].secure).toBe(false)
+    expect(byName('__Secure-authjs.session-token')![2].secure).toBe(true)
+    expect(byName('__Host-authjs.csrf-token')![2].secure).toBe(true)
   })
 
   it('returns 302 redirect to Keycloak logout URL', async () => {
