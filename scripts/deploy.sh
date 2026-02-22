@@ -29,10 +29,72 @@ Commands:
   ui       Deploy UI service
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   all      Deploy all application services (NOT infrastructure or db)
+  verify   Run post-deploy readiness check for a service
   help     Show this help message
 
 Environment: defaults to 'prod'
 EOF
+}
+
+# ---------------------------------------------------------------------------
+# Dependency and readiness checks
+# ---------------------------------------------------------------------------
+
+check_dependency() {
+    local dep="$1"
+    local check_cmd
+
+    case "$dep" in
+        postgres)  check_cmd='docker exec postgres pg_isready -U postgres' ;;
+        keycloak)  check_cmd='docker exec keycloak curl -sf http://localhost:8080/realms/hill90' ;;
+        *)         echo "Unknown dependency: $dep"; return 1 ;;
+    esac
+
+    if eval "$check_cmd" >/dev/null 2>&1; then
+        echo "✓ Dependency healthy: $dep"
+        return 0
+    else
+        echo "✗ Dependency not healthy: $dep"
+        return 1
+    fi
+}
+
+cmd_verify() {
+    local service="$1"
+    local env="${2:-prod}"
+
+    echo "Verifying readiness: ${service} (${env})"
+
+    local max_attempts=30
+    local attempt=0
+    local check_cmd
+
+    case "$service" in
+        db)            check_cmd='docker exec postgres pg_isready -U postgres' ;;
+        auth)          check_cmd='docker exec keycloak curl -sf http://localhost:8080/realms/hill90' ;;
+        api)           check_cmd='docker exec api curl -sf http://localhost:3000/health' ;;
+        ai)            check_cmd='docker exec ai curl -sf http://localhost:8000/health' ;;
+        mcp)           check_cmd='docker exec mcp curl -sf http://localhost:8001/health' ;;
+        ui)            check_cmd='docker exec ui curl -sf http://localhost:3000/api/health' ;;
+        minio)         check_cmd='docker exec minio mc ready local' ;;
+        observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy' ;;
+        agentbox)      check_cmd='docker ps --filter "name=agentbox-" --format "{{.Status}}" | grep -q "Up"' ;;
+        infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview' ;;
+        *)             echo "Unknown service: $service"; exit 1 ;;
+    esac
+
+    while [ $attempt -lt $max_attempts ]; do
+        if eval "$check_cmd" >/dev/null 2>&1; then
+            echo "✓ ${service} is healthy"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        echo "  Waiting for ${service}... (${attempt}/${max_attempts})"
+        sleep 2
+    done
+
+    echo "✗ ${service} failed readiness check after ${max_attempts} attempts"
+    exit 1
 }
 
 # ---------------------------------------------------------------------------
@@ -211,6 +273,17 @@ cmd_service() {
         die "Network hill90_internal not found. Deploy infrastructure first: make deploy-infra"
     fi
 
+    # Pre-deploy dependency checks
+    case "$service" in
+        auth)
+            check_dependency postgres || die "Cannot deploy auth: postgres is not healthy"
+            ;;
+        api|mcp)
+            check_dependency postgres || die "Cannot deploy ${service}: postgres is not healthy"
+            check_dependency keycloak || die "Cannot deploy ${service}: keycloak is not healthy"
+            ;;
+    esac
+
     # One-time migration: remove old-project containers that would collide
     # with new project names. Safe because the subsequent `up -d` immediately
     # recreates them under the new project.
@@ -365,6 +438,7 @@ main() {
         db|auth|api|ai|mcp|minio|ui|observability) cmd_service "$cmd" "$@" ;;
         agentbox)       cmd_agentbox "$@" ;;
         all)            cmd_all "$@" ;;
+        verify)         cmd_verify "$@" ;;
         help|--help|-h) usage ;;
         *)
             echo "Unknown command: $cmd"
