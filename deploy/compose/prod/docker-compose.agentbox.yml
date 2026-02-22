@@ -23,9 +23,9 @@ services:
     networks:
     - internal
     volumes:
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/coder/agent.yml:/etc/agentbox/agent.yml:ro
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/coder/SOUL.md:/etc/agentbox/SOUL.md:ro
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/coder/RULES.md:/etc/agentbox/RULES.md:ro
+    - ../../../platform/agentbox/agents/coder/agent.yml:/etc/agentbox/agent.yml:ro
+    - ../../../platform/agentbox/agents/coder/SOUL.md:/etc/agentbox/SOUL.md:ro
+    - ../../../platform/agentbox/agents/coder/RULES.md:/etc/agentbox/RULES.md:ro
     - agentbox-coder-workspace:/workspace
     - agentbox-coder-logs:/var/log/agentbox
     - agentbox-coder-data:/data
@@ -60,9 +60,9 @@ services:
     networks:
     - internal
     volumes:
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/ops/agent.yml:/etc/agentbox/agent.yml:ro
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/ops/SOUL.md:/etc/agentbox/SOUL.md:ro
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/ops/RULES.md:/etc/agentbox/RULES.md:ro
+    - ../../../platform/agentbox/agents/ops/agent.yml:/etc/agentbox/agent.yml:ro
+    - ../../../platform/agentbox/agents/ops/SOUL.md:/etc/agentbox/SOUL.md:ro
+    - ../../../platform/agentbox/agents/ops/RULES.md:/etc/agentbox/RULES.md:ro
     - agentbox-ops-workspace:/workspace
     - agentbox-ops-logs:/var/log/agentbox
     - agentbox-ops-data:/data
@@ -97,9 +97,9 @@ services:
     networks:
     - internal
     volumes:
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/researcher/agent.yml:/etc/agentbox/agent.yml:ro
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/researcher/SOUL.md:/etc/agentbox/SOUL.md:ro
-    - /Users/jon/source/repos/Personal/Hill90-agentbox/platform/agentbox/agents/researcher/RULES.md:/etc/agentbox/RULES.md:ro
+    - ../../../platform/agentbox/agents/researcher/agent.yml:/etc/agentbox/agent.yml:ro
+    - ../../../platform/agentbox/agents/researcher/SOUL.md:/etc/agentbox/SOUL.md:ro
+    - ../../../platform/agentbox/agents/researcher/RULES.md:/etc/agentbox/RULES.md:ro
     - agentbox-researcher-workspace:/workspace
     - agentbox-researcher-logs:/var/log/agentbox
     - agentbox-researcher-data:/data
