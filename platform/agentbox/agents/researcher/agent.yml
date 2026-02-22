@@ -1,0 +1,43 @@
+version: 1
+id: researcher
+name: Researcher Agent
+description: Information gathering, API calls, data analysis
+soul_path: SOUL.md
+rules_path: RULES.md
+
+tools:
+  shell:
+    enabled: true
+    allowed_binaries:
+      - /usr/bin/curl
+      - /usr/bin/wget
+      - /usr/bin/jq
+      - /usr/bin/python3
+    denied_patterns:
+      - "rm\\s+-rf\\s+/"
+      - ":(){ :|:& };:"
+      - "mkfs"
+      - "shutdown|reboot|halt"
+      - ">/dev/sd"
+    max_timeout: 120
+  filesystem:
+    enabled: true
+    read_only: true
+    allowed_paths:
+      - /workspace
+    denied_paths:
+      - /etc/shadow
+      - /etc/passwd
+      - /root
+  health:
+    enabled: true
+
+resources:
+  cpus: "0.5"
+  mem_limit: 512m
+  pids_limit: 100
+
+state:
+  workspace: /workspace
+  logs: /var/log/agentbox
+  data: /data

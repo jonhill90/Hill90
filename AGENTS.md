@@ -87,6 +87,9 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Deploy API | `bash scripts/deploy.sh api prod` | `make deploy-api` |
 | Deploy AI | `bash scripts/deploy.sh ai prod` | `make deploy-ai` |
 | Deploy MCP | `bash scripts/deploy.sh mcp prod` | `make deploy-mcp` |
+| Deploy AgentBox | `bash scripts/deploy.sh agentbox prod` | `make deploy-agentbox` |
+| List agents | `bash scripts/agentbox.sh list` | `make agentbox-list` |
+| Agent status | `bash scripts/agentbox.sh status` | `make agentbox-status` |
 | Deploy MinIO | `bash scripts/deploy.sh minio prod` | `make deploy-minio` |
 | Deploy UI | `bash scripts/deploy.sh ui prod` | `make deploy-ui` |
 | Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |

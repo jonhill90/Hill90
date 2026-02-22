@@ -1,0 +1,45 @@
+version: 1
+id: ops
+name: Ops Agent
+description: Infrastructure tasks, deployment operations, system maintenance
+soul_path: SOUL.md
+rules_path: RULES.md
+
+tools:
+  shell:
+    enabled: true
+    allowed_binaries:
+      - /usr/bin/git
+      - /usr/bin/rsync
+      - /usr/bin/ssh
+      - /usr/bin/curl
+      - /usr/bin/docker
+      - /usr/bin/make
+    denied_patterns:
+      - ":(){ :|:& };:"
+      - "mkfs"
+      - "shutdown|reboot|halt"
+      - ">/dev/sd"
+      - "docker\\s+rm\\s+-f"
+    max_timeout: 600
+  filesystem:
+    enabled: true
+    read_only: false
+    allowed_paths:
+      - /workspace
+    denied_paths:
+      - /etc/shadow
+      - /etc/passwd
+      - /root
+  health:
+    enabled: true
+
+resources:
+  cpus: "1.0"
+  mem_limit: 1g
+  pids_limit: 200
+
+state:
+  workspace: /workspace
+  logs: /var/log/agentbox
+  data: /data
