@@ -118,6 +118,9 @@ if [ "$PHASE" = "phase1" ]; then
 
   UPDATED=$(echo "$REALM_JSON" | jq --arg smtppw "$SMTP_PASS" '. + {
     loginTheme: "hill90",
+    accountTheme: "hill90",
+    adminTheme: "hill90",
+    emailTheme: "hill90",
     smtpServer: {
       host: "smtp.hostinger.com",
       port: "587",
