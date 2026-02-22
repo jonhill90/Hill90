@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import AppShell from '@/components/AppShell';
 
 const services = [
@@ -26,16 +25,7 @@ const services = [
 
 export default function Home() {
   return (
-    <AppShell
-      navExtra={
-        <Link
-          href="/dashboard"
-          className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
-        >
-          Dashboard
-        </Link>
-      }
-    >
+    <AppShell>
       {/* Hero */}
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">

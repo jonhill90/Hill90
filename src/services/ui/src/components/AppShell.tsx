@@ -17,6 +17,18 @@ export default function AppShell({
           <HillLogo width={96} className="logo-glow-hold" />
         </Link>
         <div className="flex items-center gap-4">
+          <Link
+            href="/dashboard"
+            className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/agents"
+            className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
+          >
+            Agents
+          </Link>
           {navExtra}
           <AuthButtons />
         </div>

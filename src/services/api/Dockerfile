@@ -29,10 +29,11 @@ COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/dist ./dist
 COPY package*.json ./
 
-# Create non-root user
-RUN addgroup -S appuser && \
+# Create agentbox config directory and non-root user
+RUN mkdir -p /data/agentbox && \
+    addgroup -S appuser && \
     adduser -S -G appuser appuser && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app /data/agentbox
 
 USER appuser
 

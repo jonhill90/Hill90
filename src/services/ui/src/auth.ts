@@ -54,7 +54,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       const isProtected =
         path.startsWith("/dashboard") ||
         path.startsWith("/profile") ||
-        path.startsWith("/settings")
+        path.startsWith("/settings") ||
+        path.startsWith("/agents")
       if (isProtected && !auth) return false
       return true
     },
