@@ -1,8 +1,8 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-agentbox deploy-ui deploy-all agentbox-list agentbox-status agentbox-generate test clean logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps restart snapshot recreate-vps config-vps validate dev dev-logs dev-down backup up down pull dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-agentbox deploy-ui deploy-all agentbox-list agentbox-status agentbox-generate test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup down dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
-COMPOSE_FILE = deploy/compose/$(ENV)/docker-compose.yml
+# Legacy COMPOSE_FILE removed — use per-service deploy targets instead
 VPS_HOST ?= $(shell grep VPS_HOST infra/secrets/$(ENV).dec.env 2>/dev/null | cut -d '=' -f 2)
 
 # Colors for output
@@ -28,7 +28,6 @@ help: ## Show this help message
 	@echo "  $(COLOR_GREEN)exec-<service>            $(COLOR_RESET) Shell in (e.g., make exec-auth)"
 	@echo ""
 	@echo "$(COLOR_YELLOW)Environment:$(COLOR_RESET) $(ENV)"
-	@echo "$(COLOR_YELLOW)Compose File:$(COLOR_RESET) $(COMPOSE_FILE)"
 
 # ============================================================================
 # Infrastructure Setup (One-time or Rare)
@@ -134,9 +133,12 @@ validate: ## Validate infrastructure configuration (Traefik, secrets, Docker Com
 # Deployment
 # ============================================================================
 
-build: ## Build all Docker images
+build: ## Build all Docker images (per-service compose files)
 	@echo "$(COLOR_BOLD)Building all Docker images...$(COLOR_RESET)"
-	docker compose -f $(COMPOSE_FILE) build
+	@for f in deploy/compose/$(ENV)/docker-compose.*.yml; do \
+		echo "Building $$(basename $$f)..."; \
+		docker compose -f "$$f" build --parallel || true; \
+	done
 
 deploy-infra: ## Deploy infrastructure (Traefik, dns-manager, Portainer)
 	@echo "$(COLOR_YELLOW)Deploying infrastructure services...$(COLOR_RESET)"
@@ -204,14 +206,18 @@ health: ## Check service health
 	@echo "$(COLOR_BOLD)Checking service health...$(COLOR_RESET)"
 	bash scripts/ops.sh health
 
-logs: ## Show logs for all services
-	docker compose -f $(COMPOSE_FILE) logs -f
+logs: ## Show recent logs for all services (use logs-<name> to follow specific)
+	@docker ps --format '{{.Names}}' | while read -r name; do \
+		echo "=== $$name ==="; \
+		docker logs --tail=20 "$$name" 2>&1 || true; \
+		echo ""; \
+	done
 
 logs-%: ## Show logs for a service (e.g., make logs-api)
 	docker logs -f $*
 
 ps: ## Show running containers
-	docker compose -f $(COMPOSE_FILE) ps
+	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|api|ai|mcp|ui|minio|grafana|agentbox)" || true
 
 ssh: ## SSH into VPS
 	@if [ -z "$(VPS_HOST)" ]; then \
@@ -243,30 +249,18 @@ dns-verify: ## Verify DNS propagation
 # Service Management
 # ============================================================================
 
-up: ## Start all services
-	docker compose -f $(COMPOSE_FILE) up -d
+down: ## Stop a service (usage: make down-<service>)
+	@echo "Use 'make down-<service>' for targeted shutdown"
+	@echo "Full platform shutdown requires VPS SSH maintenance window"
 
-down: ## Stop all services
-	docker compose -f $(COMPOSE_FILE) down
-
-restart: ## Restart all services
-	@echo "$(COLOR_BOLD)Restarting all services...$(COLOR_RESET)"
-	docker compose -f $(COMPOSE_FILE) restart
+down-%: ## Stop a specific service (e.g., make down-api)
+	docker stop $* && docker rm $* || true
 
 restart-%: ## Restart a service (e.g., make restart-api)
-	docker compose -f $(COMPOSE_FILE) restart $*
-
-pull: ## Pull latest images
-	docker compose -f $(COMPOSE_FILE) pull
+	docker restart $*
 
 exec-%: ## Shell into a container (e.g., make exec-api)
-	docker compose -f $(COMPOSE_FILE) exec $* sh
-
-clean: ## Clean up Docker resources
-	@echo "$(COLOR_BOLD)Cleaning up Docker resources...$(COLOR_RESET)"
-	docker compose -f $(COMPOSE_FILE) down
-	docker system prune -f
-	@echo "$(COLOR_GREEN)Cleanup complete!$(COLOR_RESET)"
+	docker exec -it $* sh
 
 # ============================================================================
 # Database & Backups

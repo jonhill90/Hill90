@@ -317,7 +317,7 @@ cmd_secrets() {
 
 cmd_compose() {
     local env="${1:-prod}"
-    local compose_file="deploy/compose/${env}/docker-compose.yml"
+    local compose_dir="deploy/compose/${env}"
 
     echo "================================"
     echo "Docker Compose Validation"
@@ -325,18 +325,6 @@ cmd_compose() {
     echo ""
 
     local all_valid=true
-
-    echo -n "Checking compose file exists... "
-    if [ -f "$compose_file" ]; then
-        echo "✓"
-    else
-        echo "✗ Not found: $compose_file"
-        echo ""
-        echo "================================"
-        echo "✗ Compose file missing"
-        echo "================================"
-        return 1
-    fi
 
     echo -n "Checking Docker installation... "
     if command -v docker >/dev/null 2>&1; then
@@ -362,75 +350,45 @@ cmd_compose() {
         return 1
     fi
 
-    echo -n "Validating compose file syntax... "
-    if docker compose -f "$compose_file" config > /dev/null 2>&1; then
-        echo "✓"
-    else
-        echo "✗ Invalid compose syntax"
-        all_valid=false
-        echo ""
-        echo "Run to see errors:"
-        echo "  docker compose -f $compose_file config"
-    fi
-
     echo ""
     echo "Validating per-service compose files..."
-    for extra in deploy/compose/${env}/docker-compose.*.yml; do
-        [ -f "$extra" ] || continue
+    local found_any=false
+    for f in "$compose_dir"/docker-compose.*.yml; do
+        [ -f "$f" ] || continue
+        found_any=true
         local basename
-        basename=$(basename "$extra")
+        basename=$(basename "$f")
         echo -n "  $basename... "
-        if docker compose -f "$extra" config > /dev/null 2>&1; then
+        if docker compose -f "$f" config > /dev/null 2>&1; then
             echo "✓"
         else
             echo "✗ Invalid"
             all_valid=false
-            echo "    Run: docker compose -f $extra config"
+            echo "    Run: docker compose -f $f config"
         fi
     done
 
-    if [ -f "$compose_file" ]; then
-        echo ""
-        echo "Checking required services:"
-        for service in traefik api ai auth postgres; do
-            echo -n "  $service... "
-            if grep -q "^  ${service}:" "$compose_file"; then
-                echo "✓"
-            else
-                echo "✗ Missing service definition"
-                all_valid=false
-            fi
-        done
+    if [ "$found_any" = false ]; then
+        echo "  ✗ No compose files found in $compose_dir"
+        all_valid=false
+    fi
 
-        echo ""
-        echo "Checking required networks:"
-        for network in edge internal; do
-            echo -n "  $network... "
-            if grep -q "^  ${network}:" "$compose_file"; then
-                echo "✓"
-            else
-                echo "✗ Missing network definition"
-                all_valid=false
-            fi
-        done
+    echo ""
+    echo "Checking Traefik configuration files:"
+    echo -n "  traefik.yml... "
+    if [ -f "platform/edge/traefik.yml" ]; then
+        echo "✓"
+    else
+        echo "✗ File not found"
+        all_valid=false
+    fi
 
-        echo ""
-        echo "Checking Traefik configuration files:"
-        echo -n "  traefik.yml... "
-        if [ -f "platform/edge/traefik.yml" ]; then
-            echo "✓"
-        else
-            echo "✗ File not found"
-            all_valid=false
-        fi
-
-        echo -n "  dynamic config directory... "
-        if [ -d "platform/edge/dynamic" ]; then
-            echo "✓"
-        else
-            echo "✗ Directory not found"
-            all_valid=false
-        fi
+    echo -n "  dynamic config directory... "
+    if [ -d "platform/edge/dynamic" ]; then
+        echo "✓"
+    else
+        echo "✗ Directory not found"
+        all_valid=false
     fi
 
     echo ""

@@ -49,46 +49,39 @@ cmd_infra() {
     require_file "$secrets_file" "Secrets file"
 
     echo "================================"
-    echo "Infrastructure Deployment - ${env}"
+    echo "Edge Stack Deployment - ${env}"
     echo "================================"
 
     sops exec-env "$secrets_file" '
-        echo "Stopping existing infrastructure containers..."
-        docker compose -f '"$compose_file"' down --remove-orphans || true
-
-        for container in traefik dns-manager portainer; do
-            docker rm -f "$container" 2>/dev/null || true
-        done
-
         echo "Generating Traefik basic auth credentials..."
         mkdir -p platform/edge/dynamic
         echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
         echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
         echo "Building and pulling images..."
-        docker compose -f '"$compose_file"' build --parallel
-        docker compose -f '"$compose_file"' pull --ignore-buildable
+        docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' build --parallel
+        docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' pull --ignore-buildable
 
-        echo "Deploying infrastructure services..."
-        docker compose -f '"$compose_file"' up -d
-
-        # Create internal networks if not created by compose (no infra service uses them)
-        if ! docker network inspect hill90_internal >/dev/null 2>&1; then
-            docker network create --driver bridge --internal hill90_internal
-            echo "✓ Created hill90_internal network for app services"
-        fi
-
-        if ! docker network inspect hill90_agent_internal >/dev/null 2>&1; then
-            docker network create --driver bridge --internal hill90_agent_internal
-            echo "✓ Created hill90_agent_internal network for agent containers"
-        fi
+        echo "Deploying edge stack (traefik, dns-manager, portainer)..."
+        docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' up -d --force-recreate
     '
+
+    # Create internal networks if not present (edge compose creates hill90_edge;
+    # internal networks are needed by app services but not by edge services)
+    if ! docker network inspect hill90_internal >/dev/null 2>&1; then
+        docker network create --driver bridge --internal hill90_internal
+        echo "✓ Created hill90_internal network for app services"
+    fi
+    if ! docker network inspect hill90_agent_internal >/dev/null 2>&1; then
+        docker network create --driver bridge --internal hill90_agent_internal
+        echo "✓ Created hill90_agent_internal network for agent containers"
+    fi
 
     echo ""
     echo "================================"
-    echo "Infrastructure Deployment Complete!"
+    echo "Edge Stack Deployment Complete!"
     echo "================================"
-    docker compose -f "$compose_file" ps
+    docker compose -p "hill90-${env}-edge" -f "$compose_file" ps
 
     echo ""
     echo "Services deployed:"
@@ -106,12 +99,14 @@ cmd_service() {
     local service="$1"
     local env="${2:-prod}"
 
-    local compose_file banner containers summary
+    local compose_file banner containers summary stack stateful
     case "$service" in
         db)
             compose_file="deploy/compose/${env}/docker-compose.db.yml"
             containers="postgres postgres-exporter"
             banner="Database Deployment"
+            stack="platform"
+            stateful=true
             summary="Services deployed:
   - postgres (PostgreSQL database)
   - postgres-exporter (Prometheus metrics on :9187)"
@@ -120,6 +115,8 @@ cmd_service() {
             compose_file="deploy/compose/${env}/docker-compose.auth.yml"
             containers="keycloak"
             banner="Keycloak Deployment"
+            stack="identity"
+            stateful=true
             summary="Service deployed:
   - keycloak (identity provider at auth.hill90.com)"
             ;;
@@ -127,6 +124,8 @@ cmd_service() {
             compose_file="deploy/compose/${env}/docker-compose.api.yml"
             containers="api"
             banner="API Service Deployment"
+            stack="apps"
+            stateful=false
             summary="Service deployed:
   - api (API Gateway at api.hill90.com)"
             ;;
@@ -134,6 +133,8 @@ cmd_service() {
             compose_file="deploy/compose/${env}/docker-compose.ai.yml"
             containers="ai"
             banner="AI Service Deployment"
+            stack="apps"
+            stateful=false
             summary="Service deployed:
   - ai (AI service at ai.hill90.com)"
             ;;
@@ -141,6 +142,8 @@ cmd_service() {
             compose_file="deploy/compose/${env}/docker-compose.mcp.yml"
             containers="mcp"
             banner="MCP Service Deployment"
+            stack="apps"
+            stateful=false
             summary="Service deployed:
   - mcp (MCP Gateway at ai.hill90.com/mcp)"
             ;;
@@ -148,6 +151,8 @@ cmd_service() {
             compose_file="deploy/compose/${env}/docker-compose.minio.yml"
             containers="minio"
             banner="MinIO Storage Deployment"
+            stack="platform"
+            stateful=true
             summary="Service deployed:
   - minio (S3-compatible object storage, console at storage.hill90.com)"
             ;;
@@ -155,6 +160,8 @@ cmd_service() {
             compose_file="deploy/compose/${env}/docker-compose.ui.yml"
             containers="ui"
             banner="UI Service Deployment"
+            stack="apps"
+            stateful=false
             summary="Service deployed:
   - ui (UI at hill90.com)"
             ;;
@@ -162,6 +169,8 @@ cmd_service() {
             compose_file="deploy/compose/${env}/docker-compose.observability.yml"
             containers="prometheus loki tempo grafana promtail node-exporter cadvisor"
             banner="Observability Stack Deployment"
+            stack="observability"
+            stateful=true
             summary="Services deployed:
   - grafana (dashboards at grafana.hill90.com, Tailscale-only)
   - prometheus (metrics at :9090)
@@ -173,6 +182,7 @@ cmd_service() {
             ;;
     esac
 
+    local project_name="hill90-${env}-${stack}"
     local secrets_file="infra/secrets/${env}.enc.env"
 
     ensure_age_key "$env"
@@ -201,31 +211,56 @@ cmd_service() {
         die "Network hill90_internal not found. Deploy infrastructure first: make deploy-infra"
     fi
 
+    # One-time migration: remove old-project containers that would collide
+    # with new project names. Safe because the subsequent `up -d` immediately
+    # recreates them under the new project.
+    local old_project
+    for container in $containers; do
+        old_project=$(docker inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null) || true
+        if [ -n "$old_project" ] && [ "$old_project" = "prod" ]; then
+            echo "Migrating $container from old project '$old_project' to $project_name..."
+            docker rm -f "$container" 2>/dev/null || true
+        fi
+    done
+
     echo "================================"
     echo "${banner} - ${env}"
     echo "================================"
 
-    sops exec-env "$secrets_file" '
-        echo "Stopping existing '"$service"' containers..."
-        docker compose -f '"$compose_file"' down || true
+    if [ "$stateful" = true ]; then
+        # Stateful services: stack-scoped down + up (acceptable for volume/config changes)
+        sops exec-env "$secrets_file" '
+            echo "Stopping existing '"$service"' containers..."
+            docker compose -p "'"$project_name"'" -f '"$compose_file"' down || true
 
-        for container in '"$containers"'; do
-            docker rm -f "$container" 2>/dev/null || true
-        done
+            for container in '"$containers"'; do
+                docker rm -f "$container" 2>/dev/null || true
+            done
 
-        echo "Building and pulling images..."
-        docker compose -f '"$compose_file"' build --parallel
-        docker compose -f '"$compose_file"' pull --ignore-buildable
+            echo "Building and pulling images..."
+            docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
+            docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
 
-        echo "Deploying '"$service"' service..."
-        docker compose -f '"$compose_file"' up -d
-    '
+            echo "Deploying '"$service"' service..."
+            docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d
+        '
+    else
+        # Stateless app services: no down, atomic replace via --force-recreate
+        sops exec-env "$secrets_file" '
+            echo "Building and pulling images..."
+            docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
+            docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
+
+            echo "Deploying '"$service"' service..."
+            docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d --force-recreate --no-deps
+        '
+    fi
 
     echo ""
     echo "================================"
     echo "${banner} Complete!"
     echo "================================"
-    docker compose -f "$compose_file" ps
+    docker compose -p "$project_name" -f "$compose_file" ps
 
     echo ""
     echo "$summary"
@@ -255,13 +290,13 @@ cmd_agentbox() {
     docker build -t hill90/agentbox:latest src/services/agentbox/
 
     echo "Deploying agent containers..."
-    docker compose -p agentbox -f "$compose_file" up -d
+    docker compose -p "hill90-${env}-agentbox" -f "$compose_file" up -d
 
     echo ""
     echo "================================"
     echo "AgentBox Deployment Complete!"
     echo "================================"
-    docker compose -p agentbox -f "$compose_file" ps
+    docker compose -p "hill90-${env}-agentbox" -f "$compose_file" ps
 }
 
 # ---------------------------------------------------------------------------
