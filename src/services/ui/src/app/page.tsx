@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import HillLogo from '@/components/HillLogo';
-import AuthButtons from '@/components/AuthButtons';
+import AppShell from '@/components/AppShell';
 
 const services = [
   {
@@ -27,23 +26,16 @@ const services = [
 
 export default function Home() {
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
-        <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
-          <HillLogo width={96} className="logo-glow-hold" />
+    <AppShell
+      navExtra={
+        <Link
+          href="/dashboard"
+          className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
+        >
+          Dashboard
         </Link>
-        <div className="flex items-center gap-4">
-          <Link
-            href="/dashboard"
-            className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
-          >
-            Dashboard
-          </Link>
-          <AuthButtons />
-        </div>
-      </nav>
-
+      }
+    >
       {/* Hero */}
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
@@ -68,11 +60,6 @@ export default function Home() {
           ))}
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="px-6 py-6 border-t border-navy-700 text-center text-sm text-mountain-500">
-        &copy; {new Date().getFullYear()} Hill90
-      </footer>
-    </div>
+    </AppShell>
   );
 }
