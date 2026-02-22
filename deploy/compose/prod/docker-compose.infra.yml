@@ -11,6 +11,10 @@ networks:
     driver: bridge
     internal: true
     name: hill90_internal
+  agent_internal:
+    driver: bridge
+    internal: true
+    name: hill90_agent_internal
 
 volumes:
   traefik-certs:

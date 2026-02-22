@@ -1,6 +1,7 @@
 import express, { Application } from 'express';
 import { createRequireAuth, createJwksKeyResolver } from './middleware/auth';
 import type { JwtHeader } from 'jsonwebtoken';
+import agentsRouter from './routes/agents';
 
 interface AppOptions {
   issuer?: string;
@@ -29,6 +30,9 @@ export function createApp(opts: AppOptions = {}): Application {
   app.get('/me', requireAuth, (req, res) => {
     res.json((req as any).user);
   });
+
+  // Agent management routes
+  app.use('/agents', requireAuth, agentsRouter);
 
   return app;
 }

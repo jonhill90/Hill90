@@ -11,7 +11,7 @@ export default async function Dashboard() {
   }
 
   return (
-    <AppShell navExtra={<span className="text-sm font-medium text-white">Dashboard</span>}>
+    <AppShell>
       <main className="flex-1 px-6 py-12 max-w-4xl mx-auto w-full">
         <DashboardClient session={session} />
       </main>
