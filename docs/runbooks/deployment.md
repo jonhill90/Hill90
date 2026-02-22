@@ -168,11 +168,55 @@ make backup-restore SERVICE=db BACKUP_PATH=/opt/hill90/backups/db/20260222_12000
 
 For PostgreSQL, prefer the SQL dump restore (`database.sql`) over volume tar — it's portable and handles version differences.
 
-## Rollback Guidance
+## Rollback
 
-- If a service deploy fails, redeploy the last known good compose revision and rerun `make health`.
-- If infrastructure is unstable, rerun `make deploy-infra` before app redeploy.
-- For catastrophic failure, use the VPS rebuild flow in `docs/runbooks/vps-rebuild.md`.
+The rollback script classifies changes and applies the appropriate strategy.
+
+### Change Classes
+
+| Class | Services | Strategy | Automated? |
+|-------|----------|----------|------------|
+| **code-only** | api, ai, mcp, ui, agentbox | Checkout previous source, redeploy | Yes |
+| **config-only** | auth, infra, observability | Checkout previous config, redeploy | Yes |
+| **schema-forward** | db (when migrations change) | Restore from backup, then rollback code | Manual |
+| **mixed** | any | Review, then rollback | Yes (with review) |
+
+### Rollback Commands
+
+```bash
+# Classify changes before rolling back (read-only, safe)
+bash scripts/rollback.sh classify api HEAD~1
+make rollback-classify SERVICE=api REF=HEAD~1
+
+# Automated rollback (code-only or config-only)
+bash scripts/rollback.sh rollback api HEAD~1
+make rollback SERVICE=api REF=HEAD~1
+
+# After rollback, redeploy and verify
+bash scripts/deploy.sh api prod
+bash scripts/deploy.sh verify api
+```
+
+### Schema-Forward Rollback (Manual)
+
+When the rollback script detects migration files, it refuses automated rollback and prints manual restore instructions:
+
+1. Restore the database from the pre-deploy backup
+2. Checkout the previous code
+3. Redeploy both db and the app service
+4. Verify health
+
+### DB Migration Compatibility Policy
+
+- All DB migrations must be backward-compatible with the previous application version
+- Destructive schema changes (drop column, rename table) require two phases: deprecate first, remove in a subsequent release
+- Pre-deploy backup is mandatory before any schema migration (enforced by deploy script)
+
+### General Rollback Guidance
+
+- If a service deploy fails, use `rollback.sh classify` to understand the change, then `rollback.sh rollback` or manual restore
+- If infrastructure is unstable, rerun `make deploy-infra` before app redeploy
+- For catastrophic failure, use the VPS rebuild flow in `docs/runbooks/vps-rebuild.md`
 
 ## Failure Modes
 

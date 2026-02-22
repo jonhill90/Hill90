@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-agentbox deploy-ui deploy-all agentbox-list agentbox-status agentbox-generate test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup backup-list backup-prune backup-restore down dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-agentbox deploy-ui deploy-all agentbox-list agentbox-status agentbox-generate test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -286,3 +286,17 @@ backup-restore: ## Restore from backup (usage: make backup-restore SERVICE=db BA
 		exit 1; \
 	fi
 	bash scripts/backup.sh restore $(SERVICE) $(BACKUP_PATH)
+
+rollback: ## Rollback a service (usage: make rollback SERVICE=api REF=HEAD~1)
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make rollback SERVICE=<service> [REF=<git-ref>]$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	bash scripts/rollback.sh rollback $(SERVICE) $(REF)
+
+rollback-classify: ## Classify changes for a service (usage: make rollback-classify SERVICE=api REF=HEAD~1)
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make rollback-classify SERVICE=<service> [REF=<git-ref>]$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	bash scripts/rollback.sh classify $(SERVICE) $(REF)
