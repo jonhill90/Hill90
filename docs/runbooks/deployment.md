@@ -120,6 +120,54 @@ docker compose -p hill90-prod-agentbox ps       # Agent containers
 docker compose -p hill90-prod-observability ps  # Monitoring
 ```
 
+## Pre-Deploy Backups
+
+Stateful service deploys (db, minio, auth, observability) automatically create a backup before the deploy cycle. Infrastructure deploys also backup traefik certificates and portainer data.
+
+Backups are stored at `/opt/hill90/backups/<service>/<timestamp>/` on the VPS.
+
+### Manual Backup Commands
+
+```bash
+# Backup all critical volumes
+make backup                    # or: bash scripts/backup.sh backup-all
+
+# Backup a specific service
+make backup-db                 # or: bash scripts/backup.sh backup db
+make backup-minio              # or: bash scripts/backup.sh backup minio
+make backup-infra              # or: bash scripts/backup.sh backup infra
+make backup-observability      # or: bash scripts/backup.sh backup observability
+
+# List available backups
+make backup-list               # or: bash scripts/backup.sh list
+bash scripts/backup.sh list db # List only db backups
+
+# Prune old backups (default: 7-day retention)
+make backup-prune              # or: bash scripts/backup.sh prune
+bash scripts/backup.sh prune 14 # Keep 14 days instead
+
+# Restore from backup
+make backup-restore SERVICE=db BACKUP_PATH=/opt/hill90/backups/db/20260222_120000
+```
+
+### What Gets Backed Up
+
+| Service | Backup Method | Files |
+|---------|--------------|-------|
+| db | `pg_dumpall` + volume tar | `database.sql`, `postgres-data.tar.gz` |
+| minio | Volume tar | `minio-data.tar.gz` |
+| infra | Volume tar | `traefik-certs.tar.gz`, `portainer-data.tar.gz` |
+| observability | Volume tar | `grafana-data.tar.gz`, `prometheus-data.tar.gz` |
+
+### Restore Procedure
+
+1. Stop the target service: `make down-<service>`
+2. Restore: `make backup-restore SERVICE=<service> BACKUP_PATH=<path>`
+3. Restart: `docker restart <container>`
+4. Verify: `bash scripts/deploy.sh verify <service>`
+
+For PostgreSQL, prefer the SQL dump restore (`database.sql`) over volume tar — it's portable and handles version differences.
+
 ## Rollback Guidance
 
 - If a service deploy fails, redeploy the last known good compose revision and rerun `make health`.
