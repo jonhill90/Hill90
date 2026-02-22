@@ -1,0 +1,145 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/services/**'
+      - 'platform/**'
+      - 'deploy/compose/prod/**'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy (or "all")'
+        type: choice
+        options: [all, db, minio, auth, api, ai, mcp, ui, agentbox, observability]
+        default: 'all'
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  # --- Change detection ---
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      db: ${{ steps.filter.outputs.db }}
+      minio: ${{ steps.filter.outputs.minio }}
+      auth: ${{ steps.filter.outputs.auth }}
+      api: ${{ steps.filter.outputs.api }}
+      ai: ${{ steps.filter.outputs.ai }}
+      mcp: ${{ steps.filter.outputs.mcp }}
+      ui: ${{ steps.filter.outputs.ui }}
+      agentbox: ${{ steps.filter.outputs.agentbox }}
+      observability: ${{ steps.filter.outputs.observability }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            db:
+              - 'deploy/compose/prod/docker-compose.db.yml'
+              - 'platform/data/postgres/**'
+            minio:
+              - 'deploy/compose/prod/docker-compose.minio.yml'
+            auth:
+              - 'platform/auth/keycloak/**'
+              - 'deploy/compose/prod/docker-compose.auth.yml'
+            api:
+              - 'src/services/api/**'
+              - 'deploy/compose/prod/docker-compose.api.yml'
+            ai:
+              - 'src/services/ai/**'
+              - 'deploy/compose/prod/docker-compose.ai.yml'
+            mcp:
+              - 'src/services/mcp/**'
+              - 'deploy/compose/prod/docker-compose.mcp.yml'
+            ui:
+              - 'src/services/ui/**'
+              - 'deploy/compose/prod/docker-compose.ui.yml'
+            agentbox:
+              - 'src/services/agentbox/**'
+              - 'platform/agentbox/**'
+              - 'scripts/agentbox.sh'
+              - 'scripts/agentbox-compose-gen.py'
+              - 'deploy/compose/prod/docker-compose.agentbox.yml'
+            observability:
+              - 'deploy/compose/prod/docker-compose.observability.yml'
+              - 'platform/observability/**'
+
+  # --- Platform layer (runs first) ---
+  deploy-db:
+    needs: [changes]
+    if: needs.changes.outputs.db == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'db'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: db
+    secrets: inherit
+
+  deploy-minio:
+    needs: [changes]
+    if: needs.changes.outputs.minio == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'minio'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: minio
+    secrets: inherit
+
+  # --- Identity layer (after platform) ---
+  deploy-auth:
+    needs: [changes, deploy-db]
+    if: always() && (needs.changes.outputs.auth == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'auth') && !failure() && !cancelled()
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: auth
+    secrets: inherit
+
+  # --- App layer (after identity) ---
+  deploy-api:
+    needs: [changes, deploy-auth]
+    if: always() && (needs.changes.outputs.api == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'api') && !failure() && !cancelled()
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: api
+    secrets: inherit
+
+  deploy-ai:
+    needs: [changes]
+    if: needs.changes.outputs.ai == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'ai'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: ai
+    secrets: inherit
+
+  deploy-mcp:
+    needs: [changes, deploy-auth]
+    if: always() && (needs.changes.outputs.mcp == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'mcp') && !failure() && !cancelled()
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: mcp
+    secrets: inherit
+
+  deploy-ui:
+    needs: [changes]
+    if: needs.changes.outputs.ui == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'ui'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: ui
+    secrets: inherit
+
+  deploy-agentbox:
+    needs: [changes]
+    if: needs.changes.outputs.agentbox == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'agentbox'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: agentbox
+    secrets: inherit
+
+  deploy-observability:
+    needs: [changes]
+    if: needs.changes.outputs.observability == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'observability'
+    uses: ./.github/workflows/_deploy-service.yml
+    with:
+      service: observability
+    secrets: inherit
