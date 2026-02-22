@@ -115,6 +115,17 @@ cmd_infra() {
     echo "Running pre-deploy backup..."
     bash "$SCRIPT_DIR/backup.sh" backup infra || warn "Pre-deploy backup failed (continuing deploy)"
 
+    # One-time migration: remove old-project containers that would collide
+    local project_name="hill90-${env}-edge"
+    local old_project
+    for container in traefik dns-manager portainer; do
+        old_project=$(docker inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null) || true
+        if [ -n "$old_project" ] && [ "$old_project" = "prod" ]; then
+            echo "Migrating $container from old project '$old_project' to $project_name..."
+            docker rm -f "$container" 2>/dev/null || true
+        fi
+    done
+
     echo "================================"
     echo "Edge Stack Deployment - ${env}"
     echo "================================"
