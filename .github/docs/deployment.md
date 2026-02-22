@@ -71,6 +71,7 @@ Separate compose files in `deploy/compose/prod/`:
 | `docker-compose.mcp.yml` | mcp | Uses external networks |
 | `docker-compose.minio.yml` | minio | Uses external networks |
 | `docker-compose.ui.yml` | ui | Uses external networks |
+| `docker-compose.observability.yml` | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor | Uses external networks |
 | `docker-compose.yml` | All services (legacy) | Creates networks |
 
 ## GitHub Actions Deployment
@@ -104,9 +105,10 @@ When you push changes to `main`:
 
 **Certificate Rate Limits**
 
-- `make deploy-*` uses **STAGING** certificates by default (not trusted, unlimited)
-- `make deploy-infra-production` uses **PRODUCTION** certificates (trusted, rate-limited)
-- Rate limits: 5 failures/hour, 50 certs/week
+- `make deploy-*` uses **STAGING** certificates by default (`ACME_CA_SERVER` defaults to staging in compose)
+- `make deploy-infra-production` uses **PRODUCTION** certificates (explicitly sets `ACME_CA_SERVER` to production URL)
+- CI workflow `deploy-infra.yml` also sets production certificates automatically
+- Rate limits (production): 5 failures/hour, 50 certs/week
 
 ## Architecture
 
@@ -166,3 +168,9 @@ The Traefik dashboard at `https://traefik.hill90.com` uses basic authentication.
 - App directory: `/opt/hill90/app`
 - Age key: `/opt/hill90/secrets/keys/keys.txt`
 - Deploy user: `deploy`
+
+## See Also
+
+- [Deployment Runbook](../../docs/runbooks/deployment.md) — operational procedures and checklists
+- [VPS Rebuild Runbook](../../docs/runbooks/vps-rebuild.md) — full VPS rebuild flow
+- [Troubleshooting Guide](../../docs/runbooks/troubleshooting.md) — common issues and fixes

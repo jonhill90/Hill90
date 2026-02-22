@@ -1,10 +1,12 @@
 # DNS Management for Hill90 VPS
 
-This guide covers DNS management for the Hill90 VPS infrastructure using the Hostinger API via MCP tools.
+This guide covers DNS management for the Hill90 VPS infrastructure using the Hostinger API via CLI scripts.
 
 ## Overview
 
 The Hill90 domain (hill90.com) uses DNS records to route traffic to the VPS and Tailscale network:
+
+> **Note:** IP addresses below are illustrative examples. Actual values are stored in SOPS-encrypted secrets (`infra/secrets/prod.enc.env`) and change on VPS rebuild. Use `make secrets-view KEY=VPS_IP` and `make secrets-view KEY=TAILSCALE_IP` to get current values.
 
 **Public Services (accessible via internet):**
 - `hill90.com` (@) → 76.13.26.69 (VPS public IP)
@@ -30,9 +32,9 @@ The Hill90 domain (hill90.com) uses DNS records to route traffic to the VPS and 
 make dns-view
 ```
 
-Or use Claude Code MCP tool directly:
-```javascript
-mcp__MCP_DOCKER__DNS_getDNSRecordsV1(domain="hill90.com")
+Or use the Hostinger CLI directly:
+```bash
+bash scripts/hostinger.sh dns get
 ```
 
 ### Sync DNS After VPS Recreate
@@ -76,6 +78,7 @@ make dns-restore SNAPSHOT_ID=123
 
 ### A Records (Public Services)
 
+Example:
 ```json
 {
   "name": "@",
@@ -87,6 +90,7 @@ make dns-restore SNAPSHOT_ID=123
 
 ### A Records (Tailscale Services)
 
+Example:
 ```json
 {
   "name": "portainer",
@@ -107,46 +111,27 @@ make dns-restore SNAPSHOT_ID=123
 }
 ```
 
-## Manual DNS Updates via MCP Tools
+## Manual DNS Updates
 
-### Update A Records
+### Update DNS Records
 
-1. **Load the DNS tools:**
-   ```javascript
-   ToolSearch query="select:mcp__MCP_DOCKER__DNS_updateDNSRecordsV1"
-   ```
+Use `scripts/hostinger.sh dns` for all manual DNS operations:
 
-2. **Validate the update:**
-   ```javascript
-   mcp__MCP_DOCKER__DNS_validateDNSRecordsV1(
-       domain="hill90.com",
-       overwrite=true,
-       zone=[
-           {
-               "name": "@",
-               "type": "A",
-               "ttl": 3600,
-               "records": [{"content": "76.13.26.69"}]
-           }
-       ]
-   )
-   ```
+```bash
+# View current DNS records
+bash scripts/hostinger.sh dns get
 
-3. **Apply the update:**
-   ```javascript
-   mcp__MCP_DOCKER__DNS_updateDNSRecordsV1(
-       domain="hill90.com",
-       overwrite=true,
-       zone=[
-           {
-               "name": "@",
-               "type": "A",
-               "ttl": 3600,
-               "records": [{"content": "76.13.26.69"}]
-           }
-       ]
-   )
-   ```
+# Sync DNS records to match current VPS IP (reads from SOPS secrets)
+bash scripts/hostinger.sh dns sync
+
+# Verify DNS propagation
+bash scripts/hostinger.sh dns verify
+
+# List DNS snapshots (Hostinger auto-creates before updates)
+bash scripts/hostinger.sh dns snapshots
+```
+
+Or use the `/hostinger` skill in Claude Code for guided DNS management.
 
 ## VPS Recreate Workflow
 
