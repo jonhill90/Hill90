@@ -1,0 +1,26 @@
+name: Agent Loop Gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  advisory-gate:
+    name: Agent Loop (Advisory)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run advisory agent-loop checks
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          AGENT_LOOP_STRICT: "0"
+        run: python3 scripts/checks/check_agent_loop.py
