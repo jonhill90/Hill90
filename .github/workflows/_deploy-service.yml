@@ -72,7 +72,24 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "bash scripts/deploy.sh verify ${{ inputs.service }}"
 
-      - name: Summary
-        if: success()
+      - name: Notify deploy result
+        if: always() && env.DEPLOY_WEBHOOK_URL != ''
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
         run: |
-          echo "${{ inputs.service }} deployment complete!"
+          STATUS="${{ job.status }}"
+          EMOJI="✅"
+          if [ "$STATUS" != "success" ]; then
+            EMOJI="❌"
+          fi
+
+          curl -sf -X POST "$DEPLOY_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "service": "${{ inputs.service }}",
+              "status": "'"$STATUS"'",
+              "commit": "${{ github.sha }}",
+              "actor": "${{ github.actor }}",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "text": "'"$EMOJI"' Deploy **${{ inputs.service }}** — '"$STATUS"' ('"${{ github.sha }}"')"
+            }' || echo "Warning: webhook notification failed (non-blocking)"
