@@ -242,13 +242,13 @@ cmd_agentbox() {
     docker build -t hill90/agentbox:latest src/services/agentbox/
 
     echo "Deploying agent containers..."
-    docker compose -f "$compose_file" up -d --remove-orphans
+    docker compose -p agentbox -f "$compose_file" up -d
 
     echo ""
     echo "================================"
     echo "AgentBox Deployment Complete!"
     echo "================================"
-    docker compose -f "$compose_file" ps
+    docker compose -p agentbox -f "$compose_file" ps
 }
 
 # ---------------------------------------------------------------------------
