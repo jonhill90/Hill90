@@ -57,4 +57,4 @@ EXPOSE 8054
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -sf http://localhost:8054/health || exit 1
 
-CMD ["python", "app/server.py"]
+CMD ["python", "-m", "app.server"]
