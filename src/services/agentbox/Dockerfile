@@ -1,7 +1,7 @@
 # Hill90 AgentBox Service Dockerfile (Python/FastMCP)
 # Multi-stage build for production
 
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml poetry.lock ./
 
 # Install Poetry and dependencies
-RUN pip install --no-cache-dir poetry==1.7.1 && \
+RUN pip install --no-cache-dir poetry==1.8.5 && \
     poetry config virtualenvs.create false && \
     poetry install --only main --no-interaction --no-ansi
 
