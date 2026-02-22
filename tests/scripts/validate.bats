@@ -178,6 +178,77 @@
 }
 
 # ---------------------------------------------------------------------------
+# Keycloak theme branding
+# ---------------------------------------------------------------------------
+
+@test "hill90-realm.json sets loginTheme to hill90" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); assert d['loginTheme']=='hill90'"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json sets accountTheme to hill90" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); assert d['accountTheme']=='hill90'"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json sets adminTheme to hill90" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); assert d['adminTheme']=='hill90'"
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-realm.json sets emailTheme to hill90" {
+  run python3 -c "import json; d=json.load(open('platform/auth/keycloak/hill90-realm.json')); assert d['emailTheme']=='hill90'"
+  [ "$status" -eq 0 ]
+}
+
+@test "setup-realm.sh contains accountTheme" {
+  run grep "accountTheme" platform/auth/keycloak/setup-realm.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "setup-realm.sh contains adminTheme" {
+  run grep "adminTheme" platform/auth/keycloak/setup-realm.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "setup-realm.sh contains emailTheme" {
+  run grep "emailTheme" platform/auth/keycloak/setup-realm.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "theme directory exists for login" {
+  [ -d "platform/auth/keycloak/themes/hill90/login" ]
+}
+
+@test "theme directory exists for account" {
+  [ -d "platform/auth/keycloak/themes/hill90/account" ]
+}
+
+@test "theme directory exists for admin" {
+  [ -d "platform/auth/keycloak/themes/hill90/admin" ]
+}
+
+@test "theme directory exists for email" {
+  [ -d "platform/auth/keycloak/themes/hill90/email" ]
+}
+
+@test "login theme has theme.properties" {
+  [ -f "platform/auth/keycloak/themes/hill90/login/theme.properties" ]
+}
+
+@test "account theme has theme.properties" {
+  [ -f "platform/auth/keycloak/themes/hill90/account/theme.properties" ]
+}
+
+@test "admin theme has theme.properties" {
+  [ -f "platform/auth/keycloak/themes/hill90/admin/theme.properties" ]
+}
+
+@test "email theme has theme.properties" {
+  [ -f "platform/auth/keycloak/themes/hill90/email/theme.properties" ]
+}
+
+# ---------------------------------------------------------------------------
 # mcp-auth middleware removal
 # ---------------------------------------------------------------------------
 
