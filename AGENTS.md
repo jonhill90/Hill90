@@ -83,7 +83,12 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Configure VPS | `bash scripts/vps.sh config <ip>` | `make config-vps VPS_IP=<ip>` |
 | Deploy infra | `bash scripts/deploy.sh infra prod` | `make deploy-infra` |
 | Deploy database | `bash scripts/deploy.sh db prod` | `make deploy-db` |
+| Deploy auth | `bash scripts/deploy.sh auth prod` | `make deploy-auth` |
+| Deploy API | `bash scripts/deploy.sh api prod` | `make deploy-api` |
+| Deploy AI | `bash scripts/deploy.sh ai prod` | `make deploy-ai` |
+| Deploy MCP | `bash scripts/deploy.sh mcp prod` | `make deploy-mcp` |
 | Deploy MinIO | `bash scripts/deploy.sh minio prod` | `make deploy-minio` |
+| Deploy UI | `bash scripts/deploy.sh ui prod` | `make deploy-ui` |
 | Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |
 | Deploy all apps | `bash scripts/deploy.sh all prod` | `make deploy-all` |
 | Health check | `bash scripts/ops.sh health` | `make health` |
@@ -96,6 +101,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 - Contribution/PR operations: `.github/docs/contribution-workflow.md`
 - Validation evidence expectations: `.github/docs/validation-matrix.md`
 - Linear task lifecycle details: `.claude/references/task-management.md`
+- Deployment architecture: `.github/docs/deployment.md`
 - VPS rebuild runbook: `docs/runbooks/vps-rebuild.md`
 - Architecture overview: `docs/architecture/overview.md`
 

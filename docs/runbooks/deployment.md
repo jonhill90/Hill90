@@ -99,3 +99,8 @@ ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
 - Missing or invalid secrets: `sops`/runtime env errors at deploy time.
 - Missing Docker networks: app deploy fails until `make deploy-infra` recreates them.
 - ACME rate limiting: switch to staged testing cadence and retry after cooldown.
+
+## See Also
+
+- [Deployment Architecture Reference](../../.github/docs/deployment.md) — compose files, workflows, and architecture details
+- [Troubleshooting Guide](./troubleshooting.md) — common issues and fixes
