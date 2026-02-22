@@ -1,15 +1,8 @@
 name: Deploy Observability
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'deploy/compose/prod/docker-compose.observability.yml'
-      - 'platform/observability/**'
-      - 'scripts/deploy.sh'
-      - '.github/workflows/deploy-observability.yml'
-
+  # Push trigger disabled — orchestrator workflow (deploy.yml) handles push-based deploys.
+  # This workflow is kept for manual dispatch only.
   workflow_dispatch:
     inputs:
       environment:

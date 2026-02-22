@@ -352,37 +352,32 @@
 # GitHub Actions workflows
 # ---------------------------------------------------------------------------
 
-@test "deploy-auth workflow watches keycloak realm config path" {
-  run grep "platform/auth/keycloak" .github/workflows/deploy-auth.yml
+@test "orchestrator workflow watches keycloak realm config path" {
+  run grep "platform/auth/keycloak" .github/workflows/deploy.yml
   [ "$status" -eq 0 ]
 }
 
-@test "deploy-auth workflow watches scripts/deploy.sh" {
-  run grep "scripts/deploy.sh" .github/workflows/deploy-auth.yml
-  [ "$status" -eq 0 ]
-}
-
-@test "deploy-auth workflow does NOT watch src/services/auth" {
-  run grep "src/services/auth" .github/workflows/deploy-auth.yml
+@test "orchestrator workflow does NOT watch src/services/auth" {
+  run grep "src/services/auth" .github/workflows/deploy.yml
   [ "$status" -eq 1 ]
 }
 
-@test "deploy-auth workflow verifies keycloak container" {
-  run grep "keycloak" .github/workflows/deploy-auth.yml
-  [ "$status" -eq 0 ]
+@test "deploy-auth workflow is dispatch-only (no push trigger)" {
+  run grep "^  push:" .github/workflows/deploy-auth.yml
+  [ "$status" -eq 1 ]
 }
 
 @test "deploy-db workflow exists" {
   [ -f ".github/workflows/deploy-db.yml" ]
 }
 
-@test "deploy-db workflow watches docker-compose.db.yml" {
-  run grep "docker-compose.db.yml" .github/workflows/deploy-db.yml
+@test "orchestrator workflow watches docker-compose.db.yml" {
+  run grep "docker-compose.db.yml" .github/workflows/deploy.yml
   [ "$status" -eq 0 ]
 }
 
-@test "deploy-db workflow watches postgres init scripts" {
-  run grep "platform/data/postgres" .github/workflows/deploy-db.yml
+@test "orchestrator workflow watches postgres init scripts" {
+  run grep "platform/data/postgres" .github/workflows/deploy.yml
   [ "$status" -eq 0 ]
 }
 

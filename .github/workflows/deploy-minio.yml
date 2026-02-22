@@ -1,14 +1,8 @@
 name: Deploy MinIO
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'deploy/compose/prod/docker-compose.minio.yml'
-      - 'scripts/deploy.sh'
-      - '.github/workflows/deploy-minio.yml'
-
+  # Push trigger disabled — orchestrator workflow (deploy.yml) handles push-based deploys.
+  # This workflow is kept for manual dispatch only.
   workflow_dispatch:
     inputs:
       environment:

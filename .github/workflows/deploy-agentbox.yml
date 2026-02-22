@@ -1,19 +1,8 @@
 name: Deploy AgentBox Service
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/services/agentbox/**'
-      - 'platform/agentbox/**'
-      - 'scripts/agentbox.sh'
-      - 'scripts/agentbox-compose-gen.py'
-      - 'scripts/deploy.sh'
-      - 'deploy/compose/prod/docker-compose.agentbox.yml'
-      - 'Makefile'
-      - '.github/workflows/deploy-agentbox.yml'
-
+  # Push trigger disabled — orchestrator workflow (deploy.yml) handles push-based deploys.
+  # This workflow is kept for manual dispatch only.
   workflow_dispatch:
     inputs:
       environment:

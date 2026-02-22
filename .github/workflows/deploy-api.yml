@@ -1,15 +1,8 @@
 name: Deploy API Service
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/services/api/**'
-      - 'deploy/compose/prod/docker-compose.api.yml'
-      - 'scripts/deploy.sh'
-      - '.github/workflows/deploy-api.yml'
-
+  # Push trigger disabled — orchestrator workflow (deploy.yml) handles push-based deploys.
+  # This workflow is kept for manual dispatch only.
   workflow_dispatch:
     inputs:
       environment:

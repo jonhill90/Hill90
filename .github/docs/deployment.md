@@ -81,29 +81,49 @@ Each stack has a dedicated Docker Compose project name (`hill90-{env}-{stack}`).
 
 ## GitHub Actions Deployment
 
-### Per-Service Workflows
+### Orchestrator Workflow
 
-| Workflow | Trigger | Services |
-|----------|---------|----------|
-| `deploy-infra.yml` | Manual only | traefik, dns-manager, portainer |
-| `deploy-auth.yml` | `platform/auth/keycloak/**` changes | keycloak |
-| `deploy-db.yml` | `docker-compose.db.yml`, `platform/data/postgres/**` | postgres |
-| `deploy-api.yml` | `src/services/api/**` changes | api |
-| `deploy-ai.yml` | `src/services/ai/**` changes | ai |
-| `deploy-mcp.yml` | `src/services/mcp/**` changes | mcp |
-| `deploy-minio.yml` | `docker-compose.minio.yml`, `scripts/deploy.sh` | minio |
-| `deploy-ui.yml` | `src/services/ui/**` changes | ui |
+A single `deploy.yml` orchestrator handles all push-triggered deploys with dependency ordering:
+
+```
+push to main → changes detection → deploy only affected services in dependency order
+```
+
+| Workflow | Role | Trigger |
+|----------|------|---------|
+| `deploy.yml` | Orchestrator | Push to `main` (path-filtered) or `workflow_dispatch` |
+| `_deploy-service.yml` | Reusable deploy job | Called by orchestrator |
+| `deploy-infra.yml` | Edge stack (manual only) | `workflow_dispatch` only |
+| `deploy-*.yml` (9 files) | Legacy per-service (dormant) | `workflow_dispatch` only |
+
+### Dependency Graph
+
+The orchestrator enforces deployment ordering:
+
+- **Platform** (db, minio) — runs first, no dependencies
+- **Identity** (auth) — waits for db
+- **Apps** (api, mcp) — waits for auth; (ai, ui) — no dependencies
+- **Agentbox, Observability** — no dependencies
 
 ### Path-Based Auto-Deployment
 
 When you push changes to `main`:
-- Changes to `platform/auth/keycloak/**` → Only Keycloak deploys
 - Changes to `platform/data/postgres/**` → Only database deploys
 - Changes to `src/services/api/**` → Only API service deploys
 - Changes to `src/services/ai/**` → Only AI service deploys
 - Changes to `src/services/mcp/**` → Only MCP service deploys
 - Changes to `src/services/ui/**` → Only UI service deploys
-- Changes to `docker-compose.minio.yml` → Only MinIO deploys
+- Changes to `deploy/compose/prod/docker-compose.minio.yml` → Only MinIO deploys
+- Changes to `platform/auth/keycloak/**` → Only Keycloak deploys
+
+### Manual Deploy
+
+Use `workflow_dispatch` on `deploy.yml` to deploy a specific service or all services:
+
+```
+gh workflow run deploy.yml -f service=api    # Deploy only API
+gh workflow run deploy.yml -f service=all    # Deploy everything in order
+```
 
 ## Let's Encrypt Configuration
 
