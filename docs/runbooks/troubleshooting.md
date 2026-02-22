@@ -63,14 +63,15 @@ Common issues and solutions for Hill90 VPS infrastructure.
 
 3. **Check Docker Compose status:**
    ```bash
+   # Use the per-service compose file (e.g., docker-compose.auth.yml, docker-compose.api.yml)
    ssh deploy@<tailscale-ip> 'cd /opt/hill90/app && \
-     docker compose -f deploy/compose/prod/docker-compose.yml ps'
+     docker compose -f deploy/compose/prod/docker-compose.<service>.yml ps'
    ```
 
 4. **Restart service:**
    ```bash
    ssh deploy@<tailscale-ip> 'cd /opt/hill90/app && \
-     docker compose -f deploy/compose/prod/docker-compose.yml restart <service>'
+     docker compose -f deploy/compose/prod/docker-compose.<service>.yml restart <service>'
    ```
 
 5. **Check age key exists:**
