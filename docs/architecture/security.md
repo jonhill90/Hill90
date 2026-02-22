@@ -22,6 +22,13 @@ Hill90 uses layered controls to keep public services reachable while restricting
 - The hill90 realm disables self-registration and enables brute force detection.
 - Keycloak admin console is credential-protected with MFA capability.
 
+## Email / SMTP
+
+- Keycloak sends transactional email (password resets, verification) via Hostinger SMTP relay (`smtp.hostinger.com:587`, STARTTLS).
+- Sender address: `noreply@hill90.com`.
+- `SMTP_PASSWORD` is stored in SOPS (`infra/secrets/prod.enc.env`) and injected into the Keycloak realm via the `setup-realm.sh` phase1 REST API call — it is not a Docker environment variable.
+- DNS email authentication: SPF (`v=spf1 include:_spf.hostinger.email ~all`), DKIM (hostingermail CNAME records), and DMARC (`v=DMARC1; p=none`).
+
 ## Network Segmentation
 
 - `hill90_edge`: ingress-facing network for Traefik and public app routes.

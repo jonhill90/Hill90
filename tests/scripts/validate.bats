@@ -335,6 +335,20 @@
 }
 
 # ---------------------------------------------------------------------------
+# SMTP secrets
+# ---------------------------------------------------------------------------
+
+@test "prod.enc.env.example has SMTP_PASSWORD" {
+  run grep "SMTP_PASSWORD" infra/secrets/prod.enc.env.example
+  [ "$status" -eq 0 ]
+}
+
+@test "setup-realm.sh references SMTP_PASSWORD from SOPS" {
+  run grep "SMTP_PASSWORD" platform/auth/keycloak/setup-realm.sh
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
 # GitHub Actions workflows
 # ---------------------------------------------------------------------------
 
