@@ -399,6 +399,51 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 ---
 
+## Email Delivery Issues
+
+### Keycloak Emails Not Sending
+
+**Problem**: Password reset or verification emails are not delivered
+
+**Solutions**:
+
+1. **Test connection from Keycloak admin console:**
+   - Navigate to Realm Settings → Email → Test connection
+   - A successful test confirms SMTP credentials and network path
+
+2. **Verify SMTP_PASSWORD in SOPS:**
+   ```bash
+   bash scripts/secrets.sh view infra/secrets/prod.enc.env SMTP_PASSWORD
+   ```
+
+3. **Re-apply SMTP config via deploy:**
+   ```bash
+   bash scripts/deploy.sh auth prod
+   ```
+   Phase1 of `setup-realm.sh` re-injects SMTP settings via the Keycloak REST API.
+
+4. **Check DNS email authentication records:**
+   ```bash
+   # SPF
+   dig TXT hill90.com +short
+   # Should include: "v=spf1 include:_spf.hostinger.email ~all"
+
+   # DKIM
+   dig CNAME hostingermail-a._domainkey.hill90.com +short
+   dig CNAME hostingermail-b._domainkey.hill90.com +short
+   dig CNAME hostingermail-c._domainkey.hill90.com +short
+
+   # DMARC
+   dig TXT _dmarc.hill90.com +short
+   ```
+
+5. **Verify Hostinger SMTP credentials:**
+   - Username: `noreply@hill90.com`
+   - Managed at the Hostinger email panel (hpanel.hostinger.com → Emails)
+   - SMTP host: `smtp.hostinger.com`, port `587`, STARTTLS
+
+---
+
 ## Secrets Decryption Failures
 
 ### Cannot Decrypt Secrets
