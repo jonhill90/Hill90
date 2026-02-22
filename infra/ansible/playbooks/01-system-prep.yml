@@ -58,6 +58,8 @@
     mode: '0755'
   loop:
     - "{{ app_directory }}"
+    - "{{ app_directory }}/backups"
+    - "{{ app_directory }}/agentbox-configs"
     - "{{ deploy_home }}"
 
 - name: Clone Hill90 application repository
@@ -67,3 +69,20 @@
     version: main
     force: yes
   become_user: "{{ deploy_user }}"
+
+- name: Configure daily backup cron
+  cron:
+    name: "hill90-daily-backup"
+    user: "{{ deploy_user }}"
+    hour: "3"
+    minute: "0"
+    job: "cd {{ app_directory }}/app && SOPS_AGE_KEY_FILE={{ app_directory }}/secrets/keys/keys.txt bash scripts/backup.sh backup-all >> {{ app_directory }}/backups/cron.log 2>&1"
+
+- name: Configure weekly backup prune cron
+  cron:
+    name: "hill90-backup-prune"
+    user: "{{ deploy_user }}"
+    weekday: "0"
+    hour: "4"
+    minute: "0"
+    job: "cd {{ app_directory }}/app && bash scripts/backup.sh prune 7 >> {{ app_directory }}/backups/cron.log 2>&1"

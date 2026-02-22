@@ -126,6 +126,14 @@ Stateful service deploys (db, minio, auth, observability) automatically create a
 
 Backups are stored at `/opt/hill90/backups/<service>/<timestamp>/` on the VPS.
 
+### Scheduled Backups
+
+A daily cron job runs `backup-all` at 03:00 UTC. Weekly prune at 04:00 Sunday
+removes backups older than 7 days. Logs at `/opt/hill90/backups/cron.log`.
+
+Cron is configured by Ansible (`01-system-prep.yml`) during VPS bootstrap.
+To verify on VPS: `crontab -l -u deploy | grep hill90`
+
 ### Manual Backup Commands
 
 ```bash
