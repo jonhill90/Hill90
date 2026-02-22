@@ -1,0 +1,69 @@
+# AgentBox Configuration Schema Reference (version: 1)
+# Each agent directory must contain: agent.yml, SOUL.md, RULES.md
+
+version: 1
+
+# agent.yml fields
+fields:
+  version:
+    type: integer
+    required: true
+    description: Schema version (must be 1)
+
+  id:
+    type: string
+    required: true
+    description: Unique agent identifier (alphanumeric + hyphens)
+
+  name:
+    type: string
+    required: true
+    description: Human-readable agent name
+
+  description:
+    type: string
+    required: true
+    description: Agent purpose and capabilities
+
+  soul_path:
+    type: string
+    required: true
+    description: Relative path to SOUL.md (mounted at /etc/agentbox/SOUL.md)
+
+  rules_path:
+    type: string
+    required: true
+    description: Relative path to RULES.md (mounted at /etc/agentbox/RULES.md)
+
+  tools:
+    type: object
+    description: Tool configuration
+    fields:
+      shell:
+        enabled: boolean
+        allowed_binaries: list[string]  # absolute paths
+        denied_patterns: list[string]   # regex patterns
+        max_timeout: integer            # seconds
+      filesystem:
+        enabled: boolean
+        read_only: boolean
+        allowed_paths: list[string]
+        denied_paths: list[string]
+      health:
+        enabled: boolean
+
+  resources:
+    type: object
+    description: Container resource limits
+    fields:
+      cpus: string      # e.g. "1.0"
+      mem_limit: string  # e.g. "1g"
+      pids_limit: integer
+
+  state:
+    type: object
+    description: Container directory mounts
+    fields:
+      workspace: string  # default /workspace
+      logs: string       # default /var/log/agentbox
+      data: string       # default /data

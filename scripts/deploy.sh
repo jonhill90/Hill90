@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|ui|all} [env]
+# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|agentbox|ui|all} [env]
 
 set -e
 
@@ -25,6 +25,7 @@ Commands:
   api      Deploy API service
   ai       Deploy AI service
   mcp      Deploy MCP service
+  agentbox Deploy agent container(s)
   ui       Deploy UI service
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   all      Deploy all application services (NOT infrastructure or db)
@@ -219,6 +220,38 @@ cmd_service() {
 }
 
 # ---------------------------------------------------------------------------
+# AgentBox deployment (custom — generates compose + builds image)
+# ---------------------------------------------------------------------------
+
+cmd_agentbox() {
+    local env="${1:-prod}"
+    local compose_file="deploy/compose/${env}/docker-compose.agentbox.yml"
+
+    if ! docker network inspect hill90_internal >/dev/null 2>&1; then
+        die "Network hill90_internal not found. Deploy infrastructure first: make deploy-infra"
+    fi
+
+    echo "================================"
+    echo "AgentBox Deployment - ${env}"
+    echo "================================"
+
+    echo "Generating compose from agent configs..."
+    python3 scripts/agentbox-compose-gen.py
+
+    echo "Building agentbox image..."
+    docker build -t hill90/agentbox:latest src/services/agentbox/
+
+    echo "Deploying agent containers..."
+    docker compose -f "$compose_file" up -d --remove-orphans
+
+    echo ""
+    echo "================================"
+    echo "AgentBox Deployment Complete!"
+    echo "================================"
+    docker compose -f "$compose_file" ps
+}
+
+# ---------------------------------------------------------------------------
 # Deploy all application services
 # ---------------------------------------------------------------------------
 
@@ -282,6 +315,7 @@ main() {
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
         db|auth|api|ai|mcp|minio|ui|observability) cmd_service "$cmd" "$@" ;;
+        agentbox)       cmd_agentbox "$@" ;;
         all)            cmd_all "$@" ;;
         help|--help|-h) usage ;;
         *)
