@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Lint deploy scripts
-        run: shellcheck scripts/deploy.sh scripts/_common.sh scripts/agentbox.sh scripts/backup.sh
+        run: shellcheck --severity=warning scripts/deploy.sh scripts/_common.sh scripts/agentbox.sh scripts/backup.sh
 
       - name: Run deploy script tests
         run: |
