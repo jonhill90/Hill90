@@ -46,10 +46,10 @@ if ! git check-ignore -q "$WORKTREE_DIR" 2>/dev/null; then
   echo "WARNING: $WORKTREE_DIR is not in .gitignore"
   echo "Add it to .gitignore and commit before proceeding."
 
-  # Add to .gitignore
+  # Add to .gitignore and stage (let user commit when ready)
   echo "$WORKTREE_DIR/" >> .gitignore
   git add .gitignore
-  git commit -m "chore: add $WORKTREE_DIR to .gitignore"
+  echo "Staged .gitignore — commit when ready before creating the worktree."
 fi
 ```
 
@@ -105,7 +105,7 @@ cd "$WORKTREE_DIR/$BRANCH"
 [[ -f go.mod ]] && go mod download
 
 # BATS (Hill90 shell tests)
-[[ -d tests/scripts ]] && [[ -f tests/scripts/*.bats ]] && echo "BATS tests available"
+compgen -G 'tests/scripts/*.bats' >/dev/null 2>&1 && echo "BATS tests available"
 ```
 
 ### 4. Verify

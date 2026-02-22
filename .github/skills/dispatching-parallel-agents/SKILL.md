@@ -57,12 +57,17 @@ Task 3: "Update deploy script error handling in scripts/..."
 ```
 
 Choose the right agent type for each task:
+
+**Platform built-ins** (available in Claude Code regardless of repo config):
 - `Bash` — Command execution, git operations
 - `general-purpose` — Multi-step tasks requiring multiple tools
 - `Explore` — Codebase investigation and search
-- `researcher` — Deep code pattern analysis
+
+**Hill90 repo agents** (defined in `.github/agents/`):
+- `researcher` — Deep code pattern analysis (read-only)
 - `tdd-green` — Implementing code to pass tests
 - `code-reviewer` — Reviewing changes for quality
+- `planner` — Read-only planning and exploration
 
 ### Step 4: Review Results
 
