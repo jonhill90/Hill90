@@ -43,7 +43,8 @@ You are a senior code reviewer for Hill90, a microservices platform on Hostinger
 - `letsencrypt-dns` resolver exists for Tailscale-only services
 - Compose files reference correct networks (`hill90_edge`, `hill90_internal`)
 - Deploy scripts run on VPS via SSH, not locally
-- `--remove-orphans` only used in infra deploy, not per-service
+- `--remove-orphans` must NEVER appear in any deploy command
+- All `docker compose` calls use explicit `-p <project>` flag (no implicit project names)
 - All deploy workflows have `concurrency: group: deploy-prod`
 
 ### Path Consistency

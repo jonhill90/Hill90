@@ -485,11 +485,11 @@ ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
 # Check service logs
 docker logs <service-name>
 
-# Check Docker Compose status
-docker compose -f deploy/compose/prod/docker-compose.yml ps
+# Check Docker Compose status (use stack project name)
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
 # Restart service
-docker compose -f deploy/compose/prod/docker-compose.yml restart <service-name>
+docker restart <service-name>
 ```
 
 ### TLS Certificate Issues
