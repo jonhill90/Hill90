@@ -99,6 +99,8 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Backup service | `bash scripts/backup.sh backup <svc>` | `make backup-<svc>` |
 | List backups | `bash scripts/backup.sh list` | `make backup-list` |
 | Prune backups | `bash scripts/backup.sh prune [days]` | `make backup-prune` |
+| Rollback service | `bash scripts/rollback.sh rollback <svc> [ref]` | `make rollback SERVICE=<svc>` |
+| Classify changes | `bash scripts/rollback.sh classify <svc> [ref]` | `make rollback-classify SERVICE=<svc>` |
 | View secret | `bash scripts/secrets.sh view infra/secrets/prod.enc.env <key>` | `make secrets-view KEY=<key>` |
 | Update secret | `bash scripts/secrets.sh update infra/secrets/prod.enc.env <key> <val>` | `make secrets-update KEY=<key> VALUE=<v>` |
 
