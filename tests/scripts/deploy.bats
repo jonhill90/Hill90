@@ -145,6 +145,54 @@
 }
 
 # ---------------------------------------------------------------------------
+# Health gate and readiness check tests
+# ---------------------------------------------------------------------------
+
+@test "deploy.sh usage lists verify command" {
+  run bash scripts/deploy.sh help
+  [[ "$output" == *"verify"* ]]
+}
+
+@test "deploy.sh dispatcher routes verify command to cmd_verify" {
+  # With no service arg, cmd_verify prints "Unknown service" (not "Unknown command")
+  run bash scripts/deploy.sh verify
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown service"* ]]
+}
+
+@test "deploy.sh has cmd_verify function" {
+  run grep "^cmd_verify()" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy.sh has check_dependency function" {
+  run grep "^check_dependency()" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy.sh auth deploy checks postgres dependency" {
+  run bash -c 'sed -n "/# Pre-deploy dependency/,/esac/p" scripts/deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"auth)"* ]]
+  [[ "$output" == *"check_dependency postgres"* ]]
+}
+
+@test "deploy.sh api deploy checks postgres and keycloak dependencies" {
+  run bash -c 'sed -n "/# Pre-deploy dependency/,/esac/p" scripts/deploy.sh'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"api|mcp)"* ]]
+  [[ "$output" == *"check_dependency postgres"* ]]
+  [[ "$output" == *"check_dependency keycloak"* ]]
+}
+
+@test "deploy.sh cmd_verify covers all service types" {
+  for svc in db auth api ai mcp ui minio observability agentbox infra; do
+    run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep '${svc})'"
+    [ "$status" -eq 0 ]
+  done
+}
+
+# ---------------------------------------------------------------------------
 # AgentBox project name tests
 # ---------------------------------------------------------------------------
 
