@@ -76,6 +76,13 @@ Hill90/
 
 Copilot code review reads both `copilot-instructions.md` and matching `.github/instructions/*.instructions.md` based on changed paths.
 
+## Agent Loop Signal
+
+- PRs run `.github/workflows/agent-loop-gate.yml` (`Agent Loop (Advisory)`).
+- The check is non-blocking by default and surfaces missing process evidence in PR summaries.
+- Evidence expectations are defined in `.github/docs/validation-matrix.md`.
+- PR authors should use `.github/pull_request_template.md` so all three agent platforms emit consistent evidence.
+
 ## Deployment Location And Access
 
 - Deployments run on VPS over SSH/Tailscale, not locally on Mac.
