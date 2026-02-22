@@ -47,7 +47,7 @@ check_dependency() {
 
     case "$dep" in
         postgres)  check_cmd='docker exec postgres pg_isready -U postgres' ;;
-        keycloak)  check_cmd='docker exec keycloak curl -sf http://localhost:8080/realms/hill90' ;;
+        keycloak)  check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]' ;;
         *)         echo "Unknown dependency: $dep"; return 1 ;;
     esac
 
@@ -72,7 +72,7 @@ cmd_verify() {
 
     case "$service" in
         db)            check_cmd='docker exec postgres pg_isready -U postgres' ;;
-        auth)          check_cmd='docker exec keycloak curl -sf http://localhost:8080/realms/hill90' ;;
+        auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]' ;;
         api)           check_cmd='docker exec api curl -sf http://localhost:3000/health' ;;
         ai)            check_cmd='docker exec ai curl -sf http://localhost:8000/health' ;;
         mcp)           check_cmd='docker exec mcp curl -sf http://localhost:8001/health' ;;

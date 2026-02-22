@@ -201,6 +201,11 @@
   [ "$status" -eq 1 ]
 }
 
+@test "deploy.sh keycloak checks use docker inspect not curl" {
+  run grep -c 'docker exec keycloak curl' scripts/deploy.sh
+  [ "$output" = "0" ]
+}
+
 @test "deploy.sh agentbox uses hill90-env-agentbox project name" {
   # cmd_agentbox should interpolate env into project name: hill90-${env}-agentbox
   run bash -c 'sed -n "/^cmd_agentbox/,/^}/p" scripts/deploy.sh | grep "docker compose" | grep -v -- "-p.*hill90-.*-agentbox"'
