@@ -34,10 +34,11 @@ for agent_dir in sorted(AGENTS_DIR.iterdir()):
     compose["volumes"][vol_logs] = {}
     compose["volumes"][vol_data] = {}
 
-    # Absolute paths for bind mounts (repo-root anchored)
-    agent_config_path = str(agent_dir / "agent.yml")
-    soul_path = str(agent_dir / "SOUL.md")
-    rules_path = str(agent_dir / "RULES.md")
+    # Relative paths from compose file directory (deploy/compose/prod/)
+    rel_agent_dir = Path("../../../platform/agentbox/agents") / agent_dir.name
+    agent_config_path = str(rel_agent_dir / "agent.yml")
+    soul_path = str(rel_agent_dir / "SOUL.md")
+    rules_path = str(rel_agent_dir / "RULES.md")
 
     service = {
         "image": "hill90/agentbox:${VERSION:-latest}",
