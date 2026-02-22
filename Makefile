@@ -217,7 +217,7 @@ logs-%: ## Show logs for a service (e.g., make logs-api)
 	docker logs -f $*
 
 ps: ## Show running containers
-	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|api|ai|mcp|ui|minio|grafana|agentbox)" || true
+	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|api|docker-proxy|ai|mcp|ui|minio|grafana|agentbox)" || true
 
 ssh: ## SSH into VPS
 	@if [ -z "$(VPS_HOST)" ]; then \

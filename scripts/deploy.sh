@@ -189,12 +189,13 @@ cmd_service() {
             ;;
         api)
             compose_file="deploy/compose/${env}/docker-compose.api.yml"
-            containers="api"
+            containers="api docker-proxy"
             banner="API Service Deployment"
             stack="apps"
             stateful=false
-            summary="Service deployed:
-  - api (API Gateway at api.hill90.com)"
+            summary="Services deployed:
+  - api (API Gateway at api.hill90.com)
+  - docker-proxy (Docker socket proxy for agentbox management)"
             ;;
         ai)
             compose_file="deploy/compose/${env}/docker-compose.ai.yml"
@@ -261,9 +262,6 @@ cmd_service() {
         # Ensure agentbox config directory exists
         mkdir -p /opt/hill90/agentbox-configs
         chown 1000:1000 /opt/hill90/agentbox-configs 2>/dev/null || true
-        # Resolve Docker GID for socket access
-        export DOCKER_GID
-        DOCKER_GID="$(getent group docker | cut -d: -f3 2>/dev/null || echo 999)"
     fi
     if [[ "$service" == "minio" ]]; then
         sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \
