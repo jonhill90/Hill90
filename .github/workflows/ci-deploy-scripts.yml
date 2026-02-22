@@ -1,0 +1,49 @@
+name: CI – Deploy Scripts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/deploy.sh'
+      - 'scripts/_common.sh'
+      - 'scripts/agentbox.sh'
+      - 'scripts/agentbox-compose-gen.py'
+      - 'tests/scripts/deploy.bats'
+  pull_request:
+    paths:
+      - 'scripts/deploy.sh'
+      - 'scripts/_common.sh'
+      - 'scripts/agentbox.sh'
+      - 'scripts/agentbox-compose-gen.py'
+      - 'tests/scripts/deploy.bats'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint deploy scripts
+        run: shellcheck scripts/deploy.sh scripts/_common.sh scripts/agentbox.sh
+
+      - name: Run deploy script tests
+        run: |
+          sudo apt-get install -y bats
+          bats tests/scripts/deploy.bats
+
+      - name: Validate all compose files
+        run: |
+          for f in deploy/compose/prod/docker-compose.*.yml; do
+            echo "Validating $f..."
+            docker compose -f "$f" config > /dev/null
+          done
+
+      - name: Assert deploy safety invariants
+        run: |
+          echo "Checking: no --remove-orphans..."
+          ! grep -- "--remove-orphans" scripts/deploy.sh
+
+          echo "Checking: all docker compose calls use -p..."
+          ! (grep "docker compose" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v -- "-p ")
+
+          echo "All safety checks passed."
