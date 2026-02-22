@@ -95,6 +95,10 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |
 | Deploy all apps | `bash scripts/deploy.sh all prod` | `make deploy-all` |
 | Health check | `bash scripts/ops.sh health` | `make health` |
+| Backup all | `bash scripts/backup.sh backup-all` | `make backup` |
+| Backup service | `bash scripts/backup.sh backup <svc>` | `make backup-<svc>` |
+| List backups | `bash scripts/backup.sh list` | `make backup-list` |
+| Prune backups | `bash scripts/backup.sh prune [days]` | `make backup-prune` |
 | View secret | `bash scripts/secrets.sh view infra/secrets/prod.enc.env <key>` | `make secrets-view KEY=<key>` |
 | Update secret | `bash scripts/secrets.sh update infra/secrets/prod.enc.env <key> <val>` | `make secrets-update KEY=<key> VALUE=<v>` |
 

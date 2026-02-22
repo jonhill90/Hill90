@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-agentbox deploy-ui deploy-all agentbox-list agentbox-status agentbox-generate test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup down dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-agentbox deploy-ui deploy-all agentbox-list agentbox-status agentbox-generate test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup backup-list backup-prune backup-restore down dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -266,6 +266,23 @@ exec-%: ## Shell into a container (e.g., make exec-api)
 # Database & Backups
 # ============================================================================
 
-backup: ## Backup database and volumes
+backup: ## Backup all critical volumes (db, minio, infra, observability)
 	@echo "$(COLOR_BOLD)Creating backup...$(COLOR_RESET)"
-	bash scripts/ops.sh backup
+	bash scripts/backup.sh backup-all
+
+backup-%: ## Backup a specific service (e.g., make backup-db)
+	@echo "$(COLOR_BOLD)Backing up $*...$(COLOR_RESET)"
+	bash scripts/backup.sh backup $*
+
+backup-list: ## List available backups
+	bash scripts/backup.sh list
+
+backup-prune: ## Delete backups older than 7 days (override: RETENTION_DAYS=N)
+	bash scripts/backup.sh prune $(RETENTION_DAYS)
+
+backup-restore: ## Restore from backup (usage: make backup-restore SERVICE=db BACKUP_PATH=/opt/hill90/backups/db/20260222_120000)
+	@if [ -z "$(SERVICE)" ] || [ -z "$(BACKUP_PATH)" ]; then \
+		echo "$(COLOR_YELLOW)Usage: make backup-restore SERVICE=db BACKUP_PATH=/path/to/backup$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	bash scripts/backup.sh restore $(SERVICE) $(BACKUP_PATH)

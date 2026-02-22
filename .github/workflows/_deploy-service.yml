@@ -54,6 +54,8 @@ jobs:
 
       - name: Deploy ${{ inputs.service }}
         run: |
+          # deploy.sh automatically runs pre-deploy backup for stateful services
+          # (db, minio, auth, observability) before the down/up cycle.
           echo "Deploying ${{ inputs.service }}..."
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
