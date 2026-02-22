@@ -8,14 +8,18 @@ on:
       - 'scripts/_common.sh'
       - 'scripts/agentbox.sh'
       - 'scripts/agentbox-compose-gen.py'
+      - 'scripts/backup.sh'
       - 'tests/scripts/deploy.bats'
+      - 'tests/scripts/backup.bats'
   pull_request:
     paths:
       - 'scripts/deploy.sh'
       - 'scripts/_common.sh'
       - 'scripts/agentbox.sh'
       - 'scripts/agentbox-compose-gen.py'
+      - 'scripts/backup.sh'
       - 'tests/scripts/deploy.bats'
+      - 'tests/scripts/backup.bats'
 
 jobs:
   validate:
@@ -24,12 +28,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Lint deploy scripts
-        run: shellcheck scripts/deploy.sh scripts/_common.sh scripts/agentbox.sh
+        run: shellcheck --severity=warning scripts/deploy.sh scripts/_common.sh scripts/agentbox.sh scripts/backup.sh
 
       - name: Run deploy script tests
         run: |
           sudo apt-get install -y bats
           bats tests/scripts/deploy.bats
+          bats tests/scripts/backup.bats
 
       - name: Validate all compose files
         run: |

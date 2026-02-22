@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|agentbox|ui|all} [env]
+# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|agentbox|ui|all|verify|backup} [env]
 
 set -e
 
@@ -30,6 +30,7 @@ Commands:
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   all      Deploy all application services (NOT infrastructure or db)
   verify   Run post-deploy readiness check for a service
+  backup   Run pre-deploy backup for a service (db, minio, infra, observability)
   help     Show this help message
 
 Environment: defaults to 'prod'
@@ -109,6 +110,10 @@ cmd_infra() {
     ensure_age_key "$env"
     require_file "$compose_file" "Compose file"
     require_file "$secrets_file" "Secrets file"
+
+    # Pre-deploy backup of infrastructure volumes
+    echo "Running pre-deploy backup..."
+    bash "$SCRIPT_DIR/backup.sh" backup infra || warn "Pre-deploy backup failed (continuing deploy)"
 
     echo "================================"
     echo "Edge Stack Deployment - ${env}"
@@ -300,6 +305,17 @@ cmd_service() {
     echo "${banner} - ${env}"
     echo "================================"
 
+    # Pre-deploy backup for stateful services
+    if [ "$stateful" = true ]; then
+        # Map service to its backup target (auth data lives in postgres)
+        local backup_target="$service"
+        if [ "$service" = "auth" ]; then
+            backup_target="db"
+        fi
+        echo "Running pre-deploy backup for ${backup_target}..."
+        bash "$SCRIPT_DIR/backup.sh" backup "$backup_target" || warn "Pre-deploy backup failed (continuing deploy)"
+    fi
+
     if [ "$stateful" = true ]; then
         # Stateful services: stack-scoped down + up (acceptable for volume/config changes)
         sops exec-env "$secrets_file" '
@@ -439,6 +455,7 @@ main() {
         agentbox)       cmd_agentbox "$@" ;;
         all)            cmd_all "$@" ;;
         verify)         cmd_verify "$@" ;;
+        backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;
         help|--help|-h) usage ;;
         *)
             echo "Unknown command: $cmd"

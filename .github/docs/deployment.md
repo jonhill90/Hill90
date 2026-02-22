@@ -79,6 +79,18 @@ Each stack has a dedicated Docker Compose project name (`hill90-{env}-{stack}`).
 | Full platform teardown | Multiple stack-scoped `down` | Maintenance windows only |
 | `--remove-orphans` | **NEVER** | Banned globally |
 
+### Pre-Deploy Backups
+
+Stateful service deploys automatically run `scripts/backup.sh` before the deploy cycle. Backups are stored at `/opt/hill90/backups/<service>/<timestamp>/` on the VPS with 7-day default retention.
+
+| Service | Backup Method | Critical Volumes |
+|---------|--------------|-----------------|
+| db | `pg_dumpall` + volume tar | `postgres-data` |
+| minio | Volume tar | `minio-data` |
+| infra | Volume tar | `traefik-certs`, `portainer-data` |
+| observability | Volume tar | `grafana-data`, `prometheus-data` |
+| auth | Maps to `db` backup | (auth data lives in postgres) |
+
 ## GitHub Actions Deployment
 
 ### Orchestrator Workflow
