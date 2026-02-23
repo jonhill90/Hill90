@@ -56,7 +56,7 @@
 }
 
 @test "rollback.sh service_paths covers all services" {
-  for svc in api ai mcp ui agentbox auth db infra minio observability; do
+  for svc in api ai mcp ui auth db infra minio observability; do
     run bash -c "sed -n '/^service_paths/,/^}/p' scripts/rollback.sh | grep '${svc})'"
     [ "$status" -eq 0 ]
   done

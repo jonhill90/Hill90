@@ -12,7 +12,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, db, minio, auth, api, ai, mcp, ui, agentbox, observability]
+        options: [all, db, minio, auth, api, ai, mcp, ui, observability]
         default: 'all'
 
 concurrency:
@@ -31,7 +31,6 @@ jobs:
       ai: ${{ steps.filter.outputs.ai }}
       mcp: ${{ steps.filter.outputs.mcp }}
       ui: ${{ steps.filter.outputs.ui }}
-      agentbox: ${{ steps.filter.outputs.agentbox }}
       observability: ${{ steps.filter.outputs.observability }}
     steps:
       - uses: actions/checkout@v4
@@ -59,12 +58,6 @@ jobs:
             ui:
               - 'src/services/ui/**'
               - 'deploy/compose/prod/docker-compose.ui.yml'
-            agentbox:
-              - 'src/services/agentbox/**'
-              - 'platform/agentbox/**'
-              - 'scripts/agentbox.sh'
-              - 'scripts/agentbox-compose-gen.py'
-              - 'deploy/compose/prod/docker-compose.agentbox.yml'
             observability:
               - 'deploy/compose/prod/docker-compose.observability.yml'
               - 'platform/observability/**'
@@ -126,14 +119,6 @@ jobs:
     uses: ./.github/workflows/_deploy-service.yml
     with:
       service: ui
-    secrets: inherit
-
-  deploy-agentbox:
-    needs: [changes]
-    if: needs.changes.outputs.agentbox == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'agentbox'
-    uses: ./.github/workflows/_deploy-service.yml
-    with:
-      service: agentbox
     secrets: inherit
 
   deploy-observability:

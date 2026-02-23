@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|agentbox|ui|all|verify|backup} [env]
+# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|ui|all|verify|backup} [env]
 
 set -e
 
@@ -25,7 +25,6 @@ Commands:
   api      Deploy API service
   ai       Deploy AI service
   mcp      Deploy MCP service
-  agentbox Deploy agent container(s)
   ui       Deploy UI service
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   all      Deploy all application services (NOT infrastructure or db)
@@ -79,7 +78,6 @@ cmd_verify() {
         ui)            check_cmd='docker exec ui curl -sf http://localhost:3000/api/health' ;;
         minio)         check_cmd='docker exec minio mc ready local' ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy' ;;
-        agentbox)      check_cmd='docker ps --filter "name=agentbox-" --format "{{.Status}}" | grep -q "Up"' ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview' ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
     esac
@@ -366,38 +364,6 @@ cmd_service() {
 }
 
 # ---------------------------------------------------------------------------
-# AgentBox deployment (custom — generates compose + builds image)
-# ---------------------------------------------------------------------------
-
-cmd_agentbox() {
-    local env="${1:-prod}"
-    local compose_file="deploy/compose/${env}/docker-compose.agentbox.yml"
-
-    if ! docker network inspect hill90_internal >/dev/null 2>&1; then
-        die "Network hill90_internal not found. Deploy infrastructure first: make deploy-infra"
-    fi
-
-    echo "================================"
-    echo "AgentBox Deployment - ${env}"
-    echo "================================"
-
-    echo "Generating compose from agent configs..."
-    python3 scripts/agentbox-compose-gen.py
-
-    echo "Building agentbox image..."
-    docker build -t hill90/agentbox:latest src/services/agentbox/
-
-    echo "Deploying agent containers..."
-    docker compose -p "hill90-${env}-agentbox" -f "$compose_file" up -d
-
-    echo ""
-    echo "================================"
-    echo "AgentBox Deployment Complete!"
-    echo "================================"
-    docker compose -p "hill90-${env}-agentbox" -f "$compose_file" ps
-}
-
-# ---------------------------------------------------------------------------
 # Deploy all application services
 # ---------------------------------------------------------------------------
 
@@ -461,7 +427,6 @@ main() {
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
         db|auth|api|ai|mcp|minio|ui|observability) cmd_service "$cmd" "$@" ;;
-        agentbox)       cmd_agentbox "$@" ;;
         all)            cmd_all "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;

@@ -186,19 +186,10 @@
 }
 
 @test "deploy.sh cmd_verify covers all service types" {
-  for svc in db auth api ai mcp ui minio observability agentbox infra; do
+  for svc in db auth api ai mcp ui minio observability infra; do
     run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep '${svc})'"
     [ "$status" -eq 0 ]
   done
-}
-
-# ---------------------------------------------------------------------------
-# AgentBox project name tests
-# ---------------------------------------------------------------------------
-
-@test "agentbox.sh uses hill90-prod-agentbox project name" {
-  run bash -c 'grep "docker compose" scripts/agentbox.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v -- "-p hill90-prod-agentbox"'
-  [ "$status" -eq 1 ]
 }
 
 @test "deploy.sh keycloak checks use docker inspect not curl" {
@@ -206,9 +197,43 @@
   [ "$output" = "0" ]
 }
 
-@test "deploy.sh agentbox uses hill90-env-agentbox project name" {
-  # cmd_agentbox should interpolate env into project name: hill90-${env}-agentbox
-  run bash -c 'sed -n "/^cmd_agentbox/,/^}/p" scripts/deploy.sh | grep "docker compose" | grep -v -- "-p.*hill90-.*-agentbox"'
+# ---------------------------------------------------------------------------
+# Legacy agentbox anti-regression tests
+# ---------------------------------------------------------------------------
+
+@test "legacy agentbox deployment paths are absent" {
+  # Scripts must not exist
+  [ ! -f scripts/agentbox.sh ]
+  [ ! -f scripts/agentbox-compose-gen.py ]
+
+  # Compose file must not exist
+  [ ! -f deploy/compose/prod/docker-compose.agentbox.yml ]
+
+  # Workflow must not exist
+  [ ! -f .github/workflows/deploy-agentbox.yml ]
+
+  # deploy.sh must not contain cmd_agentbox
+  run grep 'cmd_agentbox' scripts/deploy.sh
+  [ "$status" -eq 1 ]
+
+  # Makefile must not contain deploy-agentbox
+  run grep 'deploy-agentbox' Makefile
+  [ "$status" -eq 1 ]
+
+  # deploy.yml must not contain deploy-agentbox job or agentbox dispatch option
+  run grep 'deploy-agentbox' .github/workflows/deploy.yml
+  [ "$status" -eq 1 ]
+  run grep 'agentbox' .github/workflows/deploy.yml
+  [ "$status" -eq 1 ]
+
+  # rollback.sh must not contain agentbox) case
+  run grep 'agentbox)' scripts/rollback.sh
+  [ "$status" -eq 1 ]
+
+  # AGENTS.md must not contain deploy-agentbox or agentbox-list
+  run grep 'deploy-agentbox' AGENTS.md
+  [ "$status" -eq 1 ]
+  run grep 'agentbox-list' AGENTS.md
   [ "$status" -eq 1 ]
 }
 

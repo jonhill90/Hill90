@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-agentbox deploy-ui deploy-all agentbox-list agentbox-status agentbox-generate test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -172,19 +172,6 @@ deploy-ai: ## Deploy AI service
 deploy-mcp: ## Deploy MCP service
 	@echo "$(COLOR_YELLOW)Deploying MCP service...$(COLOR_RESET)"
 	bash scripts/deploy.sh mcp $(ENV)
-
-deploy-agentbox: ## Deploy agent containers
-	@echo "$(COLOR_YELLOW)Deploying AgentBox containers...$(COLOR_RESET)"
-	bash scripts/deploy.sh agentbox $(ENV)
-
-agentbox-list: ## List configured agents
-	bash scripts/agentbox.sh list
-
-agentbox-status: ## Show running agent containers
-	bash scripts/agentbox.sh status
-
-agentbox-generate: ## Regenerate compose from agent configs
-	bash scripts/agentbox.sh generate
 
 deploy-ui: ## Deploy UI service
 	@echo "$(COLOR_YELLOW)Deploying UI service...$(COLOR_RESET)"
