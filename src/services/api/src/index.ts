@@ -2,6 +2,7 @@ import { app } from './app';
 import { getPool, closePool } from './db/pool';
 import { runMigrations } from './db/migrate';
 import { reconcileAgentStatuses } from './services/docker';
+import { getS3Client, ensureBucket, AVATAR_BUCKET } from './services/s3';
 
 const PORT = process.env.PORT || 3000;
 
@@ -37,6 +38,14 @@ async function start() {
     }
   } else {
     console.log('[startup] DATABASE_URL not set, skipping migrations');
+  }
+
+  // Ensure MinIO avatar bucket exists (safe-fail: log error but continue)
+  try {
+    await ensureBucket(getS3Client(), AVATAR_BUCKET);
+    console.log('[startup] Avatar bucket ready');
+  } catch (err) {
+    console.error('[startup] Avatar bucket init failed, avatar routes may error:', err);
   }
 
   const server = app.listen(PORT, () => {
