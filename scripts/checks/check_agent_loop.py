@@ -111,6 +111,18 @@ def main() -> int:
     if types["infra"] and not has_any_token(body, ["deploy", "gh run", "workflow", "health"]):
         warnings.append("Infra-related changes detected, but no deploy/workflow/health evidence found in PR body.")
 
+    # Infra PRs must include structured sections for safety review
+    if types["infra"] and not types["docs_only"]:
+        required_sections = ["plan", "risks", "rollback", "validation evidence"]
+        body_lower = body.lower()
+        for section in required_sections:
+            # Match ## or ### headings
+            if f"## {section}" not in body_lower and f"### {section}" not in body_lower:
+                warnings.append(
+                    f"Infra changes detected but PR body is missing a '{section.title()}' section "
+                    f"(expected '## {section.title()}' or '### {section.title()}')."
+                )
+
     header = "## Agent Loop Gate (Advisory)"
     lines = [header, "", f"- Base ref: `{base_ref}`", f"- Changed files: `{len(files)}`"]
     if types["docs_only"]:

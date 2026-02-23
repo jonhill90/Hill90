@@ -226,6 +226,62 @@ When the rollback script detects migration files, it refuses automated rollback 
 - If infrastructure is unstable, rerun `make deploy-infra` before app redeploy
 - For catastrophic failure, use the VPS rebuild flow in `docs/runbooks/vps-rebuild.md`
 
+## Persistent Volume Safety Invariants
+
+Stateful services (postgres, traefik, portainer, minio, observability) store data in Docker volumes. These invariants prevent data loss from volume namespace drift.
+
+### Rules
+
+1. **All compose volumes for stateful services must use explicit `name:` fields.** Without an explicit name, Docker Compose prepends the project name — if the project name changes, services silently mount new empty volumes while old data volumes remain disconnected.
+
+2. **Never change compose project names or volume keys without a migration plan.** If a rename is unavoidable, pin volumes with `name:` first, verify mounts post-deploy, and document the migration.
+
+### Banned Commands for Routine Operations
+
+These commands destroy volume data and must never appear in deploy scripts or workflows:
+
+- `docker compose down -v` — removes named volumes
+- `docker volume rm` — deletes volumes directly
+- `docker system prune` — may remove unused volumes
+
+CI enforces this ban via `ci-deploy-scripts.yml`.
+
+### Pre-Change Backup
+
+Before any compose file change that touches volumes or project names:
+
+```bash
+docker run --rm -v <volume>:/src -v /opt/hill90/backups:/backup alpine \
+  tar czf /backup/<volume>.tar.gz -C /src .
+```
+
+### Post-Change Mount Verification
+
+After deploying, confirm each container mounts the expected volume:
+
+```bash
+docker inspect <container> --format \
+  '{{range .Mounts}}{{if eq .Destination "<path>"}}{{.Name}}{{end}}{{end}}'
+```
+
+Expected outputs:
+- postgres (`/var/lib/postgresql/data`): `prod_postgres-data`
+- traefik (`/letsencrypt`): `prod_traefik-certs`
+- portainer (`/data`): `prod_portainer-data`
+
+### Rollback
+
+If a volume name change causes data loss:
+
+1. Revert the `name:` field in the compose file
+2. Redeploy the affected stack
+3. If the original volume was deleted, restore from tar backup:
+   ```bash
+   docker volume create <volume-name>
+   docker run --rm -v <volume-name>:/dest -v /opt/hill90/backups:/backup alpine \
+     tar xzf /backup/<volume-name>.tar.gz -C /dest
+   ```
+
 ## Failure Modes
 
 - Missing or invalid secrets: `sops`/runtime env errors at deploy time.
