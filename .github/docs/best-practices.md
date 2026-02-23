@@ -30,7 +30,7 @@ Separate research from implementation. Jumping straight to code solves the wrong
 5. **Refactor** — clean up while keeping tests green
 6. **Commit** — descriptive message, clean diff
 
-Skip steps 3-5 for non-code changes (docs, config). Skip planning for trivial changes. See `.github/docs/tdd-workflow.md` for TDD details.
+Skip steps 3-5 for non-code changes (docs, config). Skip planning for trivial changes. See `.github/docs/tdd-workflow.md` for TDD details. For the full planning template, use `/closing-the-loop`.
 
 ## 3. Specific Prompts Beat Vague Ones
 
