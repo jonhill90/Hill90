@@ -40,7 +40,7 @@ export async function updateKeycloakProfile(
   token: string,
   updates: { firstName?: string; lastName?: string }
 ): Promise<KeycloakProfile> {
-  // Account API requires a full PUT with all fields, so GET first then merge
+  // Account API POST requires full user representation, so GET first then merge
   const current = await getKeycloakProfile(issuer, token);
   const merged = { ...current, ...updates };
 
@@ -57,34 +57,6 @@ export async function updateKeycloakProfile(
     const text = await res.text();
     throw new Error(`Keycloak Account API POST failed: ${res.status} ${text}`);
   }
-  return res.json() as Promise<KeycloakProfile>;
-}
-
-export async function changeKeycloakPassword(
-  issuer: string,
-  token: string,
-  currentPassword: string,
-  newPassword: string
-): Promise<void> {
-  const url = `${accountUrl(issuer)}/credentials/password`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      currentPassword,
-      newPassword,
-      confirmation: newPassword,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    if (res.status === 400) {
-      throw new Error('Invalid current password or password policy not met');
-    }
-    throw new Error(`Keycloak password change failed: ${res.status} ${text}`);
-  }
+  // Keycloak returns 204 No Content — return the merged values
+  return { firstName: merged.firstName, lastName: merged.lastName };
 }

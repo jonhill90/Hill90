@@ -13,7 +13,6 @@ import {
 import {
   getKeycloakProfile,
   updateKeycloakProfile,
-  changeKeycloakPassword,
 } from '../services/keycloak-account';
 
 const router = Router();
@@ -214,32 +213,15 @@ router.get('/avatar', requireRole('user'), async (req: Request, res: Response) =
   }
 });
 
-// POST /profile/password — change password via Keycloak Account API
-router.post('/password', requireRole('user'), async (req: Request, res: Response) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || typeof currentPassword !== 'string') {
-      res.status(400).json({ error: 'currentPassword is required' });
-      return;
-    }
-    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
-      res.status(400).json({ error: 'newPassword must be at least 8 characters' });
-      return;
-    }
-
-    const token = getBearerToken(req);
-    await changeKeycloakPassword(getIssuer(), token, currentPassword, newPassword);
-
-    res.json({ message: 'Password changed' });
-  } catch (err: any) {
-    console.error('[profile] POST password error:', err);
-    if (err.message?.includes('Invalid current password')) {
-      res.status(400).json({ error: 'Invalid current password or password policy not met' });
-      return;
-    }
-    res.status(500).json({ error: 'Failed to change password' });
-  }
+// POST /profile/password — change password
+// NOTE: Keycloak 12+ removed the /account/credentials/password REST endpoint.
+// Password changes now require a browser redirect via kc_action=UPDATE_PASSWORD.
+// This endpoint returns a structured 501 until a browser-based flow is implemented in the UI.
+router.post('/password', requireRole('user'), (_req: Request, res: Response) => {
+  res.status(501).json({
+    error: 'Password change not yet available',
+    code: 'NOT_IMPLEMENTED',
+  });
 });
 
 export default router;

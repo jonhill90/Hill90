@@ -1,7 +1,6 @@
 import {
   getKeycloakProfile,
   updateKeycloakProfile,
-  changeKeycloakPassword,
 } from '../services/keycloak-account';
 
 const TEST_ISSUER = 'https://auth.hill90.com/realms/hill90';
@@ -41,14 +40,15 @@ describe('getKeycloakProfile', () => {
 describe('updateKeycloakProfile', () => {
   it('GETs current profile then POSTs merged update', async () => {
     const current = { username: 'jon', firstName: 'Jon', lastName: 'Hill', email: 'jon@hill90.com' };
-    const updated = { ...current, firstName: 'Jonathan' };
 
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => current })     // GET
-      .mockResolvedValueOnce({ ok: true, json: async () => updated });    // POST
+      .mockResolvedValueOnce({ ok: true });                                // POST (204 No Content)
 
     const result = await updateKeycloakProfile(TEST_ISSUER, TEST_TOKEN, { firstName: 'Jonathan' });
+    // Returns merged values (Keycloak returns 204 No Content)
     expect(result.firstName).toBe('Jonathan');
+    expect(result.lastName).toBe('Hill');
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
     // Second call should be POST with merged body
@@ -66,37 +66,5 @@ describe('updateKeycloakProfile', () => {
 
     await expect(updateKeycloakProfile(TEST_ISSUER, TEST_TOKEN, { firstName: 'X' }))
       .rejects.toThrow('Keycloak Account API POST failed: 403');
-  });
-});
-
-describe('changeKeycloakPassword', () => {
-  it('sends POST to credentials/password', async () => {
-    mockFetch.mockResolvedValueOnce({ ok: true });
-
-    await changeKeycloakPassword(TEST_ISSUER, TEST_TOKEN, 'oldPass', 'newPass123');
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${TEST_ISSUER}/account/credentials/password`,
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({ Authorization: `Bearer ${TEST_TOKEN}` }),
-      })
-    );
-
-    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(body.currentPassword).toBe('oldPass');
-    expect(body.newPassword).toBe('newPass123');
-    expect(body.confirmation).toBe('newPass123');
-  });
-
-  it('throws specific message on 400 (invalid password)', async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 400, text: async () => 'Bad Request' });
-    await expect(changeKeycloakPassword(TEST_ISSUER, TEST_TOKEN, 'wrong', 'newPass123'))
-      .rejects.toThrow('Invalid current password');
-  });
-
-  it('throws generic message on other errors', async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Server Error' });
-    await expect(changeKeycloakPassword(TEST_ISSUER, TEST_TOKEN, 'old', 'new12345'))
-      .rejects.toThrow('Keycloak password change failed: 500');
   });
 });

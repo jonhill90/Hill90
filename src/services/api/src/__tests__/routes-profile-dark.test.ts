@@ -53,7 +53,6 @@ jest.mock('../services/avatar', () => ({
 jest.mock('../services/keycloak-account', () => ({
   getKeycloakProfile: jest.fn(),
   updateKeycloakProfile: jest.fn(),
-  changeKeycloakPassword: jest.fn(),
 }));
 
 const app = createApp({

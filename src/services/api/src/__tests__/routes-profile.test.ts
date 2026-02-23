@@ -59,11 +59,9 @@ jest.mock('../services/avatar', () => ({
 // Mock keycloak-account service
 const mockGetKeycloakProfile = jest.fn();
 const mockUpdateKeycloakProfile = jest.fn();
-const mockChangeKeycloakPassword = jest.fn();
 jest.mock('../services/keycloak-account', () => ({
   getKeycloakProfile: (...args: any[]) => mockGetKeycloakProfile(...args),
   updateKeycloakProfile: (...args: any[]) => mockUpdateKeycloakProfile(...args),
-  changeKeycloakPassword: (...args: any[]) => mockChangeKeycloakPassword(...args),
 }));
 
 const app = createApp({
@@ -91,7 +89,6 @@ beforeEach(() => {
   mockGetAvatarStream.mockReset();
   mockGetKeycloakProfile.mockReset();
   mockUpdateKeycloakProfile.mockReset();
-  mockChangeKeycloakPassword.mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -315,44 +312,14 @@ describe('GET /profile/avatar', () => {
 // ---------------------------------------------------------------------------
 
 describe('POST /profile/password', () => {
-  it('changes password successfully', async () => {
-    mockChangeKeycloakPassword.mockResolvedValueOnce(undefined);
-
+  it('returns structured 501 (Keycloak removed password REST endpoint)', async () => {
     const res = await request(app)
       .post('/profile/password')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ currentPassword: 'oldpass123', newPassword: 'newpass123' });
 
-    expect(res.status).toBe(200);
-    expect(res.body.message).toBe('Password changed');
-  });
-
-  it('rejects short newPassword', async () => {
-    const res = await request(app)
-      .post('/profile/password')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ currentPassword: 'old', newPassword: 'short' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/at least 8/);
-  });
-
-  it('rejects missing currentPassword', async () => {
-    const res = await request(app)
-      .post('/profile/password')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ newPassword: 'newpass123' });
-    expect(res.status).toBe(400);
-  });
-
-  it('returns 400 on invalid current password', async () => {
-    mockChangeKeycloakPassword.mockRejectedValueOnce(
-      new Error('Invalid current password or password policy not met')
-    );
-
-    const res = await request(app)
-      .post('/profile/password')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ currentPassword: 'wrongpass', newPassword: 'newpass123' });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(501);
+    expect(res.body.error).toBe('Password change not yet available');
+    expect(res.body.code).toBe('NOT_IMPLEMENTED');
   });
 });

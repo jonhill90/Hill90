@@ -588,33 +588,26 @@ paths:
   /profile/password:
     post:
       summary: Change password
-      description: Changes the user's password via Keycloak Account API. Requires current password.
+      description: >
+        Password change endpoint. Currently returns 501 because Keycloak 12+ removed
+        the /account/credentials/password REST endpoint. A browser-based flow via
+        kc_action=UPDATE_PASSWORD will be implemented in a future PR.
       security:
         - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - currentPassword
-                - newPassword
-              properties:
-                currentPassword:
-                  type: string
-                newPassword:
-                  type: string
-                  minLength: 8
       responses:
-        "200":
-          description: Password changed
+        "501":
+          description: Not yet implemented
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
-        "400":
-          description: Invalid current password or policy not met
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Password change not yet available
+                  code:
+                    type: string
+                    example: NOT_IMPLEMENTED
         "401":
           description: Not authenticated
         "403":
