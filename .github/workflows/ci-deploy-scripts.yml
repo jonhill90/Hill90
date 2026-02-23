@@ -13,6 +13,8 @@ on:
       - 'tests/scripts/deploy.bats'
       - 'tests/scripts/backup.bats'
       - 'tests/scripts/rollback.bats'
+      - 'deploy/compose/prod/docker-compose.*.yml'
+      - 'scripts/checks/*.py'
   pull_request:
     paths:
       - 'scripts/deploy.sh'
@@ -24,6 +26,8 @@ on:
       - 'tests/scripts/deploy.bats'
       - 'tests/scripts/backup.bats'
       - 'tests/scripts/rollback.bats'
+      - 'deploy/compose/prod/docker-compose.*.yml'
+      - 'scripts/checks/*.py'
 
 jobs:
   validate:
@@ -57,3 +61,9 @@ jobs:
           ! (grep "docker compose" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v -- "-p ")
 
           echo "All safety checks passed."
+
+      - name: Assert compose volume naming
+        run: python3 scripts/checks/check_volume_names.py
+
+      - name: Assert no destructive volume commands
+        run: bash scripts/checks/check_destructive_commands.sh

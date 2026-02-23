@@ -211,3 +211,21 @@
   run bash -c 'sed -n "/^cmd_agentbox/,/^}/p" scripts/deploy.sh | grep "docker compose" | grep -v -- "-p.*hill90-.*-agentbox"'
   [ "$status" -eq 1 ]
 }
+
+# ---------------------------------------------------------------------------
+# Volume safety invariant tests
+# ---------------------------------------------------------------------------
+
+@test "stateful compose volumes have explicit name fields" {
+  # Uses the same parser-backed check as CI
+  run python3 scripts/checks/check_volume_names.py
+  [ "$status" -eq 0 ]
+}
+
+@test "no destructive volume commands in deploy scripts" {
+  for f in scripts/deploy.sh scripts/backup.sh scripts/rollback.sh; do
+    # grep returns 1 (no match) when banned commands are absent — that's the pass case
+    run bash -c "grep -v '^[[:space:]]*#' '$f' | grep -cE 'docker compose.*down.*-v|docker volume rm|docker system prune'"
+    [ "$output" = "0" ]
+  done
+}

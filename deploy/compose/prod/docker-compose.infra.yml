@@ -18,7 +18,9 @@ networks:
 
 volumes:
   traefik-certs:
+    name: prod_traefik-certs
   portainer-data:
+    name: prod_portainer-data
 
 services:
   # DNS Manager for DNS-01 ACME challenges

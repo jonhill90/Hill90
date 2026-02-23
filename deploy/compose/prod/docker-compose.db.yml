@@ -10,6 +10,7 @@ networks:
 
 volumes:
   postgres-data:
+    name: prod_postgres-data
 
 services:
   postgres:
