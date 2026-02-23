@@ -26,6 +26,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bats
 
+      - name: Check legacy agentbox paths removed
+        run: bash scripts/checks/check_legacy_agentbox.sh
+
       - name: Run bats tests
         run: bats tests/scripts/
 

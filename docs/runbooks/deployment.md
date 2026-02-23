@@ -98,7 +98,6 @@ All Docker Compose operations use explicit project names to prevent cross-stack 
 | platform | `hill90-prod-platform` | postgres, minio |
 | identity | `hill90-prod-identity` | keycloak |
 | apps | `hill90-prod-apps` | api, ai, mcp, ui |
-| agentbox | `hill90-prod-agentbox` | agentbox-* |
 | observability | `hill90-prod-observability` | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor |
 
 ### Operational Invariants
@@ -116,7 +115,6 @@ docker compose -p hill90-prod-edge ps          # Edge services
 docker compose -p hill90-prod-platform ps       # Database + storage
 docker compose -p hill90-prod-identity ps       # Auth
 docker compose -p hill90-prod-apps ps           # App services
-docker compose -p hill90-prod-agentbox ps       # Agent containers
 docker compose -p hill90-prod-observability ps  # Monitoring
 ```
 
@@ -184,7 +182,7 @@ The rollback script classifies changes and applies the appropriate strategy.
 
 | Class | Services | Strategy | Automated? |
 |-------|----------|----------|------------|
-| **code-only** | api, ai, mcp, ui, agentbox | Checkout previous source, redeploy | Yes |
+| **code-only** | api, ai, mcp, ui | Checkout previous source, redeploy | Yes |
 | **config-only** | auth, infra, observability | Checkout previous config, redeploy | Yes |
 | **schema-forward** | db (when migrations change) | Restore from backup, then rollback code | Manual |
 | **mixed** | any | Review, then rollback | Yes (with review) |
