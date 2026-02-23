@@ -4,7 +4,7 @@
   "description": "Hill90 API Gateway",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && cp -r src/db/migrations dist/db/migrations",
+    "build": "tsc && cp -r src/db/migrations dist/db/migrations && cp -r src/openapi dist/openapi",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "jest",
@@ -29,7 +29,8 @@
     "jwks-rsa": "^3.2.2",
     "pg": "^8.18.0",
     "pino": "^8.17.2",
-    "pino-http": "^9.0.0"
+    "pino-http": "^9.0.0",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -41,6 +42,7 @@
     "@types/node": "^20.11.0",
     "@types/pg": "^8.16.0",
     "@types/supertest": "^6.0.2",
+    "@types/swagger-ui-express": "^4.1.8",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "eslint": "^8.56.0",

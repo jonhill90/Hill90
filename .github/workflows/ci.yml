@@ -54,6 +54,10 @@ jobs:
         working-directory: src/services/api
         run: npm ci && npm test
 
+      - name: Validate OpenAPI spec
+        working-directory: src/services/api
+        run: npx --yes @redocly/cli lint src/openapi/openapi.yaml --skip-rule no-unused-components
+
       - name: Run UI tests
         working-directory: src/services/ui
         run: npm ci && npm test
