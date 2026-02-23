@@ -95,4 +95,25 @@ describe('middleware', () => {
 
     expect(result).toBeUndefined()
   })
+
+  it('redirects to /api/auth/signin for /docs/api when unauthenticated', () => {
+    mockSession = null
+    const req = makeRequest('/docs/api')
+
+    const result = middleware(req as any)
+
+    expect(NextResponse.redirect).toHaveBeenCalledWith(
+      new URL('/api/auth/signin', 'https://hill90.com/docs/api')
+    )
+    expect(result).toBeDefined()
+  })
+
+  it('passes through /docs/api when authenticated', () => {
+    mockSession = { user: { name: 'Test' } }
+    const req = makeRequest('/docs/api')
+
+    const result = middleware(req as any)
+
+    expect(result).toBeUndefined()
+  })
 })
