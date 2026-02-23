@@ -12,6 +12,7 @@
     "format": "prettier --write 'src/**/*.ts'"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.995.0",
     "@opentelemetry/auto-instrumentations-node": "^0.70.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.212.0",
     "@opentelemetry/resources": "^2.5.1",
