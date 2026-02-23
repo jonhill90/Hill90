@@ -2,6 +2,8 @@ import express, { Application } from 'express';
 import { createRequireAuth, createJwksKeyResolver } from './middleware/auth';
 import type { JwtHeader } from 'jsonwebtoken';
 import agentsRouter from './routes/agents';
+import { requireRole } from './middleware/role';
+import { docsRouter, specRouter } from './routes/docs';
 
 interface AppOptions {
   issuer?: string;
@@ -33,6 +35,10 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Agent management routes
   app.use('/agents', requireAuth, agentsRouter);
+
+  // API documentation (admin-only)
+  app.use('/docs', requireAuth, requireRole('admin'), docsRouter);
+  app.use('/openapi.json', requireAuth, requireRole('admin'), specRouter);
 
   return app;
 }

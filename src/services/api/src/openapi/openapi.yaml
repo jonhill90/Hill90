@@ -1,0 +1,436 @@
+openapi: 3.0.3
+info:
+  title: Hill90 API
+  description: Hill90 platform API — agent management and lifecycle operations.
+  version: 0.1.0
+
+servers:
+  - url: /
+    description: Relative (behind Traefik reverse proxy)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Agent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          description: Unique slug identifier (lowercase, alphanumeric, hyphens)
+          pattern: "^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$"
+        name:
+          type: string
+        description:
+          type: string
+        tools_config:
+          type: object
+        cpus:
+          type: string
+          default: "1.0"
+        mem_limit:
+          type: string
+          default: "1g"
+        pids_limit:
+          type: integer
+          default: 200
+        soul_md:
+          type: string
+        rules_md:
+          type: string
+        status:
+          type: string
+          enum: [stopped, running, error]
+        container_id:
+          type: string
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+
+    AgentStatus:
+      type: object
+      properties:
+        db_status:
+          type: string
+        container:
+          type: object
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns service health status. Public — no authentication required.
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: api
+
+  /me:
+    get:
+      summary: Get current user claims
+      description: Returns the JWT claims of the authenticated user.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: JWT claims
+          content:
+            application/json:
+              schema:
+                type: object
+        "401":
+          description: Missing or invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /agents:
+    get:
+      summary: List agents
+      description: Returns agents scoped to the authenticated user (all agents for admin).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Agent"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+    post:
+      summary: Create agent
+      description: Creates a new agent definition.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - agent_id
+                - name
+              properties:
+                agent_id:
+                  type: string
+                  pattern: "^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$"
+                name:
+                  type: string
+                description:
+                  type: string
+                tools_config:
+                  type: object
+                cpus:
+                  type: string
+                mem_limit:
+                  type: string
+                pids_limit:
+                  type: integer
+                soul_md:
+                  type: string
+                rules_md:
+                  type: string
+      responses:
+        "201":
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "400":
+          description: Invalid input
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "409":
+          description: Duplicate agent_id
+
+  /agents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get agent detail
+      description: Returns a single agent, scoped to ownership.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Agent detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Agent not found
+
+    put:
+      summary: Update agent
+      description: Updates agent configuration. Agent must be stopped.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                tools_config:
+                  type: object
+                cpus:
+                  type: string
+                mem_limit:
+                  type: string
+                pids_limit:
+                  type: integer
+                soul_md:
+                  type: string
+                rules_md:
+                  type: string
+      responses:
+        "200":
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Agent not found
+        "409":
+          description: Agent is running
+
+    delete:
+      summary: Delete agent
+      description: Deletes an agent. Requires admin role. Optionally purges volumes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: purge
+          in: query
+          schema:
+            type: string
+            enum: ["true", "false"]
+          description: If "true", also remove agent volumes
+      responses:
+        "200":
+          description: Agent deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Agent not found
+
+  /agents/{id}/start:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Start agent
+      description: Creates and starts the agent container. Requires admin role.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Agent started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: running
+                  container_id:
+                    type: string
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Agent not found
+        "503":
+          description: AGENTBOX_CONFIG_HOST_PATH not configured
+
+  /agents/{id}/stop:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Stop agent
+      description: Stops and removes the agent container. Requires admin role.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Agent stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: stopped
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Agent not found
+
+  /agents/{id}/status:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get agent status
+      description: Returns agent status from DB and live container inspection. Scoped to ownership.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Agent status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStatus"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Agent not found
+
+  /agents/{id}/logs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get agent logs
+      description: >
+        Returns container logs. Requires admin role.
+        With follow=true, returns an SSE stream (text/event-stream).
+        Without follow, returns JSON with log text.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tail
+          in: query
+          schema:
+            type: integer
+            default: 200
+          description: Number of tail lines
+        - name: follow
+          in: query
+          schema:
+            type: string
+            enum: ["true", "false"]
+          description: If "true", stream logs via SSE
+      responses:
+        "200":
+          description: Log output (JSON or SSE stream)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: string
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Agent not found
