@@ -33,6 +33,29 @@ jest.mock('../services/agent-files', () => ({
   removeAgentFiles: jest.fn(),
 }));
 
+// Mock S3 (profile routes import s3)
+jest.mock('../services/s3', () => ({
+  getS3Client: jest.fn().mockReturnValue({}),
+  AVATAR_BUCKET: 'user-avatars',
+  ensureBucket: jest.fn(),
+}));
+
+// Mock avatar service
+jest.mock('../services/avatar', () => ({
+  processAvatar: jest.fn(),
+  avatarKey: jest.fn(),
+  uploadAvatar: jest.fn(),
+  deleteAvatar: jest.fn(),
+  getAvatarStream: jest.fn(),
+}));
+
+// Mock keycloak-account service
+jest.mock('../services/keycloak-account', () => ({
+  getKeycloakProfile: jest.fn(),
+  updateKeycloakProfile: jest.fn(),
+  changeKeycloakPassword: jest.fn(),
+}));
+
 const app = createApp({
   issuer: TEST_ISSUER,
   getSigningKey: async () => publicKey,
@@ -46,20 +69,17 @@ function makeToken(sub: string, roles: string[]) {
   );
 }
 
-describe('Profile routes (dark — not mounted)', () => {
-  it('GET /profile returns 404 because routes are not mounted', async () => {
-    const token = makeToken('test-user', ['user']);
+describe('Profile routes (mounted — requires auth)', () => {
+  it('GET /profile returns 401 without auth (route is mounted)', async () => {
+    const res = await request(app).get('/profile');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /profile returns 403 without user role (route is mounted)', async () => {
+    const token = makeToken('test-user', []);
     const res = await request(app)
       .get('/profile')
       .set('Authorization', `Bearer ${token}`);
-    expect(res.status).toBe(404);
-  });
-
-  it('POST /profile/avatar returns 404 because routes are not mounted', async () => {
-    const token = makeToken('test-user', ['user']);
-    const res = await request(app)
-      .post('/profile/avatar')
-      .set('Authorization', `Bearer ${token}`);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
   });
 });
