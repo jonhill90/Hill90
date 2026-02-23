@@ -22,13 +22,16 @@ Chain: `AGENTS.md` (source) <- `CLAUDE.md` (symlink) <- `.github/copilot-instruc
    - Use `bash scripts/deploy.sh <service> prod` (canonical) or `make deploy-<service>` (convenience).
 5. **Context collapse recovery is mandatory**
    - After any context compaction/collapse, restate current task + active workflow from summary, then run primer before making changes or running commands.
+6. **Closed-loop planning for non-trivial changes**
+   - Non-trivial changes (3+ files, new features, policy work) require a closed-loop plan with all 9 sections.
+   - Use `/closing-the-loop` skill for the template and checklist.
 
 ## Required PR Workflow
 
 This is the required flow for Claude, Codex, and Copilot-assisted changes.
 
 1. **Orient** — run primer (`$primer` in Codex, `/primer` in Claude/Copilot).
-2. **Plan** — explore, produce plan, get approval.
+2. **Plan** — produce a closed-loop plan (`/closing-the-loop`), get approval. Non-trivial changes require all 9 sections. Trivial changes (< 3 files, docs-only) may skip.
 3. **Implement**
    - Code: Red -> Green -> Refactor
    - Infra/docs: direct surgical edits
@@ -110,6 +113,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 - Deployment architecture: `.github/docs/deployment.md`
 - VPS rebuild runbook: `docs/runbooks/vps-rebuild.md`
 - Architecture overview: `docs/architecture/overview.md`
+- Closed-loop planning skill: `.github/skills/closing-the-loop/SKILL.md`
 
 ## Guardrails
 
@@ -118,6 +122,7 @@ Do:
 - Track work in Linear and keep state current.
 - Use `bash scripts/*.sh` or `make` wrappers for operations.
 - Validate behavior locally before PR.
+- Complete closed-loop plan before implementing non-trivial changes.
 - Update `src/services/api/src/openapi/openapi.yaml` when adding or changing API routes. CI enforces spec-vs-route drift.
 
 Don't:

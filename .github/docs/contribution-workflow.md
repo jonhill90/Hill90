@@ -9,7 +9,8 @@ See also: `.github/docs/harness-reference.md` for platform parity, repository to
 1. **Orient**
    - Run `/primer` first.
 2. **Plan**
-   - Use plan mode to inspect code, write a decision-complete implementation plan, and get approval.
+   - Use plan mode to produce a closed-loop plan (`/closing-the-loop`), and get approval.
+   - Non-trivial changes require all 9 closed-loop sections.
 3. **Implement**
    - Code changes: Red -> Green -> Refactor.
    - Infra/docs changes: make direct surgical edits.
