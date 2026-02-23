@@ -18,7 +18,8 @@
     "swagger-ui-react": "^5.31.2"
   },
   "overrides": {
-    "@auth/core": "^0.41.1"
+    "@auth/core": "^0.41.1",
+    "tree-sitter": "0.22.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.3",
