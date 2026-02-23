@@ -75,10 +75,32 @@ components:
           type: string
           nullable: true
 
+    UserProfile:
+      type: object
+      properties:
+        username:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+        emailVerified:
+          type: boolean
+        hasAvatar:
+          type: boolean
+
     Error:
       type: object
       properties:
         error:
+          type: string
+
+    Message:
+      type: object
+      properties:
+        message:
           type: string
 
 paths:
@@ -434,3 +456,159 @@ paths:
           description: Requires admin role
         "404":
           description: Agent not found
+
+  /profile:
+    get:
+      summary: Get user profile
+      description: Returns the authenticated user's Keycloak profile and avatar status.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+    patch:
+      summary: Update display name
+      description: Updates firstName and/or lastName via Keycloak Account API.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                  maxLength: 100
+                lastName:
+                  type: string
+                  maxLength: 100
+      responses:
+        "200":
+          description: Updated name
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  firstName:
+                    type: string
+                  lastName:
+                    type: string
+        "400":
+          description: Invalid input
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+  /profile/avatar:
+    post:
+      summary: Upload avatar
+      description: Upload or replace avatar image. Resized to 256x256 WebP.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - avatar
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Avatar uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          description: Invalid file
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+    delete:
+      summary: Delete avatar
+      description: Removes the user's avatar from S3 and clears the DB reference.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Avatar deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: No avatar found
+
+    get:
+      summary: Get avatar image
+      description: Streams the user's avatar as image/webp. Supports ETag/If-None-Match.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Avatar image
+          content:
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "304":
+          description: Not modified
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: No avatar found
+
+  /profile/password:
+    post:
+      summary: Change password
+      description: >
+        Password change endpoint. Currently returns 501 because Keycloak 12+ removed
+        the /account/credentials/password REST endpoint. A browser-based flow via
+        kc_action=UPDATE_PASSWORD will be implemented in a future PR.
+      security:
+        - bearerAuth: []
+      responses:
+        "501":
+          description: Not yet implemented
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: Password change not yet available
+                  code:
+                    type: string
+                    example: NOT_IMPLEMENTED
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
