@@ -56,7 +56,14 @@ function useAvatar() {
     }
   }, [])
 
-  return { avatarUrl, loaded }
+  const clearAvatar = useCallback(() => {
+    setAvatarUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+  }, [])
+
+  return { avatarUrl, loaded, clearAvatar }
 }
 
 function getInitials(name: string): string {
@@ -73,7 +80,7 @@ export default function AuthButtons() {
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<(HTMLAnchorElement | null)[]>([])
-  const { avatarUrl, loaded: avatarLoaded } = useAvatar()
+  const { avatarUrl, loaded: avatarLoaded, clearAvatar } = useAvatar()
 
   const close = useCallback(() => setOpen(false), [])
 
@@ -168,7 +175,7 @@ export default function AuthButtons() {
               src={avatarUrl}
               alt=""
               className="h-full w-full object-cover"
-              onError={() => {/* fallback handled by useAvatar */}}
+              onError={clearAvatar}
             />
           ) : (
             initials || (

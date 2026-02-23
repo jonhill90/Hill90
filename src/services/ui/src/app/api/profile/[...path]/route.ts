@@ -30,6 +30,12 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
     headers['Content-Type'] = contentType
   }
 
+  // Forward conditional request headers for ETag/304 support
+  const ifNoneMatch = req.headers.get('if-none-match')
+  if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch
+  const ifModifiedSince = req.headers.get('if-modified-since')
+  if (ifModifiedSince) headers['If-Modified-Since'] = ifModifiedSince
+
   const fetchOpts: RequestInit = {
     method: req.method,
     headers,
