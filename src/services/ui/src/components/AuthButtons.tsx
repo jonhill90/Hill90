@@ -4,6 +4,61 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSession, signIn } from "next-auth/react"
 import Link from 'next/link'
 
+function useAvatar() {
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+
+  const fetchAvatar = useCallback(async () => {
+    try {
+      const res = await fetch('/api/profile/avatar')
+      if (res.ok) {
+        const blob = await res.blob()
+        setAvatarUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return URL.createObjectURL(blob)
+        })
+      } else {
+        setAvatarUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev)
+          return null
+        })
+      }
+    } catch {
+      setAvatarUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    } finally {
+      setLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAvatar()
+
+    function onAvatarChanged() {
+      fetchAvatar()
+    }
+    window.addEventListener('avatar-changed', onAvatarChanged)
+
+    return () => {
+      window.removeEventListener('avatar-changed', onAvatarChanged)
+    }
+  }, [fetchAvatar])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      setAvatarUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [])
+
+  return { avatarUrl, loaded }
+}
+
 function getInitials(name: string): string {
   return name
     .split(/\s+/)
@@ -93,6 +148,8 @@ export default function AuthButtons() {
     )
   }
 
+  const { avatarUrl, loaded: avatarLoaded } = useAvatar()
+
   if (session) {
     const name = session.user?.name || ''
     const initials = getInitials(name)
@@ -101,16 +158,25 @@ export default function AuthButtons() {
       <div className="relative" ref={menuRef}>
         <button
           onClick={() => setOpen(prev => !prev)}
-          className="h-9 w-9 rounded-full bg-brand-500 flex items-center justify-center text-sm font-semibold text-white select-none cursor-pointer"
+          className="h-9 w-9 rounded-full bg-brand-500 flex items-center justify-center text-sm font-semibold text-white select-none cursor-pointer overflow-hidden"
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label="User menu"
           title={name}
         >
-          {initials || (
-            <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v1.2c0 .7.5 1.2 1.2 1.2h16.8c.7 0 1.2-.5 1.2-1.2v-1.2c0-3.2-6.4-4.8-9.6-4.8z" />
-            </svg>
+          {avatarLoaded && avatarUrl ? (
+            <img
+              src={avatarUrl}
+              alt=""
+              className="h-full w-full object-cover"
+              onError={() => {/* fallback handled by useAvatar */}}
+            />
+          ) : (
+            initials || (
+              <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v1.2c0 .7.5 1.2 1.2 1.2h16.8c.7 0 1.2-.5 1.2-1.2v-1.2c0-3.2-6.4-4.8-9.6-4.8z" />
+              </svg>
+            )
           )}
         </button>
 
