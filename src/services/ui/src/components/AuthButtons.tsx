@@ -73,6 +73,7 @@ export default function AuthButtons() {
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef<(HTMLAnchorElement | null)[]>([])
+  const { avatarUrl, loaded: avatarLoaded } = useAvatar()
 
   const close = useCallback(() => setOpen(false), [])
 
@@ -147,8 +148,6 @@ export default function AuthButtons() {
       />
     )
   }
-
-  const { avatarUrl, loaded: avatarLoaded } = useAvatar()
 
   if (session) {
     const name = session.user?.name || ''
