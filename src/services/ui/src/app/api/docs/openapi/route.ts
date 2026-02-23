@@ -16,6 +16,7 @@ export async function GET() {
   try {
     const res = await fetch(`${API_URL}/openapi.json`, {
       headers: { Authorization: `Bearer ${session.accessToken}` },
+      signal: AbortSignal.timeout(30000),
     })
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })

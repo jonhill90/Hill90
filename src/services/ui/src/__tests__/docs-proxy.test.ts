@@ -84,6 +84,32 @@ describe('docs openapi proxy', () => {
     )
   })
 
+  it('returns 403 when user has undefined roles', async () => {
+    const { NextResponse } = await import('next/server')
+    mockSession = { accessToken: 'tok', user: {} }
+
+    await GET()
+
+    expect(NextResponse.json).toHaveBeenCalledWith(
+      { error: 'Forbidden' },
+      { status: 403 }
+    )
+  })
+
+  it('proxies spec for admin with mixed roles', async () => {
+    const { NextResponse } = await import('next/server')
+    const spec = { openapi: '3.0.0' }
+    mockSession = { accessToken: 'tok', user: { roles: ['user', 'admin'] } }
+    mockFetch.mockResolvedValue({
+      status: 200,
+      json: () => Promise.resolve(spec),
+    })
+
+    await GET()
+
+    expect(NextResponse.json).toHaveBeenCalledWith(spec, { status: 200 })
+  })
+
   it('proxies spec from API for admin', async () => {
     const { NextResponse } = await import('next/server')
     const spec = { openapi: '3.0.0', info: { title: 'Hill90 API' } }
