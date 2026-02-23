@@ -28,10 +28,13 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
     headers['Content-Type'] = contentType
   }
 
+  // follow=true is reserved for SSE streaming routes — no timeout for long-lived streams
+  const isSSE = req.nextUrl.searchParams.get('follow') === 'true'
+
   const fetchOpts: RequestInit = {
     method: req.method,
     headers,
-    signal: AbortSignal.timeout(30000),
+    ...(isSSE ? {} : { signal: AbortSignal.timeout(30000) }),
   }
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -40,6 +43,20 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
 
   try {
     const res = await fetch(url.toString(), fetchOpts)
+
+    // SSE: pass the stream through without JSON parsing
+    const resContentType = res.headers.get('content-type') || ''
+    if (resContentType.includes('text/event-stream')) {
+      return new Response(res.body, {
+        status: res.status,
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      })
+    }
+
     const data = await res.json()
     return NextResponse.json(data, { status: res.status })
   } catch (err) {
