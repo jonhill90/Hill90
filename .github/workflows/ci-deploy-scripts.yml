@@ -66,21 +66,4 @@ jobs:
         run: python3 scripts/checks/check_volume_names.py
 
       - name: Assert no destructive volume commands
-        run: |
-          echo "Checking: no destructive volume commands in scripts or workflows..."
-          FAIL=0
-          for f in scripts/*.sh .github/workflows/*.yml; do
-            # Strip comment and blank lines, then check for banned patterns
-            STRIPPED=$(grep -v '^[[:space:]]*#' "$f" 2>/dev/null | grep -v '^[[:space:]]*$') || true
-            if echo "$STRIPPED" | grep -qE 'docker compose.*down.*-v'; then
-              echo "FAIL: $f contains 'docker compose down -v'"; FAIL=1
-            fi
-            if echo "$STRIPPED" | grep -qE 'docker volume rm'; then
-              echo "FAIL: $f contains 'docker volume rm'"; FAIL=1
-            fi
-            if echo "$STRIPPED" | grep -qE 'docker system prune'; then
-              echo "FAIL: $f contains 'docker system prune'"; FAIL=1
-            fi
-          done
-          [ "$FAIL" -eq 0 ] && echo "No destructive volume commands found."
-          exit $FAIL
+        run: bash scripts/checks/check_destructive_commands.sh
