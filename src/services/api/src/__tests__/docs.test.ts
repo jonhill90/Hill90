@@ -147,6 +147,9 @@ const EXPECTED_PATHS = [
   '/agents/{id}/stop',
   '/agents/{id}/status',
   '/agents/{id}/logs',
+  '/profile',
+  '/profile/avatar',
+  '/profile/password',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json'];

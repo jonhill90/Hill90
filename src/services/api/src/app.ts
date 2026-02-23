@@ -2,6 +2,7 @@ import express, { Application } from 'express';
 import { createRequireAuth, createJwksKeyResolver } from './middleware/auth';
 import type { JwtHeader } from 'jsonwebtoken';
 import agentsRouter from './routes/agents';
+import profileRouter from './routes/profile';
 import { requireRole } from './middleware/role';
 import { docsRouter, specRouter } from './routes/docs';
 
@@ -35,6 +36,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Agent management routes
   app.use('/agents', requireAuth, agentsRouter);
+
+  // User profile routes
+  app.use('/profile', requireAuth, profileRouter);
 
   // API documentation (admin-only)
   app.use('/docs', requireAuth, requireRole('admin'), docsRouter);
