@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import HillLogo from '@/components/HillLogo'
 import AuthButtons from '@/components/AuthButtons'
+import AdminDocsLink from '@/components/AdminDocsLink'
 
 export default function AppShell({
   children,
@@ -29,6 +30,7 @@ export default function AppShell({
           >
             Agents
           </Link>
+          <AdminDocsLink />
           {navExtra}
           <AuthButtons />
         </div>
