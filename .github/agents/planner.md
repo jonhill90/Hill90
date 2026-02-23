@@ -40,34 +40,57 @@ In Claude Code, you can also use built-in plan mode (EnterPlanMode) for the same
 
 ## Plan Output Format
 
+Use the closed-loop format with all 9 required sections:
+
 ```markdown
 # Plan: <title>
 
-## Objective
-<1-2 sentences describing what this plan achieves>
+## Goal / Signal
+<What does success look like? What observable signal confirms this landed correctly?>
 
-## Affected Files
-| File | Action | Purpose |
-|------|--------|---------|
-| `path/to/file` | create/edit/delete | What changes and why |
+## Scope
+**In scope:** ...
+**Out of scope:** ...
 
-## Approach
-1. <Step 1>
-2. <Step 2>
-3. ...
+## TDD Matrix
+| Requirement | Test | Type |
+|---|---|---|
+| ... | `test_...` | unit/integration |
+
+## Implementation Steps
+### Phase 1: Red — Write failing tests
+### Phase 2: Green — Minimum implementation
+### Phase 3: Refactor — Clean up
+
+## Verification Matrix
+| Check | Command | Expected Result |
+|---|---|---|
+| ... | `...` | ... |
+
+## CI / Drift Gates
+- New gates added
+- Existing gates preserved
+- Drift risks
 
 ## Risks & Mitigations
-| Risk | Mitigation |
-|------|-----------|
-| <what could go wrong> | <how to prevent or handle it> |
+| Risk | Likelihood | Impact | Mitigation |
+|---|---|---|---|
+| ... | ... | ... | ... |
 
-## Verification Checklist
-- [ ] <check 1>
-- [ ] <check 2>
+## Definition of Done
+- [ ] <condition 1>
+- [ ] <condition 2>
+
+## Stop Conditions
+**Stop if:** ...
+**Out of scope:** ...
 ```
+
+See `/closing-the-loop` skill for detailed guidance on each section.
 
 ## References
 
 - Testing conventions: `.github/instructions/testing.instructions.md`
 - Contribution workflow: `.github/docs/contribution-workflow.md`
 - Harness reference: `.github/docs/harness-reference.md`
+- Closed-loop planning skill: `.github/skills/closing-the-loop/SKILL.md`
