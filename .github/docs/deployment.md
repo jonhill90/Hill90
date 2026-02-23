@@ -62,7 +62,6 @@ Separate compose files in `deploy/compose/prod/`, grouped into stacks with expli
 | apps | `hill90-prod-apps` | `docker-compose.ai.yml` | ai |
 | apps | `hill90-prod-apps` | `docker-compose.mcp.yml` | mcp |
 | apps | `hill90-prod-apps` | `docker-compose.ui.yml` | ui |
-| agentbox | `hill90-prod-agentbox` | `docker-compose.agentbox.yml` | agentbox-* |
 | observability | `hill90-prod-observability` | `docker-compose.observability.yml` | full LGTM stack |
 
 ### Stack-Level Isolation
@@ -115,7 +114,7 @@ The orchestrator enforces deployment ordering:
 - **Platform** (db, minio) — runs first, no dependencies
 - **Identity** (auth) — waits for db
 - **Apps** (api, mcp) — waits for auth; (ai, ui) — no dependencies
-- **Agentbox, Observability** — no dependencies
+- **Observability** — no dependencies
 
 ### Path-Based Auto-Deployment
 

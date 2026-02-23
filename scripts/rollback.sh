@@ -30,7 +30,7 @@ Change classes:
   mixed          Multiple change classes — requires review
 
 Supported services:
-  api, ai, mcp, ui, agentbox    Code-only rollback (checkout + redeploy)
+  api, ai, mcp, ui              Code-only rollback (checkout + redeploy)
   auth, infra, observability    Config rollback (checkout + redeploy)
   db                            Schema-aware (refuses if migrations detected)
 EOF
@@ -48,7 +48,6 @@ service_paths() {
         ai)            echo "src/services/ai/ deploy/compose/prod/docker-compose.ai.yml" ;;
         mcp)           echo "src/services/mcp/ deploy/compose/prod/docker-compose.mcp.yml" ;;
         ui)            echo "src/services/ui/ deploy/compose/prod/docker-compose.ui.yml" ;;
-        agentbox)      echo "src/services/agentbox/ platform/agentbox/ deploy/compose/prod/docker-compose.agentbox.yml scripts/agentbox-compose-gen.py scripts/agentbox.sh" ;;
         auth)          echo "platform/auth/keycloak/ deploy/compose/prod/docker-compose.auth.yml" ;;
         db)            echo "platform/data/postgres/ deploy/compose/prod/docker-compose.db.yml src/services/api/src/db/migrations/" ;;
         infra)         echo "platform/edge/ deploy/compose/prod/docker-compose.infra.yml" ;;
