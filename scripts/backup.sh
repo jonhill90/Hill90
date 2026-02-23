@@ -101,7 +101,7 @@ backup_db() {
     fi
 
     # Volume tar (full data directory backup)
-    backup_volume "postgres-data" "$backup_dir/postgres-data.tar.gz" || true
+    backup_volume "prod_postgres-data" "$backup_dir/postgres-data.tar.gz" || true
 }
 
 backup_minio() {
@@ -117,8 +117,8 @@ backup_infra() {
     mkdir -p "$backup_dir"
 
     echo "Backing up infrastructure volumes..."
-    backup_volume "traefik-certs" "$backup_dir/traefik-certs.tar.gz" || true
-    backup_volume "portainer-data" "$backup_dir/portainer-data.tar.gz" || true
+    backup_volume "prod_traefik-certs" "$backup_dir/traefik-certs.tar.gz" || true
+    backup_volume "prod_portainer-data" "$backup_dir/portainer-data.tar.gz" || true
 }
 
 backup_observability() {
@@ -206,7 +206,7 @@ cmd_restore() {
                 echo "  ✓ SQL dump restored"
             elif [ -f "$backup_dir/postgres-data.tar.gz" ]; then
                 warn "No SQL dump found — restoring from volume tar (requires postgres restart)"
-                restore_volume "postgres-data" "$backup_dir/postgres-data.tar.gz"
+                restore_volume "prod_postgres-data" "$backup_dir/postgres-data.tar.gz"
                 echo "  Restart postgres: docker restart postgres"
             else
                 die "No backup files found in $backup_dir"
@@ -219,9 +219,9 @@ cmd_restore() {
             ;;
         infra)
             [ -f "$backup_dir/traefik-certs.tar.gz" ] || die "traefik-certs.tar.gz not found in $backup_dir"
-            restore_volume "traefik-certs" "$backup_dir/traefik-certs.tar.gz"
+            restore_volume "prod_traefik-certs" "$backup_dir/traefik-certs.tar.gz"
             if [ -f "$backup_dir/portainer-data.tar.gz" ]; then
-                restore_volume "portainer-data" "$backup_dir/portainer-data.tar.gz"
+                restore_volume "prod_portainer-data" "$backup_dir/portainer-data.tar.gz"
             fi
             echo "  Restart services: docker restart traefik portainer"
             ;;
