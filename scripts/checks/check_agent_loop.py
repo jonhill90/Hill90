@@ -92,6 +92,9 @@ def main() -> int:
     types = classify(files)
 
     warnings: list[str] = []
+    # Enforced warnings only block merges in strict mode (infra-gate).
+    # Advisory warnings are always informational.
+    enforced: list[str] = []
 
     if not files:
         warnings.append("No changed files detected from git diff (origin/base...HEAD).")
@@ -110,6 +113,21 @@ def main() -> int:
 
     if types["infra"] and not has_any_token(body, ["deploy", "gh run", "workflow", "health"]):
         warnings.append("Infra-related changes detected, but no deploy/workflow/health evidence found in PR body.")
+
+    # Infra PRs must include structured sections for safety review.
+    # These are enforced (block merge) when AGENT_LOOP_STRICT=1.
+    if types["infra"] and not types["docs_only"]:
+        required_sections = ["plan", "risks", "rollback", "validation evidence"]
+        body_lower = body.lower()
+        for section in required_sections:
+            # Match ## or ### headings
+            if f"## {section}" not in body_lower and f"### {section}" not in body_lower:
+                msg = (
+                    f"Infra changes detected but PR body is missing a '{section.title()}' section "
+                    f"(expected '## {section.title()}' or '### {section.title()}')."
+                )
+                warnings.append(msg)
+                enforced.append(msg)
 
     header = "## Agent Loop Gate (Advisory)"
     lines = [header, "", f"- Base ref: `{base_ref}`", f"- Changed files: `{len(files)}`"]
@@ -136,7 +154,9 @@ def main() -> int:
         with open(summary_path, "a", encoding="utf-8") as fh:
             fh.write(report + "\n")
 
-    if warnings and strict:
+    # Strict mode only fails on enforced warnings (infra section requirements),
+    # not on general advisory warnings like missing Linear references.
+    if enforced and strict:
         return 1
     return 0
 

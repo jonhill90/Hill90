@@ -24,3 +24,32 @@ jobs:
           GITHUB_BASE_REF: ${{ github.base_ref }}
           AGENT_LOOP_STRICT: "0"
         run: python3 scripts/checks/check_agent_loop.py
+
+  infra-gate:
+    name: Agent Loop (Infra — Enforced)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for infra changes
+        id: infra-check
+        run: |
+          FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null || git diff --name-only HEAD)
+          if echo "$FILES" | grep -qE '^(deploy/|platform/|scripts/.*\.sh$|\.github/workflows/)'; then
+            echo "has_infra=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_infra=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run enforced agent-loop checks
+        if: steps.infra-check.outputs.has_infra == 'true'
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          AGENT_LOOP_STRICT: "1"
+        run: python3 scripts/checks/check_agent_loop.py
