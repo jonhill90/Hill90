@@ -157,8 +157,8 @@ deploy-minio: ## Deploy MinIO object storage
 	@echo "$(COLOR_YELLOW)Deploying MinIO storage...$(COLOR_RESET)"
 	bash scripts/deploy.sh minio $(ENV)
 
-deploy-auth: ## Deploy Keycloak identity provider
-	@echo "$(COLOR_YELLOW)Deploying Keycloak...$(COLOR_RESET)"
+deploy-auth: ## Deploy auth identity provider (Keycloak)
+	@echo "$(COLOR_YELLOW)Deploying auth (Keycloak)...$(COLOR_RESET)"
 	bash scripts/deploy.sh auth $(ENV)
 
 deploy-api: ## Deploy API service

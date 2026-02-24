@@ -1,9 +1,13 @@
-name: Agent Loop Gate
+name: Policy Gate (Advisory)
 
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize]
+
+concurrency:
+  group: gate-${{ github.head_ref }}
+  cancel-in-progress: true
 
 jobs:
   advisory-gate:
