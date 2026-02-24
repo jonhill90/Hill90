@@ -101,6 +101,18 @@ SCRIPT
   [ -z "$output" ]
 }
 
+@test "block-local-deploy: allows shellcheck scripts/deploy.sh" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"shellcheck --severity=error scripts/deploy.sh\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "block-local-deploy: allows bats tests/scripts/deploy.bats" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"bats tests/scripts/deploy.bats\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "block-local-deploy: blocks make deploy-all" {
   run bash -c 'echo "{\"tool_input\":{\"command\":\"make deploy-all\"}}" | bash scripts/hooks/block-local-deploy.sh'
   [ "$status" -eq 0 ]
