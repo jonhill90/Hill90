@@ -14,7 +14,7 @@ See also: `.github/docs/harness-reference.md` for platform parity, repository to
 3. **Implement**
    - Code changes: Red -> Green -> Refactor.
    - Infra/docs changes: make direct surgical edits.
-   - API route changes: update `src/services/api/src/openapi/openapi.yaml` in the same PR. CI lint + drift tests enforce this.
+   - API route changes: update `services/api/src/openapi/openapi.yaml` in the same PR. CI lint + drift tests enforce this.
 4. **Verify Locally**
    - Run relevant checks (`bats tests/scripts/`, `shellcheck`, compose validation, Traefik validation, and any targeted tests).
 5. **Create Branch**

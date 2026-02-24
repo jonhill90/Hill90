@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/services/api/**'
-      - 'src/services/ai/**'
-      - 'src/services/mcp/**'
-      - 'src/services/ui/**'
+      - 'services/api/**'
+      - 'services/ai/**'
+      - 'services/mcp/**'
+      - 'services/ui/**'
       - 'platform/auth/keycloak/**'
       - 'platform/data/postgres/**'
       - 'platform/observability/**'
@@ -62,16 +62,16 @@ jobs:
               - 'platform/auth/keycloak/**'
               - 'deploy/compose/prod/docker-compose.auth.yml'
             api:
-              - 'src/services/api/**'
+              - 'services/api/**'
               - 'deploy/compose/prod/docker-compose.api.yml'
             ai:
-              - 'src/services/ai/**'
+              - 'services/ai/**'
               - 'deploy/compose/prod/docker-compose.ai.yml'
             mcp:
-              - 'src/services/mcp/**'
+              - 'services/mcp/**'
               - 'deploy/compose/prod/docker-compose.mcp.yml'
             ui:
-              - 'src/services/ui/**'
+              - 'services/ui/**'
               - 'deploy/compose/prod/docker-compose.ui.yml'
             observability:
               - 'deploy/compose/prod/docker-compose.observability.yml'

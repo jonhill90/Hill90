@@ -26,7 +26,7 @@ services:
   # DNS Manager for DNS-01 ACME challenges
   dns-manager:
     build:
-      context: ../../../src/services/dns-manager
+      context: ../../../services/dns-manager
       dockerfile: Dockerfile
     image: hill90/dns-manager:${VERSION:-latest}
     container_name: dns-manager

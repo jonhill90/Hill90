@@ -211,12 +211,12 @@ Each service can be run locally for development:
 
 ```bash
 # API Service (TypeScript)
-cd src/services/api
+cd services/api
 npm install
 npm run dev
 
 # AI Service (Python)
-cd src/services/ai
+cd services/ai
 poetry install
 poetry run uvicorn app.main:app --reload
 ```

@@ -123,7 +123,7 @@ Do:
 - Use `bash scripts/*.sh` or `make` wrappers for operations.
 - Validate behavior locally before PR.
 - Complete closed-loop plan before implementing non-trivial changes.
-- Update `src/services/api/src/openapi/openapi.yaml` when adding or changing API routes. CI enforces spec-vs-route drift.
+- Update `services/api/src/openapi/openapi.yaml` when adding or changing API routes. CI enforces spec-vs-route drift.
 
 Don't:
 - Use TodoWrite as persistent task tracking.

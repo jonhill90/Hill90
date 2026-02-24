@@ -15,7 +15,7 @@ services:
   # AI Service (Python/FastAPI)
   ai:
     build:
-      context: ../../../src/services/ai
+      context: ../../../services/ai
       dockerfile: Dockerfile
     image: hill90/ai:${VERSION:-latest}
     container_name: ai

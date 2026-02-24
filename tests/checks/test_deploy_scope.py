@@ -98,15 +98,15 @@ class TestDornyFilters:
     """L2: Verify dorny filter routing for each service."""
 
     def test_api_change_triggers_only_api(self, dorny_filters):
-        services = _services_for_path("src/services/api/src/index.ts", dorny_filters)
+        services = _services_for_path("services/api/src/index.ts", dorny_filters)
         assert services == {"api"}
 
     def test_ui_change_triggers_only_ui(self, dorny_filters):
-        services = _services_for_path("src/services/ui/src/App.tsx", dorny_filters)
+        services = _services_for_path("services/ui/src/App.tsx", dorny_filters)
         assert services == {"ui"}
 
     def test_mcp_change_triggers_only_mcp(self, dorny_filters):
-        services = _services_for_path("src/services/mcp/src/main.py", dorny_filters)
+        services = _services_for_path("services/mcp/src/main.py", dorny_filters)
         assert services == {"mcp"}
 
     def test_auth_change_triggers_only_auth(self, dorny_filters):
@@ -164,10 +164,10 @@ class TestTriggerPaths:
         paths must be reflected here, preventing silent scope creep.
         """
         expected = sorted([
-            "src/services/api/**",
-            "src/services/ai/**",
-            "src/services/mcp/**",
-            "src/services/ui/**",
+            "services/api/**",
+            "services/ai/**",
+            "services/mcp/**",
+            "services/ui/**",
             "platform/auth/keycloak/**",
             "platform/data/postgres/**",
             "platform/observability/**",
@@ -183,7 +183,7 @@ class TestTriggerPaths:
         assert sorted(trigger_paths) == expected
 
     def test_trigger_paths_include_api(self, trigger_paths):
-        assert _matches_any("src/services/api/src/index.ts", trigger_paths)
+        assert _matches_any("services/api/src/index.ts", trigger_paths)
 
     def test_trigger_paths_include_auth_platform(self, trigger_paths):
         assert _matches_any(
@@ -193,7 +193,7 @@ class TestTriggerPaths:
 
     def test_trigger_paths_exclude_unknown_service(self, trigger_paths):
         assert not _matches_any(
-            "src/services/newsvc/src/main.ts", trigger_paths
+            "services/newsvc/src/main.ts", trigger_paths
         )
 
     def test_trigger_paths_exclude_unknown_platform_data(self, trigger_paths):

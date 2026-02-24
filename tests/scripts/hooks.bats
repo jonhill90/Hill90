@@ -163,7 +163,7 @@ SCRIPT
 }
 
 @test "block-local-deploy: blocks npm run dev" {
-  run bash -c 'echo "{\"tool_input\":{\"command\":\"cd src/services/ui && npm run dev\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"cd services/ui && npm run dev\"}}" | bash scripts/hooks/block-local-deploy.sh'
   [ "$status" -eq 0 ]
   [[ "$output" == *"deny"* ]]
 }
@@ -216,10 +216,10 @@ JSONL
   rm -f "$transcript"
 }
 
-@test "stop-gate: blocks when src/services/api edited but npm test not in transcript" {
+@test "stop-gate: blocks when services/api edited but npm test not in transcript" {
   transcript="$(mktemp /tmp/transcript-XXXXXX.jsonl)"
   cat > "$transcript" << 'JSONL'
-{"tool_name":"Write","tool_input":{"file_path":"src/services/api/index.ts"}}
+{"tool_name":"Write","tool_input":{"file_path":"services/api/index.ts"}}
 JSONL
 
   run bash -c "echo '{\"transcript_path\":\"$transcript\",\"cwd\":\"/tmp\"}' | bash scripts/hooks/stop-gate.sh"

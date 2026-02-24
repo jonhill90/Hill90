@@ -67,7 +67,7 @@ services:
   # API Gateway (TypeScript/Express)
   api:
     build:
-      context: ../../../src/services/api
+      context: ../../../services/api
       dockerfile: Dockerfile
     image: hill90/api:${VERSION:-latest}
     container_name: api

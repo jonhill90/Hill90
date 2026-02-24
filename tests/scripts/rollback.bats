@@ -113,7 +113,7 @@
   [ "$status" -eq 0 ]
   # No blank lines, no prose — every line must start with a path-like character
   [[ ! "$output" =~ ^[[:space:]]*$ ]]
-  [[ "$output" == *"src/services/api"* ]]
+  [[ "$output" == *"services/api"* ]]
 }
 
 @test "rollback.sh classify outputs change class field" {

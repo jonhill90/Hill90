@@ -17,17 +17,9 @@
     group: "{{ deploy_user }}"
     mode: '0755'
 
-- name: Create app src directory
-  file:
-    path: "{{ app_directory }}/app/src"
-    state: directory
-    owner: "{{ deploy_user }}"
-    group: "{{ deploy_user }}"
-    mode: '0755'
-
 - name: Create app services directory
   file:
-    path: "{{ app_directory }}/app/src/services"
+    path: "{{ app_directory }}/app/services"
     state: directory
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
@@ -35,7 +27,7 @@
 
 - name: Create DNS manager source directory
   file:
-    path: "{{ app_directory }}/app/src/services/dns-manager"
+    path: "{{ app_directory }}/app/services/dns-manager"
     state: directory
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
@@ -43,16 +35,16 @@
 
 - name: Deploy DNS manager app.py
   copy:
-    src: "{{ playbook_dir }}/../../../src/services/dns-manager/app.py"
-    dest: "{{ app_directory }}/app/src/services/dns-manager/app.py"
+    src: "{{ playbook_dir }}/../../../services/dns-manager/app.py"
+    dest: "{{ app_directory }}/app/services/dns-manager/app.py"
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
     mode: '0644'
 
 - name: Deploy DNS manager Dockerfile
   copy:
-    src: "{{ playbook_dir }}/../../../src/services/dns-manager/Dockerfile"
-    dest: "{{ app_directory }}/app/src/services/dns-manager/Dockerfile"
+    src: "{{ playbook_dir }}/../../../services/dns-manager/Dockerfile"
+    dest: "{{ app_directory }}/app/services/dns-manager/Dockerfile"
     owner: "{{ deploy_user }}"
     group: "{{ deploy_user }}"
     mode: '0644'
@@ -200,7 +192,7 @@
       services:
         # DNS Manager for DNS-01 ACME challenges
         dns-manager:
-          build: {{ app_directory }}/app/src/services/dns-manager
+          build: {{ app_directory }}/app/services/dns-manager
           container_name: dns-manager
           restart: unless-stopped
           networks:

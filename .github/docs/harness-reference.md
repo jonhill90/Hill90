@@ -62,7 +62,7 @@ Hill90/
 │       ├── block-local-deploy.sh
 │       └── stop-gate.sh
 ├── tests/scripts/
-├── src/services/
+├── services/
 └── docs/
 ```
 

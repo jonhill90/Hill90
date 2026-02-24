@@ -38,7 +38,7 @@ This starts all services in development mode with hot reload.
 ### API Service (TypeScript)
 
 ```bash
-cd src/services/api
+cd services/api
 npm install
 npm run dev
 ```
@@ -46,7 +46,7 @@ npm run dev
 ### AI Service (Python)
 
 ```bash
-cd src/services/ai
+cd services/ai
 poetry install
 poetry run uvicorn app.main:app --reload
 ```

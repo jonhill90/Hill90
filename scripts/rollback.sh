@@ -44,12 +44,12 @@ EOF
 service_paths() {
     local service="$1"
     case "$service" in
-        api)           echo "src/services/api/ deploy/compose/prod/docker-compose.api.yml" ;;
-        ai)            echo "src/services/ai/ deploy/compose/prod/docker-compose.ai.yml" ;;
-        mcp)           echo "src/services/mcp/ deploy/compose/prod/docker-compose.mcp.yml" ;;
-        ui)            echo "src/services/ui/ deploy/compose/prod/docker-compose.ui.yml" ;;
+        api)           echo "services/api/ deploy/compose/prod/docker-compose.api.yml" ;;
+        ai)            echo "services/ai/ deploy/compose/prod/docker-compose.ai.yml" ;;
+        mcp)           echo "services/mcp/ deploy/compose/prod/docker-compose.mcp.yml" ;;
+        ui)            echo "services/ui/ deploy/compose/prod/docker-compose.ui.yml" ;;
         auth)          echo "platform/auth/keycloak/ deploy/compose/prod/docker-compose.auth.yml" ;;
-        db)            echo "platform/data/postgres/ deploy/compose/prod/docker-compose.db.yml src/services/api/src/db/migrations/" ;;
+        db)            echo "platform/data/postgres/ deploy/compose/prod/docker-compose.db.yml services/api/src/db/migrations/" ;;
         infra)         echo "platform/edge/ deploy/compose/prod/docker-compose.infra.yml" ;;
         minio)         echo "deploy/compose/prod/docker-compose.minio.yml" ;;
         observability) echo "platform/observability/ deploy/compose/prod/docker-compose.observability.yml" ;;
@@ -81,7 +81,7 @@ classify_changes() {
     while IFS= read -r file; do
         if [[ "$file" == *"/migrations/"* ]]; then
             has_migrations=true
-        elif [[ "$file" == "src/services/"* ]]; then
+        elif [[ "$file" == "services/"* ]]; then
             has_code=true
         elif [[ "$file" == "platform/"* ]] || [[ "$file" == "deploy/"* ]] || [[ "$file" == "scripts/"* ]]; then
             has_config=true
@@ -212,7 +212,7 @@ cmd_rollback() {
             echo "     bash scripts/backup.sh restore db <backup-dir>"
             echo ""
             echo "  3. Then rollback the code:"
-            echo "     git checkout ${target_ref} -- platform/data/postgres/ src/services/api/src/db/migrations/"
+            echo "     git checkout ${target_ref} -- platform/data/postgres/ services/api/src/db/migrations/"
             echo "     bash scripts/deploy.sh db prod"
             echo "     bash scripts/deploy.sh api prod"
             echo ""

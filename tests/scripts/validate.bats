@@ -277,17 +277,17 @@
 # ---------------------------------------------------------------------------
 
 @test "UI health route probes Keycloak not old auth service" {
-  run grep "Keycloak" src/services/ui/src/app/api/services/health/route.ts
+  run grep "Keycloak" services/ui/src/app/api/services/health/route.ts
   [ "$status" -eq 0 ]
 }
 
 @test "UI health route does NOT reference port 3001" {
-  run grep "3001" src/services/ui/src/app/api/services/health/route.ts
+  run grep "3001" services/ui/src/app/api/services/health/route.ts
   [ "$status" -eq 1 ]
 }
 
 @test "UI health route uses KEYCLOAK_INTERNAL_URL env var" {
-  run grep "KEYCLOAK_INTERNAL_URL" src/services/ui/src/app/api/services/health/route.ts
+  run grep "KEYCLOAK_INTERNAL_URL" services/ui/src/app/api/services/health/route.ts
   [ "$status" -eq 0 ]
 }
 
@@ -305,18 +305,18 @@
   [ "$status" -eq 0 ]
 }
 
-@test "Makefile test target does NOT reference src/services/auth" {
-  run bash -c 'sed -n "/^test:/,/^[a-z]/p" Makefile | grep "src/services/auth"'
+@test "Makefile test target does NOT reference services/auth" {
+  run bash -c 'sed -n "/^test:/,/^[a-z]/p" Makefile | grep "services/auth"'
   [ "$status" -eq 1 ]
 }
 
-@test "Makefile lint target does NOT reference src/services/auth" {
-  run bash -c 'sed -n "/^lint:/,/^[a-z]/p" Makefile | grep "src/services/auth"'
+@test "Makefile lint target does NOT reference services/auth" {
+  run bash -c 'sed -n "/^lint:/,/^[a-z]/p" Makefile | grep "services/auth"'
   [ "$status" -eq 1 ]
 }
 
-@test "Makefile format target does NOT reference src/services/auth" {
-  run bash -c 'sed -n "/^format:/,/^[a-z]/p" Makefile | grep "src/services/auth"'
+@test "Makefile format target does NOT reference services/auth" {
+  run bash -c 'sed -n "/^format:/,/^[a-z]/p" Makefile | grep "services/auth"'
   [ "$status" -eq 1 ]
 }
 
@@ -357,8 +357,8 @@
   [ "$status" -eq 0 ]
 }
 
-@test "orchestrator workflow does NOT watch src/services/auth" {
-  run grep "src/services/auth" .github/workflows/deploy.yml
+@test "orchestrator workflow does NOT watch services/auth" {
+  run grep "services/auth" .github/workflows/deploy.yml
   [ "$status" -eq 1 ]
 }
 
@@ -385,8 +385,8 @@
 # Auth service deletion
 # ---------------------------------------------------------------------------
 
-@test "src/services/auth directory does not exist" {
-  [ ! -d "src/services/auth" ]
+@test "services/auth directory does not exist" {
+  [ ! -d "services/auth" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -394,16 +394,16 @@
 # ---------------------------------------------------------------------------
 
 @test "auth.ts exists in UI service" {
-  [ -f "src/services/ui/src/auth.ts" ]
+  [ -f "services/ui/src/auth.ts" ]
 }
 
 @test "auth.ts uses Keycloak provider" {
-  run grep "Keycloak" src/services/ui/src/auth.ts
+  run grep "Keycloak" services/ui/src/auth.ts
   [ "$status" -eq 0 ]
 }
 
 @test "nextauth route handler exists" {
-  [ -f "src/services/ui/src/app/api/auth/[...nextauth]/route.ts" ]
+  [ -f "services/ui/src/app/api/auth/[...nextauth]/route.ts" ]
 }
 
 @test "docker-compose.ui.yml has AUTH_KEYCLOAK_ID" {
@@ -426,7 +426,7 @@
 # ---------------------------------------------------------------------------
 
 @test "API jest.config.js uses ts-jest preset" {
-  run grep "ts-jest" src/services/api/jest.config.js
+  run grep "ts-jest" services/api/jest.config.js
   [ "$status" -eq 0 ]
 }
 

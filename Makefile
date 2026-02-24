@@ -106,24 +106,24 @@ dev-down: ## Stop development environment
 test: ## Run all tests
 	@echo "$(COLOR_BOLD)Running tests...$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Testing API service...$(COLOR_RESET)"
-	cd src/services/api && npm test || true
+	cd services/api && npm test || true
 	@echo "$(COLOR_BLUE)Testing AI service...$(COLOR_RESET)"
-	cd src/services/ai && poetry run pytest || true
+	cd services/ai && poetry run pytest || true
 	@echo "$(COLOR_GREEN)Tests complete!$(COLOR_RESET)"
 
 lint: ## Lint all code
 	@echo "$(COLOR_BOLD)Linting code...$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Linting API service...$(COLOR_RESET)"
-	cd src/services/api && npm run lint || true
+	cd services/api && npm run lint || true
 	@echo "$(COLOR_BLUE)Linting AI service...$(COLOR_RESET)"
-	cd src/services/ai && poetry run ruff check app/ || true
+	cd services/ai && poetry run ruff check app/ || true
 
 format: ## Format all code
 	@echo "$(COLOR_BOLD)Formatting code...$(COLOR_RESET)"
 	@echo "$(COLOR_BLUE)Formatting API service...$(COLOR_RESET)"
-	cd src/services/api && npm run format || true
+	cd services/api && npm run format || true
 	@echo "$(COLOR_BLUE)Formatting AI service...$(COLOR_RESET)"
-	cd src/services/ai && poetry run black app/ || true
+	cd services/ai && poetry run black app/ || true
 
 validate: ## Validate infrastructure configuration (Traefik, secrets, Docker Compose)
 	@echo "$(COLOR_BOLD)Validating infrastructure...$(COLOR_RESET)"

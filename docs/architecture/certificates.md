@@ -54,7 +54,7 @@ Hill90 uses Let's Encrypt for SSL/TLS certificates with two different challenge 
 
 ### Custom Webhook (dns-manager)
 
-**Location:** `src/services/dns-manager/app.py`
+**Location:** `services/dns-manager/app.py`
 
 **Purpose:** Translates Lego httpreq provider format to Hostinger DNS API
 
@@ -303,5 +303,5 @@ issuer=C=US, O=(STAGING) Let's Encrypt, CN=(STAGING) Ersatz Edamame E1  # Stagin
 
 - **ACME DNS-01 Spec:** [RFC 8555 Section 8.4](https://datatracker.ietf.org/doc/html/rfc8555#section-8.4)
 - **Lego httpreq Provider:** [lego documentation](https://go-acme.github.io/lego/dns/httpreq/)
-- **dns-manager Implementation:** `src/services/dns-manager/app.py`
+- **dns-manager Implementation:** `services/dns-manager/app.py`
 - **Traefik ACME Docs:** [traefik.io/traefik/https/acme](https://doc.traefik.io/traefik/https/acme/)
