@@ -96,7 +96,7 @@ jobs:
           python-version: '3.12'
 
       - name: Run check script tests
-        run: pip install pytest && pytest tests/checks/ -v
+        run: pip install pytest pyyaml && pytest tests/checks/ -v
 
       - name: Run MCP tests
         working-directory: src/services/mcp
