@@ -14,10 +14,10 @@ export default function AppShell({
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
-        <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
-          <HillLogo width={96} className="logo-glow-hold" />
-        </Link>
         <div className="flex items-center gap-4">
+          <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
+            <HillLogo width={96} className="logo-glow-hold" />
+          </Link>
           <Link
             href="/dashboard"
             className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
@@ -32,8 +32,8 @@ export default function AppShell({
           </Link>
           <AdminDocsLink />
           {navExtra}
-          <AuthButtons />
         </div>
+        <AuthButtons />
       </nav>
 
       {/* Content */}
