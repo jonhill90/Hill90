@@ -65,6 +65,13 @@ check_segment() {
     return 1
   fi
 
+  # ALLOW: validation commands may reference scripts/deploy.sh as an argument.
+  # Example: shellcheck scripts/deploy.sh, bats tests/scripts/deploy.bats
+  if [[ "$seg" =~ ^shellcheck([[:space:]]|$) ]] || \
+     [[ "$seg" =~ ^bats([[:space:]]|$) ]]; then
+    return 1
+  fi
+
   # DENY: bypassing branch protections
   if [[ "$seg" =~ gh[[:space:]]+pr[[:space:]]+merge ]] && \
      [[ "$seg" =~ (--admin|--force) ]]; then
