@@ -65,17 +65,17 @@ cmd_verify() {
 
     echo "Verifying readiness: ${service} (${env})"
 
-    local max_attempts=30
+    local max_attempts=${DEPLOY_VERIFY_MAX_ATTEMPTS:-30}
     local attempt=0
     local check_cmd
 
     case "$service" in
         db)            check_cmd='docker exec postgres pg_isready -U postgres' ;;
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]' ;;
-        api)           check_cmd='docker exec api curl -sf http://localhost:3000/health' ;;
-        ai)            check_cmd='docker exec ai curl -sf http://localhost:8000/health' ;;
-        mcp)           check_cmd='docker exec mcp curl -sf http://localhost:8001/health' ;;
-        ui)            check_cmd='docker exec ui curl -sf http://localhost:3000/api/health' ;;
+        api)           check_cmd='docker exec api node -e "require(\"http\").get(\"http://localhost:3000/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"' ;;
+        ai)            check_cmd='docker exec ai python -c "import requests; r=requests.get(\"http://localhost:8000/health\"); exit(0 if r.ok else 1)"' ;;
+        mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"' ;;
+        ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"' ;;
         minio)         check_cmd='docker exec minio mc ready local' ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy' ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview' ;;
@@ -93,6 +93,12 @@ cmd_verify() {
     done
 
     echo "✗ ${service} failed readiness check after ${max_attempts} attempts"
+    echo "--- Diagnostic output for ${service} ---"
+    echo "Container state:"
+    docker inspect --format='{{.State.Status}} (health: {{if .State.Health}}{{.State.Health.Status}}{{else}}no healthcheck{{end}})' "$service" 2>/dev/null || echo "  container not found"
+    echo "Last 20 log lines:"
+    docker logs --tail 20 "$service" 2>&1 || echo "  no logs available"
+    echo "--- End diagnostics ---"
     exit 1
 }
 

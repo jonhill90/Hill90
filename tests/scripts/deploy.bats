@@ -198,6 +198,62 @@
 }
 
 # ---------------------------------------------------------------------------
+# Readiness check and diagnostics tests
+# ---------------------------------------------------------------------------
+
+@test "deploy.sh readiness checks do not use docker exec curl" {
+  run grep -c 'docker exec.*curl' scripts/deploy.sh
+  [ "$output" = "0" ]
+}
+
+@test "deploy.sh node services use node for readiness" {
+  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'api)'"
+  [[ "$output" == *"node -e"* ]]
+  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'ui)'"
+  [[ "$output" == *"node -e"* ]]
+}
+
+@test "deploy.sh python services use python for readiness" {
+  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'ai)'"
+  [[ "$output" == *"python -c"* ]]
+  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'mcp)'"
+  [[ "$output" == *"python -c"* ]]
+}
+
+@test "deploy.sh cmd_verify emits diagnostics on failure" {
+  run grep "Diagnostic output" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+  run grep 'docker logs --tail' scripts/deploy.sh
+  [ "$status" -eq 0 ]
+  run grep 'docker inspect --format' scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy.sh cmd_verify failure path prints diagnostics for missing container" {
+  # Uses a recognized service name (mcp) so it reaches the retry+diagnostics
+  # path, not the "Unknown service" branch. Skip if a real mcp container
+  # happens to be running locally (deploy target is VPS, not dev Mac).
+  if docker inspect mcp >/dev/null 2>&1; then
+    skip "mcp container running locally — cannot test failure path"
+  fi
+  run env DEPLOY_VERIFY_MAX_ATTEMPTS=1 bash scripts/deploy.sh verify mcp
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Diagnostic output for mcp"* ]]
+  [[ "$output" == *"container not found"* ]] || [[ "$output" == *"no logs available"* ]]
+  [[ "$output" == *"End diagnostics"* ]]
+}
+
+@test "mcp Dockerfile has HEALTHCHECK" {
+  run grep "HEALTHCHECK" services/mcp/Dockerfile
+  [ "$status" -eq 0 ]
+}
+
+@test "ui Dockerfile does not install curl" {
+  run grep "apk add.*curl" services/ui/Dockerfile
+  [ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
 # Legacy agentbox anti-regression tests
 # ---------------------------------------------------------------------------
 

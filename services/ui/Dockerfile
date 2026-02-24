@@ -6,7 +6,6 @@ COPY . .
 RUN npm run build
 
 FROM node:20-alpine
-RUN apk add --no-cache curl
 WORKDIR /app
 COPY --from=builder /build/.next/standalone ./
 COPY --from=builder /build/.next/static ./.next/static
