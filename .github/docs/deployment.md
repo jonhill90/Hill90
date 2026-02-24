@@ -120,10 +120,10 @@ The orchestrator enforces deployment ordering:
 
 When you push changes to `main`:
 - Changes to `platform/data/postgres/**` → Only database deploys
-- Changes to `src/services/api/**` → Only API service deploys
-- Changes to `src/services/ai/**` → Only AI service deploys
-- Changes to `src/services/mcp/**` → Only MCP service deploys
-- Changes to `src/services/ui/**` → Only UI service deploys
+- Changes to `services/api/**` → Only API service deploys
+- Changes to `services/ai/**` → Only AI service deploys
+- Changes to `services/mcp/**` → Only MCP service deploys
+- Changes to `services/ui/**` → Only UI service deploys
 - Changes to `deploy/compose/prod/docker-compose.minio.yml` → Only MinIO deploys
 - Changes to `platform/auth/keycloak/**` → Only Keycloak deploys
 

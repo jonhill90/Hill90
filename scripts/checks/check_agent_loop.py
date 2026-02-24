@@ -56,12 +56,12 @@ def read_pr_body() -> str:
 
 def classify(files: list[str]) -> dict[str, bool]:
     ui = any(
-        f.startswith("src/services/ui/")
+        f.startswith("services/ui/")
         or f.startswith("platform/auth/keycloak/themes/")
         or f.endswith((".tsx", ".jsx", ".css", ".scss"))
         for f in files
     )
-    api = any(f.startswith("src/services/api/") or f.startswith("src/services/mcp/") for f in files)
+    api = any(f.startswith("services/api/") or f.startswith("services/mcp/") for f in files)
     infra = any(
         f.startswith("deploy/")
         or f.startswith("platform/")

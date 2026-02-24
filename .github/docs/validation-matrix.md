@@ -4,8 +4,8 @@ This matrix defines which validation evidence should appear in PRs based on chan
 
 | Change Type | Detection Hint | Expected Validation Evidence |
 |---|---|---|
-| UI | `src/services/ui/**`, `platform/auth/keycloak/themes/**`, `*.css`, `*.tsx` | Playwright interaction checks, screenshots or explicit visual assertions |
-| API/MCP | `src/services/api/**`, `src/services/mcp/**` | API tests (`npm test`, `pytest`) and/or `curl` response checks |
+| UI | `services/ui/**`, `platform/auth/keycloak/themes/**`, `*.css`, `*.tsx` | Playwright interaction checks, screenshots or explicit visual assertions |
+| API/MCP | `services/api/**`, `services/mcp/**` | API tests (`npm test`, `pytest`) and/or `curl` response checks |
 | Infra/Deploy | `deploy/**`, `platform/**`, `scripts/*.sh` | Workflow run evidence (`gh run`), deployment confirmation, health checks |
 | Infra/Stateful | `deploy/compose/**`, volume or project-name changes | Before/after volume mounts via `docker inspect`, workflow run IDs + exit status, rollback plan with recovery commands, no old-project stragglers (`docker ps --filter label=com.docker.compose.project=<old>`) |
 | Docs-only | `*.md` only | Link checks and concise accuracy review |
