@@ -1,4 +1,4 @@
-name: Deploy Infrastructure
+name: Manual Deploy Infra (Prod)
 
 on:
   workflow_dispatch:

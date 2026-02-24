@@ -1,10 +1,12 @@
-name: CI
+name: Validate Repository
 
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -55,6 +57,22 @@ jobs:
       - name: Lint scripts
         run: shellcheck --severity=error scripts/*.sh
 
+      - name: Assert deploy safety invariants
+        run: |
+          echo "Checking: no --remove-orphans..."
+          ! (grep -- "--remove-orphans" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#")
+
+          echo "Checking: all docker compose calls use -p..."
+          ! (grep "docker compose" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v -- "-p ")
+
+          echo "All safety checks passed."
+
+      - name: Assert compose volume naming
+        run: python3 scripts/checks/check_volume_names.py
+
+      - name: Assert no destructive volume commands
+        run: bash scripts/checks/check_destructive_commands.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -78,7 +96,7 @@ jobs:
           python-version: '3.12'
 
       - name: Run check script tests
-        run: pip install pytest && pytest tests/checks/ -v
+        run: pip install pytest pyyaml && pytest tests/checks/ -v
 
       - name: Run MCP tests
         working-directory: src/services/mcp
