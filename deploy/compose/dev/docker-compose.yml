@@ -15,7 +15,7 @@ services:
   # API Service (Development)
   api:
     build:
-      context: ../../../src/services/api
+      context: ../../../services/api
       dockerfile: Dockerfile.dev
     container_name: api-dev
     networks:
@@ -23,7 +23,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ../../../src/services/api:/app
+      - ../../../services/api:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
@@ -35,7 +35,7 @@ services:
   # AI Service (Development)
   ai:
     build:
-      context: ../../../src/services/ai
+      context: ../../../services/ai
       dockerfile: Dockerfile.dev
     container_name: ai-dev
     networks:
@@ -43,7 +43,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ../../../src/services/ai:/app
+      - ../../../services/ai:/app
     environment:
       - ENVIRONMENT=development
       - PORT=8000
@@ -52,7 +52,7 @@ services:
   # Auth Service (Development)
   auth:
     build:
-      context: ../../../src/services/auth
+      context: ../../../services/auth
       dockerfile: Dockerfile.dev
     container_name: auth-dev
     networks:
@@ -60,7 +60,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ../../../src/services/auth:/app
+      - ../../../services/auth:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
@@ -76,7 +76,7 @@ services:
   # UI Service (Development)
   ui:
     build:
-      context: ../../../src/services/ui
+      context: ../../../services/ui
       dockerfile: Dockerfile.dev
     container_name: ui-dev
     networks:
@@ -84,7 +84,7 @@ services:
     ports:
       - "3002:3000"
     volumes:
-      - ../../../src/services/ui:/app
+      - ../../../services/ui:/app
       - /app/node_modules
       - /app/.next
     environment:

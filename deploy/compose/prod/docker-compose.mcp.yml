@@ -15,7 +15,7 @@ services:
   # MCP Gateway (Python/FastAPI)
   mcp:
     build:
-      context: ../../../src/services/mcp
+      context: ../../../services/mcp
       dockerfile: Dockerfile
     image: hill90/mcp:${VERSION:-latest}
     container_name: mcp

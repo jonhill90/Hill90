@@ -15,7 +15,7 @@ services:
   # UI (Next.js)
   ui:
     build:
-      context: ../../../src/services/ui
+      context: ../../../services/ui
       dockerfile: Dockerfile
     image: hill90/ui:${VERSION:-latest}
     container_name: ui
