@@ -3,6 +3,9 @@ name: Manual Deploy Auth (Prod)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: deploy-prod
   cancel-in-progress: false

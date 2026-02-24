@@ -157,6 +157,31 @@ class TestDornyFilters:
 class TestTriggerPaths:
     """L1: Verify trigger path inclusion and exclusion."""
 
+    def test_trigger_paths_exact_list(self, trigger_paths):
+        """Trigger paths must match the expected set exactly.
+
+        This is the strictest L1 gate: any addition or removal of trigger
+        paths must be reflected here, preventing silent scope creep.
+        """
+        expected = sorted([
+            "src/services/api/**",
+            "src/services/ai/**",
+            "src/services/mcp/**",
+            "src/services/ui/**",
+            "platform/auth/keycloak/**",
+            "platform/data/postgres/**",
+            "platform/observability/**",
+            "deploy/compose/prod/docker-compose.db.yml",
+            "deploy/compose/prod/docker-compose.minio.yml",
+            "deploy/compose/prod/docker-compose.auth.yml",
+            "deploy/compose/prod/docker-compose.api.yml",
+            "deploy/compose/prod/docker-compose.ai.yml",
+            "deploy/compose/prod/docker-compose.mcp.yml",
+            "deploy/compose/prod/docker-compose.ui.yml",
+            "deploy/compose/prod/docker-compose.observability.yml",
+        ])
+        assert sorted(trigger_paths) == expected
+
     def test_trigger_paths_include_api(self, trigger_paths):
         assert _matches_any("src/services/api/src/index.ts", trigger_paths)
 
@@ -164,6 +189,16 @@ class TestTriggerPaths:
         assert _matches_any(
             "platform/auth/keycloak/themes/hill90/login/theme.properties",
             trigger_paths,
+        )
+
+    def test_trigger_paths_exclude_unknown_service(self, trigger_paths):
+        assert not _matches_any(
+            "src/services/newsvc/src/main.ts", trigger_paths
+        )
+
+    def test_trigger_paths_exclude_unknown_platform_data(self, trigger_paths):
+        assert not _matches_any(
+            "platform/data/redis/redis.conf", trigger_paths
         )
 
     def test_trigger_paths_exclude_infra(self, trigger_paths):

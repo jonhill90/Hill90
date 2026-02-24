@@ -4,9 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/services/**'
-      - 'platform/auth/**'
-      - 'platform/data/**'
+      - 'src/services/api/**'
+      - 'src/services/ai/**'
+      - 'src/services/mcp/**'
+      - 'src/services/ui/**'
+      - 'platform/auth/keycloak/**'
+      - 'platform/data/postgres/**'
       - 'platform/observability/**'
       - 'deploy/compose/prod/docker-compose.db.yml'
       - 'deploy/compose/prod/docker-compose.minio.yml'
@@ -23,6 +26,9 @@ on:
         type: choice
         options: [all, db, minio, auth, api, ai, mcp, ui, observability]
         default: 'all'
+
+permissions:
+  contents: write
 
 concurrency:
   group: deploy-prod
