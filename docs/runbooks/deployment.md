@@ -242,7 +242,7 @@ These commands destroy volume data and must never appear in deploy scripts or wo
 - `docker volume rm` — deletes volumes directly
 - `docker system prune` — may remove unused volumes
 
-CI enforces this ban via `ci-deploy-scripts.yml`.
+CI enforces this ban via the `Validate Repository` workflow (`ci.yml`).
 
 ### Pre-Change Backup
 

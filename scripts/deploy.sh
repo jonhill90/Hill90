@@ -21,7 +21,7 @@ Commands:
   infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
   db       Deploy database (PostgreSQL)
   minio    Deploy MinIO object storage
-  auth     Deploy Keycloak identity provider
+  auth     Deploy auth identity provider (Keycloak)
   api      Deploy API service
   ai       Deploy AI service
   mcp      Deploy MCP service

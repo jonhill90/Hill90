@@ -103,7 +103,7 @@ push to main → changes detection → deploy only affected services in dependen
 | Workflow | Role | Trigger |
 |----------|------|---------|
 | `deploy.yml` | Orchestrator | Push to `main` (path-filtered) or `workflow_dispatch` |
-| `_deploy-service.yml` | Reusable deploy job | Called by orchestrator |
+| `reusable-deploy-service.yml` | Reusable deploy job | Called by orchestrator |
 | `deploy-infra.yml` | Edge stack (manual only) | `workflow_dispatch` only |
 | `deploy-*.yml` (9 files) | Legacy per-service (dormant) | `workflow_dispatch` only |
 

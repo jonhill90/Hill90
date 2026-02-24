@@ -4,8 +4,86 @@
 
 **Hybrid approach:** Both Mac-based (local scripts) and GitHub Actions automation are available.
 
-- ✅ **Mac/Local:** Use `make recreate-vps` + `make config-vps` (API-based, fully automated)
-- ✅ **GitHub Actions:** Full automation via Hostinger API (tested and operational)
+- **Mac/Local:** Use `make recreate-vps` + `make config-vps` (API-based, fully automated)
+- **GitHub Actions:** Full automation via Hostinger API (tested and operational)
+
+## Workflow Inventory
+
+| Workflow File | Display Name | Trigger | Purpose |
+|---|---|---|---|
+| `ci.yml` | Validate Repository | `pull_request` | Bats, shellcheck, compose, API/UI/MCP tests, harness freshness, deploy scope contracts |
+| `agent-loop-gate.yml` | Policy Gate (Advisory) | `pull_request` (opened, synchronize) | Linear refs, test plan, validation evidence |
+| `deploy.yml` | Deploy Changed Services (Prod) | `push` to main (path-filtered), `workflow_dispatch` | Orchestrator — deploys only changed services |
+| `reusable-deploy-service.yml` | Reusable Deploy Service | `workflow_call` | Shared deploy job called by orchestrator and manual workflows |
+| `deploy-infra.yml` | Manual Deploy Infra (Prod) | `workflow_dispatch` | Edge stack (traefik, dns-manager, portainer) — manual only |
+| `deploy-*.yml` (8 files) | Manual Deploy {Service} (Prod) | `workflow_dispatch` | Per-service manual dispatch, calls reusable template |
+| `smoke-auth.yml` | Smoke Test Auth (Prod) | `repository_dispatch`, `workflow_dispatch` | Playwright smoke tests after auth deploy |
+| `tailscale.yml` | Tailscale | `workflow_dispatch` | Tailscale ACL management |
+| `recreate-vps.yml` | Recreate VPS | `workflow_dispatch` | VPS OS rebuild |
+| `config-vps.yml` | Configure VPS | `workflow_dispatch`, `workflow_run` | VPS bootstrap after rebuild |
+
+## Deploy Concurrency
+
+All deploy workflows share a single concurrency group: `deploy-prod` with `cancel-in-progress: false`.
+
+### Behavior
+
+- Concurrent deploy runs **queue** rather than cancel each other.
+- If two PRs merge back-to-back, the second deploy waits for the first to finish.
+- Manual dispatches also queue behind any in-progress deploy.
+
+### Why Global Serialization
+
+Per-service concurrency groups (e.g., `deploy-api`, `deploy-ui`) were considered but rejected:
+
+1. **Dependency ordering** — the orchestrator enforces `db -> auth -> api/mcp`. Per-service groups would allow `api` to start before `auth` finishes if they ran in parallel from different triggers.
+2. **VPS resource constraints** — the single-VPS architecture means concurrent deploys compete for CPU/memory during container builds and restarts.
+3. **Simplicity** — global serialization is easier to reason about and debug.
+
+### Tradeoffs
+
+- **Downside**: A slow deploy (e.g., observability with 7 containers) blocks all other deploys.
+- **Mitigation**: Path-filtered triggers ensure only changed services deploy, so most runs are fast (single service).
+- **Escape hatch**: For urgent hotfixes, use `workflow_dispatch` on the specific service's manual workflow. It queues but doesn't cancel the in-progress deploy.
+
+## CI Concurrency
+
+CI (`Validate Repository`) uses `ci-${{ github.head_ref || github.ref }}` with `cancel-in-progress: true`.
+
+- Each PR branch gets its own concurrency group.
+- Pushing a new commit cancels the previous CI run for the same branch.
+- Different PRs run in parallel.
+
+## Policy Gate Concurrency
+
+Policy Gate (Advisory) uses `gate-${{ github.head_ref }}` with `cancel-in-progress: true`.
+
+- Same per-branch cancellation as CI.
+
+## Noise Reduction
+
+### Trigger Scoping
+
+- **Deploy orchestrator**: trigger paths match dorny filter scope exactly — no broad globs.
+- **Infra excluded**: `platform/edge/**`, `docker-compose.infra.yml` do not trigger the orchestrator.
+- **Deploy scripts excluded**: changes to `scripts/deploy.sh` do not trigger deploys.
+- **Docs excluded**: README, AGENTS.md, and documentation changes do not trigger deploys.
+
+### Event Filtering
+
+- **Policy Gate**: only fires on `opened` and `synchronize` (not `edited` or `reopened`).
+- **CI**: only fires on `pull_request` (push-to-main duplicate eliminated).
+- **Smoke tests**: fire via `repository_dispatch` after auth deploys, not `workflow_run`.
+
+### Contract Tests
+
+`tests/checks/test_deploy_scope.py` enforces trigger/filter consistency:
+
+- **L1 (Trigger)**: verifies which paths do/don't trigger the orchestrator.
+- **L2 (Dorny)**: verifies which services each path activates.
+- **L3 (Invariant)**: verifies dorny filters are reachable by triggers, and triggers have overlapping dorny coverage.
+
+---
 
 ## Workflow Status & Test Results
 
@@ -173,9 +251,9 @@ make config-vps VPS_IP=<ip>            # Bootstrap with Ansible
 ### 4. Deploy MinIO Workflow
 
 **`.github/workflows/deploy-minio.yml`** - MinIO Storage Deployment
-- **Trigger:** Push to `main` (for MinIO compose/deploy changes), manual dispatch
+- **Trigger:** Manual dispatch only (push-based MinIO deploys go through the orchestrator `deploy.yml`)
 - **Features:**
-  - MinIO storage deployment via SSH over Tailscale
+  - MinIO storage deployment via reusable deploy template
   - Container health verification
 - **Duration:** ~1 minute
 - **Status:** ✅ Operational

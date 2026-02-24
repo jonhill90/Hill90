@@ -1,12 +1,21 @@
-name: Deploy
+name: Deploy Changed Services (Prod)
 
 on:
   push:
     branches: [main]
     paths:
       - 'src/services/**'
-      - 'platform/**'
-      - 'deploy/compose/prod/**'
+      - 'platform/auth/**'
+      - 'platform/data/**'
+      - 'platform/observability/**'
+      - 'deploy/compose/prod/docker-compose.db.yml'
+      - 'deploy/compose/prod/docker-compose.minio.yml'
+      - 'deploy/compose/prod/docker-compose.auth.yml'
+      - 'deploy/compose/prod/docker-compose.api.yml'
+      - 'deploy/compose/prod/docker-compose.ai.yml'
+      - 'deploy/compose/prod/docker-compose.mcp.yml'
+      - 'deploy/compose/prod/docker-compose.ui.yml'
+      - 'deploy/compose/prod/docker-compose.observability.yml'
   workflow_dispatch:
     inputs:
       service:
@@ -66,7 +75,7 @@ jobs:
   deploy-db:
     needs: [changes]
     if: needs.changes.outputs.db == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'db'
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: db
     secrets: inherit
@@ -74,7 +83,7 @@ jobs:
   deploy-minio:
     needs: [changes]
     if: needs.changes.outputs.minio == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'minio'
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: minio
     secrets: inherit
@@ -83,7 +92,7 @@ jobs:
   deploy-auth:
     needs: [changes, deploy-db]
     if: always() && (needs.changes.outputs.auth == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'auth') && !failure() && !cancelled()
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: auth
     secrets: inherit
@@ -92,7 +101,7 @@ jobs:
   deploy-api:
     needs: [changes, deploy-auth]
     if: always() && (needs.changes.outputs.api == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'api') && !failure() && !cancelled()
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: api
     secrets: inherit
@@ -100,7 +109,7 @@ jobs:
   deploy-ai:
     needs: [changes]
     if: needs.changes.outputs.ai == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'ai'
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: ai
     secrets: inherit
@@ -108,7 +117,7 @@ jobs:
   deploy-mcp:
     needs: [changes, deploy-auth]
     if: always() && (needs.changes.outputs.mcp == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'mcp') && !failure() && !cancelled()
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: mcp
     secrets: inherit
@@ -116,7 +125,7 @@ jobs:
   deploy-ui:
     needs: [changes]
     if: needs.changes.outputs.ui == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'ui'
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: ui
     secrets: inherit
@@ -124,7 +133,7 @@ jobs:
   deploy-observability:
     needs: [changes]
     if: needs.changes.outputs.observability == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'observability'
-    uses: ./.github/workflows/_deploy-service.yml
+    uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: observability
     secrets: inherit

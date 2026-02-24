@@ -78,7 +78,7 @@ Copilot code review reads both `copilot-instructions.md` and matching `.github/i
 
 ## Agent Loop Signal
 
-- PRs run `.github/workflows/agent-loop-gate.yml` (`Agent Loop (Advisory)`).
+- PRs run `.github/workflows/agent-loop-gate.yml` (`Policy Gate (Advisory)`).
 - The check is non-blocking by default and surfaces missing process evidence in PR summaries.
 - Evidence expectations are defined in `.github/docs/validation-matrix.md`.
 - PR authors should use `.github/pull_request_template.md` so all three agent platforms emit consistent evidence.

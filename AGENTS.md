@@ -42,7 +42,7 @@ This is the required flow for Claude, Codex, and Copilot-assisted changes.
 8. **Create PR** — `gh pr create` with summary bullets + test plan checklist.
    - Use `.github/pull_request_template.md` and include validation evidence per `.github/docs/validation-matrix.md`.
 9. **CI gates** — tests, security scan, Copilot review.
-   - Advisory process signal: `Agent Loop (Advisory)` workflow warns on missing Linear/validation evidence.
+   - Advisory process signal: `Policy Gate (Advisory)` workflow warns on missing Linear/validation evidence.
 10. **Address feedback** — fix CI/review findings.
 11. **Merge** — `gh pr merge --squash --delete-branch`.
    - Never use `--admin` or `--force` to bypass branch protections.
