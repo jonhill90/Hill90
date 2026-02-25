@@ -25,6 +25,7 @@ TARGET_FILES = [
     "deploy/compose/prod/docker-compose.infra.yml",
     "deploy/compose/prod/docker-compose.minio.yml",
     "deploy/compose/prod/docker-compose.observability.yml",
+    "deploy/compose/prod/docker-compose.vault.yml",
 ]
 
 

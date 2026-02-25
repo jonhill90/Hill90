@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-status vault-setup vault-seed
 
 # Environment
 ENV ?= prod
@@ -160,6 +160,10 @@ deploy-minio: ## Deploy MinIO object storage
 	@echo "$(COLOR_YELLOW)Deploying MinIO storage...$(COLOR_RESET)"
 	bash scripts/deploy.sh minio $(ENV)
 
+deploy-vault: ## Deploy OpenBao secrets management
+	@echo "$(COLOR_YELLOW)Deploying OpenBao vault...$(COLOR_RESET)"
+	bash scripts/deploy.sh vault $(ENV)
+
 deploy-auth: ## Deploy auth identity provider (Keycloak)
 	@echo "$(COLOR_YELLOW)Deploying auth (Keycloak)...$(COLOR_RESET)"
 	bash scripts/deploy.sh auth $(ENV)
@@ -207,7 +211,7 @@ logs-%: ## Show logs for a service (e.g., make logs-api)
 	docker logs -f $*
 
 ps: ## Show running containers
-	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|api|docker-proxy|ai|mcp|ui|minio|grafana|agentbox)" || true
+	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|api|docker-proxy|ai|mcp|ui|minio|openbao|grafana|agentbox)" || true
 
 ssh: ## SSH into VPS
 	@if [ -z "$(VPS_HOST)" ]; then \
@@ -290,3 +294,22 @@ rollback-classify: ## Classify changes for a service (usage: make rollback-class
 		exit 1; \
 	fi
 	bash scripts/rollback.sh classify $(SERVICE) $(REF)
+
+# ============================================================================
+# Vault (OpenBao) Management
+# ============================================================================
+
+vault-init: ## Initialize OpenBao (generates unseal key + root token)
+	bash scripts/vault.sh init
+
+vault-unseal: ## Unseal OpenBao using host key file or SOPS fallback
+	bash scripts/vault.sh unseal
+
+vault-status: ## Show OpenBao seal/init status
+	bash scripts/vault.sh status
+
+vault-setup: ## Enable KV v2, AppRole, audit, apply policies, create roles
+	bash scripts/vault.sh setup
+
+vault-seed: ## Seed KV v2 paths from SOPS-encrypted secrets
+	bash scripts/vault.sh seed

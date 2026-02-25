@@ -48,6 +48,13 @@
       "content": "${TAILSCALE_IP}",
       "ttl": 3600,
       "priority": null
+    },
+    {
+      "type": "A",
+      "name": "vault",
+      "content": "${TAILSCALE_IP}",
+      "ttl": 3600,
+      "priority": null
     }
   ]
 }
