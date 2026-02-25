@@ -89,9 +89,9 @@ cmd_init() {
     init_output=$(bao_exec operator init -key-shares=1 -key-threshold=1 -format=json)
 
     local unseal_key
-    unseal_key=$(echo "$init_output" | grep -o '"unseal_keys_b64":\[\"[^"]*\"' | sed 's/.*\["//' | sed 's/"//')
+    unseal_key=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['unseal_keys_b64'][0])")
     local root_token
-    root_token=$(echo "$init_output" | grep -o '"root_token":"[^"]*"' | sed 's/"root_token":"//' | sed 's/"//')
+    root_token=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['root_token'])")
 
     echo ""
     echo "================================"
@@ -314,7 +314,7 @@ cmd_policy_apply() {
         local policy_name
         policy_name=$(basename "$policy_file" .hcl)
         echo "  Applying policy: ${policy_name}"
-        bao_exec_env policy write "$policy_name" - < "$policy_file"
+        bao_exec_env policy write "$policy_name" "/openbao/policies/$(basename "$policy_file")"
     done
     success "All policies applied"
 }
