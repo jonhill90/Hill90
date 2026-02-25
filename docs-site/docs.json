@@ -1,5 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
   "name": "Hill90",
   "logo": {
     "light": "/logo/light.svg",
@@ -11,48 +12,49 @@
     "light": "#60A5FA",
     "dark": "#1E40AF"
   },
-  "topbarLinks": [
-    {
-      "name": "GitHub",
-      "url": "https://github.com/jondoesntgit/Hill90"
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/jonhill90/Hill90"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Dashboard",
+      "href": "https://hill90.com"
     }
-  ],
-  "topbarCtaButton": {
-    "name": "Dashboard",
-    "url": "https://hill90.com"
   },
-  "anchors": [
-    {
-      "name": "API Reference",
-      "icon": "code",
-      "url": "api-reference"
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting Started",
+        "pages": [
+          "index",
+          "getting-started/overview",
+          "getting-started/quickstart",
+          "getting-started/authentication"
+        ]
+      },
+      {
+        "group": "Architecture",
+        "pages": [
+          "architecture/overview",
+          "architecture/services"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "openapi": "/openapi.yaml",
+        "pages": [
+          "api-reference/overview"
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/jonhill90/Hill90"
     }
-  ],
-  "navigation": [
-    {
-      "group": "Getting Started",
-      "pages": [
-        "getting-started/overview",
-        "getting-started/quickstart",
-        "getting-started/authentication"
-      ]
-    },
-    {
-      "group": "Architecture",
-      "pages": [
-        "architecture/overview",
-        "architecture/services"
-      ]
-    },
-    {
-      "group": "API Reference",
-      "pages": [
-        "api-reference/overview"
-      ]
-    }
-  ],
-  "openapi": ["/openapi.yaml"],
-  "footerSocials": {
-    "github": "https://github.com/jondoesntgit/Hill90"
   }
 }
