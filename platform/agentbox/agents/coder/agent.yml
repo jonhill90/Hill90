@@ -16,6 +16,7 @@ tools:
       - /usr/bin/pip
       - /usr/local/bin/poetry
       - /usr/bin/make
+      - /usr/local/bin/akm
     denied_patterns:
       - "rm\\s+-rf\\s+/"
       - ":(){ :|:& };:"

@@ -19,13 +19,15 @@ on:
       - 'deploy/compose/prod/docker-compose.ai.yml'
       - 'deploy/compose/prod/docker-compose.mcp.yml'
       - 'deploy/compose/prod/docker-compose.ui.yml'
+      - 'services/knowledge/**'
+      - 'deploy/compose/prod/docker-compose.knowledge.yml'
       - 'deploy/compose/prod/docker-compose.observability.yml'
   workflow_dispatch:
     inputs:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, db, minio, vault, auth, api, ai, mcp, ui, observability]
+        options: [all, db, minio, vault, auth, api, ai, mcp, ui, knowledge, observability]
         default: 'all'
 
 permissions:
@@ -48,6 +50,7 @@ jobs:
       ai: ${{ steps.filter.outputs.ai }}
       mcp: ${{ steps.filter.outputs.mcp }}
       ui: ${{ steps.filter.outputs.ui }}
+      knowledge: ${{ steps.filter.outputs.knowledge }}
       observability: ${{ steps.filter.outputs.observability }}
     steps:
       - uses: actions/checkout@v4
@@ -77,6 +80,9 @@ jobs:
             ui:
               - 'services/ui/**'
               - 'deploy/compose/prod/docker-compose.ui.yml'
+            knowledge:
+              - 'services/knowledge/**'
+              - 'deploy/compose/prod/docker-compose.knowledge.yml'
             observability:
               - 'deploy/compose/prod/docker-compose.observability.yml'
               - 'platform/observability/**'
@@ -146,6 +152,14 @@ jobs:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: ui
+    secrets: inherit
+
+  deploy-knowledge:
+    needs: [changes, deploy-db]
+    if: always() && (needs.changes.outputs.knowledge == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'knowledge') && !failure() && !cancelled()
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service: knowledge
     secrets: inherit
 
   deploy-observability:

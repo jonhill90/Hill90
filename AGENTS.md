@@ -94,6 +94,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Deploy MinIO | `bash scripts/deploy.sh minio prod` | `make deploy-minio` |
 | Deploy vault | `bash scripts/deploy.sh vault prod` | `make deploy-vault` |
 | Deploy UI | `bash scripts/deploy.sh ui prod` | `make deploy-ui` |
+| Deploy knowledge | `bash scripts/deploy.sh knowledge prod` | `make deploy-knowledge` |
 | Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |
 | Deploy all apps | `bash scripts/deploy.sh all prod` | `make deploy-all` |
 | Health check | `bash scripts/ops.sh health` | `make health` |
