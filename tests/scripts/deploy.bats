@@ -294,6 +294,76 @@
 }
 
 # ---------------------------------------------------------------------------
+# Vault (OpenBao) integration tests
+# ---------------------------------------------------------------------------
+
+@test "_common.sh has vault_available function" {
+  run grep "^vault_available()" scripts/_common.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "_common.sh has vault_login function" {
+  run grep "^vault_login()" scripts/_common.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "_common.sh vault_read_kv uses shlex.quote for safe output" {
+  run grep "shlex.quote" scripts/_common.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "_common.sh vault_paths_for_service returns correct paths" {
+  source scripts/_common.sh
+  [ "$(vault_paths_for_service api)" = "secret/shared/database secret/api/config" ]
+  [ "$(vault_paths_for_service db)" = "secret/shared/database" ]
+  [ "$(vault_paths_for_service auth)" = "secret/shared/database secret/auth/config" ]
+  [ "$(vault_paths_for_service ai)" = "secret/ai/config" ]
+  [ "$(vault_paths_for_service ui)" = "secret/ui/config" ]
+  [ "$(vault_paths_for_service minio)" = "secret/minio/config" ]
+  [ "$(vault_paths_for_service infra)" = "secret/infra/traefik secret/infra/dns-manager" ]
+  [ "$(vault_paths_for_service observability)" = "secret/observability/grafana" ]
+}
+
+@test "_common.sh vault_paths_for_service returns empty for vault/mcp/unknown" {
+  source scripts/_common.sh
+  [ -z "$(vault_paths_for_service vault)" ]
+  [ -z "$(vault_paths_for_service mcp)" ]
+  [ -z "$(vault_paths_for_service unknown)" ]
+}
+
+@test "_common.sh vault_load_secrets returns 0 for no-path service" {
+  source scripts/_common.sh
+  run vault_load_secrets vault
+  [ "$status" -eq 0 ]
+}
+
+@test "_common.sh vault_available returns non-zero when no container" {
+  source scripts/_common.sh
+  # On CI/dev machines there is no openbao container
+  if docker inspect openbao >/dev/null 2>&1; then
+    skip "openbao container running locally"
+  fi
+  run vault_available
+  [ "$status" -ne 0 ]
+}
+
+@test "_common.sh vault_login returns non-zero without SOPS file" {
+  source scripts/_common.sh
+  run vault_login api /nonexistent/file.env
+  [ "$status" -ne 0 ]
+}
+
+@test "deploy.sh checks vault_available before deploying" {
+  run grep "vault_available" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy.sh retains sops exec-env fallback" {
+  run grep "sops exec-env" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
 # Volume safety invariant tests
 # ---------------------------------------------------------------------------
 

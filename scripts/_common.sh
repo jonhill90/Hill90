@@ -94,3 +94,101 @@ load_secrets() {
 
     rm -f "$temp_file"
 }
+
+# ---------------------------------------------------------------------------
+# Vault (OpenBao) helpers — vault-first secret loading for deploy
+# ---------------------------------------------------------------------------
+
+vault_available() {
+    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" openbao \
+        bao status -format=json 2>/dev/null | \
+        python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if not d.get('sealed',True) else 1)" 2>/dev/null
+}
+
+vault_login() {
+    local service="$1"
+    local secrets_file="${2:-$PROJECT_ROOT/infra/secrets/prod.enc.env}"
+    local svc_upper
+    svc_upper=$(echo "$service" | tr '[:lower:]' '[:upper:]')
+    local role_id_var="VAULT_${svc_upper}_ROLE_ID"
+    local secret_id_var="VAULT_${svc_upper}_SECRET_ID"
+
+    local temp_file
+    temp_file=$(mktemp)
+    # shellcheck disable=SC2064
+    trap "rm -f '$temp_file'" RETURN
+
+    sops -d "$secrets_file" > "$temp_file" 2>/dev/null || { rm -f "$temp_file"; trap - RETURN; return 1; }
+
+    local role_id secret_id
+    role_id=$(grep "^${role_id_var}=" "$temp_file" | cut -d= -f2-)
+    secret_id=$(grep "^${secret_id_var}=" "$temp_file" | cut -d= -f2-)
+
+    rm -f "$temp_file"
+    trap - RETURN
+
+    [ -z "$role_id" ] && return 1
+    [ -z "$secret_id" ] && return 1
+
+    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" \
+        -e "ROLE_ID=$role_id" -e "SECRET_ID=$secret_id" openbao \
+        sh -c 'bao write -format=json auth/approle/login role_id="$ROLE_ID" secret_id="$SECRET_ID"' | \
+        python3 -c "import sys,json; print(json.load(sys.stdin)['auth']['client_token'])"
+}
+
+vault_read_kv() {
+    local token="$1"
+    local path="$2"
+    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=$token" openbao \
+        bao kv get -format=json "$path" 2>/dev/null | \
+        python3 -c "
+import sys, json, shlex
+data = json.load(sys.stdin)['data']['data']
+for k, v in data.items():
+    print(f'{k}={shlex.quote(str(v))}')
+"
+}
+
+vault_paths_for_service() {
+    local service="$1"
+    case "$service" in
+        db)            echo "secret/shared/database" ;;
+        api)           echo "secret/shared/database secret/api/config" ;;
+        ai)            echo "secret/ai/config" ;;
+        auth)          echo "secret/shared/database secret/auth/config" ;;
+        ui)            echo "secret/ui/config" ;;
+        minio)         echo "secret/minio/config" ;;
+        infra)         echo "secret/infra/traefik secret/infra/dns-manager" ;;
+        observability) echo "secret/observability/grafana" ;;
+        *)             echo "" ;;
+    esac
+}
+
+vault_load_secrets() {
+    local service="$1"
+    local secrets_file="${2:-$PROJECT_ROOT/infra/secrets/prod.enc.env}"
+
+    local paths
+    paths=$(vault_paths_for_service "$service")
+    [ -z "$paths" ] && return 0
+
+    local token
+    token=$(vault_login "$service" "$secrets_file") || return 1
+
+    local temp_file
+    temp_file=$(mktemp)
+    # shellcheck disable=SC2064
+    trap "rm -f '$temp_file'" RETURN
+
+    for path in $paths; do
+        vault_read_kv "$token" "$path" >> "$temp_file"
+    done
+
+    set -a
+    # shellcheck disable=SC1090
+    source "$temp_file"
+    set +a
+
+    rm -f "$temp_file"
+    trap - RETURN
+}

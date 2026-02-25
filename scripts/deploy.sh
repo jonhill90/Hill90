@@ -136,19 +136,58 @@ cmd_infra() {
     echo "Edge Stack Deployment - ${env}"
     echo "================================"
 
-    sops exec-env "$secrets_file" '
-        echo "Generating Traefik basic auth credentials..."
-        mkdir -p platform/edge/dynamic
-        echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
-        echo "✓ Created .htpasswd for Traefik dashboard authentication"
+    # Vault-first, SOPS-fallback for infra secrets
+    local vault_ok=false
+    if vault_available; then
+        if (vault_login "infra" "$secrets_file") >/dev/null 2>&1; then
+            vault_ok=true
+            info "OpenBao authenticated for infra"
+        else
+            warn "OpenBao available but login failed for infra, falling back to SOPS"
+        fi
+    else
+        warn "OpenBao not available, using SOPS fallback for infra"
+    fi
 
-        echo "Building and pulling images..."
-        docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' build --parallel
-        docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' pull --ignore-buildable
+    # Helper: infra deploy with SOPS
+    _deploy_infra_with_sops() {
+        sops exec-env "$secrets_file" '
+            echo "Generating Traefik basic auth credentials..."
+            mkdir -p platform/edge/dynamic
+            echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
+            echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
-        echo "Deploying edge stack (traefik, dns-manager, portainer)..."
-        docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' up -d --force-recreate
-    '
+            echo "Building and pulling images..."
+            docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' build --parallel
+            docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' pull --ignore-buildable
+
+            echo "Deploying edge stack (traefik, dns-manager, portainer)..."
+            docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' up -d --force-recreate
+        '
+    }
+
+    if [ "$vault_ok" = true ]; then
+        (
+            vault_load_secrets "infra" "$secrets_file"
+
+            echo "Generating Traefik basic auth credentials..."
+            mkdir -p platform/edge/dynamic
+            echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
+            echo "✓ Created .htpasswd for Traefik dashboard authentication"
+
+            echo "Building and pulling images..."
+            docker compose -p "hill90-${env}-edge" -f "$compose_file" build --parallel
+            docker compose -p "hill90-${env}-edge" -f "$compose_file" pull --ignore-buildable
+
+            echo "Deploying edge stack (traefik, dns-manager, portainer)..."
+            docker compose -p "hill90-${env}-edge" -f "$compose_file" up -d --force-recreate
+        ) || {
+            warn "Vault deploy failed for infra, retrying with SOPS fallback"
+            _deploy_infra_with_sops
+        }
+    else
+        _deploy_infra_with_sops
+    fi
 
     # Create internal networks if not present (edge compose creates hill90_edge;
     # internal networks are needed by app services but not by edge services)
@@ -340,33 +379,79 @@ cmd_service() {
         bash "$SCRIPT_DIR/backup.sh" backup "$backup_target" || warn "Pre-deploy backup failed (continuing deploy)"
     fi
 
-    if [ "$stateful" = true ]; then
-        # Stateful services: stack-scoped down + up (acceptable for volume/config changes)
-        sops exec-env "$secrets_file" '
-            echo "Stopping existing '"$service"' containers..."
-            docker compose -p "'"$project_name"'" -f '"$compose_file"' down || true
-
-            for container in '"$containers"'; do
-                docker rm -f "$container" 2>/dev/null || true
-            done
-
-            echo "Building and pulling images..."
-            docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
-            docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
-
-            echo "Deploying '"$service"' service..."
-            docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d
-        '
+    # Vault-first, SOPS-fallback for service secrets
+    local vault_ok=false
+    if vault_available; then
+        if (vault_login "$service" "$secrets_file") >/dev/null 2>&1; then
+            vault_ok=true
+            info "OpenBao authenticated for ${service}"
+        else
+            warn "OpenBao available but login failed for ${service}, falling back to SOPS"
+        fi
     else
-        # Stateless app services: no down, atomic replace via --force-recreate
-        sops exec-env "$secrets_file" '
-            echo "Building and pulling images..."
-            docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
-            docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
+        warn "OpenBao not available, using SOPS fallback"
+    fi
 
-            echo "Deploying '"$service"' service..."
-            docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d --force-recreate --no-deps
-        '
+    # Helper: run compose deploy with secrets from SOPS
+    _deploy_with_sops() {
+        local mode="$1"  # "stateful" or "stateless"
+        if [ "$mode" = "stateful" ]; then
+            sops exec-env "$secrets_file" '
+                echo "Stopping existing '"$service"' containers..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' down || true
+                for container in '"$containers"'; do
+                    docker rm -f "$container" 2>/dev/null || true
+                done
+                echo "Building and pulling images..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
+                echo "Deploying '"$service"' service..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d
+            '
+        else
+            sops exec-env "$secrets_file" '
+                echo "Building and pulling images..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
+                echo "Deploying '"$service"' service..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d --force-recreate --no-deps
+            '
+        fi
+    }
+
+    local deploy_mode="stateless"
+    [ "$stateful" = true ] && deploy_mode="stateful"
+
+    if [ "$vault_ok" = true ]; then
+        # Subshell: load secrets + deploy. If vault_load_secrets fails
+        # transiently, fall through to SOPS.
+        (
+            vault_load_secrets "$service" "$secrets_file"
+
+            if [ "$deploy_mode" = "stateful" ]; then
+                echo "Stopping existing $service containers..."
+                docker compose -p "$project_name" -f "$compose_file" down || true
+                for container in $containers; do
+                    docker rm -f "$container" 2>/dev/null || true
+                done
+            fi
+
+            echo "Building and pulling images..."
+            docker compose -p "$project_name" -f "$compose_file" build --parallel
+            docker compose -p "$project_name" -f "$compose_file" pull --ignore-buildable
+
+            echo "Deploying $service service..."
+            if [ "$deploy_mode" = "stateful" ]; then
+                docker compose -p "$project_name" -f "$compose_file" up -d
+            else
+                docker compose -p "$project_name" -f "$compose_file" up -d --force-recreate --no-deps
+            fi
+        ) || {
+            warn "Vault deploy failed for ${service}, retrying with SOPS fallback"
+            _deploy_with_sops "$deploy_mode"
+        }
+    else
+        _deploy_with_sops "$deploy_mode"
     fi
 
     echo ""
