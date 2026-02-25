@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|db|minio|auth|api|ai|mcp|ui|all|verify|backup} [env]
+# Usage: deploy.sh {infra|db|minio|vault|auth|api|ai|mcp|ui|all|verify|backup} [env]
 
 set -e
 
@@ -21,6 +21,7 @@ Commands:
   infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
   db       Deploy database (PostgreSQL)
   minio    Deploy MinIO object storage
+  vault    Deploy OpenBao secrets management
   auth     Deploy auth identity provider (Keycloak)
   api      Deploy API service
   ai       Deploy AI service
@@ -77,6 +78,7 @@ cmd_verify() {
         mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"' ;;
         ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"' ;;
         minio)         check_cmd='docker exec minio mc ready local' ;;
+        vault)         check_cmd='docker exec openbao bao status -format=json 2>/dev/null | grep -q "\"sealed\":false"' ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy' ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview' ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
@@ -238,6 +240,15 @@ cmd_service() {
             stateful=true
             summary="Service deployed:
   - minio (S3-compatible object storage, console at storage.hill90.com)"
+            ;;
+        vault)
+            compose_file="deploy/compose/${env}/docker-compose.vault.yml"
+            containers="openbao"
+            banner="OpenBao Vault Deployment"
+            stack="platform"
+            stateful=true
+            summary="Service deployed:
+  - openbao (secrets management at vault.hill90.com, Tailscale-only)"
             ;;
         ui)
             compose_file="deploy/compose/${env}/docker-compose.ui.yml"
@@ -432,7 +443,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|api|ai|mcp|minio|ui|observability) cmd_service "$cmd" "$@" ;;
+        db|auth|api|ai|mcp|minio|vault|ui|observability) cmd_service "$cmd" "$@" ;;
         all)            cmd_all "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;

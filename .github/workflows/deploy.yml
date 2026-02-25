@@ -13,6 +13,8 @@ on:
       - 'platform/observability/**'
       - 'deploy/compose/prod/docker-compose.db.yml'
       - 'deploy/compose/prod/docker-compose.minio.yml'
+      - 'deploy/compose/prod/docker-compose.vault.yml'
+      - 'platform/vault/**'
       - 'deploy/compose/prod/docker-compose.auth.yml'
       - 'deploy/compose/prod/docker-compose.api.yml'
       - 'deploy/compose/prod/docker-compose.ai.yml'
@@ -24,7 +26,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, db, minio, auth, api, ai, mcp, ui, observability]
+        options: [all, db, minio, vault, auth, api, ai, mcp, ui, observability]
         default: 'all'
 
 permissions:
@@ -41,6 +43,7 @@ jobs:
     outputs:
       db: ${{ steps.filter.outputs.db }}
       minio: ${{ steps.filter.outputs.minio }}
+      vault: ${{ steps.filter.outputs.vault }}
       auth: ${{ steps.filter.outputs.auth }}
       api: ${{ steps.filter.outputs.api }}
       ai: ${{ steps.filter.outputs.ai }}
@@ -58,6 +61,9 @@ jobs:
               - 'platform/data/postgres/**'
             minio:
               - 'deploy/compose/prod/docker-compose.minio.yml'
+            vault:
+              - 'deploy/compose/prod/docker-compose.vault.yml'
+              - 'platform/vault/**'
             auth:
               - 'platform/auth/keycloak/**'
               - 'deploy/compose/prod/docker-compose.auth.yml'
@@ -92,6 +98,14 @@ jobs:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: minio
+    secrets: inherit
+
+  deploy-vault:
+    needs: [changes]
+    if: needs.changes.outputs.vault == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'vault'
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service: vault
     secrets: inherit
 
   # --- Identity layer (after platform) ---

@@ -33,6 +33,7 @@ Commands:
 Services with backups:
   db             PostgreSQL (pg_dump + volume tar)
   minio          MinIO object storage (volume tar)
+  vault          OpenBao secrets data (volume tar)
   infra          Traefik certificates + Portainer data (volume tar)
   observability  Grafana dashboards + Prometheus data (volume tar)
 
@@ -130,6 +131,14 @@ backup_observability() {
     backup_volume "prometheus-data" "$backup_dir/prometheus-data.tar.gz" || true
 }
 
+backup_vault() {
+    local backup_dir="$1"
+    mkdir -p "$backup_dir"
+
+    echo "Backing up OpenBao..."
+    backup_volume "openbao-data" "$backup_dir/openbao-data.tar.gz"
+}
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -139,8 +148,8 @@ cmd_backup() {
 
     # Validate service before constructing any paths
     case "$service" in
-        db|minio|infra|observability) ;;
-        *) die "Unknown service for backup: $service. Use: db, minio, infra, observability" ;;
+        db|minio|vault|infra|observability) ;;
+        *) die "Unknown service for backup: $service. Use: db, minio, vault, infra, observability" ;;
     esac
 
     local timestamp
@@ -150,6 +159,7 @@ cmd_backup() {
     case "$service" in
         db)            backup_db "$backup_dir" ;;
         minio)         backup_minio "$backup_dir" ;;
+        vault)         backup_vault "$backup_dir" ;;
         infra)         backup_infra "$backup_dir" ;;
         observability) backup_observability "$backup_dir" ;;
     esac
@@ -164,7 +174,7 @@ cmd_backup_all() {
     echo "================================"
     echo ""
 
-    for svc in db minio infra observability; do
+    for svc in db minio vault infra observability; do
         cmd_backup "$svc"
         echo ""
     done
@@ -224,6 +234,12 @@ cmd_restore() {
                 restore_volume "prod_portainer-data" "$backup_dir/portainer-data.tar.gz"
             fi
             echo "  Restart services: docker restart traefik portainer"
+            ;;
+        vault)
+            [ -f "$backup_dir/openbao-data.tar.gz" ] || die "openbao-data.tar.gz not found in $backup_dir"
+            restore_volume "openbao-data" "$backup_dir/openbao-data.tar.gz"
+            echo "  Restart openbao: docker restart openbao"
+            echo "  Then unseal: bash scripts/vault.sh unseal"
             ;;
         observability)
             if [ -f "$backup_dir/grafana-data.tar.gz" ]; then
