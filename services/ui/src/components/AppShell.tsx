@@ -1,7 +1,5 @@
-import Link from 'next/link'
-import HillLogo from '@/components/HillLogo'
-import AuthButtons from '@/components/AuthButtons'
-import AdminDocsLink from '@/components/AdminDocsLink'
+import TopBar from '@/components/TopBar'
+import Sidebar from '@/components/Sidebar'
 
 export default function AppShell({
   children,
@@ -12,37 +10,22 @@ export default function AppShell({
 }) {
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
-        <div className="flex items-center gap-4">
-          <Link href="/" aria-label="Go to homepage" className="logo-link inline-flex items-center">
-            <HillLogo width={96} className="logo-glow-hold" />
-          </Link>
-          <Link
-            href="/dashboard"
-            className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/agents"
-            className="text-sm font-medium text-mountain-400 hover:text-white transition-colors"
-          >
-            Agents
-          </Link>
-          <AdminDocsLink />
-          {navExtra}
+      {/* Top bar: logo, hamburger (mobile), auth */}
+      <TopBar navExtra={navExtra} />
+
+      <div className="flex flex-1">
+        {/* Sidebar: desktop only */}
+        <Sidebar />
+
+        {/* Main content + footer */}
+        <div className="flex flex-col flex-1 min-w-0">
+          {children}
+
+          <footer className="px-6 py-6 border-t border-navy-700 text-center text-sm text-mountain-500">
+            &copy; {new Date().getFullYear()} Hill90
+          </footer>
         </div>
-        <AuthButtons />
-      </nav>
-
-      {/* Content */}
-      {children}
-
-      {/* Footer */}
-      <footer className="px-6 py-6 border-t border-navy-700 text-center text-sm text-mountain-500">
-        &copy; {new Date().getFullYear()} Hill90
-      </footer>
+      </div>
     </div>
   )
 }

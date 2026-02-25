@@ -8,6 +8,7 @@ let mockSession: any = { data: null, status: 'unauthenticated' }
 
 vi.mock('next-auth/react', () => ({
   useSession: () => mockSession,
+  signIn: vi.fn(),
 }))
 
 // Mock next/link
@@ -20,7 +21,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/',
 }))
 
-// Mock localStorage
+// Mock localStorage for Sidebar (rendered inside TopBar's MobileDrawer)
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
   return {
@@ -33,47 +34,41 @@ const localStorageMock = (() => {
 
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-import Sidebar from '@/components/Sidebar'
+import TopBar from '@/components/TopBar'
 
-describe('Admin docs nav filtering (Sidebar)', () => {
+describe('TopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    localStorageMock.clear()
+    mockSession = { data: null, status: 'unauthenticated' }
   })
 
   afterEach(() => {
     cleanup()
   })
 
-  it('shows API Docs link when user is admin', () => {
-    mockSession = {
-      data: { user: { roles: ['admin'] } },
-      status: 'authenticated',
-    }
+  it('renders Hill90 logo', () => {
+    render(<TopBar />)
 
-    render(<Sidebar />)
-
-    const link = screen.getByRole('link', { name: /api docs/i })
-    expect(link).toBeInTheDocument()
-    expect(link).toHaveAttribute('href', '/docs/api')
+    expect(screen.getByRole('img', { name: /hill90 logo/i })).toBeInTheDocument()
   })
 
-  it('hides API Docs link when user is not admin', () => {
-    mockSession = {
-      data: { user: { roles: ['user'] } },
-      status: 'authenticated',
-    }
+  it('renders AuthButtons', () => {
+    render(<TopBar />)
 
-    render(<Sidebar />)
-
-    expect(screen.queryByRole('link', { name: /api docs/i })).not.toBeInTheDocument()
+    // When unauthenticated, AuthButtons renders a Sign in button
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
   })
 
-  it('hides API Docs link when unauthenticated', () => {
-    mockSession = { data: null, status: 'unauthenticated' }
+  it('renders navExtra breadcrumb', () => {
+    render(<TopBar navExtra={<span data-testid="breadcrumb">Profile / Edit</span>} />)
 
-    render(<Sidebar />)
+    expect(screen.getByTestId('breadcrumb')).toBeInTheDocument()
+    expect(screen.getByText('Profile / Edit')).toBeInTheDocument()
+  })
 
-    expect(screen.queryByRole('link', { name: /api docs/i })).not.toBeInTheDocument()
+  it('renders hamburger menu button', () => {
+    render(<TopBar />)
+
+    expect(screen.getByRole('button', { name: /open menu/i })).toBeInTheDocument()
   })
 })
