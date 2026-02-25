@@ -17,7 +17,7 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const { data: session } = useSession()
   const prevPathname = useRef(pathname)
 
-  const roles: string[] = (session?.user as any)?.roles ?? []
+  const roles: string[] = session?.user?.roles ?? []
   const isAdmin = roles.includes('admin')
   const items = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin)
 
@@ -41,20 +41,25 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
 
   // Body scroll lock
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
+    if (!open) return
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
     return () => {
-      document.body.style.overflow = ''
+      document.body.style.overflow = previousOverflow
     }
   }, [open])
 
   if (!open) return null
 
   return (
-    <div className="md:hidden fixed inset-0 z-40">
+    <div
+      className="md:hidden fixed inset-0 z-40"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Navigation menu"
+    >
       {/* Backdrop */}
       <div
         data-testid="mobile-drawer-backdrop"
@@ -63,7 +68,7 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
       />
 
       {/* Panel */}
-      <nav className="relative z-50 flex flex-col w-[260px] h-full bg-navy-900 border-r border-navy-700 shadow-xl">
+      <nav id="mobile-nav" className="relative z-50 flex flex-col w-[260px] h-full bg-navy-900 border-r border-navy-700 shadow-xl">
         <div className="flex items-center justify-between px-4 py-4 border-b border-navy-700">
           <span className="text-sm font-semibold text-white">Menu</span>
           <button
@@ -77,7 +82,10 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
 
         <div className="flex-1 flex flex-col gap-1 px-2 py-4">
           {items.map((item) => {
-            const isActive = pathname === item.href
+            const isActive =
+              item.href === '/'
+                ? pathname === '/'
+                : pathname === item.href || pathname.startsWith(item.href + '/')
             const Icon = item.icon
             return (
               <Link

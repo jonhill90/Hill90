@@ -22,6 +22,8 @@ export default function TopBar({ navExtra }: TopBarProps) {
           <button
             onClick={() => setMobileOpen(true)}
             aria-label="Open menu"
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-nav"
             className="md:hidden text-mountain-400 hover:text-white transition-colors"
           >
             <Menu size={22} />

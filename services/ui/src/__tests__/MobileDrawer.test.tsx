@@ -17,7 +17,6 @@ vi.mock('next/link', () => ({
 
 // Mock next/navigation
 let mockPathname = '/'
-const mockPathnameListeners: (() => void)[] = []
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
 }))

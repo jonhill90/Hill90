@@ -20,7 +20,7 @@ export default function Sidebar() {
   const { data: session } = useSession()
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
-  const roles: string[] = (session?.user as any)?.roles ?? []
+  const roles: string[] = session?.user?.roles ?? []
   const isAdmin = roles.includes('admin')
 
   const items = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin)
@@ -43,7 +43,10 @@ export default function Sidebar() {
     >
       <nav className="flex-1 flex flex-col gap-1 px-2 py-4">
         {items.map((item) => {
-          const isActive = pathname === item.href
+          const isActive =
+            item.href === '/'
+              ? pathname === '/'
+              : pathname === item.href || pathname.startsWith(item.href + '/')
           const Icon = item.icon
           return (
             <Link
