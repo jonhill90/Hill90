@@ -139,6 +139,8 @@ describe('MobileDrawer', () => {
 
     render(<MobileDrawer open={true} onClose={vi.fn()} />)
 
+    fireEvent.click(screen.getByRole('button', { name: /docs/i }))
+
     expect(screen.getByRole('link', { name: /api docs/i })).toBeInTheDocument()
   })
 })
