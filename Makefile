@@ -98,7 +98,7 @@ dev: ## Run development environment
 	docker compose -f deploy/compose/dev/docker-compose.yml up -d
 
 docs-dev: ## Run Mintlify docs site locally (port 3333)
-	cd docs-site && npm run dev
+	cd docs/site && npm run dev
 
 dev-logs: ## Show development logs
 	docker compose -f deploy/compose/dev/docker-compose.yml logs -f
