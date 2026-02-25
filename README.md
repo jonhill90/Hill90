@@ -33,6 +33,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | MCP | Python | https://ai.hill90.com/mcp | MCP Gateway (authenticated) |
 | Keycloak | Java | https://auth.hill90.com | OIDC/OAuth2 identity provider |
 | UI | TypeScript | https://hill90.com | Frontend |
+| Docs | - | https://docs.hill90.com | Platform documentation (Mintlify) |
 
 **Note:** Traefik, Portainer, MinIO console, and Grafana are accessible only via Tailscale network (100.64.0.0/10).
 
@@ -555,6 +556,8 @@ make dns-sync
 ```
 
 ## Documentation
+
+- **[Hill90 Docs](https://docs.hill90.com)** - Platform documentation, API reference, and getting started guides
 
 ### Core Documentation
 - **[Claude Code Operating Manual](CLAUDE.md)** - How Claude Code manages this infrastructure

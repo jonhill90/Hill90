@@ -1,5 +1,7 @@
 # Deployment Reference
 
+> **External users:** See [docs.hill90.com/getting-started/quickstart](https://docs.hill90.com/getting-started/quickstart) for the public deployment guide.
+
 ## Deployment Architecture
 
 **Infrastructure and applications are deployed separately:**
