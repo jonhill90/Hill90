@@ -220,3 +220,14 @@ assert records[0]["content"] == "${TAILSCALE_IP}"
   run grep "openbao" scripts/ops.sh
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Seed key name tests
+# ---------------------------------------------------------------------------
+
+@test "vault.sh seed uses MINIO_ROOT_USER not MINIO_ACCESS_KEY in api/config" {
+  run bash -c 'sed -n "/Seeding secret\/api\/config/,/^$/p" scripts/vault.sh | grep "MINIO_ROOT_USER"'
+  [ "$status" -eq 0 ]
+  run bash -c 'sed -n "/Seeding secret\/api\/config/,/^$/p" scripts/vault.sh | grep "MINIO_ACCESS_KEY"'
+  [ "$status" -eq 1 ]
+}

@@ -246,8 +246,8 @@ cmd_seed() {
     echo "Seeding secret/api/config..."
     bao_exec_env kv put secret/api/config \
         "INTERNAL_SERVICE_SECRET=$(get_secret INTERNAL_SERVICE_SECRET)" \
-        "MINIO_ACCESS_KEY=$(get_secret MINIO_ACCESS_KEY)" \
-        "MINIO_SECRET_KEY=$(get_secret MINIO_SECRET_KEY)"
+        "MINIO_ROOT_USER=$(get_secret MINIO_ROOT_USER)" \
+        "MINIO_ROOT_PASSWORD=$(get_secret MINIO_ROOT_PASSWORD)"
 
     # Seed ai/config
     echo "Seeding secret/ai/config..."
