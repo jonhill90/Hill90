@@ -1,0 +1,31 @@
+---
+title: Hill90 Documentation
+description: Documentation for the Hill90 microservices platform.
+---
+
+# Welcome to Hill90
+
+Hill90 is a Docker-based microservices platform hosted on a single VPS, providing AI agent management, identity services, and a modern web UI — all orchestrated with Docker Compose and automated CI/CD.
+
+<CardGroup cols={2}>
+  <Card title="Overview" icon="book-open" href="/getting-started/overview">
+    Learn what Hill90 is, how it's structured, and the technology behind it.
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Get up and running with Hill90 in minutes.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Dive deep into the system architecture, networking, and deployment model.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    Explore the Hill90 REST API with auto-generated endpoint documentation.
+  </Card>
+</CardGroup>
+
+## Key Features
+
+- **AI Agent Management** — Create, configure, start, and stop sandboxed AI agents via REST API.
+- **Identity & Access Control** — Keycloak OIDC/OAuth2 with JWT-based API authentication.
+- **Automatic HTTPS** — Traefik reverse proxy with Let's Encrypt (HTTP-01 and DNS-01 challenges).
+- **Full Observability** — Prometheus, Grafana, Loki, and Tempo for metrics, logs, and traces.
+- **Automated Infrastructure** — VPS provisioning, DNS management, and deployments via CI/CD.

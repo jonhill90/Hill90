@@ -1,0 +1,102 @@
+---
+title: Architecture Overview
+description: High-level architecture of the Hill90 platform.
+---
+
+# Architecture Overview
+
+Hill90 is a Docker-based microservices platform hosted on a single VPS running AlmaLinux.
+
+## System Layers
+
+The platform is organized into four layers:
+
+### Edge Layer
+
+**Traefik** serves as the reverse proxy and load balancer, providing:
+- Automatic HTTPS via Let's Encrypt
+- HTTP-01 challenges for public services
+- DNS-01 challenges for VPN-only services
+- Routing, middleware, and rate limiting
+
+### Application Layer
+
+Five application services handle business logic:
+
+- **API** — REST API gateway (Express/TypeScript) for agent management and user profiles
+- **AI** — LangChain/LangGraph agents (FastAPI/Python)
+- **MCP** — Model Context Protocol gateway (FastAPI/Python), JWT-authenticated
+- **Keycloak** — Identity provider (OIDC/OAuth2) at `auth.hill90.com`
+- **UI** — Next.js frontend application
+
+### Data Layer
+
+- **PostgreSQL** — Relational database for persistent storage
+- **MinIO** — S3-compatible object storage for files and avatars
+
+### Observability Layer
+
+A full LGTM stack provides monitoring, logging, and tracing:
+
+- **Prometheus** — Metrics collection and alerting
+- **Grafana** — Dashboards and exploration
+- **Loki** — Log aggregation
+- **Tempo** — Distributed tracing
+- **OpenTelemetry** — Application tracing instrumentation
+- Collectors: Promtail, Node Exporter, cAdvisor, postgres-exporter
+
+## Network Architecture
+
+```
+Internet
+   |
+Traefik (edge network)
+   |
+   +-- Public Services (HTTP-01 certs)
+   |     API, AI, MCP, Keycloak, UI
+   |
+   +-- Internal Services
+   |     PostgreSQL, MinIO
+   |
+   +-- Observability
+         Prometheus, Loki, Tempo, Grafana
+```
+
+**Network isolation** is enforced through Docker networks:
+
+| Network | Purpose | Access |
+|---------|---------|--------|
+| `edge` | Public-facing services | Internet via Traefik |
+| `internal` | Databases, storage, observability | Service-to-service only |
+
+VPN-only services (Traefik dashboard, Grafana, MinIO console) are protected by IP whitelist middleware, accessible only through the VPN network.
+
+## Certificate Management
+
+| Challenge Type | Used For | How It Works |
+|----------------|----------|--------------|
+| HTTP-01 | Public services (API, AI, UI, etc.) | Let's Encrypt validates via port 80 |
+| DNS-01 | VPN-only services (Traefik dashboard, Grafana) | DNS TXT record validation via DNS Manager webhook |
+
+The **DNS Manager** is an internal webhook that translates Traefik ACME requests into DNS API calls for TXT record management.
+
+## Deployment Model
+
+- **VPS provisioning** — Automated via infrastructure APIs
+- **Configuration** — Ansible playbooks for OS bootstrap
+- **Container orchestration** — Docker Compose per service group
+- **CI/CD** — GitHub Actions with path-filtered triggers
+- **DNS management** — Automated via DNS API
+
+Each service group has its own Docker Compose file and deploy target, enabling independent deployment and rollback.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Services" icon="server" href="/architecture/services">
+    Detailed breakdown of each service and its responsibilities.
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    Explore the REST API endpoints.
+  </Card>
+</CardGroup>
