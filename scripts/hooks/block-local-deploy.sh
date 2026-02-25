@@ -78,6 +78,11 @@ check_segment() {
     return 0
   fi
 
+  # ALLOW: mintlify dev server (docs-site preview)
+  if [[ "$seg" =~ mintlify[[:space:]]+dev ]]; then
+    return 1
+  fi
+
   # DENY: local app/dev servers (must be explicitly requested by user first)
   if [[ "$seg" =~ (^|[[:space:]])(npm|pnpm|yarn)[[:space:]]+(run[[:space:]]+)?(dev|start|build)([[:space:]]|$) ]] || \
      [[ "$seg" =~ (^|[[:space:]])next[[:space:]]+(dev|build)([[:space:]]|$) ]]; then

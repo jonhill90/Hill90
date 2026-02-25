@@ -190,3 +190,8 @@ tests/e2e/playwright-report/
 
 # Git worktrees
 .worktrees/
+
+# Next.js build artifacts
+.next/
+next-env.d.ts
+*.tsbuildinfo
