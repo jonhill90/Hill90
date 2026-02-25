@@ -69,6 +69,8 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
+    fireEvent.click(screen.getByRole('button', { name: /docs/i }))
+
     expect(screen.getByRole('link', { name: /api docs/i })).toBeInTheDocument()
   })
 

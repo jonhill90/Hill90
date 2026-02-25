@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next-auth/react
@@ -52,6 +52,8 @@ describe('Admin docs nav filtering (Sidebar)', () => {
     }
 
     render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: /docs/i }))
 
     const link = screen.getByRole('link', { name: /api docs/i })
     expect(link).toBeInTheDocument()

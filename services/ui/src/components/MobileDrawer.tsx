@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { X } from 'lucide-react'
+import { X, ChevronDown, ChevronRight } from 'lucide-react'
 import { NAV_ITEMS } from '@/components/nav-items'
+import type { NavItem, NavLink, NavGroup } from '@/components/nav-items'
 
 interface MobileDrawerProps {
   open: boolean
@@ -16,10 +17,27 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const pathname = usePathname()
   const { data: session } = useSession()
   const prevPathname = useRef(pathname)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
-  const roles: string[] = session?.user?.roles ?? []
+  const roles: string[] = (session?.user as any)?.roles ?? []
   const isAdmin = roles.includes('admin')
-  const items = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin)
+
+  function toggleExpand(id: string) {
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
+  }
+
+  function isLinkActive(href: string): boolean {
+    if (href === '/') return pathname === '/'
+    return pathname === href || pathname.startsWith(href + '/')
+  }
+
+  function isGroupActive(group: NavGroup): boolean {
+    return group.children.some((child) => !child.external && isLinkActive(child.href))
+  }
+
+  function filterChildren(children: NavLink[]): NavLink[] {
+    return children.filter((child) => !child.adminOnly || isAdmin)
+  }
 
   // Close on route change
   useEffect(() => {
@@ -53,6 +71,86 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
 
   if (!open) return null
 
+  function renderLink(item: NavLink, indented: boolean) {
+    const isActive = isLinkActive(item.href)
+    const Icon = item.icon
+
+    if (item.external) {
+      return (
+        <a
+          key={item.id}
+          href={item.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 ${indented ? 'pl-10' : ''} text-sm font-medium transition-colors text-mountain-400 hover:bg-navy-800 hover:text-white`}
+        >
+          <Icon size={indented ? 18 : 20} aria-hidden="true" />
+          {item.label}
+        </a>
+      )
+    }
+
+    return (
+      <Link
+        key={item.id}
+        href={item.href}
+        aria-current={isActive ? 'page' : undefined}
+        className={`flex items-center gap-3 rounded-lg px-3 py-2 ${indented ? 'pl-10' : ''} text-sm font-medium transition-colors ${
+          isActive
+            ? 'bg-brand-500/15 text-brand-400'
+            : 'text-mountain-400 hover:bg-navy-800 hover:text-white'
+        }`}
+      >
+        <Icon size={indented ? 18 : 20} aria-hidden="true" />
+        {item.label}
+      </Link>
+    )
+  }
+
+  function renderGroup(item: NavGroup) {
+    const isActive = isGroupActive(item)
+    const isExpanded = !!expanded[item.id]
+    const Icon = item.icon
+    const visibleChildren = filterChildren(item.children)
+
+    return (
+      <div key={item.id}>
+        <button
+          onClick={() => toggleExpand(item.id)}
+          aria-expanded={isExpanded}
+          aria-controls={`${item.id}-submenu`}
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors w-full ${
+            isActive
+              ? 'bg-brand-500/15 text-brand-400'
+              : 'text-mountain-400 hover:bg-navy-800 hover:text-white'
+          }`}
+        >
+          <Icon size={20} aria-hidden="true" />
+          {item.label}
+          {isExpanded
+            ? <ChevronDown size={16} aria-hidden="true" data-chevron="down" className="ml-auto" />
+            : <ChevronRight size={16} aria-hidden="true" data-chevron="right" className="ml-auto" />
+          }
+        </button>
+        {isExpanded && (
+          <div id={`${item.id}-submenu`} role="group">
+            {visibleChildren.map((child) => renderLink(child, true))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderItem(item: NavItem) {
+    if (item.type === 'group') {
+      return renderGroup(item)
+    }
+
+    if (item.adminOnly && !isAdmin) return null
+
+    return renderLink(item, false)
+  }
+
   return (
     <div
       className="md:hidden fixed inset-0 z-40"
@@ -81,28 +179,7 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
         </div>
 
         <div className="flex-1 flex flex-col gap-1 px-2 py-4">
-          {items.map((item) => {
-            const isActive =
-              item.href === '/'
-                ? pathname === '/'
-                : pathname === item.href || pathname.startsWith(item.href + '/')
-            const Icon = item.icon
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={isActive ? 'page' : undefined}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-brand-500/15 text-brand-400'
-                    : 'text-mountain-400 hover:bg-navy-800 hover:text-white'
-                }`}
-              >
-                <Icon size={20} aria-hidden="true" />
-                {item.label}
-              </Link>
-            )
-          })}
+          {NAV_ITEMS.map(renderItem)}
         </div>
       </nav>
     </div>
