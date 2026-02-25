@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# check_docs_secrets.sh — CI gate: ensure docs-site/ contains no sensitive patterns.
+# check_docs_secrets.sh — CI gate: ensure docs/site/ contains no sensitive patterns.
 # Scans .mdx, .yaml, .yml, .svg, and .md files for forbidden content.
 set -euo pipefail
 
-DOCS_DIR="docs-site"
+DOCS_DIR="docs/site"
 EXIT_CODE=0
 
 # Forbidden patterns (regex, one per line)
@@ -35,7 +35,7 @@ for pattern in "${PATTERNS[@]}"; do
     --include='*.mdx' --include='*.yaml' \
     --include='*.yml' --include='*.svg' --include='*.md' 2>/dev/null || true)
   if [ -n "$matches" ]; then
-    echo "FAIL: Forbidden pattern '$pattern' found in docs-site/:"
+    echo "FAIL: Forbidden pattern '$pattern' found in docs/site/:"
     echo "$matches"
     echo ""
     EXIT_CODE=1

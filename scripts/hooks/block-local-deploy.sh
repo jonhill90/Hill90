@@ -78,7 +78,7 @@ check_segment() {
     return 0
   fi
 
-  # ALLOW: mintlify dev server (docs-site preview)
+  # ALLOW: mintlify dev server (docs/site preview)
   if [[ "$seg" =~ mintlify[[:space:]]+dev ]]; then
     return 1
   fi
