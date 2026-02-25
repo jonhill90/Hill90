@@ -114,6 +114,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 - VPS rebuild runbook: `docs/runbooks/vps-rebuild.md`
 - Architecture overview: `docs/architecture/overview.md`
 - Closed-loop planning skill: `.github/skills/closing-the-loop/SKILL.md`
+- Public documentation site (Mintlify): `docs-site/` — external-facing docs; `docs/` is internal
 
 ## Guardrails
 

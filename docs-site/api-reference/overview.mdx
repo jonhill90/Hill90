@@ -1,0 +1,62 @@
+---
+title: API Reference
+description: Hill90 REST API endpoint documentation.
+---
+
+# API Reference
+
+The Hill90 API provides endpoints for agent management, user profiles, and platform health checks.
+
+## Base URL
+
+```
+https://api.hill90.com
+```
+
+## Authentication
+
+Most endpoints require a valid JWT bearer token issued by Keycloak. Include it in the `Authorization` header:
+
+```
+Authorization: Bearer YOUR_JWT_TOKEN
+```
+
+See [Authentication](/getting-started/authentication) for details on obtaining tokens.
+
+## Endpoint Groups
+
+### Health
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /health` | None | Service health check |
+
+### User
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /me` | Bearer | Get current user JWT claims |
+| `GET /profile` | Bearer | Get user profile |
+| `PATCH /profile` | Bearer | Update display name |
+| `POST /profile/avatar` | Bearer | Upload avatar image |
+| `GET /profile/avatar` | Bearer | Get avatar image |
+| `DELETE /profile/avatar` | Bearer | Delete avatar |
+| `POST /profile/password` | Bearer | Change password (not yet implemented) |
+
+### Agents
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /agents` | Bearer | List agents |
+| `POST /agents` | Bearer | Create agent |
+| `GET /agents/{id}` | Bearer | Get agent detail |
+| `PUT /agents/{id}` | Bearer | Update agent |
+| `DELETE /agents/{id}` | Bearer (admin) | Delete agent |
+| `POST /agents/{id}/start` | Bearer (admin) | Start agent container |
+| `POST /agents/{id}/stop` | Bearer (admin) | Stop agent container |
+| `GET /agents/{id}/status` | Bearer | Get agent status |
+| `GET /agents/{id}/logs` | Bearer (admin) | Get agent logs (JSON or SSE stream) |
+
+## Auto-Generated Documentation
+
+The endpoint pages in this section are auto-generated from the [OpenAPI specification](/openapi.yaml). Each endpoint page includes request/response schemas, parameter details, and example payloads.

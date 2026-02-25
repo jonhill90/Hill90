@@ -1,0 +1,44 @@
+---
+title: Authentication
+description: How authentication and authorization work in Hill90.
+---
+
+# Authentication
+
+Hill90 uses [Keycloak](https://www.keycloak.org/) as its identity provider, implementing the OpenID Connect (OIDC) and OAuth 2.0 protocols.
+
+## How It Works
+
+1. **Users authenticate** through the Keycloak login page at `auth.hill90.com`
+2. **Keycloak issues a JWT** (JSON Web Token) upon successful authentication
+3. **API requests include the JWT** in the `Authorization: Bearer <token>` header
+4. **Backend services validate the JWT** signature and claims on every request
+
+## Roles
+
+| Role | Access |
+|------|--------|
+| `user` | Manage own agents, view own profile, upload avatar |
+| `admin` | All user permissions plus: start/stop/delete agents, view logs |
+
+## UI Authentication
+
+The Next.js frontend uses Auth.js v5 for session management. When you sign in through the UI, Auth.js handles the OIDC flow with Keycloak and maintains your session automatically.
+
+## API Authentication
+
+For direct API access, include your JWT bearer token in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.hill90.com/me
+```
+
+<Info>
+  A full guide on obtaining tokens programmatically (e.g., via the Keycloak token endpoint) will be added in a future update.
+</Info>
+
+## Next Steps
+
+- [API Reference](/api-reference/overview) — See which endpoints require authentication
+- [Services](/architecture/services) — Learn about individual service responsibilities

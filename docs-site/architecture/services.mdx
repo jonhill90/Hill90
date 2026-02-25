@@ -1,0 +1,72 @@
+---
+title: Services
+description: Service inventory and responsibilities.
+---
+
+# Services
+
+Hill90 is composed of application services, infrastructure services, and an observability stack.
+
+## Application Services
+
+| Service | Language | URL | Description |
+|---------|----------|-----|-------------|
+| **API** | TypeScript (Express) | `api.hill90.com` | REST API gateway — agent CRUD, user profiles, avatar management |
+| **AI** | Python (FastAPI) | `ai.hill90.com` | LangChain/LangGraph AI agents and operations |
+| **MCP** | Python (FastAPI) | `ai.hill90.com/mcp` | Model Context Protocol gateway (JWT-authenticated) |
+| **Keycloak** | Java | `auth.hill90.com` | OIDC/OAuth2 identity provider |
+| **UI** | TypeScript (Next.js) | `hill90.com` | Frontend application with Auth.js v5 session management |
+
+### API Service
+
+The API service is the primary REST gateway. It handles:
+- Agent lifecycle management (create, read, update, delete)
+- Agent container operations (start, stop, status, logs)
+- User profile and avatar management
+- JWT validation via Keycloak
+
+### AI Service
+
+The AI service hosts LangChain/LangGraph agents for AI operations. It provides endpoints for interacting with AI models and running agent workflows.
+
+### MCP Service
+
+The MCP (Model Context Protocol) gateway exposes tool-augmented AI capabilities. All requests require Keycloak JWT authentication.
+
+### Keycloak
+
+Keycloak provides centralized identity management:
+- User registration and login
+- OIDC/OAuth2 token issuance
+- Role-based access control (user, admin)
+- Account management
+
+### UI
+
+The Next.js frontend provides:
+- Keycloak-backed authentication (via Auth.js v5)
+- Agent management dashboard
+- User profile and avatar management
+
+## Infrastructure Services
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **Traefik** | `traefik.hill90.com` (VPN-only) | Reverse proxy, load balancer, automatic HTTPS |
+| **DNS Manager** | Internal only | DNS-01 challenge webhook for Let's Encrypt |
+| **Portainer** | `portainer.hill90.com` (VPN-only) | Docker container management UI |
+| **PostgreSQL** | Internal only | Relational database |
+| **MinIO** | `storage.hill90.com` (VPN-only) | S3-compatible object storage |
+
+## Observability Stack
+
+| Service | Description |
+|---------|-------------|
+| **Prometheus** | Metrics collection and alerting |
+| **Grafana** | Dashboards and data exploration (`grafana.hill90.com`, VPN-only) |
+| **Loki** | Log aggregation |
+| **Tempo** | Distributed tracing |
+| **Promtail** | Log collector (ships to Loki) |
+| **Node Exporter** | Host-level metrics |
+| **cAdvisor** | Container metrics |
+| **postgres-exporter** | PostgreSQL metrics |

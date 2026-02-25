@@ -187,3 +187,6 @@ AGENTS.override.md
 .playwright-mcp/
 tests/e2e/test-results/
 tests/e2e/playwright-report/
+
+# Git worktrees
+.worktrees/

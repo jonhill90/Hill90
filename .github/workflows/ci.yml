@@ -86,6 +86,12 @@ jobs:
         working-directory: services/api
         run: npx --yes @redocly/cli lint src/openapi/openapi.yaml --skip-rule no-unused-components
 
+      - name: Validate docs OpenAPI sync
+        run: diff services/api/src/openapi/openapi.yaml docs-site/openapi.yaml
+
+      - name: Check docs for sensitive content
+        run: bash scripts/checks/check_docs_secrets.sh
+
       - name: Run UI tests
         working-directory: services/ui
         run: npm ci && npm test

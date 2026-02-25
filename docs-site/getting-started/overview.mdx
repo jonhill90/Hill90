@@ -1,0 +1,62 @@
+---
+title: Overview
+description: What Hill90 is, how it works, and the technology stack.
+---
+
+# What is Hill90?
+
+Hill90 is a production-ready microservices platform hosted on a single VPS. It provides:
+
+- A **REST API** for managing AI agents and user profiles
+- An **AI service** powered by LangChain/LangGraph
+- A **Model Context Protocol (MCP) gateway** for tool-augmented AI
+- A **Next.js frontend** with Keycloak-backed authentication
+- Full **observability** via the LGTM stack (Loki, Grafana, Tempo, Prometheus)
+
+All services run as Docker containers, orchestrated with Docker Compose, behind a Traefik reverse proxy that provides automatic HTTPS.
+
+## Technology Stack
+
+| Layer | Technologies |
+|-------|-------------|
+| **Languages** | TypeScript (Node.js), Python |
+| **Frameworks** | Express, FastAPI, Next.js |
+| **Identity** | Keycloak 26 (OIDC/OAuth2), Auth.js v5 |
+| **Infrastructure** | Docker Engine, Docker Compose, Traefik |
+| **Data** | PostgreSQL, MinIO (S3-compatible) |
+| **Observability** | Prometheus, Grafana, Loki, Tempo, OpenTelemetry |
+| **CI/CD** | GitHub Actions |
+| **DNS** | Automated via Hostinger DNS API |
+| **Certificates** | Let's Encrypt (HTTP-01 + DNS-01) |
+
+## Architecture at a Glance
+
+```
+Internet
+   |
+Traefik (reverse proxy, automatic HTTPS)
+   |
+   +-- API Service (Express, TypeScript)
+   +-- AI Service (FastAPI, Python)
+   +-- MCP Gateway (FastAPI, Python)
+   +-- Keycloak (Identity Provider)
+   +-- UI (Next.js)
+   |
+Internal Network
+   +-- PostgreSQL
+   +-- MinIO (S3 storage)
+   +-- Observability Stack (Prometheus, Grafana, Loki, Tempo)
+```
+
+Traffic enters through Traefik, which handles TLS termination, routing, and load balancing. Public services use HTTP-01 certificates, while admin-only services use DNS-01 certificates and are restricted to the VPN network.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Set up your environment and make your first API call.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/getting-started/authentication">
+    Understand how authentication and authorization work.
+  </Card>
+</CardGroup>

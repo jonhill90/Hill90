@@ -1,0 +1,50 @@
+---
+title: Quickstart
+description: Get started with the Hill90 platform.
+---
+
+# Quickstart
+
+<Info>
+  This guide is a work in progress. Full quickstart content will be added in a future update.
+</Info>
+
+## Prerequisites
+
+- A modern web browser
+- An account on the Hill90 platform (contact the administrator)
+- For API access: a tool like `curl`, Postman, or any HTTP client
+
+## Accessing the Platform
+
+The Hill90 UI is available at [hill90.com](https://hill90.com). Sign in with your Keycloak credentials to access the dashboard.
+
+## Making Your First API Call
+
+Once authenticated, you can interact with the Hill90 API:
+
+```bash
+# Health check (no authentication required)
+curl https://api.hill90.com/health
+```
+
+```json
+{
+  "status": "healthy",
+  "service": "api"
+}
+```
+
+For authenticated endpoints, include your JWT bearer token:
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" \
+  https://api.hill90.com/agents
+```
+
+See the [API Reference](/api-reference/overview) for full endpoint documentation.
+
+## Next Steps
+
+- [Authentication](/getting-started/authentication) — Learn how to obtain and use JWT tokens
+- [API Reference](/api-reference/overview) — Explore all available endpoints

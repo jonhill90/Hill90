@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify
 
 # Environment
 ENV ?= prod
@@ -96,6 +96,9 @@ config-vps: ## Configure VPS OS only (no containers deployed)
 
 dev: ## Run development environment
 	docker compose -f deploy/compose/dev/docker-compose.yml up -d
+
+docs-dev: ## Run Mintlify docs site locally (port 3333)
+	cd docs-site && npm run dev
 
 dev-logs: ## Show development logs
 	docker compose -f deploy/compose/dev/docker-compose.yml logs -f
