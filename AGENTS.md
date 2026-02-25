@@ -91,6 +91,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Deploy AI | `bash scripts/deploy.sh ai prod` | `make deploy-ai` |
 | Deploy MCP | `bash scripts/deploy.sh mcp prod` | `make deploy-mcp` |
 | Deploy MinIO | `bash scripts/deploy.sh minio prod` | `make deploy-minio` |
+| Deploy vault | `bash scripts/deploy.sh vault prod` | `make deploy-vault` |
 | Deploy UI | `bash scripts/deploy.sh ui prod` | `make deploy-ui` |
 | Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |
 | Deploy all apps | `bash scripts/deploy.sh all prod` | `make deploy-all` |
@@ -103,6 +104,11 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Classify changes | `bash scripts/rollback.sh classify <svc> [ref]` | `make rollback-classify SERVICE=<svc>` |
 | View secret | `bash scripts/secrets.sh view infra/secrets/prod.enc.env <key>` | `make secrets-view KEY=<key>` |
 | Update secret | `bash scripts/secrets.sh update infra/secrets/prod.enc.env <key> <val>` | `make secrets-update KEY=<key> VALUE=<v>` |
+| Vault init | `bash scripts/vault.sh init` | `make vault-init` |
+| Vault unseal | `bash scripts/vault.sh unseal` | `make vault-unseal` |
+| Vault status | `bash scripts/vault.sh status` | `make vault-status` |
+| Vault setup | `bash scripts/vault.sh setup` | `make vault-setup` |
+| Vault seed | `bash scripts/vault.sh seed` | `make vault-seed` |
 
 ## Reference Map
 

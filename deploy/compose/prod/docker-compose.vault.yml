@@ -1,0 +1,47 @@
+version: '3.9'
+
+# OpenBao secrets management
+# Deploy with: make deploy-vault
+
+networks:
+  edge:
+    external: true
+    name: hill90_edge
+  internal:
+    external: true
+    name: hill90_internal
+
+volumes:
+  openbao-data:
+    name: openbao-data
+
+services:
+  openbao:
+    image: ghcr.io/openbao/openbao:2
+    container_name: openbao
+    restart: unless-stopped
+    command: server
+    cap_add:
+      - IPC_LOCK
+    networks:
+      - edge
+      - internal
+    volumes:
+      - openbao-data:/openbao/file
+      - ../../../platform/vault/config.hcl:/openbao/config/config.hcl:ro
+      - ../../../platform/vault/policies:/openbao/policies:ro
+    environment:
+      - BAO_LOCAL_CONFIG=
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8200/v1/sys/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vault.rule=Host(`vault.hill90.com`)"
+      - "traefik.http.routers.vault.entrypoints=websecure"
+      - "traefik.http.routers.vault.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.routers.vault.middlewares=tailscale-only@file"
+      - "traefik.http.services.vault.loadbalancer.server.port=8200"

@@ -144,6 +144,18 @@ class TestDornyFilters:
         services = _services_for_path("README.md", dorny_filters)
         assert services == set()
 
+    def test_vault_config_triggers_only_vault(self, dorny_filters):
+        services = _services_for_path(
+            "platform/vault/config.hcl", dorny_filters
+        )
+        assert services == {"vault"}
+
+    def test_vault_compose_triggers_only_vault(self, dorny_filters):
+        services = _services_for_path(
+            "deploy/compose/prod/docker-compose.vault.yml", dorny_filters
+        )
+        assert services == {"vault"}
+
     def test_agentsmd_triggers_no_services(self, dorny_filters):
         services = _services_for_path("AGENTS.md", dorny_filters)
         assert services == set()
@@ -171,8 +183,10 @@ class TestTriggerPaths:
             "platform/auth/keycloak/**",
             "platform/data/postgres/**",
             "platform/observability/**",
+            "platform/vault/**",
             "deploy/compose/prod/docker-compose.db.yml",
             "deploy/compose/prod/docker-compose.minio.yml",
+            "deploy/compose/prod/docker-compose.vault.yml",
             "deploy/compose/prod/docker-compose.auth.yml",
             "deploy/compose/prod/docker-compose.api.yml",
             "deploy/compose/prod/docker-compose.ai.yml",
@@ -189,6 +203,14 @@ class TestTriggerPaths:
         assert _matches_any(
             "platform/auth/keycloak/themes/hill90/login/theme.properties",
             trigger_paths,
+        )
+
+    def test_trigger_paths_include_vault_platform(self, trigger_paths):
+        assert _matches_any("platform/vault/config.hcl", trigger_paths)
+
+    def test_trigger_paths_include_vault_compose(self, trigger_paths):
+        assert _matches_any(
+            "deploy/compose/prod/docker-compose.vault.yml", trigger_paths
         )
 
     def test_trigger_paths_exclude_unknown_service(self, trigger_paths):

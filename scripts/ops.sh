@@ -74,6 +74,25 @@ cmd_health() {
         echo "- Not deployed (skipped)"
     fi
 
+    echo -n "Checking openbao... "
+    if docker container inspect openbao > /dev/null 2>&1; then
+        local bao_health
+        bao_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' openbao 2>/dev/null || echo "error")
+        local bao_running
+        bao_running=$(docker inspect --format='{{.State.Running}}' openbao 2>/dev/null || echo "false")
+        if [[ "$bao_running" != "true" ]]; then
+            echo "✗ Stopped/crashed"
+            all_healthy=false
+        elif [[ "$bao_health" == "healthy" ]]; then
+            echo "✓ Healthy"
+        else
+            echo "✗ Unhealthy ($bao_health)"
+            all_healthy=false
+        fi
+    else
+        echo "- Not deployed (skipped)"
+    fi
+
     echo ""
     echo "Checking database exporters..."
     echo -n "Checking postgres-exporter... "
@@ -170,7 +189,7 @@ cmd_health() {
             echo ""
             echo "Expected Tailscale IP: $tailscale_ip"
             echo ""
-            local tailscale_domains=("storage.hill90.com" "portainer.hill90.com" "traefik.hill90.com" "grafana.hill90.com")
+            local tailscale_domains=("storage.hill90.com" "portainer.hill90.com" "traefik.hill90.com" "grafana.hill90.com" "vault.hill90.com")
             for domain in "${tailscale_domains[@]}"; do
                 echo -n "Checking DNS for $domain... "
                 local resolved_ip
