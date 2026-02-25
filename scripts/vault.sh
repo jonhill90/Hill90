@@ -46,7 +46,7 @@ EOF
 # ---------------------------------------------------------------------------
 
 bao_exec() {
-    docker exec "$CONTAINER_NAME" bao "$@"
+    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" "$CONTAINER_NAME" bao "$@"
 }
 
 bao_exec_env() {
@@ -54,7 +54,7 @@ bao_exec_env() {
     if [ -z "$token" ]; then
         die "BAO_TOKEN is required. Export it before running this command."
     fi
-    docker exec -e "BAO_TOKEN=${token}" "$CONTAINER_NAME" bao "$@"
+    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" "$CONTAINER_NAME" bao "$@"
 }
 
 require_running() {
@@ -77,7 +77,7 @@ cmd_init() {
 
     # Check if already initialized
     local init_status
-    init_status=$(docker exec "$CONTAINER_NAME" bao status -format=json 2>/dev/null | grep '"initialized"' | tr -d ' ,"' || echo "")
+    init_status=$(bao_exec status -format=json 2>/dev/null | grep '"initialized"' | tr -d ' ,"' || echo "")
     if [[ "$init_status" == *"true"* ]]; then
         warn "OpenBao is already initialized"
         echo "Use 'vault.sh unseal' if it is sealed, or 'vault.sh status' to check."
@@ -86,7 +86,7 @@ cmd_init() {
 
     echo "Initializing with 1 key share, 1 key threshold..."
     local init_output
-    init_output=$(docker exec "$CONTAINER_NAME" bao operator init -key-shares=1 -key-threshold=1 -format=json)
+    init_output=$(bao_exec operator init -key-shares=1 -key-threshold=1 -format=json)
 
     local unseal_key
     unseal_key=$(echo "$init_output" | grep -o '"unseal_keys_b64":\[\"[^"]*\"' | sed 's/.*\["//' | sed 's/"//')
@@ -118,7 +118,7 @@ cmd_unseal() {
 
     # Check if already unsealed
     local sealed_status
-    sealed_status=$(docker exec "$CONTAINER_NAME" bao status -format=json 2>/dev/null | grep '"sealed"' | tr -d ' ,"' || echo "")
+    sealed_status=$(bao_exec status -format=json 2>/dev/null | grep '"sealed"' | tr -d ' ,"' || echo "")
     if [[ "$sealed_status" == *"false"* ]]; then
         success "OpenBao is already unsealed"
         return 0
@@ -143,7 +143,7 @@ cmd_unseal() {
         die "No unseal key found. Provide it at ${UNSEAL_KEY_PATH} or in SOPS as OPENBAO_UNSEAL_KEY."
     fi
 
-    docker exec "$CONTAINER_NAME" bao operator unseal "$unseal_key" >/dev/null
+    bao_exec operator unseal "$unseal_key" >/dev/null
     success "OpenBao unsealed successfully"
 }
 
@@ -154,7 +154,7 @@ cmd_status() {
     echo "OpenBao Status"
     echo "================================"
     echo ""
-    docker exec "$CONTAINER_NAME" bao status || true
+    bao_exec status || true
 }
 
 cmd_setup() {

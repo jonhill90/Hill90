@@ -31,6 +31,7 @@ services:
       - ../../../platform/vault/config.hcl:/openbao/config/config.hcl:ro
       - ../../../platform/vault/policies:/openbao/policies:ro
     environment:
+      - BAO_ADDR=http://127.0.0.1:8200
       - BAO_LOCAL_CONFIG=
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8200/v1/sys/health"]
