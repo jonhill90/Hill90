@@ -54,3 +54,23 @@
   run bash -c 'sed -n "/^dns_verify/,/^}/p" scripts/hostinger.sh | grep "www"'
   [ "$status" -eq 1 ]
 }
+
+# ---------------------------------------------------------------------------
+# Vault DNS tests
+# ---------------------------------------------------------------------------
+
+@test "hostinger.sh dns_sync pair loop includes vault with tailscale_ip" {
+  run bash -c 'sed -n "/^dns_sync/,/^}/p" scripts/hostinger.sh | grep "vault"'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tailscale_ip"* ]]
+}
+
+@test "hostinger.sh dns_sync zone payload includes vault record" {
+  run bash -c 'sed -n "/^dns_sync/,/^}/p" scripts/hostinger.sh | grep "vault.*\\\$ts"'
+  [ "$status" -eq 0 ]
+}
+
+@test "hostinger.sh dns_verify includes vault domain" {
+  run bash -c 'sed -n "/^dns_verify/,/^}/p" scripts/hostinger.sh | grep "vault"'
+  [ "$status" -eq 0 ]
+}
