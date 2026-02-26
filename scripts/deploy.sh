@@ -454,6 +454,12 @@ cmd_service() {
         _deploy_with_sops "$deploy_mode"
     fi
 
+    # Auto-unseal vault after deploy so verify can pass
+    if [ "$service" = "vault" ]; then
+        echo "Attempting auto-unseal..."
+        bash "$SCRIPT_DIR/vault.sh" auto-unseal || warn "Auto-unseal failed — run 'vault.sh unseal' manually"
+    fi
+
     echo ""
     echo "================================"
     echo "${banner} Complete!"

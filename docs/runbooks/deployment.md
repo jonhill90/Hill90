@@ -29,6 +29,20 @@ Expected outcome:
 - `postgres` container is healthy on the internal network.
 - Required before `make deploy-all` (Keycloak depends on PostgreSQL).
 
+## Deploy Vault
+
+```bash
+make deploy-vault
+```
+
+Expected outcome:
+- `openbao` container starts on edge and internal networks.
+- `vault.sh auto-unseal` runs automatically after compose up.
+- Vault is initialized and unsealed (status: `sealed:false`).
+- On VPS reboot, the `hill90-vault-unseal` systemd service auto-unseals within ~60 seconds.
+
+See [Vault Unseal Runbook](./vault-unseal.md) for troubleshooting.
+
 ## Deploy Storage (Optional)
 
 ```bash

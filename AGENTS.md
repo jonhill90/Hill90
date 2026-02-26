@@ -110,8 +110,10 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Vault setup | `bash scripts/vault.sh setup` | `make vault-setup` |
 | Vault seed | `bash scripts/vault.sh seed` | `make vault-seed` |
 | Vault sync to SOPS | `bash scripts/vault.sh sync-to-sops` | `make vault-sync-to-sops` |
+| Vault auto-unseal | `bash scripts/vault.sh auto-unseal` | `make vault-auto-unseal` |
 | Vault setup sync token | `bash scripts/vault.sh setup-sync-token` | `make vault-setup-sync-token` |
 | Vault sync (automated) | GitHub Actions: `vault-sync-to-sops` workflow | Manual trigger or weekly schedule |
+| Check secrets schema | `python3 scripts/checks/check_secrets_schema.py` | `make check-secrets-schema` |
 
 ## Reference Map
 
@@ -124,6 +126,9 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 - Disaster recovery runbook: `docs/runbooks/disaster-recovery.md`
 - Secrets workflow guide: `docs/runbooks/secrets-workflow.md`
 - Architecture overview: `docs/architecture/overview.md`
+- Secrets architecture: `docs/architecture/secrets-model.md`
+- Vault auto-unseal runbook: `docs/runbooks/vault-unseal.md`
+- Secrets schema validation: `docs/runbooks/secrets-schema-validation.md`
 - Closed-loop planning skill: `.github/skills/closing-the-loop/SKILL.md`
 - Public documentation site (Mintlify): `docs/site/` (source) — https://docs.hill90.com (live); `docs/` is internal
 

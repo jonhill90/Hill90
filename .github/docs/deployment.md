@@ -8,8 +8,11 @@
 
 1. **Infrastructure** (Traefik, dns-manager, Portainer) - Deploy once after VPS config
 2. **Database** (PostgreSQL) - Deploy before application services
-3. **Storage** (MinIO) - Deploy independently, before application services if needed
-4. **Application services** (keycloak, api, ai, mcp, ui) - Deploy independently as needed
+3. **Vault** (OpenBao) - Deploy and unseal before services that read secrets from vault
+4. **Storage** (MinIO) - Deploy independently, before application services if needed
+5. **Application services** (keycloak, api, ai, mcp, ui) - Deploy independently as needed
+
+> **Vault note:** `deploy.sh vault` automatically calls `vault.sh auto-unseal` after compose up. On VPS reboot, the `hill90-vault-unseal` systemd service auto-unseals within ~60 seconds.
 
 ## Deployment Location
 

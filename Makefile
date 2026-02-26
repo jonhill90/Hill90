@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token check-secrets-schema
 
 # Environment
 ENV ?= prod
@@ -317,5 +317,11 @@ vault-seed: ## Seed KV v2 paths from SOPS-encrypted secrets
 vault-sync-to-sops: ## Sync vault secrets back to SOPS backup
 	bash scripts/vault.sh sync-to-sops
 
+vault-auto-unseal: ## Wait for vault container + unseal (for deploy/systemd hooks)
+	bash scripts/vault.sh auto-unseal
+
 vault-setup-sync-token: ## Create read-only sync token and store in SOPS
 	bash scripts/vault.sh setup-sync-token
+
+check-secrets-schema: ## Validate vault/SOPS/compose schema consistency
+	python3 scripts/checks/check_secrets_schema.py

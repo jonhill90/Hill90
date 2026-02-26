@@ -18,6 +18,7 @@
 | `deploy-infra.yml` | Manual Deploy Infra (Prod) | `workflow_dispatch` | Edge stack (traefik, dns-manager, portainer) — manual only |
 | `deploy-*.yml` (8 files) | Manual Deploy {Service} (Prod) | `workflow_dispatch` | Per-service manual dispatch, calls reusable template |
 | `smoke-auth.yml` | Smoke Test Auth (Prod) | `repository_dispatch`, `workflow_dispatch` | Playwright smoke tests after auth deploy |
+| `vault-sync-to-sops.yml` | Vault Sync to SOPS | `schedule` (weekly), `workflow_dispatch` | Sync vault secrets to SOPS backup |
 | `tailscale.yml` | Tailscale | `workflow_dispatch` | Tailscale ACL management |
 | `recreate-vps.yml` | Recreate VPS | `workflow_dispatch` | VPS OS rebuild |
 | `config-vps.yml` | Configure VPS | `workflow_dispatch`, `workflow_run` | VPS bootstrap after rebuild |

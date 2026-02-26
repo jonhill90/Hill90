@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vault CLI — OpenBao secrets management lifecycle
-# Usage: vault.sh {init|unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|setup-sync-token|help}
+# Usage: vault.sh {init|unseal|auto-unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|setup-sync-token|help}
 
 set -e
 
@@ -35,6 +35,7 @@ Commands:
   policy-apply  Apply all policy HCL files
   backup        Backup OpenBao data volume
   export        Export all KV v2 secrets to stdout (requires BAO_TOKEN)
+  auto-unseal         Wait for container + unseal (for systemd/deploy hooks)
   sync-to-sops        Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
   setup-sync-token    Create a read-only sync token and store in SOPS (requires BAO_TOKEN)
   help                Show this help message
@@ -580,6 +581,49 @@ cmd_setup_sync_token() {
     echo ""
 }
 
+cmd_auto_unseal() {
+    local max_wait=${VAULT_AUTO_UNSEAL_TIMEOUT:-120}
+    local waited=0
+
+    # Wait for container to exist and be running
+    echo "Auto-unseal: waiting for ${CONTAINER_NAME}..."
+    while ! docker container inspect "$CONTAINER_NAME" --format '{{.State.Running}}' 2>/dev/null | grep -q "true"; do
+        if [ $waited -ge $max_wait ]; then
+            # Container not running — may not be deployed yet (not an error on fresh VPS)
+            echo "Container ${CONTAINER_NAME} not running after ${max_wait}s — skipping auto-unseal"
+            return 0
+        fi
+        sleep 5
+        waited=$((waited + 5))
+    done
+
+    # Wait for API to respond
+    waited=0
+    while ! bao_exec status >/dev/null 2>&1; do
+        if [ $waited -ge 30 ]; then
+            die "Timed out waiting for ${CONTAINER_NAME} API"
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    # Validate unseal key file safeguards
+    if [ -f "$UNSEAL_KEY_PATH" ]; then
+        local perms
+        perms=$(stat -c '%a' "$UNSEAL_KEY_PATH" 2>/dev/null || stat -f '%Lp' "$UNSEAL_KEY_PATH" 2>/dev/null)
+        if [ "$perms" != "600" ]; then
+            warn "Unseal key at ${UNSEAL_KEY_PATH} has permissions ${perms} (expected 600)"
+        fi
+        local owner
+        owner=$(stat -c '%U' "$UNSEAL_KEY_PATH" 2>/dev/null || stat -f '%Su' "$UNSEAL_KEY_PATH" 2>/dev/null)
+        if [ "$owner" != "deploy" ]; then
+            warn "Unseal key owned by ${owner} (expected deploy)"
+        fi
+    fi
+
+    cmd_unseal
+}
+
 # ---------------------------------------------------------------------------
 # Main dispatcher
 # ---------------------------------------------------------------------------
@@ -603,6 +647,7 @@ main() {
         policy-apply)  cmd_policy_apply "$@" ;;
         backup)        cmd_backup "$@" ;;
         export)        cmd_export "$@" ;;
+        auto-unseal)        cmd_auto_unseal "$@" ;;
         sync-to-sops)       cmd_sync_to_sops "$@" ;;
         setup-sync-token)   cmd_setup_sync_token "$@" ;;
         help|--help|-h) usage ;;
