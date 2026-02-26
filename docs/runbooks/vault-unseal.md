@@ -142,6 +142,18 @@ docker inspect --format='{{.State.Health.Status}}' openbao
 # Should show: healthy
 ```
 
+## SOPS Fallback Requirement
+
+When vault is unavailable, deploy scripts fall back to SOPS for secrets. This requires the `SOPS_AGE_KEY_FILE` environment variable:
+
+```
+SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt
+```
+
+The Ansible bootstrap (playbook `12-deploy-profile.yml`) adds this to the deploy user's `.bashrc` automatically. The vault-unseal systemd service also sets this via its `Environment=` directive.
+
+If the variable is missing, SOPS fallback will fail with "Age key not found".
+
 ## Ansible Installation
 
 The systemd service is installed by Ansible playbook `infra/ansible/playbooks/11-vault-unseal.yml`, which runs during VPS bootstrap. To re-install manually:
