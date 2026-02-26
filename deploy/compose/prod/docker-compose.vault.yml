@@ -34,7 +34,7 @@ services:
       - BAO_ADDR=http://127.0.0.1:8200
       - BAO_LOCAL_CONFIG=
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8200/v1/sys/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8200/v1/sys/health"]
       interval: 30s
       timeout: 10s
       retries: 3
