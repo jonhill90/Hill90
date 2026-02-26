@@ -99,10 +99,44 @@ make secrets-view KEY=SPECIFIC_KEY
 | `secret/observability/grafana` | GRAFANA_ADMIN_PASSWORD | Grafana |
 | `secret/mcp/config` | INTERNAL_SERVICE_SECRET | MCP service (duplicate from api/config) |
 
+## Automated Sync
+
+A GitHub Actions workflow (`vault-sync-to-sops`) automates the vault-to-SOPS sync:
+
+### One-Time Setup
+
+Create a read-only sync token and store it in SOPS:
+
+```bash
+export BAO_TOKEN="<admin-or-root-token>"
+bash scripts/vault.sh setup-sync-token
+git add infra/secrets/prod.enc.env
+git commit -m "chore: store vault sync token in SOPS"
+git push
+```
+
+The token has `policy-sync` (read-only KV access) and is a periodic token with a 32-day renewal window.
+
+### How It Works
+
+- **Manual trigger**: GitHub Actions > `vault-sync-to-sops` > Run workflow
+- **Schedule**: Runs automatically every Monday at 6am UTC
+- **Drift detection**: Compares decrypted content hashes on VPS (before and after sync). Only creates a PR if secrets actually differ.
+- **No-op when in sync**: If vault and SOPS match, the workflow succeeds silently — no noisy PRs.
+- **Token renewal**: The workflow auto-renews the periodic token on each run. The weekly schedule provides ample buffer within the 32-day period.
+- **Re-setup**: Only re-run `setup-sync-token` if the token is revoked or if renewal lapses (e.g., workflow disabled for >32 days).
+
+### Security Properties
+
+- The sync token can only **read** KV secrets — it cannot modify vault state.
+- Decrypted content never leaves the VPS. Only SHA256 hashes are compared on the runner.
+- The encrypted SOPS file (already committed in the repo) is the only file transferred back.
+- The token is masked in CI logs via `::add-mask`.
+
 ## Periodic Maintenance
 
-- **After any vault change**: Run `vault.sh sync-to-sops` to keep the SOPS backup current.
-- **Weekly (recommended)**: Run `vault.sh sync-to-sops` as a routine backup sync.
+- **After any vault change**: Run `vault.sh sync-to-sops` manually or wait for the next scheduled sync.
+- **Weekly (automated)**: The `vault-sync-to-sops` workflow runs every Monday at 6am UTC.
 - **Before VPS rebuild**: Ensure SOPS is up to date — it's the only way to reseed vault on a fresh install.
 
 ## Deduplication

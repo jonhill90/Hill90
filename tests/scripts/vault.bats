@@ -136,8 +136,8 @@
   for policy_file in platform/vault/policies/policy-*.hcl; do
     local policy_name
     policy_name=$(basename "$policy_file")
-    # Skip admin policy — it intentionally has broad access
-    if [ "$policy_name" = "policy-admin.hcl" ]; then
+    # Skip admin and sync policies — they intentionally have broad access
+    if [ "$policy_name" = "policy-admin.hcl" ] || [ "$policy_name" = "policy-sync.hcl" ]; then
       continue
     fi
     run grep '^path "secret/data/\*"' "$policy_file"
@@ -327,6 +327,71 @@ assert mappers[0]["config"]["claim.name"] == "realm_roles"
   run bash -c "sed -n '/^cmd_sync_to_sops/,/^}/p' scripts/vault.sh | grep 'backup'"
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# policy-sync tests
+# ---------------------------------------------------------------------------
+
+@test "policy-sync.hcl exists" {
+  [ -f "platform/vault/policies/policy-sync.hcl" ]
+}
+
+@test "policy-sync.hcl grants read and list only on secret paths (no write/create/delete)" {
+  # Only check secret/ paths — auth/token paths need update for renewal
+  run bash -c "grep -A1 'secret/' platform/vault/policies/policy-sync.hcl | grep 'capabilities' | grep -E '\"(create|update|delete)\"'"
+  [ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
+# setup-sync-token tests
+# ---------------------------------------------------------------------------
+
+@test "vault.sh has cmd_setup_sync_token function" {
+  run grep "^cmd_setup_sync_token()" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh setup-sync-token is in the dispatcher" {
+  run grep "setup-sync-token)" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh usage lists setup-sync-token command" {
+  run bash scripts/vault.sh help
+  [[ "$output" == *"setup-sync-token"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# vault-sync-to-sops workflow tests
+# ---------------------------------------------------------------------------
+
+@test "vault-sync-to-sops workflow file exists" {
+  [ -f ".github/workflows/vault-sync-to-sops.yml" ]
+}
+
+@test "vault-sync-to-sops workflow has workflow_dispatch trigger" {
+  run grep "workflow_dispatch" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "vault-sync-to-sops workflow has schedule trigger" {
+  run grep "schedule" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "vault-sync-to-sops workflow uses Tailscale for SSH" {
+  run grep "tailscale" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "vault-sync-to-sops workflow reads VAULT_SYNC_TOKEN from SOPS" {
+  run grep "VAULT_SYNC_TOKEN" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Runbook tests
+# ---------------------------------------------------------------------------
 
 @test "disaster recovery runbook exists" {
   [ -f "docs/runbooks/disaster-recovery.md" ]
