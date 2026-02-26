@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vault CLI — OpenBao secrets management lifecycle
-# Usage: vault.sh {init|unseal|status|setup|seed|policy-apply|backup|export|help}
+# Usage: vault.sh {init|unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|help}
 
 set -e
 
@@ -35,6 +35,7 @@ Commands:
   policy-apply  Apply all policy HCL files
   backup        Backup OpenBao data volume
   export        Export all KV v2 secrets to stdout (requires BAO_TOKEN)
+  sync-to-sops  Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
   help          Show this help message
 
 Environment variables:
@@ -417,6 +418,111 @@ cmd_export() {
     done
 }
 
+cmd_sync_to_sops() {
+    require_running
+
+    echo "================================"
+    echo "Vault -> SOPS Sync"
+    echo "================================"
+    echo ""
+
+    require_file "$SECRETS_FILE" "Secrets file"
+    ensure_age_key prod
+
+    # Canonical vault paths — read in this order for deduplication.
+    # api/config is read first so MINIO_ROOT_USER and INTERNAL_SERVICE_SECRET
+    # come from their canonical source; later paths skip already-seen keys.
+    local SYNC_PATHS=(
+        "secret/api/config"
+        "secret/shared/database"
+        "secret/shared/jwt"
+        "secret/ai/config"
+        "secret/auth/config"
+        "secret/ui/config"
+        "secret/minio/config"
+        "secret/infra/traefik"
+        "secret/infra/dns-manager"
+        "secret/observability/grafana"
+        "secret/mcp/config"
+    )
+
+    # Create timestamped backup before modifying SOPS
+    local backup_file
+    backup_file="${SECRETS_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+    cp "$SECRETS_FILE" "$backup_file"
+    info "Created backup: $backup_file"
+
+    # Temp files for key=value pairs and dedup tracking
+    local kv_file seen_file
+    kv_file=$(mktemp)
+    seen_file=$(mktemp)
+    # shellcheck disable=SC2064
+    trap "rm -f '$kv_file' '$seen_file'" RETURN
+
+    local synced=0
+    local skipped=0
+
+    for path in "${SYNC_PATHS[@]}"; do
+        echo "Reading ${path}..."
+
+        # Read raw JSON from vault — do NOT use vault_read_kv() which
+        # shell-escapes values via shlex.quote(), breaking multiline secrets.
+        local json_output
+        json_output=$(bao_exec_env kv get -format=json "$path" 2>/dev/null) || {
+            warn "Path not found or not accessible: $path — skipping"
+            continue
+        }
+
+        # Parse JSON to KEY=VALUE lines (raw values, no shell escaping)
+        echo "$json_output" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)['data']['data']
+for k, v in sorted(data.items()):
+    print(f'{k}={v}')
+" > "$kv_file" || {
+            warn "Failed to parse JSON for $path — skipping"
+            continue
+        }
+
+        # Update SOPS for each key, deduplicating
+        while IFS='=' read -r key value; do
+            [ -z "$key" ] && continue
+
+            # Dedup: skip if we already synced this key from a prior path
+            if grep -qxF "$key" "$seen_file" 2>/dev/null; then
+                info "  Skipping $key (already synced from earlier path)"
+                skipped=$((skipped + 1))
+                continue
+            fi
+
+            # Record as seen
+            echo "$key" >> "$seen_file"
+
+            # Escape value as JSON string (handles multiline, special chars)
+            local escaped_value
+            escaped_value=$(printf '%s' "$value" | jq -Rs .)
+
+            if sops --set "[\"${key}\"] ${escaped_value}" "$SECRETS_FILE"; then
+                echo "  Synced: $key"
+                synced=$((synced + 1))
+            else
+                warn "sops --set failed for key $key — restoring from backup"
+                cp "$backup_file" "$SECRETS_FILE"
+                rm -f "$kv_file" "$seen_file"
+                trap - RETURN
+                die "Sync aborted. SOPS file restored from backup: $backup_file"
+            fi
+        done < "$kv_file"
+    done
+
+    rm -f "$kv_file" "$seen_file"
+    trap - RETURN
+
+    echo ""
+    success "Sync complete! $synced keys synced, $skipped duplicates skipped."
+    echo "Backup saved: $backup_file"
+}
+
 # ---------------------------------------------------------------------------
 # Main dispatcher
 # ---------------------------------------------------------------------------
@@ -440,6 +546,7 @@ main() {
         policy-apply)  cmd_policy_apply "$@" ;;
         backup)        cmd_backup "$@" ;;
         export)        cmd_export "$@" ;;
+        sync-to-sops)  cmd_sync_to_sops "$@" ;;
         help|--help|-h) usage ;;
         *)
             echo "Unknown command: $cmd"

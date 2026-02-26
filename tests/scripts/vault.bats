@@ -293,3 +293,45 @@ assert mappers[0]["config"]["claim.name"] == "realm_roles"
   run grep "hill90-vault" platform/auth/keycloak/setup-realm.sh
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# sync-to-sops tests
+# ---------------------------------------------------------------------------
+
+@test "vault.sh has cmd_sync_to_sops function" {
+  run grep "^cmd_sync_to_sops()" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh sync-to-sops is in the dispatcher" {
+  run grep "sync-to-sops)" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh usage lists sync-to-sops command" {
+  run bash scripts/vault.sh help
+  [[ "$output" == *"sync-to-sops"* ]]
+}
+
+@test "cmd_sync_to_sops reads vault KV paths" {
+  run bash -c "sed -n '/^cmd_sync_to_sops/,/^}/p' scripts/vault.sh | grep 'kv get'"
+  [ "$status" -eq 0 ]
+}
+
+@test "cmd_sync_to_sops uses sops --set for atomic updates" {
+  run bash -c "sed -n '/^cmd_sync_to_sops/,/^}/p' scripts/vault.sh | grep 'sops --set'"
+  [ "$status" -eq 0 ]
+}
+
+@test "cmd_sync_to_sops creates backup before modifying SOPS" {
+  run bash -c "sed -n '/^cmd_sync_to_sops/,/^}/p' scripts/vault.sh | grep 'backup'"
+  [ "$status" -eq 0 ]
+}
+
+@test "disaster recovery runbook exists" {
+  [ -f "docs/runbooks/disaster-recovery.md" ]
+}
+
+@test "secrets workflow guide exists" {
+  [ -f "docs/runbooks/secrets-workflow.md" ]
+}
