@@ -252,14 +252,13 @@ cmd_setup_oidc() {
     bao_exec_env policy write policy-oidc-admin "/openbao/policies/policy-oidc-admin.hcl"
 
     # Create admin-sso role (maps Keycloak admin role to vault policy)
+    # Uses JSON via stdin because bound_claims requires a map type that
+    # the CLI doesn't parse correctly from positional arguments.
     echo "Creating admin-sso OIDC role..."
-    bao_exec_env write auth/oidc/role/admin-sso \
-        role_type="oidc" \
-        user_claim="sub" \
-        policies="policy-oidc-admin" \
-        oidc_scopes="openid,profile,email" \
-        bound_claims='{"realm_roles":["admin"]}' \
-        allowed_redirect_uris="https://vault.hill90.com/v1/auth/oidc/callback,https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback"
+    local role_json='{"role_type":"oidc","user_claim":"sub","policies":["policy-oidc-admin"],"oidc_scopes":["openid","profile","email"],"bound_claims":{"realm_roles":["admin"]},"allowed_redirect_uris":["https://vault.hill90.com/v1/auth/oidc/callback","https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback"]}'
+    local token="${BAO_TOKEN:-}"
+    echo "$role_json" | docker exec -i -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" "$CONTAINER_NAME" \
+        bao write auth/oidc/role/admin-sso -
 
     echo ""
     success "OIDC setup complete!"
