@@ -612,14 +612,16 @@ cmd_bootstrap_approles() {
         die "No unseal key found. Required to generate root token."
     fi
 
-    # Generate a temporary root token
+    # Generate a temporary root token (cancel any stale attempt first)
     echo "Generating temporary root token..."
+    bao_exec operator generate-root -cancel >/dev/null 2>&1 || true
     local init_output otp nonce encoded root_token
     init_output=$(bao_exec operator generate-root -init -format=json 2>/dev/null)
     otp=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['otp'])")
     nonce=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['nonce'])")
 
-    encoded=$(echo "$unseal_key" | bao_exec operator generate-root -nonce="$nonce" -format=json - 2>/dev/null | \
+    encoded=$(echo "$unseal_key" | docker exec -i -e "BAO_ADDR=http://127.0.0.1:8200" "$CONTAINER_NAME" \
+        bao operator generate-root -nonce="$nonce" -format=json - 2>/dev/null | \
         python3 -c "import sys,json; print(json.load(sys.stdin)['encoded_root_token'])")
 
     root_token=$(bao_exec operator generate-root -decode="$encoded" -otp="$otp" 2>/dev/null)
@@ -693,7 +695,10 @@ cmd_bootstrap_approles() {
     unset BAO_TOKEN
 
     echo ""
-    success "Bootstrap complete! ${stored}/${#VAULT_SERVICES} services configured."
+    local total
+    # shellcheck disable=SC2086
+    total=$(echo $VAULT_SERVICES | wc -w | tr -d ' ')
+    success "Bootstrap complete! ${stored}/${total} services configured."
     echo ""
     echo "IMPORTANT: Commit and push the updated SOPS file:"
     echo "  git add infra/secrets/prod.enc.env"
