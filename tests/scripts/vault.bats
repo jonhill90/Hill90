@@ -231,3 +231,65 @@ assert records[0]["content"] == "${TAILSCALE_IP}"
   run bash -c 'sed -n "/Seeding secret\/api\/config/,/^$/p" scripts/vault.sh | grep "MINIO_ACCESS_KEY"'
   [ "$status" -eq 1 ]
 }
+
+# ---------------------------------------------------------------------------
+# OIDC auth tests
+# ---------------------------------------------------------------------------
+
+@test "vault.sh has cmd_setup_oidc function" {
+  run grep "^cmd_setup_oidc()" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh setup-oidc is in the dispatcher" {
+  run grep "setup-oidc)" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh usage lists setup-oidc command" {
+  run bash scripts/vault.sh help
+  [[ "$output" == *"setup-oidc"* ]]
+}
+
+@test "policy-oidc-admin.hcl exists" {
+  [ -f "platform/vault/policies/policy-oidc-admin.hcl" ]
+}
+
+@test "policy-oidc-admin.hcl grants secret read and list" {
+  run grep 'capabilities.*read.*list' platform/vault/policies/policy-oidc-admin.hcl
+  [ "$status" -eq 0 ]
+}
+
+@test "policy-oidc-admin.hcl does not grant auth write" {
+  run grep 'path "auth/\*"' platform/vault/policies/policy-oidc-admin.hcl
+  [ "$status" -eq 1 ]
+}
+
+@test "Keycloak realm JSON has hill90-vault client" {
+  run python3 -c '
+import json
+data = json.load(open("platform/auth/keycloak/hill90-realm.json"))
+clients = [c for c in data["clients"] if c["clientId"] == "hill90-vault"]
+assert len(clients) == 1, f"Expected 1 hill90-vault client, got {len(clients)}"
+assert clients[0]["standardFlowEnabled"] == True
+assert clients[0]["publicClient"] == False
+'
+  [ "$status" -eq 0 ]
+}
+
+@test "hill90-vault client has realm_roles protocol mapper" {
+  run python3 -c '
+import json
+data = json.load(open("platform/auth/keycloak/hill90-realm.json"))
+client = [c for c in data["clients"] if c["clientId"] == "hill90-vault"][0]
+mappers = [m for m in client.get("protocolMappers", []) if m["name"] == "realm-roles"]
+assert len(mappers) == 1, f"Expected realm-roles mapper, got {len(mappers)}"
+assert mappers[0]["config"]["claim.name"] == "realm_roles"
+'
+  [ "$status" -eq 0 ]
+}
+
+@test "setup-realm.sh references hill90-vault client" {
+  run grep "hill90-vault" platform/auth/keycloak/setup-realm.sh
+  [ "$status" -eq 0 ]
+}

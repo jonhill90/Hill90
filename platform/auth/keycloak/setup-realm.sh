@@ -263,17 +263,82 @@ if [ "$PHASE" = "phase1" ]; then
   chmod 600 "$SECRET_FILE"
   printf '%s' "$CLIENT_SECRET" > "$SECRET_FILE"
 
+  # -------------------------------------------------------------------------
+  # Step 8: Create hill90-vault OIDC client
+  # -------------------------------------------------------------------------
+
+  echo ""
+  echo "8. Creating hill90-vault OIDC client..."
+
+  VAULT_CLIENT_PAYLOAD='{
+    "clientId": "hill90-vault",
+    "enabled": true,
+    "protocol": "openid-connect",
+    "publicClient": false,
+    "standardFlowEnabled": true,
+    "directAccessGrantsEnabled": false,
+    "serviceAccountsEnabled": false,
+    "redirectUris": [
+      "https://vault.hill90.com/v1/auth/oidc/callback",
+      "https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback"
+    ],
+    "webOrigins": ["https://vault.hill90.com"],
+    "attributes": {
+      "post.logout.redirect.uris": "https://vault.hill90.com/ui/"
+    },
+    "protocolMappers": [
+      {
+        "name": "realm-roles",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-usermodel-realm-role-mapper",
+        "config": {
+          "multivalued": "true",
+          "claim.name": "realm_roles",
+          "id.token.claim": "true",
+          "access.token.claim": "true",
+          "userinfo.token.claim": "true"
+        }
+      }
+    ]
+  }'
+
+  curl -sf -X POST "${KC_BASE_URL}/admin/realms/${REALM}/clients" \
+    "${AUTH[@]}" \
+    -d "$VAULT_CLIENT_PAYLOAD" > /dev/null 2>&1 \
+    || info "Client 'hill90-vault' may already exist, continuing..."
+
+  # Retrieve vault client UUID and secret
+  VAULT_CLIENTS_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/clients?clientId=hill90-vault" "${AUTH[@]}") \
+    || die "Failed to query hill90-vault client."
+  VAULT_CLIENT_UUID=$(echo "$VAULT_CLIENTS_JSON" | jq -r '.[0].id // empty')
+  [ -n "$VAULT_CLIENT_UUID" ] || die "Client 'hill90-vault' not found after creation."
+
+  VAULT_SECRET_JSON=$(curl -sf "${KC_BASE_URL}/admin/realms/${REALM}/clients/${VAULT_CLIENT_UUID}/client-secret" "${AUTH[@]}") \
+    || die "Failed to retrieve hill90-vault client secret."
+  VAULT_CLIENT_SECRET=$(echo "$VAULT_SECRET_JSON" | jq -r '.value // empty')
+  [ -n "$VAULT_CLIENT_SECRET" ] || die "hill90-vault client secret is empty."
+
+  VAULT_SECRET_FILE="$(mktemp)"
+  chmod 600 "$VAULT_SECRET_FILE"
+  printf '%s' "$VAULT_CLIENT_SECRET" > "$VAULT_SECRET_FILE"
+
+  info "hill90-vault client ready (internal ID: ${VAULT_CLIENT_UUID})."
+
   echo ""
   echo "=== Phase 1 Complete ==="
   echo ""
-  echo "Client secret written to: ${SECRET_FILE}  (mode 600, readable by current user only)"
+  echo "Client secrets written to temp files (mode 600, readable by current user only):"
+  echo "  hill90-ui:    ${SECRET_FILE}"
+  echo "  hill90-vault: ${VAULT_SECRET_FILE}"
   echo ""
   echo "Next steps:"
   echo "  1. make secrets-update KEY=AUTH_KEYCLOAK_SECRET VALUE=\"\$(cat ${SECRET_FILE})\""
   echo "  2. make secrets-update KEY=AUTH_SECRET VALUE=\"\$(openssl rand -base64 32)\""
-  echo "  3. rm ${SECRET_FILE}"
-  echo "  4. Test SMTP from Keycloak admin console (Realm Settings > Email > Test connection)"
-  echo "  5. Only after email test succeeds: ./setup-realm.sh phase2"
+  echo "  3. make secrets-update KEY=VAULT_OIDC_CLIENT_SECRET VALUE=\"\$(cat ${VAULT_SECRET_FILE})\""
+  echo "  4. rm ${SECRET_FILE} ${VAULT_SECRET_FILE}"
+  echo "  5. Test SMTP from Keycloak admin console (Realm Settings > Email > Test connection)"
+  echo "  6. Only after email test succeeds: ./setup-realm.sh phase2"
+  echo "  7. Configure vault OIDC: bash scripts/vault.sh setup-oidc"
 
 fi
 
