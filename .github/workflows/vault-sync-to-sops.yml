@@ -94,7 +94,7 @@ jobs:
             "docker exec \
               -e BAO_ADDR=http://127.0.0.1:8200 \
               -e BAO_TOKEN='${{ steps.sync-token.outputs.token }}' \
-              openbao bao token renew -self" || {
+              openbao bao token renew" || {
             echo "::error::Token renewal failed — token may be expired or revoked. Re-run 'vault.sh setup-sync-token'."
             exit 1
           }
