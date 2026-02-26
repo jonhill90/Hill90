@@ -112,6 +112,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Vault sync to SOPS | `bash scripts/vault.sh sync-to-sops` | `make vault-sync-to-sops` |
 | Vault auto-unseal | `bash scripts/vault.sh auto-unseal` | `make vault-auto-unseal` |
 | Vault setup sync token | `bash scripts/vault.sh setup-sync-token` | `make vault-setup-sync-token` |
+| Vault bootstrap AppRoles | `bash scripts/vault.sh bootstrap-approles` | `make vault-bootstrap-approles` |
 | Vault sync (automated) | GitHub Actions: `vault-sync-to-sops` workflow | Manual trigger or weekly schedule |
 | Check secrets schema | `python3 scripts/checks/check_secrets_schema.py` | `make check-secrets-schema` |
 
