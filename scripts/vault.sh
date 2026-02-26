@@ -30,6 +30,7 @@ Commands:
   unseal        Unseal OpenBao using host key file or SOPS fallback
   status        Show OpenBao seal/init status
   setup         Enable KV v2, AppRole, audit, apply policies, create roles
+  setup-oidc    Configure OIDC auth method (Keycloak SSO for vault UI)
   seed          Seed KV v2 paths from SOPS-encrypted secrets
   policy-apply  Apply all policy HCL files
   backup        Backup OpenBao data volume
@@ -193,6 +194,16 @@ cmd_setup() {
             secret_id_ttl=0
     done
 
+    # Setup OIDC if client secret is available (optional — skip silently if not configured)
+    local oidc_secret
+    oidc_secret=$(sops -d "$SECRETS_FILE" 2>/dev/null | grep "^VAULT_OIDC_CLIENT_SECRET=" | cut -d= -f2- || echo "")
+    if [ -n "$oidc_secret" ]; then
+        echo ""
+        cmd_setup_oidc
+    else
+        info "VAULT_OIDC_CLIENT_SECRET not in SOPS — skipping OIDC setup (run 'vault.sh setup-oidc' after creating Keycloak client)"
+    fi
+
     echo ""
     success "Setup complete!"
     echo ""
@@ -201,6 +212,60 @@ cmd_setup() {
         echo "  role_id:    bao read auth/approle/role/${svc}/role-id"
         echo "  secret_id:  bao write -f auth/approle/role/${svc}/secret-id"
     done
+    echo ""
+}
+
+cmd_setup_oidc() {
+    require_running
+
+    local secrets_file="${SECRETS_FILE}"
+    require_file "$secrets_file" "Secrets file"
+    ensure_age_key prod
+
+    echo "================================"
+    echo "OpenBao OIDC Setup (Keycloak)"
+    echo "================================"
+    echo ""
+
+    # Read OIDC client secret from SOPS
+    local client_secret
+    client_secret=$(sops -d "$secrets_file" 2>/dev/null | grep "^VAULT_OIDC_CLIENT_SECRET=" | cut -d= -f2-)
+
+    if [ -z "$client_secret" ]; then
+        die "VAULT_OIDC_CLIENT_SECRET not found in SOPS. Create the Keycloak client first."
+    fi
+
+    # Enable OIDC auth method (idempotent)
+    echo "Enabling OIDC auth method..."
+    bao_exec_env auth enable oidc 2>/dev/null || info "OIDC auth already enabled"
+
+    # Configure OIDC provider (Keycloak)
+    echo "Configuring OIDC provider (Keycloak)..."
+    bao_exec_env write auth/oidc/config \
+        oidc_discovery_url="https://auth.hill90.com/realms/hill90" \
+        oidc_client_id="hill90-vault" \
+        oidc_client_secret="$client_secret" \
+        default_role="admin-sso"
+
+    # Apply OIDC admin policy
+    echo "Applying OIDC admin policy..."
+    bao_exec_env policy write policy-oidc-admin "/openbao/policies/policy-oidc-admin.hcl"
+
+    # Create admin-sso role (maps Keycloak admin role to vault policy)
+    echo "Creating admin-sso OIDC role..."
+    bao_exec_env write auth/oidc/role/admin-sso \
+        role_type="oidc" \
+        user_claim="sub" \
+        policies="policy-oidc-admin" \
+        oidc_scopes="openid,profile,email" \
+        bound_claims='{"realm_roles":["admin"]}' \
+        allowed_redirect_uris="https://vault.hill90.com/v1/auth/oidc/callback,https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback"
+
+    echo ""
+    success "OIDC setup complete!"
+    echo "  Login at: https://vault.hill90.com/ui/"
+    echo "  Auth method: OIDC"
+    echo "  Keycloak users with 'admin' role can now sign in."
     echo ""
 }
 
@@ -371,6 +436,7 @@ main() {
         unseal)        cmd_unseal "$@" ;;
         status)        cmd_status "$@" ;;
         setup)         cmd_setup "$@" ;;
+        setup-oidc)    cmd_setup_oidc "$@" ;;
         seed)          cmd_seed "$@" ;;
         policy-apply)  cmd_policy_apply "$@" ;;
         backup)        cmd_backup "$@" ;;
