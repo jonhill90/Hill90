@@ -1,5 +1,7 @@
 # Secrets Management Reference
 
+> **Architecture:** OpenBao vault is the runtime source of truth for secrets. SOPS + age serves as bootstrap and disaster-recovery backup. Deploy is vault-first with SOPS fallback. See [Secrets Architecture](../../docs/architecture/secrets-model.md) and [Secrets Workflow](../../docs/runbooks/secrets-workflow.md) for full details.
+
 ## Age Key Locations
 
 - **Local (project):** `infra/secrets/keys/age-prod.key` (tracked in repo, used by scripts)

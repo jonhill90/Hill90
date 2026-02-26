@@ -11,8 +11,12 @@ Hill90 uses layered controls to keep public services reachable while restricting
 ## Identity And Secrets
 
 - SSH uses key-based authentication only; password auth and root login are disabled.
-- Runtime secrets are stored in `infra/secrets/prod.enc.env` and encrypted with SOPS + age.
-- Secrets are decrypted only at deploy/runtime (`sops exec-env`) and not committed in plaintext.
+- **OpenBao vault is the runtime source of truth for secrets.** SOPS + age serves as bootstrap and disaster-recovery backup. Deploy is vault-first with SOPS fallback.
+- Each service authenticates to vault via AppRole and reads only its assigned KV paths.
+- Vault auto-unseals on boot via a systemd oneshot service; the unseal key is stored on the host at `/opt/hill90/secrets/openbao-unseal.key` with 0600 permissions.
+- SOPS-encrypted secrets (`infra/secrets/prod.enc.env`) are decrypted only at deploy/runtime and not committed in plaintext.
+- Vault-to-SOPS sync runs weekly via GitHub Actions to keep the SOPS backup current.
+- See [Secrets Architecture](./secrets-model.md) for the full vault model.
 
 ## Application Authentication
 

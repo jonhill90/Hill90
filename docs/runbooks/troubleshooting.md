@@ -609,6 +609,69 @@ Docker healthchecks for `promtail` and `postgres-exporter` use `--version` flags
 
 ---
 
+## Vault Issues
+
+### Vault Sealed After Reboot
+
+**Problem**: OpenBao is sealed after VPS reboot and services cannot read secrets
+
+**Solutions**:
+
+1. **Check if auto-unseal ran:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'journalctl -u hill90-vault-unseal --no-pager'
+   ```
+
+2. **Manual unseal:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'cd /opt/hill90/app && bash scripts/vault.sh unseal'
+   ```
+
+3. **Check unseal key file permissions:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'ls -la /opt/hill90/secrets/openbao-unseal.key'
+   # Expected: -rw------- 1 deploy deploy
+   ```
+
+4. **Fix permissions if wrong:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'sudo chown deploy:deploy /opt/hill90/secrets/openbao-unseal.key && sudo chmod 600 /opt/hill90/secrets/openbao-unseal.key'
+   ```
+
+### Auto-Unseal Service Not Running
+
+**Problem**: `hill90-vault-unseal` systemd service is not enabled
+
+**Solutions**:
+
+1. **Enable and start:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'sudo systemctl enable hill90-vault-unseal && sudo systemctl start hill90-vault-unseal'
+   ```
+
+2. **Re-run Ansible bootstrap (installs the service):**
+   ```bash
+   make config-vps VPS_IP=<ip>
+   ```
+
+### Deploy Verify Fails for Vault
+
+**Problem**: `deploy.sh verify vault` reports sealed
+
+**Solutions**:
+
+1. **Run auto-unseal manually:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'cd /opt/hill90/app && bash scripts/vault.sh auto-unseal'
+   ```
+
+2. **Check vault status:**
+   ```bash
+   ssh deploy@<tailscale-ip> 'cd /opt/hill90/app && bash scripts/vault.sh status'
+   ```
+
+---
+
 ## For More Help
 
 - **Check service logs:** `make logs` or `make logs-<service>`

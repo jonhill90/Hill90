@@ -400,3 +400,79 @@ assert mappers[0]["config"]["claim.name"] == "realm_roles"
 @test "secrets workflow guide exists" {
   [ -f "docs/runbooks/secrets-workflow.md" ]
 }
+
+# ---------------------------------------------------------------------------
+# Auto-unseal tests
+# ---------------------------------------------------------------------------
+
+@test "vault.sh has cmd_auto_unseal function" {
+  run grep "^cmd_auto_unseal()" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh auto-unseal is in the dispatcher" {
+  run grep "auto-unseal)" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh usage lists auto-unseal command" {
+  run bash scripts/vault.sh help
+  [[ "$output" == *"auto-unseal"* ]]
+}
+
+@test "systemd service file exists" {
+  [ -f "infra/systemd/hill90-vault-unseal.service" ]
+}
+
+@test "systemd service runs as deploy user" {
+  run grep "User=deploy" infra/systemd/hill90-vault-unseal.service
+  [ "$status" -eq 0 ]
+}
+
+@test "systemd service requires docker.service" {
+  run grep "Requires=docker.service" infra/systemd/hill90-vault-unseal.service
+  [ "$status" -eq 0 ]
+}
+
+@test "systemd service ExecStart calls vault.sh auto-unseal" {
+  run grep "ExecStart=.*/vault.sh auto-unseal" infra/systemd/hill90-vault-unseal.service
+  [ "$status" -eq 0 ]
+}
+
+@test "auto-unseal exits 0 when no container (graceful skip)" {
+  # Set a very short timeout and use a non-existent container name
+  # to verify the graceful skip path (exits 0, not an error)
+  if docker container inspect openbao >/dev/null 2>&1; then
+    skip "openbao container running locally"
+  fi
+  run env VAULT_AUTO_UNSEAL_TIMEOUT=1 bash scripts/vault.sh auto-unseal
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipping auto-unseal"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Secrets schema tests
+# ---------------------------------------------------------------------------
+
+@test "secrets-schema.yaml exists and is valid YAML" {
+  [ -f "platform/vault/secrets-schema.yaml" ]
+  run python3 -c "import yaml; yaml.safe_load(open('platform/vault/secrets-schema.yaml'))"
+  [ "$status" -eq 0 ]
+}
+
+@test "secrets schema validator passes current codebase" {
+  run python3 scripts/checks/check_secrets_schema.py
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Vault auto-unseal runbook test
+# ---------------------------------------------------------------------------
+
+@test "vault-unseal runbook exists" {
+  [ -f "docs/runbooks/vault-unseal.md" ]
+}
+
+@test "secrets-schema-validation runbook exists" {
+  [ -f "docs/runbooks/secrets-schema-validation.md" ]
+}

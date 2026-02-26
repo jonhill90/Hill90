@@ -70,6 +70,11 @@ jobs:
       - name: Assert compose volume naming
         run: python3 scripts/checks/check_volume_names.py
 
+      - name: Validate secrets schema consistency
+        env:
+          SECRETS_SCHEMA_STRICT: "0"
+        run: python3 scripts/checks/check_secrets_schema.py
+
       - name: Assert no destructive volume commands
         run: bash scripts/checks/check_destructive_commands.sh
 

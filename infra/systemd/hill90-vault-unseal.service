@@ -1,0 +1,16 @@
+[Unit]
+Description=Hill90 OpenBao Auto-Unseal
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+ExecStart=/opt/hill90/app/scripts/vault.sh auto-unseal
+Environment=SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt
+TimeoutStartSec=180
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

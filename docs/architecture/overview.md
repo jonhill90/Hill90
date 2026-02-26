@@ -103,8 +103,12 @@ Traefik (edge network)           ┌──────────────�
   - Tempo (distributed tracing)
   - OpenTelemetry (application tracing instrumentation)
   - Promtail, Node Exporter, cAdvisor, postgres-exporter (collectors)
+- **Secrets Management**:
+  - OpenBao vault (runtime source of truth)
+  - SOPS + age (bootstrap and disaster-recovery backup)
+  - AppRole authentication per service
+  - Auto-unseal via systemd on boot
 - **Security**:
-  - SOPS + age (secrets encryption)
   - Tailscale VPN (admin access)
   - Let's Encrypt (automatic HTTPS)
   - IP whitelist middleware (Tailscale CGNAT range)
@@ -128,6 +132,7 @@ Traefik (edge network)           ┌──────────────�
 ## See Also
 
 - [Certificate Management](./certificates.md) - HTTP-01 vs DNS-01 challenges, DNS Manager implementation
+- [Secrets Architecture](./secrets-model.md) - Vault-first architecture, KV paths, AppRole, sync
 - [Security Architecture](./security.md)
 - [Observability Runbook](../runbooks/observability.md) - LGTM stack operations, dashboards, alerts
 - [Deployment Guide](../runbooks/deployment.md)

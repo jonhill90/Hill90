@@ -373,6 +373,11 @@
   [ "$status" -eq 0 ]
 }
 
+@test "deploy.sh vault case calls auto-unseal after deploy" {
+  run bash -c "sed -n '/Auto-unseal vault/,/vault.sh/p' scripts/deploy.sh | grep 'auto-unseal'"
+  [ "$status" -eq 0 ]
+}
+
 @test "no destructive volume commands in deploy scripts" {
   for f in scripts/deploy.sh scripts/backup.sh scripts/rollback.sh; do
     # grep returns 1 (no match) when banned commands are absent — that's the pass case

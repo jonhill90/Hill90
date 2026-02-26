@@ -1,0 +1,19 @@
+---
+# Vault Auto-Unseal Systemd Service
+# Installs a systemd oneshot service that auto-unseals OpenBao on boot.
+# The service waits for the container to start, then runs vault.sh auto-unseal.
+
+- name: Install vault auto-unseal systemd service
+  copy:
+    src: "{{ app_directory }}/app/infra/systemd/hill90-vault-unseal.service"
+    dest: /etc/systemd/system/hill90-vault-unseal.service
+    remote_src: yes
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reload systemd and enable vault auto-unseal
+  systemd:
+    name: hill90-vault-unseal
+    enabled: yes
+    daemon_reload: yes

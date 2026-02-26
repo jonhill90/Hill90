@@ -97,16 +97,43 @@ ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
   'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh all prod'
 ```
 
+## CI Check Inventory
+
+| Check | Script | Mode |
+|-------|--------|------|
+| Harness freshness | `check_harness_freshness.py` | Blocking |
+| Closed-loop plan evidence | `check_plan_closed_loop.py` | Advisory |
+| Markdown links | `check_md_links.py` | Blocking |
+| Legacy agentbox paths | `check_legacy_agentbox.sh` | Blocking |
+| BATS tests | `bats tests/scripts/` | Blocking |
+| Compose validation | `docker compose config` | Blocking |
+| Traefik config | `validate.sh traefik` | Blocking |
+| Shellcheck | `shellcheck --severity=error` | Blocking |
+| Deploy safety invariants | grep checks | Blocking |
+| Compose volume naming | `check_volume_names.py` | Blocking |
+| Destructive commands | `check_destructive_commands.sh` | Blocking |
+| Secrets schema consistency | `check_secrets_schema.py` | Advisory |
+| API tests | `npm test` (api) | Blocking |
+| OpenAPI spec lint | `@redocly/cli lint` | Blocking |
+| Docs OpenAPI sync | `diff` | Blocking |
+| Docs secrets check | `check_docs_secrets.sh` | Blocking |
+| UI tests | `npm test` (ui) | Blocking |
+| Check script pytest | `pytest tests/checks/` | Blocking |
+| MCP tests | `poetry run pytest` (mcp) | Blocking |
+
 ## Core Command Map
 
 - `make recreate-vps`
 - `make config-vps VPS_IP=<ip>`
 - `make deploy-infra`
 - `make deploy-minio`
+- `make deploy-vault`
+- `make vault-auto-unseal`
 - `make deploy-all`
 - `make health`
 - `make secrets-view KEY=<key>`
 - `make secrets-update KEY=<key> VALUE=<v>`
+- `make check-secrets-schema`
 
 ## MCP Server Map
 
