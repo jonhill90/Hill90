@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vault CLI — OpenBao secrets management lifecycle
-# Usage: vault.sh {init|unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|help}
+# Usage: vault.sh {init|unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|setup-sync-token|help}
 
 set -e
 
@@ -35,8 +35,9 @@ Commands:
   policy-apply  Apply all policy HCL files
   backup        Backup OpenBao data volume
   export        Export all KV v2 secrets to stdout (requires BAO_TOKEN)
-  sync-to-sops  Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
-  help          Show this help message
+  sync-to-sops        Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
+  setup-sync-token    Create a read-only sync token and store in SOPS (requires BAO_TOKEN)
+  help                Show this help message
 
 Environment variables:
   BAO_TOKEN     Root or admin token (required for setup, seed, export)
@@ -523,6 +524,62 @@ for k, v in sorted(data.items()):
     echo "Backup saved: $backup_file"
 }
 
+cmd_setup_sync_token() {
+    require_running
+
+    echo "================================"
+    echo "Setup Vault Sync Token"
+    echo "================================"
+    echo ""
+
+    require_file "$SECRETS_FILE" "Secrets file"
+    ensure_age_key prod
+
+    # Apply the sync policy
+    echo "Applying policy-sync..."
+    bao_exec_env policy write policy-sync "/openbao/policies/policy-sync.hcl"
+
+    # Create an orphan periodic token with only the sync policy.
+    # Periodic tokens don't expire as long as they're renewed within each
+    # period window. The workflow renews on each run (weekly), so the
+    # 32-day period provides ample buffer.
+    echo "Creating periodic sync token (period=768h, policy=policy-sync)..."
+    local token_output
+    token_output=$(bao_exec_env token create \
+        -orphan \
+        -period=768h \
+        -policy=policy-sync \
+        -display-name=vault-sync-to-sops \
+        -format=json)
+
+    local sync_token
+    sync_token=$(echo "$token_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['auth']['client_token'])")
+
+    if [ -z "$sync_token" ]; then
+        die "Failed to create sync token"
+    fi
+
+    # Store the token in SOPS
+    echo "Storing VAULT_SYNC_TOKEN in SOPS..."
+    local escaped_token
+    escaped_token=$(printf '%s' "$sync_token" | jq -Rs .)
+
+    if ! sops --set "[\"VAULT_SYNC_TOKEN\"] ${escaped_token}" "$SECRETS_FILE"; then
+        die "Failed to store VAULT_SYNC_TOKEN in SOPS"
+    fi
+
+    echo ""
+    success "Sync token created and stored in SOPS!"
+    echo ""
+    echo "Token: ${sync_token}" >&2
+    echo ""
+    echo "IMPORTANT: Commit and push the updated SOPS file so GitHub Actions can read it:"
+    echo "  git add infra/secrets/prod.enc.env"
+    echo "  git commit -m 'chore: store vault sync token in SOPS'"
+    echo "  git push"
+    echo ""
+}
+
 # ---------------------------------------------------------------------------
 # Main dispatcher
 # ---------------------------------------------------------------------------
@@ -546,7 +603,8 @@ main() {
         policy-apply)  cmd_policy_apply "$@" ;;
         backup)        cmd_backup "$@" ;;
         export)        cmd_export "$@" ;;
-        sync-to-sops)  cmd_sync_to_sops "$@" ;;
+        sync-to-sops)       cmd_sync_to_sops "$@" ;;
+        setup-sync-token)   cmd_setup_sync_token "$@" ;;
         help|--help|-h) usage ;;
         *)
             echo "Unknown command: $cmd"

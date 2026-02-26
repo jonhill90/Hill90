@@ -110,6 +110,8 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Vault setup | `bash scripts/vault.sh setup` | `make vault-setup` |
 | Vault seed | `bash scripts/vault.sh seed` | `make vault-seed` |
 | Vault sync to SOPS | `bash scripts/vault.sh sync-to-sops` | `make vault-sync-to-sops` |
+| Vault setup sync token | `bash scripts/vault.sh setup-sync-token` | `make vault-setup-sync-token` |
+| Vault sync (automated) | GitHub Actions: `vault-sync-to-sops` workflow | Manual trigger or weekly schedule |
 
 ## Reference Map
 

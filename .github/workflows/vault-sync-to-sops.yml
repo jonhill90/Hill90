@@ -1,0 +1,190 @@
+name: Vault Sync to SOPS
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: vault-sync-to-sops
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync vault secrets to SOPS
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age for secrets
+        run: |
+          curl -L -o /tmp/sops https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      - name: Verify SSH connectivity
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
+
+      - name: Read sync token from SOPS
+        id: sync-token
+        run: |
+          VAULT_SYNC_TOKEN=$(sops -d infra/secrets/prod.enc.env | grep '^VAULT_SYNC_TOKEN=' | cut -d= -f2-)
+          if [ -z "$VAULT_SYNC_TOKEN" ]; then
+            echo "::error::VAULT_SYNC_TOKEN not found in SOPS. Run 'vault.sh setup-sync-token' first."
+            exit 1
+          fi
+          echo "::add-mask::$VAULT_SYNC_TOKEN"
+          echo "token=$VAULT_SYNC_TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Check script drift
+        run: |
+          LOCAL_HASH=$(sha256sum scripts/vault.sh | cut -d' ' -f1)
+          REMOTE_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'sha256sum /opt/hill90/app/scripts/vault.sh | cut -d" " -f1')
+          if [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then
+            echo "::warning::VPS vault.sh differs from repo — consider deploying scripts before next sync"
+          fi
+
+      - name: Hash SOPS before sync
+        id: before
+        run: |
+          BEFORE_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && sops -d /opt/hill90/app/infra/secrets/prod.enc.env | sha256sum | cut -d" " -f1')
+          echo "hash=$BEFORE_HASH" >> $GITHUB_OUTPUT
+
+      - name: Renew sync token
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "docker exec \
+              -e BAO_ADDR=http://127.0.0.1:8200 \
+              -e BAO_TOKEN='${{ steps.sync-token.outputs.token }}' \
+              openbao bao token renew -self" || {
+            echo "::error::Token renewal failed — token may be expired or revoked. Re-run 'vault.sh setup-sync-token'."
+            exit 1
+          }
+
+      - name: Run sync on VPS
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
+             export BAO_TOKEN='${{ steps.sync-token.outputs.token }}' && \
+             cd /opt/hill90/app && bash scripts/vault.sh sync-to-sops"
+
+      - name: Hash SOPS after sync
+        id: after
+        run: |
+          AFTER_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && sops -d /opt/hill90/app/infra/secrets/prod.enc.env | sha256sum | cut -d" " -f1')
+          echo "hash=$AFTER_HASH" >> $GITHUB_OUTPUT
+
+      - name: Compare hashes
+        id: compare
+        run: |
+          if [ "${{ steps.before.outputs.hash }}" = "${{ steps.after.outputs.hash }}" ]; then
+            echo "No changes detected — vault and SOPS are in sync."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected — vault secrets differ from SOPS."
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy updated SOPS from VPS
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/opt/hill90/app/infra/secrets/prod.enc.env \
+            infra/secrets/prod.enc.env
+
+      - name: Cleanup VPS
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd /opt/hill90/app && \
+             git checkout -- infra/secrets/prod.enc.env && \
+             rm -f infra/secrets/prod.enc.env.backup.*" || true
+
+      - name: Create PR
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="sync/vault-to-sops-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add infra/secrets/prod.enc.env
+          git commit -m "chore: sync vault secrets to SOPS ($(date +%Y-%m-%d))"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore: sync vault secrets to SOPS ($(date +%Y-%m-%d))" \
+            --body "$(cat <<'EOF'
+          ## Summary
+          - Automated vault-to-SOPS sync detected secret drift
+          - Updated `infra/secrets/prod.enc.env` with current vault state
+          - Only the encrypted file is modified — decrypted content never left VPS
+
+          ## Test plan
+          - [ ] Verify `sops -d infra/secrets/prod.enc.env` decrypts successfully
+          - [ ] Spot-check key values match vault state
+          - [ ] Merge when satisfied
+
+          Generated by the `vault-sync-to-sops` workflow.
+          EOF
+          )"
+
+      - name: Notify sync result
+        if: failure()
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          if [ -n "$DEPLOY_WEBHOOK_URL" ]; then
+            curl -sf -X POST "$DEPLOY_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "service": "vault-sync-to-sops",
+                "status": "failure",
+                "commit": "${{ github.sha }}",
+                "actor": "${{ github.actor }}",
+                "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                "text": "Vault-to-SOPS sync failed — check workflow logs"
+              }' || echo "Warning: webhook notification failed (non-blocking)"
+          fi
