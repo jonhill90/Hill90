@@ -79,7 +79,7 @@ cmd_verify() {
         mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"'; diag_container="mcp" ;;
         ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="ui" ;;
         minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
-        vault)         check_cmd='docker exec openbao bao status -format=json 2>/dev/null | grep -q "\"sealed\":false"'; diag_container="openbao" ;;
+        vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
