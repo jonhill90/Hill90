@@ -1,0 +1,15 @@
+---
+# Deploy User Profile Setup
+# Ensures environment variables needed for SOPS fallback are set in .bashrc.
+
+- name: Ensure SOPS_AGE_KEY_FILE is exported in deploy user .bashrc
+  blockinfile:
+    path: "{{ deploy_home }}/.bashrc"
+    marker: "# {mark} MANAGED BY ANSIBLE - Hill90 environment"
+    block: |
+      # SOPS age key for secrets decryption (fallback path when vault is unavailable)
+      export SOPS_AGE_KEY_FILE={{ age_key_path }}/keys.txt
+    create: no
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0644'
