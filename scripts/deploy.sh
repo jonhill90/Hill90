@@ -69,18 +69,19 @@ cmd_verify() {
     local max_attempts=${DEPLOY_VERIFY_MAX_ATTEMPTS:-30}
     local attempt=0
     local check_cmd
+    local diag_container  # primary container name for diagnostics
 
     case "$service" in
-        db)            check_cmd='docker exec postgres pg_isready -U postgres' ;;
-        auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]' ;;
-        api)           check_cmd='docker exec api node -e "require(\"http\").get(\"http://localhost:3000/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"' ;;
-        ai)            check_cmd='docker exec ai python -c "import requests; r=requests.get(\"http://localhost:8000/health\"); exit(0 if r.ok else 1)"' ;;
-        mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"' ;;
-        ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"' ;;
-        minio)         check_cmd='docker exec minio mc ready local' ;;
-        vault)         check_cmd='docker exec openbao bao status -format=json 2>/dev/null | grep -q "\"sealed\":false"' ;;
-        observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy' ;;
-        infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview' ;;
+        db)            check_cmd='docker exec postgres pg_isready -U postgres'; diag_container="postgres" ;;
+        auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
+        api)           check_cmd='docker exec api node -e "require(\"http\").get(\"http://localhost:3000/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="api" ;;
+        ai)            check_cmd='docker exec ai python -c "import requests; r=requests.get(\"http://localhost:8000/health\"); exit(0 if r.ok else 1)"'; diag_container="ai" ;;
+        mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"'; diag_container="mcp" ;;
+        ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="ui" ;;
+        minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
+        vault)         check_cmd='docker exec openbao bao status -format=json 2>/dev/null | grep -q "\"sealed\":false"'; diag_container="openbao" ;;
+        observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
+        infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
     esac
 
@@ -95,11 +96,11 @@ cmd_verify() {
     done
 
     echo "✗ ${service} failed readiness check after ${max_attempts} attempts"
-    echo "--- Diagnostic output for ${service} ---"
+    echo "--- Diagnostic output for ${service} (container: ${diag_container}) ---"
     echo "Container state:"
-    docker inspect --format='{{.State.Status}} (health: {{if .State.Health}}{{.State.Health.Status}}{{else}}no healthcheck{{end}})' "$service" 2>/dev/null || echo "  container not found"
+    docker inspect --format='{{.State.Status}} (health: {{if .State.Health}}{{.State.Health.Status}}{{else}}no healthcheck{{end}})' "$diag_container" 2>/dev/null || echo "  container not found"
     echo "Last 20 log lines:"
-    docker logs --tail 20 "$service" 2>&1 || echo "  no logs available"
+    docker logs --tail 20 "$diag_container" 2>&1 || echo "  no logs available"
     echo "--- End diagnostics ---"
     exit 1
 }
