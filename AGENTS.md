@@ -119,6 +119,8 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 - Linear task lifecycle details: `.claude/references/task-management.md`
 - Deployment architecture: `.github/docs/deployment.md`
 - VPS rebuild runbook: `docs/runbooks/vps-rebuild.md`
+- Disaster recovery runbook: `docs/runbooks/disaster-recovery.md`
+- Secrets workflow guide: `docs/runbooks/secrets-workflow.md`
 - Architecture overview: `docs/architecture/overview.md`
 - Closed-loop planning skill: `.github/skills/closing-the-loop/SKILL.md`
 - Public documentation site (Mintlify): `docs/site/` (source) — https://docs.hill90.com (live); `docs/` is internal
