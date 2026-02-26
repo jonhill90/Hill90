@@ -43,6 +43,9 @@
     - name: "11 - Vault Auto-Unseal"
       import_tasks: 11-vault-unseal.yml
 
+    - name: "12 - Deploy Profile"
+      import_tasks: 12-deploy-profile.yml
+
     # NOTE: Playbooks 09-traefik.yml and 10-portainer.yml are NOT run during bootstrap
     # Infrastructure containers (Traefik, dns-manager, Portainer) are deployed separately
     # via: make deploy-infra

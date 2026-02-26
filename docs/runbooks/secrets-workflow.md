@@ -133,6 +133,16 @@ The token has `policy-sync` (read-only KV access) and is a periodic token with a
 - The encrypted SOPS file (already committed in the repo) is the only file transferred back.
 - The token is masked in CI logs via `::add-mask`.
 
+## VPS Environment Requirement
+
+The deploy user's shell must have `SOPS_AGE_KEY_FILE` set for SOPS operations (fallback decryption, seeding, sync):
+
+```
+export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt
+```
+
+This is configured automatically by Ansible bootstrap (playbook `12-deploy-profile.yml`). If missing after a VPS rebuild, re-run the bootstrap or add it manually to `~/.bashrc`.
+
 ## Periodic Maintenance
 
 - **After any vault change**: Run `vault.sh sync-to-sops` manually or wait for the next scheduled sync.

@@ -103,22 +103,13 @@ bash scripts/vault.sh seed
 
 ### 8. Generate and Store AppRole Credentials
 
-For each service, generate new AppRole credentials and store them in SOPS:
+Bootstrap all AppRole credentials automatically:
 
 ```bash
-# Example for api:
-bao read auth/approle/role/api/role-id
-bao write -f auth/approle/role/api/secret-id
+bash scripts/vault.sh bootstrap-approles
 ```
 
-Update SOPS with each service's role_id and secret_id:
-
-```bash
-make secrets-update KEY=VAULT_API_ROLE_ID VALUE="<role-id>"
-make secrets-update KEY=VAULT_API_SECRET_ID VALUE="<secret-id>"
-```
-
-Repeat for: `db`, `api`, `ai`, `auth`, `ui`, `mcp`, `minio`, `infra`, `observability`.
+This generates role_id + secret_id for all 9 services and stores them in SOPS. It temporarily generates a root token (via unseal key), runs setup, creates credentials, then revokes the root token.
 
 ### 9. Deploy Database
 
@@ -171,7 +162,8 @@ VPS recreate -> VPS config -> infra -> vault (deploy+init+unseal+setup+seed)
 
 ## Notes
 
-- Vault requires manual unseal after every container restart. This is by design (no auto-unseal).
+- Vault auto-unseals after deploy (`deploy.sh vault` calls `vault.sh auto-unseal`) and on VPS boot (systemd `hill90-vault-unseal` service). Manual unseal is available as fallback: `bash scripts/vault.sh unseal`.
 - SOPS is the bootstrap mechanism. All runtime secrets must be present in SOPS to seed vault on a fresh install.
+- `SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt` must be set in the deploy user's environment for SOPS fallback to work. The Ansible bootstrap (playbook 12) configures this automatically.
 - After recovery, run `vault.sh sync-to-sops` periodically to keep the SOPS backup current.
 - DNS records may need updating if the VPS IP changed: `bash scripts/hostinger.sh dns sync`.
