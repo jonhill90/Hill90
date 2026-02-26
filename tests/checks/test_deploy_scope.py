@@ -144,11 +144,12 @@ class TestDornyFilters:
         services = _services_for_path("README.md", dorny_filters)
         assert services == set()
 
-    def test_vault_config_triggers_only_vault(self, dorny_filters):
+    def test_vault_config_triggers_no_services(self, dorny_filters):
+        """Vault policy/config changes don't need a container restart."""
         services = _services_for_path(
             "platform/vault/config.hcl", dorny_filters
         )
-        assert services == {"vault"}
+        assert services == set()
 
     def test_vault_compose_triggers_only_vault(self, dorny_filters):
         services = _services_for_path(
@@ -183,7 +184,6 @@ class TestTriggerPaths:
             "platform/auth/keycloak/**",
             "platform/data/postgres/**",
             "platform/observability/**",
-            "platform/vault/**",
             "deploy/compose/prod/docker-compose.db.yml",
             "deploy/compose/prod/docker-compose.minio.yml",
             "deploy/compose/prod/docker-compose.vault.yml",
@@ -205,8 +205,9 @@ class TestTriggerPaths:
             trigger_paths,
         )
 
-    def test_trigger_paths_include_vault_platform(self, trigger_paths):
-        assert _matches_any("platform/vault/config.hcl", trigger_paths)
+    def test_trigger_paths_exclude_vault_platform(self, trigger_paths):
+        """Vault policy/config changes don't trigger deploy (no restart needed)."""
+        assert not _matches_any("platform/vault/config.hcl", trigger_paths)
 
     def test_trigger_paths_include_vault_compose(self, trigger_paths):
         assert _matches_any(

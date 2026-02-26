@@ -14,7 +14,6 @@ on:
       - 'deploy/compose/prod/docker-compose.db.yml'
       - 'deploy/compose/prod/docker-compose.minio.yml'
       - 'deploy/compose/prod/docker-compose.vault.yml'
-      - 'platform/vault/**'
       - 'deploy/compose/prod/docker-compose.auth.yml'
       - 'deploy/compose/prod/docker-compose.api.yml'
       - 'deploy/compose/prod/docker-compose.ai.yml'
@@ -63,7 +62,6 @@ jobs:
               - 'deploy/compose/prod/docker-compose.minio.yml'
             vault:
               - 'deploy/compose/prod/docker-compose.vault.yml'
-              - 'platform/vault/**'
             auth:
               - 'platform/auth/keycloak/**'
               - 'deploy/compose/prod/docker-compose.auth.yml'
