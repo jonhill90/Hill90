@@ -109,6 +109,7 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 | Vault status | `bash scripts/vault.sh status` | `make vault-status` |
 | Vault setup | `bash scripts/vault.sh setup` | `make vault-setup` |
 | Vault seed | `bash scripts/vault.sh seed` | `make vault-seed` |
+| Vault sync to SOPS | `bash scripts/vault.sh sync-to-sops` | `make vault-sync-to-sops` |
 
 ## Reference Map
 
