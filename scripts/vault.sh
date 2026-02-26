@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vault CLI — OpenBao secrets management lifecycle
-# Usage: vault.sh {init|unseal|auto-unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|setup-sync-token|help}
+# Usage: vault.sh {init|unseal|auto-unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|setup-sync-token|bootstrap-approles|help}
 
 set -e
 
@@ -38,6 +38,7 @@ Commands:
   auto-unseal         Wait for container + unseal (for systemd/deploy hooks)
   sync-to-sops        Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
   setup-sync-token    Create a read-only sync token and store in SOPS (requires BAO_TOKEN)
+  bootstrap-approles  Generate AppRole credentials for all services and store in SOPS
   help                Show this help message
 
 Environment variables:
@@ -581,6 +582,126 @@ cmd_setup_sync_token() {
     echo ""
 }
 
+cmd_bootstrap_approles() {
+    require_running
+
+    echo "================================"
+    echo "Bootstrap AppRole Credentials"
+    echo "================================"
+    echo ""
+
+    require_file "$SECRETS_FILE" "Secrets file"
+    ensure_age_key prod
+
+    # Ensure vault is unsealed
+    local sealed_status
+    sealed_status=$(bao_exec status -format=json 2>/dev/null | grep '"sealed"' | tr -d ' ,"' || echo "")
+    if [[ "$sealed_status" != *"false"* ]]; then
+        echo "Vault is sealed — unsealing first..."
+        cmd_unseal
+    fi
+
+    # Read unseal key for root token generation
+    local unseal_key=""
+    if [ -f "$UNSEAL_KEY_PATH" ]; then
+        unseal_key=$(cat "$UNSEAL_KEY_PATH")
+    elif [ -f "$SECRETS_FILE" ]; then
+        unseal_key=$(sops -d --extract '["OPENBAO_UNSEAL_KEY"]' "$SECRETS_FILE" 2>/dev/null || echo "")
+    fi
+    if [ -z "$unseal_key" ]; then
+        die "No unseal key found. Required to generate root token."
+    fi
+
+    # Generate a temporary root token
+    echo "Generating temporary root token..."
+    local init_output otp nonce encoded root_token
+    init_output=$(bao_exec operator generate-root -init -format=json 2>/dev/null)
+    otp=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['otp'])")
+    nonce=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['nonce'])")
+
+    encoded=$(echo "$unseal_key" | bao_exec operator generate-root -nonce="$nonce" -format=json - 2>/dev/null | \
+        python3 -c "import sys,json; print(json.load(sys.stdin)['encoded_root_token'])")
+
+    root_token=$(bao_exec operator generate-root -decode="$encoded" -otp="$otp" 2>/dev/null)
+
+    if [ -z "$root_token" ]; then
+        die "Failed to generate root token"
+    fi
+    info "Root token generated"
+
+    # Export for bao_exec_env
+    export BAO_TOKEN="$root_token"
+
+    # Run setup (idempotent — creates AppRoles, policies, KV engine)
+    echo ""
+    echo "Running setup (idempotent)..."
+    cmd_setup
+
+    # Generate and store credentials for each service
+    echo ""
+    echo "Generating AppRole credentials for each service..."
+    local stored=0
+
+    for svc in $VAULT_SERVICES; do
+        local svc_upper
+        svc_upper=$(echo "$svc" | tr '[:lower:]' '[:upper:]')
+        local role_id_key="VAULT_${svc_upper}_ROLE_ID"
+        local secret_id_key="VAULT_${svc_upper}_SECRET_ID"
+
+        # Read role_id
+        local role_id
+        role_id=$(bao_exec_env read -format=json "auth/approle/role/${svc}/role-id" 2>/dev/null | \
+            python3 -c "import sys,json; print(json.load(sys.stdin)['data']['role_id'])")
+
+        if [ -z "$role_id" ]; then
+            warn "Failed to read role_id for ${svc} — skipping"
+            continue
+        fi
+
+        # Generate a new secret_id
+        local secret_id
+        secret_id=$(bao_exec_env write -f -format=json "auth/approle/role/${svc}/secret-id" 2>/dev/null | \
+            python3 -c "import sys,json; print(json.load(sys.stdin)['data']['secret_id'])")
+
+        if [ -z "$secret_id" ]; then
+            warn "Failed to generate secret_id for ${svc} — skipping"
+            continue
+        fi
+
+        # Store in SOPS
+        local escaped_role_id escaped_secret_id
+        escaped_role_id=$(printf '%s' "$role_id" | jq -Rs .)
+        escaped_secret_id=$(printf '%s' "$secret_id" | jq -Rs .)
+
+        sops --set "[\"${role_id_key}\"] ${escaped_role_id}" "$SECRETS_FILE" || {
+            warn "Failed to store ${role_id_key} in SOPS"
+            continue
+        }
+        sops --set "[\"${secret_id_key}\"] ${escaped_secret_id}" "$SECRETS_FILE" || {
+            warn "Failed to store ${secret_id_key} in SOPS"
+            continue
+        }
+
+        echo "  ${svc}: role_id + secret_id stored in SOPS"
+        stored=$((stored + 1))
+    done
+
+    # Revoke the temporary root token
+    echo ""
+    echo "Revoking temporary root token..."
+    bao_exec_env token revoke -self 2>/dev/null || warn "Failed to revoke root token (may have already expired)"
+    unset BAO_TOKEN
+
+    echo ""
+    success "Bootstrap complete! ${stored}/${#VAULT_SERVICES} services configured."
+    echo ""
+    echo "IMPORTANT: Commit and push the updated SOPS file:"
+    echo "  git add infra/secrets/prod.enc.env"
+    echo "  git commit -m 'chore: bootstrap AppRole credentials in SOPS'"
+    echo "  git push"
+    echo ""
+}
+
 cmd_auto_unseal() {
     local max_wait=${VAULT_AUTO_UNSEAL_TIMEOUT:-120}
     local waited=0
@@ -656,6 +777,7 @@ main() {
         auto-unseal)        cmd_auto_unseal "$@" ;;
         sync-to-sops)       cmd_sync_to_sops "$@" ;;
         setup-sync-token)   cmd_setup_sync_token "$@" ;;
+        bootstrap-approles) cmd_bootstrap_approles "$@" ;;
         help|--help|-h) usage ;;
         *)
             echo "Unknown command: $cmd"

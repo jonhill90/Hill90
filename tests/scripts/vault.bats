@@ -451,6 +451,46 @@ assert mappers[0]["config"]["claim.name"] == "realm_roles"
 }
 
 # ---------------------------------------------------------------------------
+# Bootstrap AppRole tests
+# ---------------------------------------------------------------------------
+
+@test "vault.sh has cmd_bootstrap_approles function" {
+  run grep "^cmd_bootstrap_approles()" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh bootstrap-approles is in the dispatcher" {
+  run grep "bootstrap-approles)" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh usage lists bootstrap-approles command" {
+  run bash scripts/vault.sh help
+  [[ "$output" == *"bootstrap-approles"* ]]
+}
+
+@test "cmd_bootstrap_approles generates root token and revokes it" {
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'generate-root'"
+  [ "$status" -eq 0 ]
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'token revoke -self'"
+  [ "$status" -eq 0 ]
+}
+
+@test "cmd_bootstrap_approles writes role_id and secret_id to SOPS" {
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'sops --set'"
+  [ "$status" -eq 0 ]
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'ROLE_ID'"
+  [ "$status" -eq 0 ]
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'SECRET_ID'"
+  [ "$status" -eq 0 ]
+}
+
+@test "cmd_bootstrap_approles iterates all VAULT_SERVICES" {
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'for svc in \$VAULT_SERVICES'"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
 # Secrets schema tests
 # ---------------------------------------------------------------------------
 
