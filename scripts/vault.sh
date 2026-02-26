@@ -597,10 +597,16 @@ cmd_auto_unseal() {
         waited=$((waited + 5))
     done
 
-    # Wait for API to respond
+    # Wait for API to respond (bao status exits 0=unsealed, 2=sealed, 1=error)
     waited=0
-    while ! bao_exec status >/dev/null 2>&1; do
-        if [ $waited -ge 30 ]; then
+    while true; do
+        local rc=0
+        bao_exec status >/dev/null 2>&1 || rc=$?
+        # Exit code 0 (unsealed) or 2 (sealed) both mean the API is responding
+        if [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ]; then
+            break
+        fi
+        if [ $waited -ge 60 ]; then
             die "Timed out waiting for ${CONTAINER_NAME} API"
         fi
         sleep 2
