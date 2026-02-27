@@ -1,0 +1,33 @@
+---
+title: Knowledge API
+description: Read-only access to agent knowledge entries, search, and stats.
+---
+
+# Knowledge API
+
+The Knowledge API provides read-only access to agent knowledge. Agents write knowledge via the `akm` CLI; the Knowledge API lets humans browse what agents know.
+
+## Access Model
+
+- **Users** see knowledge from agents they own.
+- **Admins** see knowledge from all agents.
+- **Read-only** — only agents write knowledge through the AKM service.
+
+## Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /knowledge/agents` | List agents with knowledge entry counts |
+| `GET /knowledge/entries` | List entries for a specific agent |
+| `GET /knowledge/entries/{agentId}/{path}` | Read a specific entry with full content |
+| `GET /knowledge/search` | Full-text search across knowledge entries |
+
+## Authentication
+
+All endpoints require a valid Keycloak JWT bearer token with the `user` role:
+
+```
+Authorization: Bearer YOUR_JWT_TOKEN
+```
+
+See the auto-generated endpoint pages below for request/response details.

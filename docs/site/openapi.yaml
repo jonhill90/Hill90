@@ -91,6 +91,99 @@ components:
         hasAvatar:
           type: boolean
 
+    KnowledgeEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+        path:
+          type: string
+        title:
+          type: string
+        entry_type:
+          type: string
+          enum: [note, plan, decision, journal, research]
+        content:
+          type: string
+          description: Full markdown content (only included in single-entry reads)
+        content_hash:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, archived]
+        sync_status:
+          type: string
+          enum: [pending, synced, quarantined]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    KnowledgeAgent:
+      type: object
+      properties:
+        agent_id:
+          type: string
+        entry_count:
+          type: integer
+        last_updated:
+          type: string
+          format: date-time
+
+    KnowledgeSearchResult:
+      type: object
+      properties:
+        query:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              agent_id:
+                type: string
+              path:
+                type: string
+              title:
+                type: string
+              entry_type:
+                type: string
+              tags:
+                type: array
+                items:
+                  type: string
+              score:
+                type: number
+              headline:
+                type: string
+                description: Search result snippet with highlights
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+        count:
+          type: integer
+        search_type:
+          type: string
+          example: fts
+        score_type:
+          type: string
+          example: ts_rank
+
     Error:
       type: object
       properties:
@@ -612,3 +705,133 @@ paths:
           description: Not authenticated
         "403":
           description: Requires user role
+
+  /knowledge/agents:
+    get:
+      summary: List agents with knowledge
+      description: >
+        Returns agents that have knowledge entries, with entry counts and last updated
+        timestamps. Scoped to ownership — users see their own agents, admins see all.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Agent knowledge stats
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeAgent"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+  /knowledge/entries:
+    get:
+      summary: List knowledge entries
+      description: >
+        Returns knowledge entries for a specific agent. Requires agent_id query parameter.
+        Users can only list entries for agents they own. Admins can list any agent's entries.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agent_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Agent ID to list entries for
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [note, plan, decision, journal, research]
+          description: Optional entry type filter
+      responses:
+        "200":
+          description: Entry list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/KnowledgeEntry"
+        "400":
+          description: Missing agent_id parameter
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not authorized to view this agent's knowledge
+
+  /knowledge/entries/{agentId}/{path}:
+    parameters:
+      - name: agentId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Agent ID
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Entry path (e.g. notes/test.md)
+    get:
+      summary: Read knowledge entry
+      description: >
+        Returns a single knowledge entry with full content. Users can only read
+        entries from agents they own. Admins can read any entry.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Entry detail with content
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeEntry"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not authorized to view this agent's knowledge
+        "404":
+          description: Entry not found
+
+  /knowledge/search:
+    get:
+      summary: Search knowledge entries
+      description: >
+        Full-text search across knowledge entries. Without agent_id, searches
+        across all owned agents (or all agents for admins). With agent_id,
+        searches only that agent's entries (ownership enforced for users).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Search query
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+          description: Optional agent ID to scope search
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeSearchResult"
+        "400":
+          description: Missing q parameter
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not authorized to search this agent's knowledge

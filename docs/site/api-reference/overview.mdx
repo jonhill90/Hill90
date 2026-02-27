@@ -5,7 +5,7 @@ description: Hill90 REST API endpoint documentation.
 
 # API Reference
 
-The Hill90 API provides endpoints for agent management, user profiles, and platform health checks.
+The Hill90 API provides endpoints for agent management, agent knowledge, user profiles, and platform health checks.
 
 ## Base URL
 
@@ -56,6 +56,17 @@ See [Authentication](/getting-started/authentication) for details on obtaining t
 | `POST /agents/{id}/stop` | Bearer (admin) | Stop agent container |
 | `GET /agents/{id}/status` | Bearer | Get agent status |
 | `GET /agents/{id}/logs` | Bearer (admin) | Get agent logs (JSON or SSE stream) |
+
+### Knowledge
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /knowledge/agents` | Bearer | List agents with knowledge stats |
+| `GET /knowledge/entries` | Bearer | List entries for an agent |
+| `GET /knowledge/entries/{agentId}/{path}` | Bearer | Read a specific entry |
+| `GET /knowledge/search` | Bearer | Full-text search across entries |
+
+See [Knowledge API](/api-reference/knowledge) for details on access scoping.
 
 ## Auto-Generated Documentation
 

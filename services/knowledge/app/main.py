@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, Response
 from app.config import Settings
 from app.db.migrate import run_migrations
 from app.middleware.agent_auth import AuthError, verify_agent_token
-from app.routes import context, entries, health, internal, journal, search
+from app.routes import context, entries, health, internal, internal_admin, journal, search
 from app.services.reconciler import reconcile
 
 logger = structlog.get_logger()
@@ -137,6 +137,7 @@ def create_app(
     app.include_router(journal.router)
     app.include_router(context.router)
     app.include_router(internal.router)
+    app.include_router(internal_admin.router)
 
     return app
 
