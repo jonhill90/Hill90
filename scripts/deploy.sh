@@ -354,10 +354,10 @@ cmd_service() {
             else
                 printf "%s\n" "$AKM_SIGNING_PUBLIC_KEY" | docker run --rm -i \
                     -v akm-keys:/etc/akm alpine sh -c \
-                    "cat > /etc/akm/public.pem && chmod 644 /etc/akm/public.pem"
+                    "cat > /etc/akm/public.pem && chmod 644 /etc/akm/public.pem && chown 1000:1000 /etc/akm/public.pem"
                 printf "%s\n" "$AKM_SIGNING_PRIVATE_KEY" | docker run --rm -i \
                     -v akm-keys:/etc/akm alpine sh -c \
-                    "cat > /etc/akm/private.pem && chmod 600 /etc/akm/private.pem"
+                    "cat > /etc/akm/private.pem && chmod 600 /etc/akm/private.pem && chown 1000:1000 /etc/akm/private.pem"
                 echo "akm-keys volume populated with public.pem and private.pem"
             fi
         '
