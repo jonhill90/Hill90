@@ -160,6 +160,7 @@ vault_paths_for_service() {
         minio)         echo "secret/minio/config" ;;
         infra)         echo "secret/infra/traefik secret/infra/dns-manager" ;;
         observability) echo "secret/observability/grafana" ;;
+        knowledge)     echo "secret/knowledge/config" ;;
         *)             echo "" ;;
     esac
 }
