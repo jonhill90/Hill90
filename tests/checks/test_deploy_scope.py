@@ -157,6 +157,16 @@ class TestDornyFilters:
         )
         assert services == {"vault"}
 
+    def test_knowledge_change_triggers_only_knowledge(self, dorny_filters):
+        services = _services_for_path("services/knowledge/app/main.py", dorny_filters)
+        assert services == {"knowledge"}
+
+    def test_knowledge_compose_triggers_only_knowledge(self, dorny_filters):
+        services = _services_for_path(
+            "deploy/compose/prod/docker-compose.knowledge.yml", dorny_filters
+        )
+        assert services == {"knowledge"}
+
     def test_agentsmd_triggers_no_services(self, dorny_filters):
         services = _services_for_path("AGENTS.md", dorny_filters)
         assert services == set()
@@ -181,6 +191,7 @@ class TestTriggerPaths:
             "services/ai/**",
             "services/mcp/**",
             "services/ui/**",
+            "services/knowledge/**",
             "platform/auth/keycloak/**",
             "platform/data/postgres/**",
             "platform/observability/**",
@@ -192,6 +203,7 @@ class TestTriggerPaths:
             "deploy/compose/prod/docker-compose.ai.yml",
             "deploy/compose/prod/docker-compose.mcp.yml",
             "deploy/compose/prod/docker-compose.ui.yml",
+            "deploy/compose/prod/docker-compose.knowledge.yml",
             "deploy/compose/prod/docker-compose.observability.yml",
         ])
         assert sorted(trigger_paths) == expected

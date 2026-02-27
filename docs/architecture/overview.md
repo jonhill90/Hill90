@@ -9,7 +9,7 @@ Hill90 is a Docker-based microservices platform hosted on a single Hostinger VPS
 ### Components
 
 - **Edge Layer**: Traefik reverse proxy with automatic HTTPS (dual certificate resolvers)
-- **Application Layer**: Microservices (API, AI, MCP, UI) with Keycloak identity provider
+- **Application Layer**: Microservices (API, AI, MCP, Knowledge, UI) with Keycloak identity provider
 - **Data Layer**: PostgreSQL database, MinIO S3-compatible object storage
 - **Observability Layer**: LGTM stack (Loki, Grafana, Tempo, Prometheus) with collectors and exporters
 - **Infrastructure Layer**:
@@ -59,7 +59,8 @@ Traefik (edge network)           ┌──────────────�
 
 **Network Isolation:**
 - **edge network**: Public-facing services (Traefik → API, AI, MCP, Keycloak, UI)
-- **internal network**: Private services (Keycloak, PostgreSQL, observability stack)
+- **internal network**: Private services (Keycloak, PostgreSQL, AKM, observability stack)
+- **agent_internal network**: Agent containers ↔ API ↔ AKM (isolated from edge)
 - **Tailscale network**: Admin-only services (Traefik dashboard, Portainer, MinIO console, Grafana)
 - **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via middleware
 
@@ -72,6 +73,7 @@ Traefik (edge network)           ┌──────────────�
 - **MCP**: Model Context Protocol gateway (Keycloak JWT authenticated)
 - **Keycloak**: Identity provider (OIDC/OAuth2) at auth.hill90.com
 - **UI**: Next.js frontend application
+- **Knowledge (AKM)**: Agent Knowledge Manager — persistent knowledge store for agents (Ed25519 JWT auth, FTS, CLI)
 
 ### Infrastructure Services
 

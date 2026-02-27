@@ -1,0 +1,61 @@
+version: '3.9'
+
+# Agent Knowledge Manager (AKM) service
+# Deploy with: make deploy-knowledge
+
+networks:
+  edge:
+    external: true
+    name: hill90_edge
+  internal:
+    external: true
+    name: hill90_internal
+  agent_internal:
+    external: true
+    name: hill90_agent_internal
+
+volumes:
+  akm-data:
+    name: akm-data
+  akm-keys:
+    name: akm-keys
+
+services:
+  knowledge:
+    build:
+      context: ../../../services/knowledge
+      dockerfile: Dockerfile
+    image: hill90/knowledge:${VERSION:-latest}
+    container_name: knowledge
+    restart: unless-stopped
+    networks:
+      - edge
+      - internal
+      - agent_internal
+    volumes:
+      - akm-data:/data/knowledge
+      - akm-keys:/etc/akm:ro
+    environment:
+      - AKM_PORT=8002
+      - AKM_DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/hill90_akm
+      - AKM_PUBLIC_KEY_PATH=/etc/akm/public.pem
+      - AKM_DATA_DIR=/data/knowledge
+      - AKM_CONTEXT_TOKEN_BUDGET=2000
+      - AKM_INTERNAL_SERVICE_TOKEN=${AKM_INTERNAL_SERVICE_TOKEN}
+      - OTEL_SERVICE_NAME=knowledge
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; r=urllib.request.urlopen('http://localhost:8002/health'); sys.exit(0 if r.status < 400 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 200

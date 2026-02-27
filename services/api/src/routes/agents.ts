@@ -10,6 +10,12 @@ import {
   getContainerLogs,
   removeAgentVolumes,
 } from '../services/docker';
+import {
+  generateAgentAkmToken,
+  getAkmEnvVars,
+  isAkmConfigured,
+} from '../services/akm-token';
+import { revokeAgentAkmToken } from '../services/akm-revoke';
 
 const router = Router();
 
@@ -242,6 +248,21 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     // Write config files to disk
     writeAgentFiles(agent);
 
+    // Generate AKM token if configured
+    let akmEnv: string[] = [];
+    let akmJti: string | null = null;
+    let akmExp: number | null = null;
+    if (isAkmConfigured()) {
+      try {
+        const akmToken = await generateAgentAkmToken(agent.agent_id);
+        akmEnv = getAkmEnvVars(akmToken);
+        akmJti = akmToken.jti;
+        akmExp = akmToken.expiresAt;
+      } catch (err) {
+        console.error('[agents] AKM token generation failed (continuing without AKM):', err);
+      }
+    }
+
     // Create and start container
     const containerId = await createAndStartContainer({
       agentId: agent.agent_id,
@@ -249,7 +270,16 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       cpus: agent.cpus,
       memLimit: agent.mem_limit,
       pidsLimit: agent.pids_limit,
+      env: akmEnv,
     });
+
+    // Store AKM JTI + exp for revocation on stop
+    if (akmJti) {
+      await getPool().query(
+        `UPDATE agents SET akm_jti = $1, akm_exp = $2, updated_at = NOW() WHERE id = $3`,
+        [akmJti, akmExp, req.params.id]
+      );
+    }
 
     // Update DB
     await getPool().query(
@@ -257,7 +287,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       [containerId, req.params.id]
     );
 
-    auditLog('start', agent.agent_id, user.sub, { container_id: containerId });
+    auditLog('start', agent.agent_id, user.sub, { container_id: containerId, akm_jti: akmJti });
     res.json({ status: 'running', container_id: containerId });
   } catch (err: any) {
     console.error('[agents] Start error:', err);
@@ -285,10 +315,21 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
     }
 
     const agent = rows[0];
+
+    // Revoke AKM token first (idempotent ordered sequence: revoke, then stop container)
+    if (agent.akm_jti && isAkmConfigured()) {
+      try {
+        await revokeAgentAkmToken(agent.agent_id, agent.akm_jti, agent.akm_exp ?? undefined);
+      } catch (err) {
+        console.error(`[agents] AKM token revocation failed for ${agent.agent_id}:`, err);
+        // Continue with stop — container removal is more important
+      }
+    }
+
     await stopAndRemoveContainer(agent.agent_id);
 
     await getPool().query(
-      `UPDATE agents SET status = 'stopped', container_id = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
+      `UPDATE agents SET status = 'stopped', container_id = NULL, akm_jti = NULL, akm_exp = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
 

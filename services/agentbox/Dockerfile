@@ -1,5 +1,9 @@
 # Hill90 AgentBox Service Dockerfile (Python/FastMCP)
 # Multi-stage build for production
+# NOTE: akm CLI binary is copied from the hill90/knowledge image.
+# Build knowledge image first: docker compose -f deploy/compose/prod/docker-compose.knowledge.yml build
+
+FROM hill90/knowledge:latest AS akm-source
 
 FROM python:3.12-slim AS builder
 
@@ -38,6 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy Python packages from builder (only site-packages, not builder tools)
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+
+# Copy AKM CLI binary from knowledge service image
+COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 
 # Create non-root user
 RUN useradd -m -u 1000 agentuser
