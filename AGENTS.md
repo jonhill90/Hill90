@@ -43,10 +43,11 @@ This is the required flow for Claude, Codex, and Copilot-assisted changes.
    - Use `.github/pull_request_template.md` and include validation evidence per `.github/docs/validation-matrix.md`.
 9. **CI gates** — tests, security scan, Copilot review.
    - Advisory process signal: `Policy Gate (Advisory)` workflow warns on missing Linear/validation evidence.
-10. **Address feedback** — fix CI/review findings.
-11. **Merge** — `gh pr merge --squash --delete-branch`.
+10. **Watch checks** — monitor PR checks to completion (`gh pr checks <number> --watch`).
+11. **Address feedback** — fix CI/review findings, then re-watch checks until all required checks are green.
+12. **Merge** — `gh pr merge --squash --delete-branch` only after all required checks are green.
    - Never use `--admin` or `--force` to bypass branch protections.
-12. **Post-merge deploy** — push-to-main triggers path-filtered deploy workflows.
+13. **Post-merge deploy** — push-to-main triggers path-filtered deploy workflows.
    - Do not run manual deploy commands after merge unless explicitly requested for incident recovery.
 
 ### Branch Naming

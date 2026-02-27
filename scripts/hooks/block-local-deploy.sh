@@ -78,6 +78,12 @@ check_segment() {
     return 0
   fi
 
+  # ALLOW: gh pr create/edit (PR titles/bodies may reference deploy scripts)
+  if [[ "$seg" =~ ^gh[[:space:]]+pr[[:space:]]+(create|edit)[[:space:]] ]] || \
+     [[ "$seg" =~ ^gh[[:space:]]+pr[[:space:]]+(create|edit)$ ]]; then
+    return 1
+  fi
+
   # ALLOW: mintlify dev server (docs/site preview)
   if [[ "$seg" =~ mintlify[[:space:]]+dev ]]; then
     return 1
