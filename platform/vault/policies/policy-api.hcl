@@ -15,6 +15,14 @@ path "secret/metadata/api/*" {
   capabilities = ["read", "list"]
 }
 
+path "secret/data/knowledge/*" {
+  capabilities = ["read"]
+}
+
+path "secret/metadata/knowledge/*" {
+  capabilities = ["read", "list"]
+}
+
 path "auth/token/renew-self" {
   capabilities = ["update"]
 }
