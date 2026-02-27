@@ -36,6 +36,9 @@ http:
       ipWhiteList:
         sourceRange:
           - "100.64.0.0/10"
+          # AlmaLinux/Docker can surface proxied Tailscale requests as bridge
+          # gateway source after daemon restart.
+          - "172.18.0.1/32"
 
     # Strip /mcp prefix for MCP service
     mcp-strip:
