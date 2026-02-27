@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|db|minio|vault|auth|api|ai|mcp|ui|all|verify|backup} [env]
+# Usage: deploy.sh {infra|db|minio|vault|auth|api|ai|mcp|ui|knowledge|all|verify|backup} [env]
 
 set -e
 
@@ -27,6 +27,7 @@ Commands:
   ai       Deploy AI service
   mcp      Deploy MCP service
   ui       Deploy UI service
+  knowledge  Deploy Agent Knowledge Manager (AKM)
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   all      Deploy all application services (NOT infrastructure or db)
   verify   Run post-deploy readiness check for a service
@@ -78,6 +79,7 @@ cmd_verify() {
         ai)            check_cmd='docker exec ai python -c "import requests; r=requests.get(\"http://localhost:8000/health\"); exit(0 if r.ok else 1)"'; diag_container="ai" ;;
         mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"'; diag_container="mcp" ;;
         ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="ui" ;;
+        knowledge)     check_cmd='docker exec knowledge python -c "from urllib.request import urlopen; r=urlopen(\"http://localhost:8002/health\"); exit(0 if r.status == 200 else 1)"'; diag_container="knowledge" ;;
         minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
@@ -299,6 +301,15 @@ cmd_service() {
             summary="Service deployed:
   - ui (UI at hill90.com)"
             ;;
+        knowledge)
+            compose_file="deploy/compose/${env}/docker-compose.knowledge.yml"
+            containers="knowledge"
+            banner="Agent Knowledge Manager Deployment"
+            stack="apps"
+            stateful=false
+            summary="Service deployed:
+  - knowledge (Agent Knowledge Manager on internal network, port 8002)"
+            ;;
         observability)
             compose_file="deploy/compose/${env}/docker-compose.observability.yml"
             containers="prometheus loki tempo grafana promtail node-exporter cadvisor"
@@ -350,6 +361,9 @@ cmd_service() {
         api|mcp)
             check_dependency postgres || die "Cannot deploy ${service}: postgres is not healthy"
             check_dependency keycloak || die "Cannot deploy ${service}: keycloak is not healthy"
+            ;;
+        knowledge)
+            check_dependency postgres || die "Cannot deploy knowledge: postgres is not healthy"
             ;;
     esac
 
@@ -535,7 +549,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|api|ai|mcp|minio|vault|ui|observability) cmd_service "$cmd" "$@" ;;
+        db|auth|api|ai|mcp|minio|vault|ui|knowledge|observability) cmd_service "$cmd" "$@" ;;
         all)            cmd_all "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;

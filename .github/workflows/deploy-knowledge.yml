@@ -1,0 +1,15 @@
+name: Manual Deploy Knowledge (Prod)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service: knowledge
+    secrets: inherit

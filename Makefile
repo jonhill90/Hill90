@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-knowledge deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
 
 # Environment
 ENV ?= prod
@@ -183,6 +183,10 @@ deploy-mcp: ## Deploy MCP service
 deploy-ui: ## Deploy UI service
 	@echo "$(COLOR_YELLOW)Deploying UI service...$(COLOR_RESET)"
 	bash scripts/deploy.sh ui $(ENV)
+
+deploy-knowledge: ## Deploy Agent Knowledge Manager (AKM)
+	@echo "$(COLOR_YELLOW)Deploying Agent Knowledge Manager...$(COLOR_RESET)"
+	bash scripts/deploy.sh knowledge $(ENV)
 
 deploy-observability: ## Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
 	@echo "$(COLOR_YELLOW)Deploying observability stack...$(COLOR_RESET)"

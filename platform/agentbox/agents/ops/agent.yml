@@ -15,6 +15,7 @@ tools:
       - /usr/bin/curl
       - /usr/bin/docker
       - /usr/bin/make
+      - /usr/local/bin/akm
     denied_patterns:
       - ":(){ :|:& };:"
       - "mkfs"
