@@ -13,7 +13,7 @@ SECRETS_FILE="${PROJECT_ROOT}/infra/secrets/prod.enc.env"
 POLICY_DIR="${PROJECT_ROOT}/platform/vault/policies"
 
 # Services that get their own AppRole
-VAULT_SERVICES="db api ai auth ui mcp minio infra observability"
+VAULT_SERVICES="db api ai auth ui mcp minio infra observability knowledge"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -367,6 +367,32 @@ cmd_seed() {
     bao_exec_env kv put secret/mcp/config \
         "INTERNAL_SERVICE_SECRET=${mcp_internal_secret}"
 
+    # Seed knowledge/config (if keys exist)
+    local akm_token akm_priv akm_pub
+    akm_token=$(get_secret AKM_INTERNAL_SERVICE_TOKEN)
+    akm_priv=$(get_secret AKM_SIGNING_PRIVATE_KEY)
+    akm_pub=$(get_secret AKM_SIGNING_PUBLIC_KEY)
+    if [ -n "$akm_token" ] && [ -n "$akm_priv" ] && [ -n "$akm_pub" ]; then
+        echo "Seeding secret/knowledge/config..."
+        # Use JSON via stdin to handle multiline PEM values safely
+        local knowledge_json
+        knowledge_json=$(python3 -c "
+import json
+print(json.dumps({
+    'AKM_INTERNAL_SERVICE_TOKEN': '''$(printf '%s' "$akm_token")''',
+    'AKM_SIGNING_PRIVATE_KEY': '''$(printf '%s' "$akm_priv")''',
+    'AKM_SIGNING_PUBLIC_KEY': '''$(printf '%s' "$akm_pub")'''
+}))
+")
+        local token="${BAO_TOKEN:-}"
+        echo "$knowledge_json" | docker exec -i \
+            -e "BAO_ADDR=http://127.0.0.1:8200" \
+            -e "BAO_TOKEN=${token}" \
+            "$CONTAINER_NAME" bao kv put secret/knowledge/config -
+    else
+        info "AKM secrets not found in SOPS — skipping knowledge/config seed (seed via VPS provisioning)"
+    fi
+
     rm -f "$temp_file"
     trap - RETURN
 
@@ -412,6 +438,7 @@ cmd_export() {
         "secret/infra/dns-manager"
         "secret/observability/grafana"
         "secret/mcp/config"
+        "secret/knowledge/config"
     )
 
     for p in "${paths[@]}"; do
@@ -447,6 +474,7 @@ cmd_sync_to_sops() {
         "secret/infra/dns-manager"
         "secret/observability/grafana"
         "secret/mcp/config"
+        "secret/knowledge/config"
     )
 
     # Create timestamped backup before modifying SOPS

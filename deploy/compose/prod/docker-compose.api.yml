@@ -100,6 +100,9 @@ services:
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ROOT_USER}
       - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - AKM_SIGNING_PRIVATE_KEY=${AKM_SIGNING_PRIVATE_KEY}
+      - AKM_INTERNAL_SERVICE_TOKEN=${AKM_INTERNAL_SERVICE_TOKEN}
+      - AKM_SERVICE_URL=http://knowledge:8002
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
