@@ -153,7 +153,7 @@ vault_paths_for_service() {
     local service="$1"
     case "$service" in
         db)            echo "secret/shared/database" ;;
-        api)           echo "secret/shared/database secret/api/config" ;;
+        api)           echo "secret/shared/database secret/api/config secret/knowledge/config" ;;
         ai)            echo "secret/ai/config" ;;
         auth)          echo "secret/shared/database secret/auth/config" ;;
         ui)            echo "secret/ui/config" ;;
