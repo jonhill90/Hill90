@@ -147,6 +147,10 @@ const EXPECTED_PATHS = [
   '/agents/{id}/stop',
   '/agents/{id}/status',
   '/agents/{id}/logs',
+  '/knowledge/agents',
+  '/knowledge/entries',
+  '/knowledge/entries/{agentId}/{path}',
+  '/knowledge/search',
   '/profile',
   '/profile/avatar',
   '/profile/password',
@@ -188,8 +192,10 @@ function getRegisteredRoutes(expressApp: any): string[] {
     // Middleware-only layers (no .route, not a router): skip
   }
 
-  // Normalize :param to {param} and deduplicate
-  return [...new Set(routes.map(r => r.replace(/:(\w+)/g, '{$1}')))];
+  // Normalize :param to {param}, strip Express regex suffixes like (*), and deduplicate
+  return [...new Set(routes.map(r =>
+    r.replace(/:(\w+)/g, '{$1}').replace(/\(\*\)$/, '')
+  ))];
 }
 
 describe('Spec contract enforcement', () => {
