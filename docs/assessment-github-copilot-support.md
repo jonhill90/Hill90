@@ -191,7 +191,7 @@ This matches the specification in `.github/instructions/agent-authoring.instruct
 The canonical instruction file contains:
 - ✅ Clear project description
 - ✅ Non-negotiables (4 key principles)
-- ✅ Required PR workflow (12 steps)
+- ✅ Required PR workflow (13 steps)
 - ✅ Branch naming conventions
 - ✅ Commit format specification
 - ✅ Deployment rules

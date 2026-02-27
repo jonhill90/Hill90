@@ -471,8 +471,8 @@ docker logs -f mcp
 ### VPS Not Accessible
 
 ```bash
-# Check VPS status via Hostinger MCP tools
-# (See CLAUDE.md for MCP tool usage)
+# Check VPS status via Hostinger CLI (bash scripts/hostinger.sh)
+# (See CLAUDE.md for CLI usage)
 
 # Verify Tailscale connection
 tailscale status

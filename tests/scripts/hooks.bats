@@ -174,6 +174,12 @@ SCRIPT
   [ -z "$output" ]
 }
 
+@test "block-local-deploy: allows gh pr create with deploy body" {
+  run bash -c 'echo "{\"tool_input\":{\"command\":\"gh pr create --title \\\"fix: deploy hook\\\" --body \\\"Updated scripts/deploy.sh to handle...\\\"\"}}" | bash scripts/hooks/block-local-deploy.sh'
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "block-local-deploy: blocks npm run dev" {
   run bash -c 'echo "{\"tool_input\":{\"command\":\"cd services/ui && npm run dev\"}}" | bash scripts/hooks/block-local-deploy.sh'
   [ "$status" -eq 0 ]

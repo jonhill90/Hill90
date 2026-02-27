@@ -1,14 +1,14 @@
 # Task Management Reference
 
-**Use Linear MCP tools for task tracking instead of TodoWrite.**
+**Use the `linear` CLI for task tracking instead of TodoWrite.**
 
 ## Why Linear Over TodoWrite
 
 **Context Reset Problem**:
-- Development workflow: PLAN → DOC → **Clear conversation** → EXEC
+- Development workflow: PLAN -> DOC -> **Clear conversation** -> EXEC
 - TodoWrite state is **wiped** when conversation clears
 - Linear issues **persist** across context resets (like PRD.md persists)
-- Tasks need to survive the planning → execution boundary
+- Tasks need to survive the planning -> execution boundary
 
 **When Each Tool Applies:**
 - **Linear** (persistent): Real work items, team-visible tasks, cross-session tracking
@@ -17,63 +17,49 @@
 ## Linear Workflow
 
 ### Create Issue for New Work
-```python
+```bash
 # At start of feature development
-mcp__MCP_DOCKER__create_issue(
-    title="Deploy new API endpoint",
-    description="Implement /api/v1/health endpoint with Docker health checks",
-    team="AI",
-    project="Hill90",
-    state="todo",
-    labels=["backend", "infrastructure"]
-)
+linear issue create \
+  --title "Deploy new API endpoint" \
+  --priority 3 \
+  --state unstarted \
+  --label "backend"
 ```
 
 ### Update Status as You Work
-```python
-# Mark as in-progress
-mcp__MCP_DOCKER__update_issue(
-    id="HILL-123",
-    state="doing"
-)
+```bash
+# Mark as in-progress (doing)
+linear issue update AI-123 --state started
 
-# Mark for review
-mcp__MCP_DOCKER__update_issue(
-    id="HILL-123",
-    state="review"
-)
-
-# Complete
-mcp__MCP_DOCKER__update_issue(
-    id="HILL-123",
-    state="done"
-)
+# Complete (done — after merge + post-merge verification)
+linear issue update AI-123 --state completed
 ```
 
 ### Query Existing Tasks
-```python
+```bash
 # Find your current work
-mcp__MCP_DOCKER__list_issues(
-    assignee="me",
-    state="doing"
-)
+linear issue list --sort priority --state started
 
 # Find pending work
-mcp__MCP_DOCKER__list_issues(
-    project="Hill90",
-    state="todo"
-)
+linear issue list --sort priority --state unstarted
 ```
 
-## Task Status Flow
+## Hill90 -> Linear State Mapping
 
-`todo` → `doing` → `review` → `done`
+| Hill90 workflow | Linear state (CLI) | Linear display | Notes |
+|---|---|---|---|
+| `todo` | `unstarted` | Unstarted | Default for new planned work |
+| `doing` | `started` | In Progress | Set when active coding begins |
+| `review` | `started` | In Progress | PR status indicates review; Linear stays `started` |
+| `done` | `completed` | Done | Set after merge + post-merge verification |
+
+> `review` is not a valid Linear CLI state. During review, the issue stays `started` — the PR itself signals review status.
 
 ## Integration with Development Workflow
 
 1. Break work into granular features/tasks
-2. Each task → Linear issue in Hill90 project
-3. Context reset between planning & execution → Linear persists
+2. Each task -> Linear issue in Hill90 project
+3. Context reset between planning & execution -> Linear persists
 4. Update Linear issue with learnings as work progresses
 
 ## PR Lifecycle Mapping (Hill90 Harness)
@@ -88,27 +74,21 @@ Use this mapping with the required PR loop in `AGENTS.md` and `.github/docs/cont
 ## Examples
 
 **VPS Rebuild Task**:
-```python
-create_issue(
-    title="VPS Rebuild: Optimize from 30min to 5min",
-    description="Replace Terraform with Tailscale API, consolidate Ansible playbooks",
-    team="AI",
-    project="Hill90",
-    state="doing",
-    labels=["infrastructure", "optimization"]
-)
+```bash
+linear issue create \
+  --title "VPS Rebuild: Optimize from 30min to 5min" \
+  --priority 2 \
+  --state started \
+  --label "infrastructure"
 ```
 
 **API Deployment Task**:
-```python
-create_issue(
-    title="Deploy Hill90 API to production",
-    description="SSH to VPS via Tailscale, run deploy script, verify health checks",
-    team="AI",
-    project="Hill90",
-    state="todo",
-    labels=["deployment", "api"]
-)
+```bash
+linear issue create \
+  --title "Deploy Hill90 API to production" \
+  --priority 3 \
+  --state unstarted \
+  --label "deployment"
 ```
 
 ## Key Principle

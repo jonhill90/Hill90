@@ -135,15 +135,16 @@ ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
 - `make secrets-update KEY=<key> VALUE=<v>`
 - `make check-secrets-schema`
 
-## MCP Server Map
+## Tooling Map
 
-| Server | Skill | Purpose |
-|--------|-------|---------|
-| context7 | `/context7` | Library and framework docs |
-| microsoft-learn | `/ms-learn` | Microsoft/Azure/.NET docs |
-| deepwiki | MCP tools | GitHub repo docs/wiki answers |
-| Hostinger MCP | `/hostinger` | VPS lifecycle + DNS management |
-| Linear MCP | `/linear` | Issue tracking and lifecycle |
+| Tooling | Interface | Purpose |
+|---------|-----------|---------|
+| Context7 | MCP (`/context7`) | Library and framework docs |
+| Microsoft Learn | MCP (`/ms-learn`) | Microsoft/Azure/.NET docs |
+| DeepWiki | MCP tools | GitHub repo docs/wiki answers |
+| Playwright | MCP (`/playwright`) | Browser automation and testing |
+| Linear | CLI (`linear`) | Issue tracking and lifecycle |
+| Hostinger operations | Project CLI (`bash scripts/hostinger.sh`) | VPS lifecycle + DNS management |
 
 ## Active Hooks (Claude Code Only)
 
