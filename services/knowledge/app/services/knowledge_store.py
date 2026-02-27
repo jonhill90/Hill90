@@ -1,9 +1,12 @@
 """Atomic file I/O and knowledge store operations."""
 
+from __future__ import annotations
+
 import hashlib
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import asyncpg
 import structlog
@@ -52,7 +55,7 @@ async def create_entry(
     claims: AgentClaims,
     path: str,
     content: str,
-) -> dict:
+) -> dict[str, Any]:
     """Create a new knowledge entry (DB-first, then file write).
 
     Returns the created entry as a dict.
@@ -104,7 +107,7 @@ async def read_entry(
     pool: asyncpg.Pool,
     claims: AgentClaims,
     path: str,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Read a knowledge entry by path. Returns None if not found or not authorized."""
     path = validate_path(path)
     row = await pool.fetchrow(
@@ -125,7 +128,7 @@ async def read_entry_cross_agent(
     requesting_agent: str,
     owner_agent: str,
     path: str,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Attempt to read another agent's entry. Returns None — cross-agent reads are forbidden."""
     return None  # Explicitly forbidden
 
@@ -136,7 +139,7 @@ async def update_entry(
     claims: AgentClaims,
     path: str,
     content: str,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Update an existing knowledge entry."""
     path = validate_path(path)
     meta, body = parse_frontmatter(content)
@@ -187,7 +190,7 @@ async def archive_entry(
     pool: asyncpg.Pool,
     claims: AgentClaims,
     path: str,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Soft-delete (archive) an entry."""
     path = validate_path(path)
     row = await pool.fetchrow(
@@ -207,7 +210,7 @@ async def list_entries(
     pool: asyncpg.Pool,
     claims: AgentClaims,
     entry_type: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """List entries for the authenticated agent."""
     if entry_type:
         rows = await pool.fetch(
@@ -235,7 +238,7 @@ async def search_entries(
     pool: asyncpg.Pool,
     claims: AgentClaims,
     query: str,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Full-text search within the agent's namespace."""
     rows = await pool.fetch(
         """SELECT id, path, title, entry_type, tags,

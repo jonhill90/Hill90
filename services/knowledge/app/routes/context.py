@@ -1,6 +1,9 @@
 """Context summary assembly route."""
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -31,7 +34,7 @@ def _truncate_to_tokens(text: str, max_tokens: int) -> str:
 
 
 @router.get("")
-async def get_context(request: Request) -> dict:
+async def get_context(request: Request) -> dict[str, Any]:
     claims = getattr(request.state, "agent_claims", None)
     if claims is None:
         raise HTTPException(status_code=401, detail="authentication required")
@@ -39,7 +42,7 @@ async def get_context(request: Request) -> dict:
     pool = request.app.state.pool
     budget = request.app.state.settings.context_token_budget
 
-    sections: list[dict] = []
+    sections: list[dict[str, Any]] = []
     total_tokens = 0
 
     # 1. context.md (top priority)

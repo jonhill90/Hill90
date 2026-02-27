@@ -1,8 +1,11 @@
 """Internal routes for token management (not exposed to agents)."""
 
+from __future__ import annotations
+
 import hashlib
 import time
 import uuid
+from typing import Any
 
 import jwt
 from fastapi import APIRouter, HTTPException, Request
@@ -24,7 +27,7 @@ class RevokeRequest(BaseModel):
 
 
 @router.post("/agents/refresh-token")
-async def refresh_token(body: RefreshRequest, request: Request) -> dict:
+async def refresh_token(body: RefreshRequest, request: Request) -> dict[str, Any]:
     """Refresh an agent's JWT using a single-use refresh secret.
 
     The refresh secret serves as identity proof. On success, returns
@@ -42,7 +45,7 @@ async def refresh_token(body: RefreshRequest, request: Request) -> dict:
     token = auth_header[7:]
     try:
         # Pass revoked_jtis to prevent revoked tokens from refreshing
-        revoked_jtis = getattr(request.app.state, "revoked_jtis", set())
+        revoked_jtis: set[str] = getattr(request.app.state, "revoked_jtis", set())
         claims = verify_agent_token(token, public_key, revoked_jtis=revoked_jtis)
     except AuthError:
         raise HTTPException(status_code=401, detail="invalid token")
@@ -113,7 +116,7 @@ async def refresh_token(body: RefreshRequest, request: Request) -> dict:
 
 
 @router.post("/revoke")
-async def revoke_token(body: RevokeRequest, request: Request) -> dict:
+async def revoke_token(body: RevokeRequest, request: Request) -> dict[str, Any]:
     """Revoke an agent's JWT (called by API service on agent stop).
 
     Authenticated with internal service token, not agent JWT.

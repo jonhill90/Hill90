@@ -1,9 +1,12 @@
 """AKM FastAPI application — Agent Knowledge Manager."""
 
+from __future__ import annotations
+
 import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import asyncpg
 import structlog
@@ -34,7 +37,8 @@ def create_app(
         public_key_pem = Path(settings.public_key_path).read_bytes()
         app.state.public_key = public_key_pem
         app.state.settings = settings
-        app.state.revoked_jtis: set[str] = set()
+        revoked: set[str] = set()
+        app.state.revoked_jtis = revoked
 
         # Check for private key (needed for refresh endpoint)
         if Path(settings.private_key_path).exists():
@@ -93,11 +97,12 @@ def create_app(
 
     # Auth middleware
     @app.middleware("http")
-    async def agent_auth_middleware(request: Request, call_next) -> Response:  # type: ignore[no-untyped-def]
+    async def agent_auth_middleware(request: Request, call_next: Any) -> Response:
         # Skip auth for health, internal, and docs endpoints
         path = request.url.path
         if path in ("/health", "/docs", "/openapi.json") or path.startswith("/internal"):
-            return await call_next(request)
+            response: Response = await call_next(request)
+            return response
 
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
@@ -122,7 +127,8 @@ def create_app(
             )
 
         request.state.agent_claims = claims
-        return await call_next(request)
+        result: Response = await call_next(request)
+        return result
 
     # Register routes
     app.include_router(health.router)

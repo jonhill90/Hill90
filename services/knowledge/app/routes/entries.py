@@ -1,5 +1,9 @@
 """CRUD routes for knowledge entries."""
 
+from __future__ import annotations
+
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -19,7 +23,7 @@ class UpdateEntryRequest(BaseModel):
 
 
 def _get_claims(request: Request) -> AgentClaims:
-    claims = getattr(request.state, "agent_claims", None)
+    claims: AgentClaims | None = getattr(request.state, "agent_claims", None)
     if claims is None:
         raise HTTPException(status_code=401, detail="authentication required")
     return claims
@@ -30,11 +34,12 @@ def _get_pool(request: Request):  # type: ignore[no-untyped-def]
 
 
 def _get_data_dir(request: Request) -> str:
-    return request.app.state.settings.data_dir
+    data_dir: str = request.app.state.settings.data_dir
+    return data_dir
 
 
 @router.post("", status_code=201)
-async def create_entry(body: CreateEntryRequest, request: Request) -> dict:
+async def create_entry(body: CreateEntryRequest, request: Request) -> dict[str, Any]:
     claims = _get_claims(request)
     pool = _get_pool(request)
     data_dir = _get_data_dir(request)
@@ -48,7 +53,7 @@ async def create_entry(body: CreateEntryRequest, request: Request) -> dict:
 
 
 @router.get("/{path:path}")
-async def read_entry(path: str, request: Request) -> dict:
+async def read_entry(path: str, request: Request) -> dict[str, Any]:
     claims = _get_claims(request)
     pool = _get_pool(request)
 
@@ -61,7 +66,7 @@ async def read_entry(path: str, request: Request) -> dict:
 
 
 @router.put("/{path:path}")
-async def update_entry(path: str, body: UpdateEntryRequest, request: Request) -> dict:
+async def update_entry(path: str, body: UpdateEntryRequest, request: Request) -> dict[str, Any]:
     claims = _get_claims(request)
     pool = _get_pool(request)
     data_dir = _get_data_dir(request)
@@ -78,7 +83,7 @@ async def update_entry(path: str, body: UpdateEntryRequest, request: Request) ->
 
 
 @router.delete("/{path:path}")
-async def archive_entry(path: str, request: Request) -> dict:
+async def archive_entry(path: str, request: Request) -> dict[str, Any]:
     claims = _get_claims(request)
     pool = _get_pool(request)
 
@@ -93,7 +98,7 @@ async def archive_entry(path: str, request: Request) -> dict:
     return result
 
 
-def _serialize_entry(entry: dict) -> dict:
+def _serialize_entry(entry: dict[str, Any]) -> dict[str, Any]:
     """Serialize entry for JSON response, converting UUIDs and datetimes."""
     result = {}
     for key, value in entry.items():

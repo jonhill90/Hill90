@@ -1,5 +1,9 @@
 """Search route for FTS queries."""
 
+from __future__ import annotations
+
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.services import knowledge_store
@@ -11,7 +15,7 @@ router = APIRouter(prefix="/api/v1/search", tags=["search"])
 async def search(
     request: Request,
     q: str = Query(..., min_length=1, description="Search query"),
-) -> dict:
+) -> dict[str, Any]:
     claims = getattr(request.state, "agent_claims", None)
     if claims is None:
         raise HTTPException(status_code=401, detail="authentication required")
@@ -21,7 +25,7 @@ async def search(
 
     serialized = []
     for r in results:
-        entry: dict = {}
+        entry: dict[str, Any] = {}
         for key, value in r.items():
             if hasattr(value, "hex"):
                 entry[key] = str(value)

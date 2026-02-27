@@ -1,6 +1,9 @@
 """Journal route for date-based append operations."""
 
+from __future__ import annotations
+
 from datetime import date, datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -15,7 +18,7 @@ class JournalAppendRequest(BaseModel):
 
 
 @router.post("", status_code=201)
-async def append_journal(body: JournalAppendRequest, request: Request) -> dict:
+async def append_journal(body: JournalAppendRequest, request: Request) -> dict[str, Any]:
     claims = getattr(request.state, "agent_claims", None)
     if claims is None:
         raise HTTPException(status_code=401, detail="authentication required")
@@ -52,7 +55,7 @@ async def append_journal(body: JournalAppendRequest, request: Request) -> dict:
     return _serialize(entry)
 
 
-def _serialize(entry: dict) -> dict:
+def _serialize(entry: dict[str, Any]) -> dict[str, Any]:
     result = {}
     for key, value in entry.items():
         if hasattr(value, "hex"):
