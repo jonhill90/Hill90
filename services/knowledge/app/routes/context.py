@@ -77,9 +77,9 @@ async def get_context(request: Request) -> dict[str, Any]:
         claims.sub,
         three_days_ago,
     )
-    remaining_journal_budget = SECTION_BUDGETS["journal"]
+    remaining_journal_budget = min(SECTION_BUDGETS["journal"], budget - total_tokens)
     for row in journal_rows:
-        if remaining_journal_budget <= 0:
+        if remaining_journal_budget <= 0 or total_tokens >= budget:
             break
         text = _truncate_to_tokens(row["body"], remaining_journal_budget)
         tokens = _estimate_tokens(text)
@@ -95,57 +95,59 @@ async def get_context(request: Request) -> dict[str, Any]:
         remaining_journal_budget -= tokens
 
     # 3. Active plans
-    plan_rows = await pool.fetch(
-        """SELECT id, path, title, entry_type, body
-           FROM knowledge_entries
-           WHERE agent_id = $1 AND entry_type = 'plan' AND status = 'active'
-           ORDER BY updated_at DESC LIMIT 5""",
-        claims.sub,
-    )
-    remaining_plan_budget = SECTION_BUDGETS["plan"]
-    for row in plan_rows:
-        if remaining_plan_budget <= 0:
-            break
-        text = _truncate_to_tokens(row["body"], remaining_plan_budget)
-        tokens = _estimate_tokens(text)
-        sections.append({
-            "type": "plan",
-            "entry_id": str(row["id"]),
-            "path": row["path"],
-            "title": row["title"],
-            "content": text,
-            "tokens": tokens,
-        })
-        total_tokens += tokens
-        remaining_plan_budget -= tokens
+    if total_tokens < budget:
+        plan_rows = await pool.fetch(
+            """SELECT id, path, title, entry_type, body
+               FROM knowledge_entries
+               WHERE agent_id = $1 AND entry_type = 'plan' AND status = 'active'
+               ORDER BY updated_at DESC LIMIT 5""",
+            claims.sub,
+        )
+        remaining_plan_budget = min(SECTION_BUDGETS["plan"], budget - total_tokens)
+        for row in plan_rows:
+            if remaining_plan_budget <= 0 or total_tokens >= budget:
+                break
+            text = _truncate_to_tokens(row["body"], remaining_plan_budget)
+            tokens = _estimate_tokens(text)
+            sections.append({
+                "type": "plan",
+                "entry_id": str(row["id"]),
+                "path": row["path"],
+                "title": row["title"],
+                "content": text,
+                "tokens": tokens,
+            })
+            total_tokens += tokens
+            remaining_plan_budget -= tokens
 
     # 4. Shared decisions (last 7 days)
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    decision_rows = await pool.fetch(
-        """SELECT id, path, title, entry_type, body
-           FROM knowledge_entries
-           WHERE agent_id = $1 AND entry_type = 'decision' AND status = 'active'
-             AND updated_at >= $2
-           ORDER BY updated_at DESC LIMIT 5""",
-        claims.sub,
-        seven_days_ago,
-    )
-    remaining_decision_budget = SECTION_BUDGETS["decision"]
-    for row in decision_rows:
-        if remaining_decision_budget <= 0:
-            break
-        text = _truncate_to_tokens(row["body"], remaining_decision_budget)
-        tokens = _estimate_tokens(text)
-        sections.append({
-            "type": "decision",
-            "entry_id": str(row["id"]),
-            "path": row["path"],
-            "title": row["title"],
-            "content": text,
-            "tokens": tokens,
-        })
-        total_tokens += tokens
-        remaining_decision_budget -= tokens
+    if total_tokens < budget:
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        decision_rows = await pool.fetch(
+            """SELECT id, path, title, entry_type, body
+               FROM knowledge_entries
+               WHERE agent_id = $1 AND entry_type = 'decision' AND status = 'active'
+                 AND updated_at >= $2
+               ORDER BY updated_at DESC LIMIT 5""",
+            claims.sub,
+            seven_days_ago,
+        )
+        remaining_decision_budget = min(SECTION_BUDGETS["decision"], budget - total_tokens)
+        for row in decision_rows:
+            if remaining_decision_budget <= 0 or total_tokens >= budget:
+                break
+            text = _truncate_to_tokens(row["body"], remaining_decision_budget)
+            tokens = _estimate_tokens(text)
+            sections.append({
+                "type": "decision",
+                "entry_id": str(row["id"]),
+                "path": row["path"],
+                "title": row["title"],
+                "content": text,
+                "tokens": tokens,
+            })
+            total_tokens += tokens
+            remaining_decision_budget -= tokens
 
     return {
         "sections": sections,

@@ -38,6 +38,15 @@ def _get_data_dir(request: Request) -> str:
     return data_dir
 
 
+@router.get("")
+async def list_entries(request: Request, type: str | None = None) -> list[dict[str, Any]]:
+    claims = _get_claims(request)
+    pool = _get_pool(request)
+
+    entries = await knowledge_store.list_entries(pool, claims, entry_type=type)
+    return [_serialize_entry(e) for e in entries]
+
+
 @router.post("", status_code=201)
 async def create_entry(body: CreateEntryRequest, request: Request) -> dict[str, Any]:
     claims = _get_claims(request)

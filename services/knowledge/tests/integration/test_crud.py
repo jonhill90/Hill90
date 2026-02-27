@@ -119,7 +119,7 @@ class TestArchiveEntry:
 
 
 class TestCrossAgentIsolation:
-    async def test_cross_agent_read_returns_403(
+    async def test_cross_agent_read_returns_404(
         self, app_client, agent_token, other_agent_token
     ):
         # Create entry as test-agent
@@ -136,4 +136,5 @@ class TestCrossAgentIsolation:
             "/api/v1/entries/notes/secret.md",
             headers={"Authorization": f"Bearer {other_agent_token}"},
         )
-        assert resp.status_code == 403
+        # Returns 404 (not 403) to avoid information leakage about other agents' entries
+        assert resp.status_code == 404

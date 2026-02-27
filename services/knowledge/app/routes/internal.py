@@ -37,26 +37,36 @@ async def refresh_token(body: RefreshRequest, request: Request) -> dict[str, Any
     public_key = request.app.state.public_key
     private_key = request.app.state.private_key
 
-    # Validate the current JWT (allow expired with leeway for refresh window)
+    if private_key is None:
+        raise HTTPException(status_code=503, detail="token refresh not available")
+
+    # Validate the current JWT (allow expired — refresh secret enforces the window)
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing bearer token")
 
     token = auth_header[7:]
     try:
-        # Pass revoked_jtis to prevent revoked tokens from refreshing
+        # Pass revoked_jtis to prevent revoked tokens from refreshing.
+        # allow_expired=True lets agents refresh after token expiry (refresh
+        # secret + DB expiry enforce the refresh window instead).
         revoked_jtis: set[str] = getattr(request.app.state, "revoked_jtis", set())
-        claims = verify_agent_token(token, public_key, revoked_jtis=revoked_jtis)
+        claims = verify_agent_token(
+            token, public_key, revoked_jtis=revoked_jtis, allow_expired=True
+        )
     except AuthError:
         raise HTTPException(status_code=401, detail="invalid token")
 
     # Verify the refresh secret against the stored hash
     secret_hash = hashlib.sha256(body.refresh_secret.encode()).hexdigest()
 
+    # Atomic revoke-and-fetch: UPDATE ... RETURNING prevents race conditions
+    # where two concurrent requests could both pass a SELECT before either UPDATE runs.
     row = await pool.fetchrow(
-        """SELECT id, agent_id, jti, expires_at
-           FROM agent_tokens
-           WHERE token_hash = $1 AND agent_id = $2 AND revoked_at IS NULL""",
+        """UPDATE agent_tokens
+           SET revoked_at = NOW()
+           WHERE token_hash = $1 AND agent_id = $2 AND revoked_at IS NULL
+           RETURNING id, agent_id, jti, expires_at""",
         secret_hash,
         claims.sub,
     )
@@ -67,12 +77,6 @@ async def refresh_token(body: RefreshRequest, request: Request) -> dict[str, Any
     # Check if expired
     if row["expires_at"].timestamp() < time.time():
         raise HTTPException(status_code=401, detail="refresh token expired")
-
-    # Revoke the old secret (single-use enforcement)
-    await pool.execute(
-        "UPDATE agent_tokens SET revoked_at = NOW() WHERE id = $1",
-        row["id"],
-    )
 
     # Generate new token and secret
     new_jti = str(uuid.uuid4())

@@ -33,11 +33,20 @@ def verify_agent_token(
     public_key_pem: bytes,
     *,
     revoked_jtis: set[str] | None = None,
+    allow_expired: bool = False,
 ) -> AgentClaims:
     """Verify an Ed25519-signed JWT and return validated claims.
 
+    Args:
+        allow_expired: If True, skip exp validation (for refresh endpoint).
+
     Raises AuthError on any validation failure.
     """
+    decode_options: dict[str, object] = {
+        "require": ["sub", "iss", "aud", "exp", "iat", "jti"],
+    }
+    if allow_expired:
+        decode_options["verify_exp"] = False
     try:
         payload = jwt.decode(
             token,
@@ -45,7 +54,7 @@ def verify_agent_token(
             algorithms=["EdDSA"],
             issuer=EXPECTED_ISSUER,
             audience=EXPECTED_AUDIENCE,
-            options={"require": ["sub", "iss", "aud", "exp", "iat", "jti"]},
+            options=decode_options,  # type: ignore[arg-type]
             leeway=CLOCK_SKEW_SECONDS,
         )
     except jwt.ExpiredSignatureError:

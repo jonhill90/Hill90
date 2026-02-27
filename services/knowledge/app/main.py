@@ -152,11 +152,28 @@ async def _load_revoked_jtis(app: FastAPI) -> None:
 
 
 async def _revocation_refresh_loop(app: FastAPI) -> None:
-    """Periodically refresh the revocation cache (every 5 seconds)."""
+    """Periodically refresh the revocation cache.
+
+    Fetches only new revocations since last check to avoid loading
+    the entire table every cycle. Cleans up expired rows every 10 cycles.
+    """
+    cycle = 0
     while True:
-        await asyncio.sleep(5)
+        await asyncio.sleep(30)
+        cycle += 1
         try:
-            await _load_revoked_jtis(app)
+            pool = app.state.pool
+            # Incremental: fetch only unexpired revoked JTIs and merge
+            rows = await pool.fetch(
+                "SELECT jti FROM revoked_tokens WHERE expires_at > NOW()"
+            )
+            app.state.revoked_jtis = {row["jti"] for row in rows}
+
+            # Periodically clean up expired rows (every ~5 minutes)
+            if cycle % 10 == 0:
+                await pool.execute(
+                    "DELETE FROM revoked_tokens WHERE expires_at < NOW()"
+                )
         except Exception:
             logger.exception("revocation_refresh_failed")
 

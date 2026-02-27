@@ -95,7 +95,10 @@ async def _reconcile_pending(conn: asyncpg.Connection, data_dir: Path) -> None:
 
 
 async def _reconcile_orphans(conn: asyncpg.Connection, data_dir: Path) -> None:
-    """Detect files on disk without DB rows and quarantine them (never delete)."""
+    """Detect files on disk without DB rows and quarantine them (never delete).
+
+    Uses batched DB lookups per agent to avoid N+1 queries.
+    """
     agents_dir = data_dir / "agents"
     if not agents_dir.exists():
         return
@@ -105,36 +108,41 @@ async def _reconcile_orphans(conn: asyncpg.Connection, data_dir: Path) -> None:
             continue
         agent_id = agent_dir.name
 
-        for md_file in agent_dir.rglob("*.md"):
-            # Compute the agent-relative path
-            rel_path = str(md_file.relative_to(agent_dir))
+        # Collect all .md files on disk for this agent
+        disk_paths = {
+            str(md_file.relative_to(agent_dir))
+            for md_file in agent_dir.rglob("*.md")
+        }
+        if not disk_paths:
+            continue
 
-            # Check if DB row exists
-            row = await conn.fetchrow(
-                "SELECT id FROM knowledge_entries WHERE agent_id = $1 AND path = $2",
+        # Batch fetch all known DB paths for this agent
+        db_rows = await conn.fetch(
+            "SELECT path FROM knowledge_entries WHERE agent_id = $1",
+            agent_id,
+        )
+        db_paths = {row["path"] for row in db_rows}
+
+        # Batch fetch already-quarantined paths for this agent
+        q_rows = await conn.fetch(
+            "SELECT path FROM quarantine_entries WHERE agent_id = $1",
+            agent_id,
+        )
+        quarantined_paths = {row["path"] for row in q_rows}
+
+        # Orphans = on disk but not in DB
+        orphan_paths = disk_paths - db_paths - quarantined_paths
+        for rel_path in orphan_paths:
+            await conn.execute(
+                """INSERT INTO quarantine_entries
+                   (agent_id, path, reason, attempts)
+                   VALUES ($1, $2, $3, 0)""",
                 agent_id,
                 rel_path,
+                "orphan file: exists on disk but not in database",
             )
-
-            if row is None:
-                # Check if already quarantined
-                existing_q = await conn.fetchrow(
-                    """SELECT id FROM quarantine_entries
-                       WHERE agent_id = $1 AND path = $2""",
-                    agent_id,
-                    rel_path,
-                )
-                if existing_q is None:
-                    await conn.execute(
-                        """INSERT INTO quarantine_entries
-                           (agent_id, path, reason, attempts)
-                           VALUES ($1, $2, $3, 0)""",
-                        agent_id,
-                        rel_path,
-                        "orphan file: exists on disk but not in database",
-                    )
-                    logger.warning(
-                        "reconciler_orphan_quarantined",
-                        agent_id=agent_id,
-                        path=rel_path,
-                    )
+            logger.warning(
+                "reconciler_orphan_quarantined",
+                agent_id=agent_id,
+                path=rel_path,
+            )

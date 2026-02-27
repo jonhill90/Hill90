@@ -79,7 +79,7 @@ cmd_verify() {
         ai)            check_cmd='docker exec ai python -c "import requests; r=requests.get(\"http://localhost:8000/health\"); exit(0 if r.ok else 1)"'; diag_container="ai" ;;
         mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"'; diag_container="mcp" ;;
         ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="ui" ;;
-        knowledge)     check_cmd='docker exec knowledge python -c "import requests; r=requests.get(\"http://localhost:8002/health\"); exit(0 if r.ok else 1)"'; diag_container="knowledge" ;;
+        knowledge)     check_cmd='docker exec knowledge python -c "from urllib.request import urlopen; r=urlopen(\"http://localhost:8002/health\"); exit(0 if r.status == 200 else 1)"'; diag_container="knowledge" ;;
         minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;

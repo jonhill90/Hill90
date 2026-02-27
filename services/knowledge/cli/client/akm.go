@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -129,7 +130,9 @@ func (c *Client) refreshToken() error {
 	// Write new refresh secret to file
 	secretFile := os.Getenv("AKM_REFRESH_SECRET_FILE")
 	if secretFile != "" {
-		_ = os.WriteFile(secretFile, []byte(result.RefreshSecret), 0600)
+		if err := os.WriteFile(secretFile, []byte(result.RefreshSecret), 0600); err != nil {
+			return fmt.Errorf("failed to write refresh secret to %s: %w", secretFile, err)
+		}
 	}
 
 	return nil
@@ -181,7 +184,7 @@ func (c *Client) ReadEntry(path string) (map[string]interface{}, error) {
 func (c *Client) ListEntries(entryType string) ([]map[string]interface{}, error) {
 	path := "/api/v1/entries"
 	if entryType != "" {
-		path += "?type=" + entryType
+		path += "?type=" + url.QueryEscape(entryType)
 	}
 	// Use the list endpoint — for now reuse the entries path
 	// The server doesn't have a dedicated list endpoint on entries, use search with empty query
@@ -198,7 +201,7 @@ func (c *Client) ListEntries(entryType string) ([]map[string]interface{}, error)
 
 // SearchEntries searches knowledge entries.
 func (c *Client) SearchEntries(query string) (map[string]interface{}, error) {
-	data, status, err := c.doRequest("GET", "/api/v1/search?q="+query, nil)
+	data, status, err := c.doRequest("GET", "/api/v1/search?q="+url.QueryEscape(query), nil)
 	if err != nil {
 		return nil, err
 	}
