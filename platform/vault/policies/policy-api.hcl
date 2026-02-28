@@ -1,4 +1,5 @@
 # API service policy — read-only access to shared and API secrets
+# Covers secret/shared/database, secret/shared/jwt, secret/shared/model-router
 path "secret/data/shared/*" {
   capabilities = ["read"]
 }

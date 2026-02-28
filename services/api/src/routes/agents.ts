@@ -16,6 +16,12 @@ import {
   isAkmConfigured,
 } from '../services/akm-token';
 import { revokeAgentAkmToken } from '../services/akm-revoke';
+import {
+  generateAgentModelRouterToken,
+  getModelRouterEnvVars,
+  isModelRouterConfigured,
+} from '../services/model-router-token';
+import { revokeAgentModelRouterToken } from '../services/model-router-revoke';
 
 const router = Router();
 
@@ -263,6 +269,21 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       }
     }
 
+    // Generate model-router token if configured
+    let modelRouterEnv: string[] = [];
+    let modelRouterJti: string | null = null;
+    let modelRouterExp: number | null = null;
+    if (isModelRouterConfigured()) {
+      try {
+        const mrToken = await generateAgentModelRouterToken(agent.agent_id);
+        modelRouterEnv = getModelRouterEnvVars(mrToken);
+        modelRouterJti = mrToken.jti;
+        modelRouterExp = mrToken.expiresAt;
+      } catch (err) {
+        console.error('[agents] Model-router token generation failed (continuing without model-router):', err);
+      }
+    }
+
     // Create and start container
     const containerId = await createAndStartContainer({
       agentId: agent.agent_id,
@@ -270,7 +291,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       cpus: agent.cpus,
       memLimit: agent.mem_limit,
       pidsLimit: agent.pids_limit,
-      env: akmEnv,
+      env: [...akmEnv, ...modelRouterEnv],
     });
 
     // Store AKM JTI + exp for revocation on stop
@@ -281,13 +302,21 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       );
     }
 
+    // Store model-router JTI + exp for revocation on stop
+    if (modelRouterJti) {
+      await getPool().query(
+        `UPDATE agents SET model_router_jti = $1, model_router_exp = $2, updated_at = NOW() WHERE id = $3`,
+        [modelRouterJti, modelRouterExp, req.params.id]
+      );
+    }
+
     // Update DB
     await getPool().query(
       `UPDATE agents SET status = 'running', container_id = $1, error_message = NULL, updated_at = NOW() WHERE id = $2`,
       [containerId, req.params.id]
     );
 
-    auditLog('start', agent.agent_id, user.sub, { container_id: containerId, akm_jti: akmJti });
+    auditLog('start', agent.agent_id, user.sub, { container_id: containerId, akm_jti: akmJti, model_router_jti: modelRouterJti });
     res.json({ status: 'running', container_id: containerId });
   } catch (err: any) {
     console.error('[agents] Start error:', err);
@@ -326,10 +355,20 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
       }
     }
 
+    // Revoke model-router token
+    if (agent.model_router_jti && isModelRouterConfigured()) {
+      try {
+        await revokeAgentModelRouterToken(agent.agent_id, agent.model_router_jti, agent.model_router_exp ?? undefined);
+      } catch (err) {
+        console.error(`[agents] Model-router token revocation failed for ${agent.agent_id}:`, err);
+        // Continue with stop — container removal is more important
+      }
+    }
+
     await stopAndRemoveContainer(agent.agent_id);
 
     await getPool().query(
-      `UPDATE agents SET status = 'stopped', container_id = NULL, akm_jti = NULL, akm_exp = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
+      `UPDATE agents SET status = 'stopped', container_id = NULL, akm_jti = NULL, akm_exp = NULL, model_router_jti = NULL, model_router_exp = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
 

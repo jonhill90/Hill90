@@ -103,6 +103,9 @@ services:
       - AKM_SIGNING_PRIVATE_KEY=${AKM_SIGNING_PRIVATE_KEY}
       - AKM_INTERNAL_SERVICE_TOKEN=${AKM_INTERNAL_SERVICE_TOKEN}
       - AKM_SERVICE_URL=http://knowledge:8002
+      - MODEL_ROUTER_SIGNING_PRIVATE_KEY=${MODEL_ROUTER_SIGNING_PRIVATE_KEY}
+      - MODEL_ROUTER_INTERNAL_SERVICE_TOKEN=${MODEL_ROUTER_INTERNAL_SERVICE_TOKEN}
+      - MODEL_ROUTER_URL=http://ai:8000
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
