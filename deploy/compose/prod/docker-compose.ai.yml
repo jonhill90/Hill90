@@ -65,7 +65,7 @@ services:
       - LITELLM_URL=http://litellm:4000
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/hill90_api
-      - PUBLIC_KEY_PATH=/etc/akm/public.pem
+      - PUBLIC_KEY_PATH=/etc/akm/model-router-public.pem
       - MODEL_ROUTER_INTERNAL_SERVICE_TOKEN=${MODEL_ROUTER_INTERNAL_SERVICE_TOKEN}
       - OTEL_SERVICE_NAME=ai
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318

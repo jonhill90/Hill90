@@ -344,23 +344,37 @@ cmd_service() {
         sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \
             || die "MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must be set in secrets. Run: make secrets-update KEY=MINIO_ROOT_USER VALUE=..."
     fi
-    if [[ "$service" == "knowledge" ]]; then
+    if [[ "$service" == "knowledge" || "$service" == "ai" ]]; then
         # Populate akm-keys volume with Ed25519 PEM files from secrets
         echo "Populating akm-keys volume with signing keys..."
         docker volume create akm-keys 2>/dev/null || true
-        sops exec-env "$secrets_file" '
-            if [ -z "$AKM_SIGNING_PUBLIC_KEY" ] || [ -z "$AKM_SIGNING_PRIVATE_KEY" ]; then
-                echo "WARNING: AKM signing keys not found in secrets — akm-keys volume will be empty"
-            else
-                printf "%b\n" "$AKM_SIGNING_PUBLIC_KEY" | docker run --rm -i \
-                    -v akm-keys:/etc/akm alpine sh -c \
-                    "cat > /etc/akm/public.pem && chmod 644 /etc/akm/public.pem && chown 1000:1000 /etc/akm/public.pem"
-                printf "%b\n" "$AKM_SIGNING_PRIVATE_KEY" | docker run --rm -i \
-                    -v akm-keys:/etc/akm alpine sh -c \
-                    "cat > /etc/akm/private.pem && chmod 600 /etc/akm/private.pem && chown 1000:1000 /etc/akm/private.pem"
-                echo "akm-keys volume populated with public.pem and private.pem"
-            fi
-        '
+        if [[ "$service" == "knowledge" ]]; then
+            sops exec-env "$secrets_file" '
+                if [ -z "$AKM_SIGNING_PUBLIC_KEY" ] || [ -z "$AKM_SIGNING_PRIVATE_KEY" ]; then
+                    echo "WARNING: AKM signing keys not found in secrets — akm-keys volume will be empty"
+                else
+                    printf "%b\n" "$AKM_SIGNING_PUBLIC_KEY" | docker run --rm -i \
+                        -v akm-keys:/etc/akm alpine sh -c \
+                        "cat > /etc/akm/public.pem && chmod 644 /etc/akm/public.pem && chown 1000:1000 /etc/akm/public.pem"
+                    printf "%b\n" "$AKM_SIGNING_PRIVATE_KEY" | docker run --rm -i \
+                        -v akm-keys:/etc/akm alpine sh -c \
+                        "cat > /etc/akm/private.pem && chmod 600 /etc/akm/private.pem && chown 1000:1000 /etc/akm/private.pem"
+                    echo "akm-keys volume populated with public.pem and private.pem"
+                fi
+            '
+        fi
+        if [[ "$service" == "ai" ]]; then
+            sops exec-env "$secrets_file" '
+                if [ -z "$MODEL_ROUTER_SIGNING_PUBLIC_KEY" ]; then
+                    echo "WARNING: MODEL_ROUTER_SIGNING_PUBLIC_KEY not found in secrets — model-router auth will fail"
+                else
+                    printf "%b\n" "$MODEL_ROUTER_SIGNING_PUBLIC_KEY" | docker run --rm -i \
+                        -v akm-keys:/etc/akm alpine sh -c \
+                        "cat > /etc/akm/model-router-public.pem && chmod 644 /etc/akm/model-router-public.pem && chown 1000:1000 /etc/akm/model-router-public.pem"
+                    echo "akm-keys volume populated with model-router-public.pem"
+                fi
+            '
+        fi
     fi
 
     # Check that networks exist (infrastructure must be deployed first)
