@@ -156,4 +156,49 @@ describe('Usage query routes', () => {
     const todayPrefix = new Date().toISOString().slice(0, 10);
     expect(call[1]).toContain(`${todayPrefix}T00:00:00+00:00`);
   });
+
+  it('GET /usage filters by request_type', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ total_requests: '5', successful_requests: '5', total_input_tokens: '500', total_output_tokens: '0', total_tokens: '500', total_cost_usd: '0.000005' }],
+    });
+    const res = await request(app)
+      .get('/usage?request_type=embedding')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('request_type = $');
+    expect(call[1]).toContain('embedding');
+  });
+
+  it('GET /usage supports group_by=request_type', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { request_type: 'chat.completion', total_requests: '10', successful_requests: '10', total_input_tokens: '5000', total_output_tokens: '2000', total_tokens: '7000', total_cost_usd: '0.035000' },
+        { request_type: 'embedding', total_requests: '5', successful_requests: '5', total_input_tokens: '500', total_output_tokens: '0', total_tokens: '500', total_cost_usd: '0.000005' },
+      ],
+    });
+    const res = await request(app)
+      .get('/usage?group_by=request_type')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.group_by).toBe('request_type');
+    expect(res.body.data).toHaveLength(2);
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('GROUP BY request_type');
+  });
+
+  it('GET /usage combines request_type filter with agent_id', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ total_requests: '2', successful_requests: '2', total_input_tokens: '200', total_output_tokens: '0', total_tokens: '200', total_cost_usd: '0.000002' }],
+    });
+    const res = await request(app)
+      .get('/usage?agent_id=my-agent&request_type=embedding')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('agent_id = $');
+    expect(call[0]).toContain('request_type = $');
+    expect(call[1]).toContain('my-agent');
+    expect(call[1]).toContain('embedding');
+  });
 });
