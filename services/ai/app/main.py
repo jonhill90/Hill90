@@ -10,18 +10,19 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
+import anyio
 import asyncpg
 import httpx
 import structlog
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.auth import AuthError, AgentClaims, verify_model_router_token
 from app.config import Settings, get_settings, load_public_key
 from app.limits import check_rate_limit, check_token_budget
 from app.policy import resolve_agent_policy, resolve_model_policy
-from app.proxy import proxy_chat_completion
+from app.proxy import StreamOpenResult, proxy_chat_completion, proxy_embeddings, stream_chat_completion
 from app.revocation import RevocationManager, revocation_manager
 from app.usage import log_usage
 
@@ -92,7 +93,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Hill90 AI Service — Model Router",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -166,13 +167,10 @@ async def readiness_check():
     return {"status": "ready", "service": "ai"}
 
 
-@app.post("/v1/chat/completions")
-async def chat_completions(request: Request, claims: AgentClaims = Depends(require_agent_auth)):
-    """Proxy chat completion to LiteLLM after policy, rate limit, and budget checks."""
-    settings = get_settings()
-    body = await request.json()
-    requested_model = body.get("model", "")
-
+async def _enforce_policy(
+    claims: AgentClaims, requested_model: str, request_type: str
+) -> JSONResponse | None:
+    """Run policy, rate limit, and budget checks. Returns JSONResponse on denial, None on pass."""
     # Resolve full policy (models + limits) from DB
     async with get_db_conn() as conn:
         policy = await resolve_agent_policy(conn, agent_id=claims.sub)
@@ -188,14 +186,13 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
         async with get_db_conn() as conn:
             rl = await check_rate_limit(conn, agent_id=claims.sub, max_rpm=policy.max_requests_per_minute)
         if not rl.allowed:
-            # Log denied request for audit (excluded from future rate limit counts)
             try:
                 async with get_db_conn() as conn:
                     await log_usage(
                         conn=conn,
                         agent_id=claims.sub,
                         model_name=requested_model,
-                        request_type="chat.completion",
+                        request_type=request_type,
                         status="rate_limited",
                         latency_ms=0,
                     )
@@ -220,14 +217,13 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
         async with get_db_conn() as conn:
             budget = await check_token_budget(conn, agent_id=claims.sub, max_tokens=policy.max_tokens_per_day)
         if not budget.allowed:
-            # Log denied request for audit (excluded from future budget counts)
             try:
                 async with get_db_conn() as conn:
                     await log_usage(
                         conn=conn,
                         agent_id=claims.sub,
                         model_name=requested_model,
-                        request_type="chat.completion",
+                        request_type=request_type,
                         status="budget_exceeded",
                         latency_ms=0,
                     )
@@ -246,10 +242,28 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
                 },
             )
 
-    # Proxy to LiteLLM
+    return None
+
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: Request, claims: AgentClaims = Depends(require_agent_auth)):
+    """Proxy chat completion to LiteLLM after policy, rate limit, and budget checks."""
+    settings = get_settings()
+    body = await request.json()
+    requested_model = body.get("model", "")
+
+    denial = await _enforce_policy(claims, requested_model, "chat.completion")
+    if denial is not None:
+        return denial
+
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
 
+    # Streaming path
+    if body.get("stream") is True:
+        return await _handle_streaming(settings, body, claims, requested_model)
+
+    # Non-streaming path
     start = time.monotonic()
     try:
         result = await proxy_chat_completion(
@@ -275,7 +289,6 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     elapsed_ms = int((time.monotonic() - start) * 1000)
     status = "success" if result["status_code"] == 200 else "error"
 
-    # Log usage with token counts and cost
     try:
         async with get_db_conn() as conn:
             await log_usage(
@@ -287,6 +300,154 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
                 latency_ms=elapsed_ms,
                 input_tokens=result["input_tokens"],
                 output_tokens=result["output_tokens"],
+                cost_usd=result["cost_usd"],
+            )
+    except Exception as e:
+        logger.warning("usage_log_failed", error=str(e))
+
+    return JSONResponse(content=result["body"], status_code=result["status_code"])
+
+
+async def _handle_streaming(settings, body, claims, requested_model):
+    """Handle streaming chat completion with SSE passthrough and usage capture."""
+
+    start = time.monotonic()
+
+    try:
+        open_result: StreamOpenResult = await stream_chat_completion(
+            client=_http_client,
+            litellm_url=settings.litellm_url,
+            litellm_master_key=settings.litellm_master_key,
+            request_body=body,
+        )
+    except Exception as e:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        try:
+            async with get_db_conn() as conn:
+                await log_usage(
+                    conn=conn,
+                    agent_id=claims.sub,
+                    model_name=requested_model,
+                    request_type="chat.completion",
+                    status="error",
+                    latency_ms=elapsed_ms,
+                )
+        except Exception as log_err:
+            logger.warning("usage_log_failed", error=str(log_err))
+        logger.error("stream_open_error", agent_id=claims.sub, model=requested_model, error=str(e))
+        raise HTTPException(status_code=502, detail="LiteLLM proxy error")
+
+    # Non-2xx from LiteLLM before stream started — return upstream error body
+    if open_result.error_body is not None:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        try:
+            async with get_db_conn() as conn:
+                await log_usage(
+                    conn=conn,
+                    agent_id=claims.sub,
+                    model_name=requested_model,
+                    request_type="chat.completion",
+                    status="error",
+                    latency_ms=elapsed_ms,
+                )
+        except Exception as log_err:
+            logger.warning("usage_log_failed", error=str(log_err))
+        return JSONResponse(content=open_result.error_body, status_code=open_result.status_code)
+
+    streaming_result = open_result.streaming_result
+    generator = open_result.generator
+
+    async def _stream_and_log():
+        cancelled = False
+        try:
+            async for chunk in generator:
+                yield chunk
+        except anyio.get_cancelled_exc_class():
+            cancelled = True
+            raise
+        except Exception:
+            pass  # streaming_result.error is set by the proxy generator
+        finally:
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            if cancelled:
+                status = "client_disconnect"
+            elif streaming_result.error:
+                status = "error"
+            else:
+                status = "success"
+            try:
+                async with get_db_conn() as conn:
+                    await log_usage(
+                        conn=conn,
+                        agent_id=claims.sub,
+                        model_name=requested_model,
+                        request_type="chat.completion",
+                        status=status,
+                        latency_ms=elapsed_ms,
+                        input_tokens=streaming_result.input_tokens,
+                        output_tokens=streaming_result.output_tokens,
+                        cost_usd=0.0 if cancelled else streaming_result.cost_usd,
+                    )
+            except Exception as e:
+                logger.warning("usage_log_failed", error=str(e))
+
+    return StreamingResponse(
+        _stream_and_log(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/v1/embeddings")
+async def embeddings(request: Request, claims: AgentClaims = Depends(require_agent_auth)):
+    """Proxy embeddings to LiteLLM after policy, rate limit, and budget checks."""
+    settings = get_settings()
+    body = await request.json()
+    requested_model = body.get("model", "")
+
+    denial = await _enforce_policy(claims, requested_model, "embedding")
+    if denial is not None:
+        return denial
+
+    if _http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    start = time.monotonic()
+    try:
+        result = await proxy_embeddings(
+            client=_http_client,
+            litellm_url=settings.litellm_url,
+            litellm_master_key=settings.litellm_master_key,
+            request_body=body,
+        )
+    except Exception as e:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        async with get_db_conn() as conn:
+            await log_usage(
+                conn=conn,
+                agent_id=claims.sub,
+                model_name=requested_model,
+                request_type="embedding",
+                status="error",
+                latency_ms=elapsed_ms,
+            )
+        logger.error("proxy_error", agent_id=claims.sub, model=requested_model, error=str(e))
+        raise HTTPException(status_code=502, detail="LiteLLM proxy error")
+
+    elapsed_ms = int((time.monotonic() - start) * 1000)
+    status = "success" if result["status_code"] == 200 else "error"
+
+    try:
+        async with get_db_conn() as conn:
+            await log_usage(
+                conn=conn,
+                agent_id=claims.sub,
+                model_name=requested_model,
+                request_type="embedding",
+                status=status,
+                latency_ms=elapsed_ms,
+                input_tokens=result["input_tokens"],
+                output_tokens=0,
                 cost_usd=result["cost_usd"],
             )
     except Exception as e:
