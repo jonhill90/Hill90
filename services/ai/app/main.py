@@ -19,10 +19,11 @@ from pydantic import BaseModel
 
 from app.auth import AuthError, AgentClaims, verify_model_router_token
 from app.config import Settings, get_settings, load_public_key
-from app.policy import resolve_model_policy
+from app.limits import check_rate_limit, check_token_budget
+from app.policy import resolve_agent_policy, resolve_model_policy
 from app.proxy import proxy_chat_completion
 from app.revocation import RevocationManager, revocation_manager
-from app.usage import log_request_metadata
+from app.usage import log_usage
 
 logger = structlog.get_logger()
 
@@ -167,20 +168,83 @@ async def readiness_check():
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, claims: AgentClaims = Depends(require_agent_auth)):
-    """Proxy chat completion to LiteLLM after policy check."""
+    """Proxy chat completion to LiteLLM after policy, rate limit, and budget checks."""
     settings = get_settings()
     body = await request.json()
     requested_model = body.get("model", "")
 
-    # Policy check from DB
+    # Resolve full policy (models + limits) from DB
     async with get_db_conn() as conn:
-        allowed_models = await resolve_model_policy(conn, agent_id=claims.sub)
+        policy = await resolve_agent_policy(conn, agent_id=claims.sub)
 
-    if requested_model not in allowed_models:
+    if requested_model not in policy.allowed_models:
         raise HTTPException(
             status_code=403,
             detail=f"Model '{requested_model}' not authorized for agent '{claims.sub}'",
         )
+
+    # Rate limit check
+    if policy.max_requests_per_minute is not None:
+        async with get_db_conn() as conn:
+            rl = await check_rate_limit(conn, agent_id=claims.sub, max_rpm=policy.max_requests_per_minute)
+        if not rl.allowed:
+            # Log denied request for audit (excluded from future rate limit counts)
+            try:
+                async with get_db_conn() as conn:
+                    await log_usage(
+                        conn=conn,
+                        agent_id=claims.sub,
+                        model_name=requested_model,
+                        request_type="chat.completion",
+                        status="rate_limited",
+                        latency_ms=0,
+                    )
+            except Exception as e:
+                logger.warning("usage_log_failed", error=str(e))
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "type": "rate_limited",
+                        "message": f"Rate limit exceeded for agent '{claims.sub}'",
+                        "limit": rl.limit,
+                        "window": "60s",
+                        "retry_after": rl.retry_after,
+                    }
+                },
+                headers={"Retry-After": str(rl.retry_after)},
+            )
+
+    # Token budget check
+    if policy.max_tokens_per_day is not None:
+        async with get_db_conn() as conn:
+            budget = await check_token_budget(conn, agent_id=claims.sub, max_tokens=policy.max_tokens_per_day)
+        if not budget.allowed:
+            # Log denied request for audit (excluded from future budget counts)
+            try:
+                async with get_db_conn() as conn:
+                    await log_usage(
+                        conn=conn,
+                        agent_id=claims.sub,
+                        model_name=requested_model,
+                        request_type="chat.completion",
+                        status="budget_exceeded",
+                        latency_ms=0,
+                    )
+            except Exception as e:
+                logger.warning("usage_log_failed", error=str(e))
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "type": "budget_exceeded",
+                        "message": f"Daily token budget exhausted for agent '{claims.sub}'",
+                        "limit": budget.limit,
+                        "used": budget.tokens_used,
+                        "resets_at": budget.resets_at,
+                    }
+                },
+            )
 
     # Proxy to LiteLLM
     if _http_client is None:
@@ -195,10 +259,9 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
             request_body=body,
         )
     except Exception as e:
-        # Log failed request
         elapsed_ms = int((time.monotonic() - start) * 1000)
         async with get_db_conn() as conn:
-            await log_request_metadata(
+            await log_usage(
                 conn=conn,
                 agent_id=claims.sub,
                 model_name=requested_model,
@@ -212,16 +275,19 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     elapsed_ms = int((time.monotonic() - start) * 1000)
     status = "success" if result["status_code"] == 200 else "error"
 
-    # Log metadata (no token counts or cost in Phase 1)
+    # Log usage with token counts and cost
     try:
         async with get_db_conn() as conn:
-            await log_request_metadata(
+            await log_usage(
                 conn=conn,
                 agent_id=claims.sub,
                 model_name=requested_model,
                 request_type="chat.completion",
                 status=status,
                 latency_ms=elapsed_ms,
+                input_tokens=result["input_tokens"],
+                output_tokens=result["output_tokens"],
+                cost_usd=result["cost_usd"],
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))

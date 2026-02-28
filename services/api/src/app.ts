@@ -3,7 +3,9 @@ import { createRequireAuth, createJwksKeyResolver } from './middleware/auth';
 import type { JwtHeader } from 'jsonwebtoken';
 import agentsRouter from './routes/agents';
 import knowledgeRouter from './routes/knowledge';
+import modelPoliciesRouter from './routes/model-policies';
 import profileRouter from './routes/profile';
+import usageRouter from './routes/usage';
 import { requireRole } from './middleware/role';
 import { docsRouter, specRouter } from './routes/docs';
 
@@ -37,6 +39,12 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Agent management routes
   app.use('/agents', requireAuth, agentsRouter);
+
+  // Model policy management routes (admin-only, enforced in router)
+  app.use('/model-policies', requireAuth, modelPoliciesRouter);
+
+  // Usage query routes (admin-only, enforced in router)
+  app.use('/usage', requireAuth, usageRouter);
 
   // Knowledge proxy routes (read-only, owner-scoped)
   app.use('/knowledge', requireAuth, knowledgeRouter);

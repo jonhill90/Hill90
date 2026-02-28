@@ -56,7 +56,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const scope = scopeToOwner(req);
     const paramOffset = scope.params.length;
     const { rows } = await getPool().query(
-      `SELECT id, agent_id, name, description, status, cpus, mem_limit, pids_limit, created_at, updated_at, created_by
+      `SELECT id, agent_id, name, description, status, cpus, mem_limit, pids_limit, model_policy_id, created_at, updated_at, created_by
        FROM agents WHERE ${scope.where} ORDER BY created_at DESC`,
       scope.params
     );
@@ -153,7 +153,32 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md } = req.body;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id } = req.body;
+
+    // model_policy_id requires admin role
+    if (model_policy_id !== undefined) {
+      const user = (req as any).user;
+      const roles: string[] = user.realm_roles || [];
+      if (!roles.includes('admin')) {
+        res.status(403).json({ error: 'Setting model_policy_id requires admin role' });
+        return;
+      }
+
+      // Validate FK if non-null
+      if (model_policy_id !== null) {
+        const { rows: policyRows } = await getPool().query(
+          'SELECT id FROM model_policies WHERE id = $1',
+          [model_policy_id]
+        );
+        if (policyRows.length === 0) {
+          res.status(400).json({ error: 'Model policy not found' });
+          return;
+        }
+      }
+    }
+
+    // Build SET clause: model_policy_id uses explicit flag to allow clearing to NULL
+    const modelPolicyProvided = model_policy_id !== undefined;
     const { rows } = await getPool().query(
       `UPDATE agents SET
         name = COALESCE($1, name),
@@ -164,8 +189,9 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         pids_limit = COALESCE($6, pids_limit),
         soul_md = COALESCE($7, soul_md),
         rules_md = COALESCE($8, rules_md),
+        model_policy_id = CASE WHEN $9::boolean THEN $10::uuid ELSE model_policy_id END,
         updated_at = NOW()
-       WHERE id = $9
+       WHERE id = $11
        RETURNING *`,
       [
         name || null,
@@ -176,6 +202,8 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         pids_limit ?? null,
         soul_md ?? null,
         rules_md ?? null,
+        modelPolicyProvided,
+        modelPolicyProvided ? (model_policy_id ?? null) : null,
         req.params.id,
       ]
     );
