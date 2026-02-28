@@ -1,18 +1,49 @@
 version: '3.9'
 
-# AI service
+# AI service (model-router gateway) + LiteLLM proxy
 # Deploy with: make deploy-ai
 
 networks:
-  edge:
-    external: true
-    name: hill90_edge
   internal:
     external: true
     name: hill90_internal
+  agent_internal:
+    external: true
+    name: hill90_agent_internal
+
+volumes:
+  akm-keys:
+    name: akm-keys
 
 services:
-  # AI Service (Python/FastAPI)
+  # LiteLLM — stateless proxy for provider API routing
+  # On internal network only (needs internet egress for provider APIs)
+  litellm:
+    image: ghcr.io/berriai/litellm:main-v1.61.21-stable
+    container_name: litellm
+    restart: unless-stopped
+    networks:
+      - internal
+    volumes:
+      - ../../../platform/ai/litellm_config.yaml:/app/config.yaml:ro
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request, sys; r=urllib.request.urlopen('http://localhost:4000/health/liveliness'); sys.exit(0 if r.status < 400 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    mem_limit: 512m
+    cpus: 1.0
+    labels:
+      - "traefik.enable=false"
+
+  # AI Service (Python/FastAPI) — model-router gateway
+  # On internal + agent_internal (reachable from agentboxes as http://ai:8000)
   ai:
     build:
       context: ../../../services/ai
@@ -20,15 +51,22 @@ services:
     image: hill90/ai:${VERSION:-latest}
     container_name: ai
     restart: unless-stopped
+    depends_on:
+      litellm:
+        condition: service_healthy
     networks:
-      - edge
       - internal
+      - agent_internal
+    volumes:
+      - akm-keys:/etc/akm:ro
     environment:
       - ENVIRONMENT=production
       - PORT=8000
-      - AUTH_SERVICE_URL=http://auth:3001
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/hill90_api
+      - PUBLIC_KEY_PATH=/etc/akm/public.pem
+      - MODEL_ROUTER_INTERNAL_SERVICE_TOKEN=${MODEL_ROUTER_INTERNAL_SERVICE_TOKEN}
       - OTEL_SERVICE_NAME=ai
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
@@ -36,13 +74,12 @@ services:
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request, sys; r=urllib.request.urlopen('http://localhost:8000/health'); sys.exit(0 if r.status < 400 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
+    mem_limit: 512m
+    cpus: 1.0
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.ai.rule=Host(`ai.hill90.com`)"
-      - "traefik.http.routers.ai.entrypoints=websecure"
-      - "traefik.http.routers.ai.tls.certresolver=letsencrypt"
-      - "traefik.http.services.ai.loadbalancer.server.port=8000"
+      - "traefik.enable=false"
