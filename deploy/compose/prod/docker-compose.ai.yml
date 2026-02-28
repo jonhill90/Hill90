@@ -4,6 +4,9 @@ version: '3.9'
 # Deploy with: make deploy-ai
 
 networks:
+  edge:
+    external: true
+    name: hill90_edge
   internal:
     external: true
     name: hill90_internal
@@ -17,12 +20,13 @@ volumes:
 
 services:
   # LiteLLM — stateless proxy for provider API routing
-  # On internal network only (needs internet egress for provider APIs)
+  # On edge (internet egress for provider APIs) + internal (reachable by AI service)
   litellm:
     image: docker.litellm.ai/berriai/litellm:main-v1.81.12-stable
     container_name: litellm
     restart: unless-stopped
     networks:
+      - edge
       - internal
     volumes:
       - ../../../platform/ai/litellm_config.yaml:/app/config.yaml:ro
