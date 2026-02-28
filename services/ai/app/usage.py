@@ -17,14 +17,15 @@ async def log_usage(
     input_tokens: int = 0,
     output_tokens: int = 0,
     cost_usd: float = 0.0,
+    delegation_id: str | None = None,
 ) -> None:
     """Write a usage record to model_usage including token counts and cost."""
     await conn.execute(
         """
         INSERT INTO model_usage
             (agent_id, model_name, request_type, status, latency_ms,
-             input_tokens, output_tokens, cost_usd)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             input_tokens, output_tokens, cost_usd, delegation_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         """,
         agent_id,
         model_name,
@@ -34,6 +35,7 @@ async def log_usage(
         input_tokens,
         output_tokens,
         cost_usd,
+        delegation_id,
     )
 
 

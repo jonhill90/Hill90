@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Internal service token for /internal/* endpoints
     model_router_internal_service_token: str = ""
 
+    # API service URL for delegation token signing (service-to-service)
+    api_service_url: str = "http://api:3000"
+
     # Service metadata
     environment: str = "production"
     port: int = 8000

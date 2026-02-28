@@ -201,4 +201,47 @@ describe('Usage query routes', () => {
     expect(call[1]).toContain('my-agent');
     expect(call[1]).toContain('embedding');
   });
+
+  it('GET /usage filters by status', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ total_requests: '3', successful_requests: '0', total_input_tokens: '0', total_output_tokens: '0', total_tokens: '0', total_cost_usd: '0.000000' }],
+    });
+    const res = await request(app)
+      .get('/usage?status=client_disconnect')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('status = $');
+    expect(call[1]).toContain('client_disconnect');
+  });
+
+  it('GET /usage filters by delegation_id', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ total_requests: '5', successful_requests: '5', total_input_tokens: '1000', total_output_tokens: '500', total_tokens: '1500', total_cost_usd: '0.010000' }],
+    });
+    const res = await request(app)
+      .get('/usage?delegation_id=550e8400-e29b-41d4-a716-446655440000')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('delegation_id = $');
+    expect(call[1]).toContain('550e8400-e29b-41d4-a716-446655440000');
+  });
+
+  it('GET /usage supports group_by=delegation', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { delegation_id: 'deleg-1', total_requests: '5', successful_requests: '5', total_input_tokens: '2500', total_output_tokens: '1000', total_tokens: '3500', total_cost_usd: '0.020000' },
+        { delegation_id: null, total_requests: '10', successful_requests: '9', total_input_tokens: '5000', total_output_tokens: '2000', total_tokens: '7000', total_cost_usd: '0.035000' },
+      ],
+    });
+    const res = await request(app)
+      .get('/usage?group_by=delegation')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.group_by).toBe('delegation');
+    expect(res.body.data).toHaveLength(2);
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('GROUP BY delegation_id');
+  });
 });

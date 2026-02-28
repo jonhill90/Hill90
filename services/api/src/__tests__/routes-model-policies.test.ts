@@ -155,7 +155,7 @@ describe('Model Policy CRUD routes', () => {
   // Update
   it('PUT /model-policies/:id updates policy', async () => {
     mockQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'p1' }] }) // existence check
+      .mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini'] }] }) // existence check
       .mockResolvedValueOnce({
         rows: [{ id: 'p1', name: 'default', allowed_models: ['gpt-4o', 'gpt-4o-mini'], max_requests_per_minute: 20, max_tokens_per_day: null }],
       });
@@ -187,7 +187,7 @@ describe('Model Policy CRUD routes', () => {
 
   it('PUT /model-policies/:id can clear limits to null', async () => {
     mockQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'p1' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({
         rows: [{ id: 'p1', name: 'default', max_requests_per_minute: null, max_tokens_per_day: null }],
       });
@@ -202,6 +202,73 @@ describe('Model Policy CRUD routes', () => {
     expect(updateCall[1][4]).toBeNull();  // rpm value = null
     expect(updateCall[1][5]).toBe(true);  // tpdProvided
     expect(updateCall[1][6]).toBeNull();  // tpd value = null
+  });
+
+  // Aliases
+  it('POST /model-policies creates policy with aliases', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'p3', name: 'aliased', allowed_models: ['gpt-4o-mini', 'gpt-4o'], model_aliases: { fast: 'gpt-4o-mini', smart: 'gpt-4o' } }],
+    });
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'aliased',
+        allowed_models: ['gpt-4o-mini', 'gpt-4o'],
+        model_aliases: { fast: 'gpt-4o-mini', smart: 'gpt-4o' },
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.model_aliases).toEqual({ fast: 'gpt-4o-mini', smart: 'gpt-4o' });
+  });
+
+  it('POST /model-policies rejects alias target not in allowed_models', async () => {
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'bad-alias',
+        allowed_models: ['gpt-4o-mini'],
+        model_aliases: { smart: 'gpt-4o' },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("'smart'");
+    expect(res.body.error).toContain("'gpt-4o'");
+  });
+
+  it('PUT /model-policies/:id updates aliases', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini', 'gpt-4o'] }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'p1', name: 'default', model_aliases: { fast: 'gpt-4o-mini' } }],
+      });
+    const res = await request(app)
+      .put('/model-policies/p1')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ model_aliases: { fast: 'gpt-4o-mini' } });
+    expect(res.status).toBe(200);
+  });
+
+  it('PUT /model-policies/:id rejects alias target not in allowed_models', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini'] }] });
+    const res = await request(app)
+      .put('/model-policies/p1')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ model_aliases: { smart: 'gpt-4o' } });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("'smart'");
+  });
+
+  it('GET /model-policies returns model_aliases', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { id: 'p1', name: 'default', allowed_models: ['gpt-4o-mini'], model_aliases: { fast: 'gpt-4o-mini' } },
+      ],
+    });
+    const res = await request(app)
+      .get('/model-policies')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body[0].model_aliases).toEqual({ fast: 'gpt-4o-mini' });
   });
 
   // Delete

@@ -13,15 +13,16 @@ from typing import Any
 
 @dataclass
 class AgentPolicy:
-    """Resolved policy for an agent — models, rate limits, and budget."""
+    """Resolved policy for an agent — models, rate limits, budget, and aliases."""
     allowed_models: list[str]
     max_requests_per_minute: int | None
     max_tokens_per_day: int | None
+    model_aliases: dict[str, str] | None = None
 
 
-_POLICY_COLUMNS = "mp.id, mp.name, mp.allowed_models, mp.max_requests_per_minute, mp.max_tokens_per_day"
+_POLICY_COLUMNS = "mp.id, mp.name, mp.allowed_models, mp.max_requests_per_minute, mp.max_tokens_per_day, mp.model_aliases"
 
-_EMPTY_POLICY = AgentPolicy(allowed_models=[], max_requests_per_minute=None, max_tokens_per_day=None)
+_EMPTY_POLICY = AgentPolicy(allowed_models=[], max_requests_per_minute=None, max_tokens_per_day=None, model_aliases=None)
 
 
 async def resolve_agent_policy(conn: Any, *, agent_id: str) -> AgentPolicy:
@@ -54,6 +55,7 @@ async def resolve_agent_policy(conn: Any, *, agent_id: str) -> AgentPolicy:
         allowed_models=_extract_allowed_models(row),
         max_requests_per_minute=row["max_requests_per_minute"],
         max_tokens_per_day=row["max_tokens_per_day"],
+        model_aliases=_extract_model_aliases(row),
     )
 
 
@@ -74,3 +76,33 @@ def _extract_allowed_models(row: Any) -> list[str]:
     if isinstance(models, str):
         return json.loads(models)
     return []
+
+
+def _extract_model_aliases(row: Any) -> dict[str, str] | None:
+    """Extract model_aliases from a DB row (handles dict, JSON text, or None)."""
+    aliases = row.get("model_aliases")
+    if aliases is None:
+        return None
+    if isinstance(aliases, dict):
+        return aliases
+    if isinstance(aliases, str):
+        parsed = json.loads(aliases)
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def resolve_alias(requested_model: str, policy: AgentPolicy) -> str:
+    """Resolve a model alias to its real model name.
+
+    Single-pass lookup — no recursion. If the requested name is found in
+    the policy's model_aliases, returns the target. Otherwise returns the
+    requested name unchanged (treated as a literal model name).
+    """
+    if policy.model_aliases and requested_model in policy.model_aliases:
+        return policy.model_aliases[requested_model]
+    return requested_model
+
+
+def resolve_aliases_list(models: list[str], policy: AgentPolicy) -> list[str]:
+    """Resolve a list of model names/aliases to real model names."""
+    return [resolve_alias(m, policy) for m in models]

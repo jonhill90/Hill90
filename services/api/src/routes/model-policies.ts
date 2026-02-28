@@ -21,7 +21,7 @@ router.use(requireRole('admin'));
 router.get('/', async (_req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
-      `SELECT id, name, description, allowed_models, max_requests_per_minute, max_tokens_per_day,
+      `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
               created_at, updated_at, updated_by
        FROM model_policies ORDER BY created_at ASC`
     );
@@ -36,7 +36,7 @@ router.get('/', async (_req: Request, res: Response) => {
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
-      `SELECT id, name, description, allowed_models, max_requests_per_minute, max_tokens_per_day,
+      `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
               created_at, updated_at, updated_by
        FROM model_policies WHERE id = $1`,
       [req.params.id]
@@ -56,7 +56,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { name, description, allowed_models, max_requests_per_minute, max_tokens_per_day } = req.body;
+    const { name, description, allowed_models, max_requests_per_minute, max_tokens_per_day, model_aliases } = req.body;
 
     if (!name) {
       res.status(400).json({ error: 'name is required' });
@@ -67,14 +67,28 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    // Validate model_aliases: each alias target must be in allowed_models
+    const aliases = model_aliases || {};
+    if (typeof aliases !== 'object' || Array.isArray(aliases)) {
+      res.status(400).json({ error: 'model_aliases must be an object' });
+      return;
+    }
+    for (const [alias, target] of Object.entries(aliases)) {
+      if (!allowed_models.includes(target)) {
+        res.status(400).json({ error: `Alias '${alias}' target '${target}' is not in allowed_models` });
+        return;
+      }
+    }
+
     const { rows } = await getPool().query(
-      `INSERT INTO model_policies (name, description, allowed_models, max_requests_per_minute, max_tokens_per_day, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO model_policies (name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
       [
         name,
         description || '',
         JSON.stringify(allowed_models),
+        JSON.stringify(aliases),
         max_requests_per_minute ?? null,
         max_tokens_per_day ?? null,
         user.sub,
@@ -96,7 +110,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { name, description, allowed_models, max_requests_per_minute, max_tokens_per_day } = req.body;
+    const { name, description, allowed_models, max_requests_per_minute, max_tokens_per_day, model_aliases } = req.body;
 
     if (allowed_models !== undefined && !Array.isArray(allowed_models)) {
       res.status(400).json({ error: 'allowed_models must be an array' });
@@ -104,7 +118,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 
     const { rows: existing } = await getPool().query(
-      'SELECT id FROM model_policies WHERE id = $1',
+      'SELECT id, allowed_models FROM model_policies WHERE id = $1',
       [req.params.id]
     );
     if (existing.length === 0) {
@@ -112,9 +126,26 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    // Validate model_aliases if provided
+    if (model_aliases !== undefined) {
+      if (typeof model_aliases !== 'object' || Array.isArray(model_aliases)) {
+        res.status(400).json({ error: 'model_aliases must be an object' });
+        return;
+      }
+      // Validate against the effective allowed_models (new list if provided, otherwise existing)
+      const effectiveModels = allowed_models || existing[0].allowed_models;
+      for (const [alias, target] of Object.entries(model_aliases)) {
+        if (!effectiveModels.includes(target)) {
+          res.status(400).json({ error: `Alias '${alias}' target '${target}' is not in allowed_models` });
+          return;
+        }
+      }
+    }
+
     // Use CASE for nullable limit fields to allow clearing to NULL (unlimited)
     const rpmProvided = 'max_requests_per_minute' in req.body;
     const tpdProvided = 'max_tokens_per_day' in req.body;
+    const aliasesProvided = 'model_aliases' in req.body;
 
     const { rows } = await getPool().query(
       `UPDATE model_policies SET
@@ -123,9 +154,10 @@ router.put('/:id', async (req: Request, res: Response) => {
         allowed_models = COALESCE($3, allowed_models),
         max_requests_per_minute = CASE WHEN $4::boolean THEN $5::integer ELSE max_requests_per_minute END,
         max_tokens_per_day = CASE WHEN $6::boolean THEN $7::integer ELSE max_tokens_per_day END,
-        updated_by = $8,
+        model_aliases = CASE WHEN $8::boolean THEN $9::jsonb ELSE model_aliases END,
+        updated_by = $10,
         updated_at = NOW()
-       WHERE id = $9
+       WHERE id = $11
        RETURNING *`,
       [
         name || null,
@@ -135,6 +167,8 @@ router.put('/:id', async (req: Request, res: Response) => {
         rpmProvided ? (max_requests_per_minute ?? null) : null,
         tpdProvided,
         tpdProvided ? (max_tokens_per_day ?? null) : null,
+        aliasesProvided,
+        aliasesProvided ? JSON.stringify(model_aliases) : null,
         user.sub,
         req.params.id,
       ]

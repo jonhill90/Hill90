@@ -28,25 +28,44 @@ class BudgetResult:
 
 
 async def check_rate_limit(
-    conn: Any, *, agent_id: str, max_rpm: int
+    conn: Any, *, agent_id: str, max_rpm: int, delegation_id: str | None = None
 ) -> RateLimitResult:
     """Check if agent is within rate limit (requests per minute).
 
     Counts only provider-attempted requests (status IN ('success', 'error')).
     Denied requests are excluded to prevent cascading lockout.
+
+    If delegation_id is provided, counts only requests for that delegation.
+    Otherwise counts all requests for the agent (including all delegations).
     """
-    row = await conn.fetchrow(
-        """
-        SELECT
-            COUNT(*) AS cnt,
-            EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_secs
-        FROM model_usage
-        WHERE agent_id = $1
-          AND status IN ('success', 'error')
-          AND created_at > NOW() - interval '1 minute'
-        """,
-        agent_id,
-    )
+    if delegation_id:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*) AS cnt,
+                EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_secs
+            FROM model_usage
+            WHERE agent_id = $1
+              AND delegation_id = $2
+              AND status IN ('success', 'error')
+              AND created_at > NOW() - interval '1 minute'
+            """,
+            agent_id,
+            delegation_id,
+        )
+    else:
+        row = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*) AS cnt,
+                EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::int AS oldest_age_secs
+            FROM model_usage
+            WHERE agent_id = $1
+              AND status IN ('success', 'error')
+              AND created_at > NOW() - interval '1 minute'
+            """,
+            agent_id,
+        )
 
     count = row["cnt"] if row else 0
     oldest_age = row["oldest_age_secs"] if row and row["oldest_age_secs"] is not None else 0
@@ -61,23 +80,40 @@ async def check_rate_limit(
 
 
 async def check_token_budget(
-    conn: Any, *, agent_id: str, max_tokens: int
+    conn: Any, *, agent_id: str, max_tokens: int, delegation_id: str | None = None
 ) -> BudgetResult:
     """Check if agent is within daily token budget.
 
     Sums tokens from provider-attempted requests only (status IN ('success', 'error')).
     Budget resets at UTC midnight.
+
+    If delegation_id is provided, sums only tokens for that delegation.
+    Otherwise sums all tokens for the agent (including all delegations).
     """
-    row = await conn.fetchrow(
-        """
-        SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens
-        FROM model_usage
-        WHERE agent_id = $1
-          AND status IN ('success', 'error')
-          AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
-        """,
-        agent_id,
-    )
+    if delegation_id:
+        row = await conn.fetchrow(
+            """
+            SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens
+            FROM model_usage
+            WHERE agent_id = $1
+              AND delegation_id = $2
+              AND status IN ('success', 'error')
+              AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+            """,
+            agent_id,
+            delegation_id,
+        )
+    else:
+        row = await conn.fetchrow(
+            """
+            SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens
+            FROM model_usage
+            WHERE agent_id = $1
+              AND status IN ('success', 'error')
+              AND created_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+            """,
+            agent_id,
+        )
 
     tokens_used = row["total_tokens"] if row else 0
 

@@ -8,6 +8,7 @@ import profileRouter from './routes/profile';
 import usageRouter from './routes/usage';
 import { requireRole } from './middleware/role';
 import { docsRouter, specRouter } from './routes/docs';
+import { delegationTokenHandler } from './services/model-router-delegation';
 
 interface AppOptions {
   issuer?: string;
@@ -23,6 +24,9 @@ export function createApp(opts: AppOptions = {}): Application {
   app.get('/health', (_req, res) => {
     res.json({ status: 'healthy', service: 'api' });
   });
+
+  // Internal service-to-service endpoint (service-token auth, not Keycloak)
+  app.post('/internal/delegation-token', delegationTokenHandler);
 
   // Protected routes
   const issuer = opts.issuer || process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';
