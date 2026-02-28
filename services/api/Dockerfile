@@ -29,13 +29,12 @@ COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/dist ./dist
 COPY package*.json ./
 
-# Create agentbox config directory and non-root user
+# Create agentbox config directory and set ownership to node user (uid 1000)
+# node:20-alpine provides node:node (1000:1000) — matches deploy.sh chown 1000:1000
 RUN mkdir -p /data/agentbox && \
-    addgroup -S appuser && \
-    adduser -S -G appuser appuser && \
-    chown -R appuser:appuser /app /data/agentbox
+    chown -R node:node /app /data/agentbox
 
-USER appuser
+USER node
 
 EXPOSE 3000
 
