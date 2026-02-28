@@ -14,3 +14,5 @@ This matrix defines which validation evidence should appear in PRs based on chan
 - The `Policy Gate (Advisory)` workflow is currently advisory (`AGENT_LOOP_STRICT=0`) for general checks.
 - The `Agent Loop (Infra — Enforced)` job hard-fails when infra paths are touched and the PR body is missing required sections (Plan, Risks, Rollback, Validation Evidence).
 - Non-infra PRs skip the enforced check.
+
+> **Manual workaround rule:** Validation evidence that depends on ad-hoc manual workarounds (chmod, container edits, one-off env vars, etc.) outside documented code, automation, or runbooks is not valid evidence. See Guardrails in `AGENTS.md` for required response.
