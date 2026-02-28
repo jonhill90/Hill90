@@ -336,9 +336,10 @@ cmd_service() {
 
     # Service-specific preflight checks
     if [[ "$service" == "api" ]]; then
-        # Ensure agentbox config directory exists
+        # Ensure agentbox config directory exists with correct ownership
+        # API container runs as node (uid 1000) — needs write access to this bind mount
         mkdir -p /opt/hill90/agentbox-configs
-        chown 1000:1000 /opt/hill90/agentbox-configs 2>/dev/null || true
+        sudo chown 1000:1000 /opt/hill90/agentbox-configs
     fi
     if [[ "$service" == "minio" ]]; then
         sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \
