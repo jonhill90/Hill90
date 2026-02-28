@@ -96,6 +96,8 @@ Concrete commands and expected results. Every claim in the plan maps to a verifi
 
 **Alternatives:** `Verification Checklist`
 
+> **Manual workaround rule:** If any verification step requires an ad-hoc manual workaround (chmod/chown, container edits, one-off env vars, etc.) outside documented code, automation, or runbooks, treat it as a blocker. See Guardrails in `AGENTS.md` for required response and merge recommendation semantics.
+
 ### 6. CI / Drift Gates
 
 What CI checks enforce this change? What drift could occur and how is it caught?
@@ -184,6 +186,7 @@ Copy into your plan and check off as you complete each section:
 | DoD without checkboxes | Can't track completion | Use `- [ ]` for each condition |
 | Scope without "out of scope" | Boundaries are implicit | Explicitly list what you won't do |
 | CI section says "existing" only | Doesn't explain new enforcement | Document new gates + drift risks |
+| Verification via ad-hoc manual workaround | Root cause unknown, fix isn't durable, breaks on redeploy | Identify root cause, determine least-privilege fix, state merge recommendation: `patch first` (default), `split follow-up` (only if safe to ship independently, no security regression, no redeploy breakage), or `merge now` (only if no real workaround needed or durable fix already in PR) |
 
 ## CI Enforcement
 
