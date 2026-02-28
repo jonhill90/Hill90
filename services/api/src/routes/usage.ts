@@ -18,7 +18,7 @@ router.use(requireRole('admin'));
 // Query usage with optional filtering and aggregation
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { agent_id, model_name, from, to, group_by } = req.query;
+    const { agent_id, model_name, request_type, from, to, group_by } = req.query;
 
     const conditions: string[] = [];
     const params: any[] = [];
@@ -31,6 +31,10 @@ router.get('/', async (req: Request, res: Response) => {
     if (model_name) {
       conditions.push(`model_name = $${paramIdx++}`);
       params.push(model_name);
+    }
+    if (request_type) {
+      conditions.push(`request_type = $${paramIdx++}`);
+      params.push(request_type);
     }
 
     // Date range defaults to today — explicit UTC offset so the cast is
@@ -46,9 +50,10 @@ router.get('/', async (req: Request, res: Response) => {
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-    if (group_by === 'agent' || group_by === 'model' || group_by === 'day') {
+    if (group_by === 'agent' || group_by === 'model' || group_by === 'day' || group_by === 'request_type') {
       const groupCol = group_by === 'agent' ? 'agent_id'
         : group_by === 'model' ? 'model_name'
+        : group_by === 'request_type' ? 'request_type'
         : "date_trunc('day', created_at)::date";
       const selectAlias = group_by === 'day' ? `${groupCol} AS day` : groupCol;
 

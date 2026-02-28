@@ -1058,8 +1058,9 @@ paths:
     get:
       summary: Query usage
       description: >
-        Query model usage with optional filtering by agent, model, and date range.
-        Supports grouping by agent, model, or day. Requires admin role.
+        Query model usage with optional filtering by agent, model, request type,
+        and date range. Supports grouping by agent, model, day, or request type.
+        Requires admin role.
       security:
         - bearerAuth: []
       parameters:
@@ -1073,6 +1074,12 @@ paths:
           schema:
             type: string
           description: Filter by model name
+        - name: request_type
+          in: query
+          schema:
+            type: string
+            enum: [chat.completion, embedding]
+          description: Filter by request type
         - name: from
           in: query
           schema:
@@ -1089,7 +1096,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [agent, model, day]
+            enum: [agent, model, day, request_type]
           description: Group results by dimension
       responses:
         "200":
