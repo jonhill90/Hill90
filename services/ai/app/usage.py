@@ -1,13 +1,12 @@
-"""Metadata-only audit logger for model usage.
+"""Usage logger for model requests with token counts and cost.
 
-Phase 1 logs request metadata only (agent_id, model, timestamp, status, latency_ms).
-Token counts and cost are deferred to Phase 2 — columns exist in schema but default to 0.
+Records agent_id, model, status, latency, token counts, and cost per request.
 """
 
 from typing import Any
 
 
-async def log_request_metadata(
+async def log_usage(
     *,
     conn: Any,
     agent_id: str,
@@ -15,16 +14,28 @@ async def log_request_metadata(
     request_type: str,
     status: str,
     latency_ms: int,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
 ) -> None:
-    """Write a metadata-only usage record to model_usage."""
+    """Write a usage record to model_usage including token counts and cost."""
     await conn.execute(
         """
-        INSERT INTO model_usage (agent_id, model_name, request_type, status, latency_ms)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO model_usage
+            (agent_id, model_name, request_type, status, latency_ms,
+             input_tokens, output_tokens, cost_usd)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """,
         agent_id,
         model_name,
         request_type,
         status,
         latency_ms,
+        input_tokens,
+        output_tokens,
+        cost_usd,
     )
+
+
+# Backwards-compatible alias for Phase 1 callers
+log_request_metadata = log_usage
