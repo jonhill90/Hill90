@@ -55,8 +55,7 @@ components:
           type: string
           format: uuid
           nullable: true
-          readOnly: true
-          description: ID of the model policy controlling LLM access for this agent (read-only, assigned server-side)
+          description: ID of the model policy controlling LLM access for this agent (admin-only to set)
         error_message:
           type: string
           nullable: true
@@ -189,6 +188,55 @@ components:
         score_type:
           type: string
           example: ts_rank
+
+    ModelPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        allowed_models:
+          type: array
+          items:
+            type: string
+        max_requests_per_minute:
+          type: integer
+          nullable: true
+          description: Rate limit (requests per minute). NULL means unlimited.
+        max_tokens_per_day:
+          type: integer
+          nullable: true
+          description: Daily token budget. NULL means unlimited.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        updated_by:
+          type: string
+          nullable: true
+
+    UsageSummary:
+      type: object
+      properties:
+        total_requests:
+          type: integer
+        successful_requests:
+          type: integer
+        total_input_tokens:
+          type: integer
+        total_output_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+        total_cost_usd:
+          type: number
+          format: double
 
     Error:
       type: object
@@ -343,7 +391,7 @@ paths:
 
     put:
       summary: Update agent
-      description: Updates agent configuration. Agent must be stopped.
+      description: Updates agent configuration. Agent must be stopped. Setting model_policy_id requires admin role.
       security:
         - bearerAuth: []
       requestBody:
@@ -369,6 +417,11 @@ paths:
                   type: string
                 rules_md:
                   type: string
+                model_policy_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Model policy ID (admin-only). Set to null to remove policy.
       responses:
         "200":
           description: Agent updated
@@ -841,3 +894,220 @@ paths:
           description: Not authenticated
         "403":
           description: Not authorized to search this agent's knowledge
+
+  /model-policies:
+    get:
+      summary: List model policies
+      description: Returns all model policies. Requires admin role.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModelPolicy"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+
+    post:
+      summary: Create model policy
+      description: Creates a new model policy. Requires admin role.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - allowed_models
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                allowed_models:
+                  type: array
+                  items:
+                    type: string
+                max_requests_per_minute:
+                  type: integer
+                  nullable: true
+                max_tokens_per_day:
+                  type: integer
+                  nullable: true
+      responses:
+        "201":
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelPolicy"
+        "400":
+          description: Invalid input
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "409":
+          description: Duplicate policy name
+
+  /model-policies/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get model policy
+      description: Returns a single model policy. Requires admin role.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Policy detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelPolicy"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Policy not found
+
+    put:
+      summary: Update model policy
+      description: Updates a model policy. Requires admin role.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                allowed_models:
+                  type: array
+                  items:
+                    type: string
+                max_requests_per_minute:
+                  type: integer
+                  nullable: true
+                max_tokens_per_day:
+                  type: integer
+                  nullable: true
+      responses:
+        "200":
+          description: Policy updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelPolicy"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Policy not found
+        "409":
+          description: Duplicate policy name
+
+    delete:
+      summary: Delete model policy
+      description: Deletes a model policy. Fails if agents are assigned. Requires admin role.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Policy deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Policy not found
+        "409":
+          description: Agents are assigned to this policy
+
+  /usage:
+    get:
+      summary: Query usage
+      description: >
+        Query model usage with optional filtering by agent, model, and date range.
+        Supports grouping by agent, model, or day. Requires admin role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+          description: Filter by agent ID
+        - name: model_name
+          in: query
+          schema:
+            type: string
+          description: Filter by model name
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Start date (defaults to today)
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+          description: End date (inclusive)
+        - name: group_by
+          in: query
+          schema:
+            type: string
+            enum: [agent, model, day]
+          description: Group results by dimension
+      responses:
+        "200":
+          description: Usage data
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/UsageSummary"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/UsageSummary"
+                      group_by:
+                        type: string
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role

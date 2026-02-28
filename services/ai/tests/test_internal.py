@@ -228,6 +228,8 @@ class TestModelsEndpoint:
                 "id": "policy-1",
                 "name": "default",
                 "allowed_models": ["gpt-4o-mini"],
+                "max_requests_per_minute": None,
+                "max_tokens_per_day": None,
             }
             mock_get_conn.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
             mock_get_conn.return_value.__aexit__ = AsyncMock(return_value=False)
