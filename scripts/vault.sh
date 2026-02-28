@@ -321,7 +321,8 @@ cmd_seed() {
     echo "Seeding secret/ai/config..."
     bao_exec_env kv put secret/ai/config \
         "ANTHROPIC_API_KEY=$(get_secret ANTHROPIC_API_KEY)" \
-        "OPENAI_API_KEY=$(get_secret OPENAI_API_KEY)"
+        "OPENAI_API_KEY=$(get_secret OPENAI_API_KEY)" \
+        "LITELLM_MASTER_KEY=$(get_secret LITELLM_MASTER_KEY)"
 
     # Seed auth/config
     echo "Seeding secret/auth/config..."
@@ -391,6 +392,30 @@ print(json.dumps({
             "$CONTAINER_NAME" bao kv put secret/knowledge/config -
     else
         info "AKM secrets not found in SOPS — skipping knowledge/config seed (seed via VPS provisioning)"
+    fi
+
+    # Seed shared/model-router (if keys exist)
+    local mr_token mr_priv
+    mr_token=$(get_secret MODEL_ROUTER_INTERNAL_SERVICE_TOKEN)
+    mr_priv=$(get_secret MODEL_ROUTER_SIGNING_PRIVATE_KEY)
+    if [ -n "$mr_token" ] && [ -n "$mr_priv" ]; then
+        echo "Seeding secret/shared/model-router..."
+        # Use JSON via stdin to handle multiline PEM values safely
+        local mr_json
+        mr_json=$(python3 -c "
+import json
+print(json.dumps({
+    'MODEL_ROUTER_INTERNAL_SERVICE_TOKEN': '''$(printf '%s' "$mr_token")''',
+    'MODEL_ROUTER_SIGNING_PRIVATE_KEY': '''$(printf '%s' "$mr_priv")'''
+}))
+")
+        local token="${BAO_TOKEN:-}"
+        echo "$mr_json" | docker exec -i \
+            -e "BAO_ADDR=http://127.0.0.1:8200" \
+            -e "BAO_TOKEN=${token}" \
+            "$CONTAINER_NAME" bao kv put secret/shared/model-router -
+    else
+        info "MODEL_ROUTER secrets not found in SOPS — skipping shared/model-router seed"
     fi
 
     rm -f "$temp_file"
