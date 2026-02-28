@@ -16,7 +16,11 @@ class AuthError(Exception):
 
 @dataclass
 class AgentClaims:
-    """Validated agent JWT claims — identity only, no model scopes."""
+    """Validated agent JWT claims — identity only, no model scopes.
+
+    For delegation (child) tokens, delegation_id and parent_jti are set.
+    For parent tokens, both are None.
+    """
 
     sub: str
     iss: str
@@ -24,6 +28,12 @@ class AgentClaims:
     exp: int
     iat: int
     jti: str
+    delegation_id: str | None = None
+    parent_jti: str | None = None
+
+    @property
+    def is_delegation(self) -> bool:
+        return self.delegation_id is not None
 
 
 EXPECTED_ISSUER = "hill90-api"
@@ -66,6 +76,14 @@ def verify_model_router_token(
     if revoked_jtis and jti in revoked_jtis:
         raise AuthError("token revoked")
 
+    delegation_id = payload.get("delegation_id")
+    parent_jti = payload.get("parent_jti")
+
+    # If this is a delegation token, check parent JTI is not revoked
+    if delegation_id and parent_jti:
+        if revoked_jtis and parent_jti in revoked_jtis:
+            raise AuthError("parent token revoked")
+
     return AgentClaims(
         sub=payload["sub"],
         iss=payload["iss"],
@@ -73,4 +91,6 @@ def verify_model_router_token(
         exp=payload["exp"],
         iat=payload["iat"],
         jti=jti,
+        delegation_id=delegation_id,
+        parent_jti=parent_jti,
     )

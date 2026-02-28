@@ -8,6 +8,7 @@ from DB, and proxies completions through LiteLLM to provider APIs.
 import hmac
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 import anyio
@@ -20,8 +21,17 @@ from pydantic import BaseModel
 
 from app.auth import AuthError, AgentClaims, verify_model_router_token
 from app.config import Settings, get_settings, load_public_key
+from app.delegation import (
+    compute_effective_policy,
+    create_delegation,
+    list_delegations,
+    lookup_delegation_by_id,
+    revoke_delegation,
+    update_child_jti,
+    validate_narrowing,
+)
 from app.limits import check_rate_limit, check_token_budget
-from app.policy import resolve_agent_policy, resolve_model_policy
+from app.policy import resolve_agent_policy, resolve_alias, resolve_aliases_list, resolve_model_policy
 from app.proxy import StreamOpenResult, proxy_chat_completion, proxy_embeddings, stream_chat_completion
 from app.revocation import RevocationManager, revocation_manager
 from app.usage import log_usage
@@ -93,7 +103,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Hill90 AI Service — Model Router",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -167,15 +177,180 @@ async def readiness_check():
     return {"status": "ready", "service": "ai"}
 
 
+@dataclass
+class PolicyResult:
+    """Result of policy enforcement — resolved model and delegation context."""
+    resolved_model: str
+    delegation_id: str | None = None
+
+
 async def _enforce_policy(
     claims: AgentClaims, requested_model: str, request_type: str
-) -> JSONResponse | None:
-    """Run policy, rate limit, and budget checks. Returns JSONResponse on denial, None on pass."""
+) -> JSONResponse | PolicyResult:
+    """Run policy, rate limit, and budget checks.
+
+    Returns JSONResponse on denial, PolicyResult on success.
+    PolicyResult carries the resolved model name (after alias resolution)
+    and delegation_id for usage logging.
+    """
     # Resolve full policy (models + limits) from DB
     async with get_db_conn() as conn:
         policy = await resolve_agent_policy(conn, agent_id=claims.sub)
 
-    if requested_model not in policy.allowed_models:
+    # Resolve alias before policy check
+    resolved_model = resolve_alias(requested_model, policy)
+
+    delegation_id: str | None = None
+
+    # Delegation path: look up delegation, compute effective policy
+    if claims.is_delegation:
+        async with get_db_conn() as conn:
+            deleg = await lookup_delegation_by_id(conn, delegation_id=claims.delegation_id)
+
+        if deleg is None:
+            raise HTTPException(
+                status_code=401,
+                detail=f"Delegation '{claims.delegation_id}' not found",
+            )
+
+        if deleg.revoked_at is not None:
+            raise HTTPException(status_code=401, detail="Delegation revoked")
+
+        if deleg.expires_at <= int(time.time()):
+            raise HTTPException(status_code=401, detail="Delegation expired")
+
+        effective = compute_effective_policy(policy, deleg)
+        delegation_id = effective.delegation_id
+
+        if resolved_model not in effective.allowed_models:
+            try:
+                async with get_db_conn() as conn:
+                    await log_usage(
+                        conn=conn,
+                        agent_id=claims.sub,
+                        model_name=resolved_model,
+                        request_type=request_type,
+                        status="error",
+                        latency_ms=0,
+                        delegation_id=delegation_id,
+                    )
+            except Exception as e:
+                logger.warning("usage_log_failed", error=str(e))
+            raise HTTPException(
+                status_code=403,
+                detail=f"Model '{requested_model}' not authorized for this delegation",
+            )
+
+        # Delegation-level rate limit
+        if effective.max_requests_per_minute is not None:
+            async with get_db_conn() as conn:
+                rl = await check_rate_limit(
+                    conn, agent_id=claims.sub,
+                    max_rpm=effective.max_requests_per_minute,
+                    delegation_id=delegation_id,
+                )
+            if not rl.allowed:
+                try:
+                    async with get_db_conn() as conn:
+                        await log_usage(
+                            conn=conn, agent_id=claims.sub, model_name=resolved_model,
+                            request_type=request_type, status="rate_limited",
+                            latency_ms=0, delegation_id=delegation_id,
+                        )
+                except Exception as e:
+                    logger.warning("usage_log_failed", error=str(e))
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": {
+                        "type": "rate_limited",
+                        "message": f"Rate limit exceeded for delegation",
+                        "delegation_id": delegation_id,
+                        "limit": rl.limit, "window": "60s", "retry_after": rl.retry_after,
+                    }},
+                    headers={"Retry-After": str(rl.retry_after)},
+                )
+
+        # Delegation-level budget
+        if effective.max_tokens_per_day is not None:
+            async with get_db_conn() as conn:
+                budget = await check_token_budget(
+                    conn, agent_id=claims.sub,
+                    max_tokens=effective.max_tokens_per_day,
+                    delegation_id=delegation_id,
+                )
+            if not budget.allowed:
+                try:
+                    async with get_db_conn() as conn:
+                        await log_usage(
+                            conn=conn, agent_id=claims.sub, model_name=resolved_model,
+                            request_type=request_type, status="budget_exceeded",
+                            latency_ms=0, delegation_id=delegation_id,
+                        )
+                except Exception as e:
+                    logger.warning("usage_log_failed", error=str(e))
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": {
+                        "type": "budget_exceeded",
+                        "message": "Daily token budget exhausted for delegation",
+                        "delegation_id": delegation_id,
+                        "limit": budget.limit, "used": budget.tokens_used,
+                        "resets_at": budget.resets_at,
+                    }},
+                )
+
+        # Parent-level rate limit (includes all delegations)
+        if policy.max_requests_per_minute is not None:
+            async with get_db_conn() as conn:
+                rl = await check_rate_limit(conn, agent_id=claims.sub, max_rpm=policy.max_requests_per_minute)
+            if not rl.allowed:
+                try:
+                    async with get_db_conn() as conn:
+                        await log_usage(
+                            conn=conn, agent_id=claims.sub, model_name=resolved_model,
+                            request_type=request_type, status="rate_limited",
+                            latency_ms=0, delegation_id=delegation_id,
+                        )
+                except Exception as e:
+                    logger.warning("usage_log_failed", error=str(e))
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": {
+                        "type": "rate_limited",
+                        "message": f"Rate limit exceeded for agent '{claims.sub}'",
+                        "limit": rl.limit, "window": "60s", "retry_after": rl.retry_after,
+                    }},
+                    headers={"Retry-After": str(rl.retry_after)},
+                )
+
+        # Parent-level budget (includes all delegations)
+        if policy.max_tokens_per_day is not None:
+            async with get_db_conn() as conn:
+                budget = await check_token_budget(conn, agent_id=claims.sub, max_tokens=policy.max_tokens_per_day)
+            if not budget.allowed:
+                try:
+                    async with get_db_conn() as conn:
+                        await log_usage(
+                            conn=conn, agent_id=claims.sub, model_name=resolved_model,
+                            request_type=request_type, status="budget_exceeded",
+                            latency_ms=0, delegation_id=delegation_id,
+                        )
+                except Exception as e:
+                    logger.warning("usage_log_failed", error=str(e))
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": {
+                        "type": "budget_exceeded",
+                        "message": f"Daily token budget exhausted for agent '{claims.sub}'",
+                        "limit": budget.limit, "used": budget.tokens_used,
+                        "resets_at": budget.resets_at,
+                    }},
+                )
+
+        return PolicyResult(resolved_model=resolved_model, delegation_id=delegation_id)
+
+    # Non-delegation (parent) path
+    if resolved_model not in policy.allowed_models:
         raise HTTPException(
             status_code=403,
             detail=f"Model '{requested_model}' not authorized for agent '{claims.sub}'",
@@ -191,7 +366,7 @@ async def _enforce_policy(
                     await log_usage(
                         conn=conn,
                         agent_id=claims.sub,
-                        model_name=requested_model,
+                        model_name=resolved_model,
                         request_type=request_type,
                         status="rate_limited",
                         latency_ms=0,
@@ -222,7 +397,7 @@ async def _enforce_policy(
                     await log_usage(
                         conn=conn,
                         agent_id=claims.sub,
-                        model_name=requested_model,
+                        model_name=resolved_model,
                         request_type=request_type,
                         status="budget_exceeded",
                         latency_ms=0,
@@ -242,7 +417,7 @@ async def _enforce_policy(
                 },
             )
 
-    return None
+    return PolicyResult(resolved_model=resolved_model)
 
 
 @app.post("/v1/chat/completions")
@@ -252,16 +427,22 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     body = await request.json()
     requested_model = body.get("model", "")
 
-    denial = await _enforce_policy(claims, requested_model, "chat.completion")
-    if denial is not None:
-        return denial
+    result_or_denial = await _enforce_policy(claims, requested_model, "chat.completion")
+    if isinstance(result_or_denial, JSONResponse):
+        return result_or_denial
+    policy_result: PolicyResult = result_or_denial
+
+    # Replace model in request body with resolved name (alias → real)
+    resolved_model = policy_result.resolved_model
+    delegation_id = policy_result.delegation_id
+    body["model"] = resolved_model
 
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
 
     # Streaming path
     if body.get("stream") is True:
-        return await _handle_streaming(settings, body, claims, requested_model)
+        return await _handle_streaming(settings, body, claims, resolved_model, delegation_id)
 
     # Non-streaming path
     start = time.monotonic()
@@ -278,12 +459,13 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
             await log_usage(
                 conn=conn,
                 agent_id=claims.sub,
-                model_name=requested_model,
+                model_name=resolved_model,
                 request_type="chat.completion",
                 status="error",
                 latency_ms=elapsed_ms,
+                delegation_id=delegation_id,
             )
-        logger.error("proxy_error", agent_id=claims.sub, model=requested_model, error=str(e))
+        logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -294,13 +476,14 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
             await log_usage(
                 conn=conn,
                 agent_id=claims.sub,
-                model_name=requested_model,
+                model_name=resolved_model,
                 request_type="chat.completion",
                 status=status,
                 latency_ms=elapsed_ms,
                 input_tokens=result["input_tokens"],
                 output_tokens=result["output_tokens"],
                 cost_usd=result["cost_usd"],
+                delegation_id=delegation_id,
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))
@@ -308,7 +491,7 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     return JSONResponse(content=result["body"], status_code=result["status_code"])
 
 
-async def _handle_streaming(settings, body, claims, requested_model):
+async def _handle_streaming(settings, body, claims, requested_model, delegation_id=None):
     """Handle streaming chat completion with SSE passthrough and usage capture."""
 
     start = time.monotonic()
@@ -331,6 +514,7 @@ async def _handle_streaming(settings, body, claims, requested_model):
                     request_type="chat.completion",
                     status="error",
                     latency_ms=elapsed_ms,
+                    delegation_id=delegation_id,
                 )
         except Exception as log_err:
             logger.warning("usage_log_failed", error=str(log_err))
@@ -349,6 +533,7 @@ async def _handle_streaming(settings, body, claims, requested_model):
                     request_type="chat.completion",
                     status="error",
                     latency_ms=elapsed_ms,
+                    delegation_id=delegation_id,
                 )
         except Exception as log_err:
             logger.warning("usage_log_failed", error=str(log_err))
@@ -390,6 +575,7 @@ async def _handle_streaming(settings, body, claims, requested_model):
                             input_tokens=streaming_result.input_tokens,
                             output_tokens=streaming_result.output_tokens,
                             cost_usd=0.0 if cancelled else streaming_result.cost_usd,
+                            delegation_id=delegation_id,
                         )
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
@@ -408,9 +594,14 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
     body = await request.json()
     requested_model = body.get("model", "")
 
-    denial = await _enforce_policy(claims, requested_model, "embedding")
-    if denial is not None:
-        return denial
+    result_or_denial = await _enforce_policy(claims, requested_model, "embedding")
+    if isinstance(result_or_denial, JSONResponse):
+        return result_or_denial
+    policy_result: PolicyResult = result_or_denial
+
+    resolved_model = policy_result.resolved_model
+    delegation_id = policy_result.delegation_id
+    body["model"] = resolved_model
 
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
@@ -429,12 +620,13 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
             await log_usage(
                 conn=conn,
                 agent_id=claims.sub,
-                model_name=requested_model,
+                model_name=resolved_model,
                 request_type="embedding",
                 status="error",
                 latency_ms=elapsed_ms,
+                delegation_id=delegation_id,
             )
-        logger.error("proxy_error", agent_id=claims.sub, model=requested_model, error=str(e))
+        logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
@@ -445,13 +637,14 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
             await log_usage(
                 conn=conn,
                 agent_id=claims.sub,
-                model_name=requested_model,
+                model_name=resolved_model,
                 request_type="embedding",
                 status=status,
                 latency_ms=elapsed_ms,
                 input_tokens=result["input_tokens"],
                 output_tokens=0,
                 cost_usd=result["cost_usd"],
+                delegation_id=delegation_id,
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))
@@ -473,6 +666,165 @@ async def list_models(claims: AgentClaims = Depends(require_agent_auth)):
         ],
     }
 
+
+# ---- Delegation endpoints ----
+
+class DelegateRequest(BaseModel):
+    child_label: str
+    allowed_models: list[str]
+    max_requests_per_minute: int | None = None
+    max_tokens_per_day: int | None = None
+    expires_at: int | None = None
+
+
+@app.post("/v1/delegate")
+async def create_delegation_endpoint(
+    body: DelegateRequest,
+    claims: AgentClaims = Depends(require_agent_auth),
+):
+    """Create a delegation granting a child a strict subset of the parent's permissions."""
+    # Only parent tokens can create delegations
+    if claims.is_delegation:
+        raise HTTPException(status_code=403, detail="Delegation tokens cannot create sub-delegations")
+
+    settings = get_settings()
+
+    # Resolve parent policy
+    async with get_db_conn() as conn:
+        parent_policy = await resolve_agent_policy(conn, agent_id=claims.sub)
+
+    # Resolve aliases in requested models
+    resolved_models = resolve_aliases_list(body.allowed_models, parent_policy)
+
+    # Validate narrowing
+    violations = validate_narrowing(
+        parent_policy, resolved_models, body.max_requests_per_minute, body.max_tokens_per_day,
+    )
+    if violations:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "type": "delegation_invalid",
+                "message": "Cannot widen parent permissions",
+                "violations": violations,
+            },
+        )
+
+    # Create delegation record
+    async with get_db_conn() as conn:
+        deleg_info = await create_delegation(
+            conn,
+            parent_claims=claims,
+            parent_policy=parent_policy,
+            child_label=body.child_label,
+            allowed_models=body.allowed_models,
+            max_rpm=body.max_requests_per_minute,
+            max_tpd=body.max_tokens_per_day,
+            expires_at=body.expires_at,
+        )
+
+    # Request child JWT from API service
+    if _http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    try:
+        resp = await _http_client.post(
+            f"{settings.api_service_url}/internal/delegation-token",
+            headers={
+                "Authorization": f"Bearer {settings.model_router_internal_service_token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "sub": claims.sub,
+                "delegation_id": deleg_info["id"],
+                "parent_jti": claims.jti,
+                "expires_at": deleg_info["expires_at"],
+            },
+            timeout=10.0,
+        )
+    except Exception as e:
+        # Clean up the pending delegation record
+        try:
+            async with get_db_conn() as conn:
+                await conn.execute(
+                    "DELETE FROM model_delegations WHERE id = $1", deleg_info["id"],
+                )
+        except Exception:
+            pass
+        logger.error("delegation_token_request_failed", error=str(e))
+        raise HTTPException(status_code=502, detail="Failed to sign delegation token")
+
+    if resp.status_code != 200:
+        # Clean up the pending delegation record
+        try:
+            async with get_db_conn() as conn:
+                await conn.execute(
+                    "DELETE FROM model_delegations WHERE id = $1", deleg_info["id"],
+                )
+        except Exception:
+            pass
+        logger.error("delegation_token_sign_failed", status=resp.status_code, body=resp.text)
+        raise HTTPException(status_code=502, detail="Failed to sign delegation token")
+
+    token_result = resp.json()
+
+    # Update child_jti on the delegation record
+    async with get_db_conn() as conn:
+        await update_child_jti(
+            conn, delegation_id=deleg_info["id"], child_jti=token_result["jti"],
+        )
+
+    logger.info(
+        "delegation_created",
+        delegation_id=deleg_info["id"],
+        parent_agent=claims.sub,
+        child_label=body.child_label,
+    )
+
+    return {
+        "token": token_result["token"],
+        "delegation_id": deleg_info["id"],
+        "expires_at": deleg_info["expires_at"],
+    }
+
+
+@app.get("/v1/delegations")
+async def list_delegations_endpoint(claims: AgentClaims = Depends(require_agent_auth)):
+    """List all delegations for the authenticated agent."""
+    async with get_db_conn() as conn:
+        delegations = await list_delegations(conn, agent_id=claims.sub)
+    return {"delegations": delegations}
+
+
+@app.post("/v1/delegate/{delegation_id}/revoke")
+async def revoke_delegation_endpoint(
+    delegation_id: str,
+    claims: AgentClaims = Depends(require_agent_auth),
+):
+    """Revoke a specific delegation. Only the parent agent can revoke."""
+    if claims.is_delegation:
+        raise HTTPException(status_code=403, detail="Delegation tokens cannot revoke delegations")
+
+    async with get_db_conn() as conn:
+        deleg = await revoke_delegation(conn, delegation_id=delegation_id, agent_id=claims.sub)
+
+    if deleg is None:
+        raise HTTPException(status_code=404, detail="Delegation not found or already revoked")
+
+    # Add child JTI to revocation set
+    async with get_db_conn() as conn:
+        await revocation_manager.revoke(
+            conn,
+            jti=deleg.child_jti,
+            agent_id=claims.sub,
+            expires_at=deleg.expires_at,
+        )
+
+    logger.info("delegation_revoked", delegation_id=delegation_id, child_jti=deleg.child_jti)
+    return {"status": "revoked", "delegation_id": delegation_id}
+
+
+# ---- Internal endpoints ----
 
 class RevokeRequest(BaseModel):
     jti: str

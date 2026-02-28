@@ -159,7 +159,7 @@ const EXPECTED_PATHS = [
   '/profile/password',
 ];
 
-const INFRA_PATHS = ['/docs', '/openapi.json'];
+const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token'];
 
 /**
  * Introspect Express app._router.stack to extract all registered route paths.
