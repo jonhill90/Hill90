@@ -19,7 +19,7 @@ services:
   # LiteLLM — stateless proxy for provider API routing
   # On internal network only (needs internet egress for provider APIs)
   litellm:
-    image: ghcr.io/berriai/litellm:main-v1.61.21-stable
+    image: docker.litellm.ai/berriai/litellm:main-v1.81.12-stable
     container_name: litellm
     restart: unless-stopped
     networks:
