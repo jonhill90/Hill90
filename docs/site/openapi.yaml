@@ -55,7 +55,8 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: ID of the model policy controlling LLM access for this agent
+          readOnly: true
+          description: ID of the model policy controlling LLM access for this agent (read-only, assigned server-side)
         error_message:
           type: string
           nullable: true
@@ -296,10 +297,6 @@ paths:
                   type: string
                 rules_md:
                   type: string
-                model_policy_id:
-                  type: string
-                  format: uuid
-                  description: ID of the model policy for LLM access
       responses:
         "201":
           description: Agent created
@@ -372,10 +369,6 @@ paths:
                   type: string
                 rules_md:
                   type: string
-                model_policy_id:
-                  type: string
-                  format: uuid
-                  description: ID of the model policy for LLM access
       responses:
         "200":
           description: Agent updated
