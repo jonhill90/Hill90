@@ -317,7 +317,7 @@
   [ "$(vault_paths_for_service api)" = "secret/shared/database secret/api/config secret/knowledge/config" ]
   [ "$(vault_paths_for_service db)" = "secret/shared/database" ]
   [ "$(vault_paths_for_service auth)" = "secret/shared/database secret/auth/config" ]
-  [ "$(vault_paths_for_service ai)" = "secret/ai/config" ]
+  [ "$(vault_paths_for_service ai)" = "secret/shared/database secret/ai/config secret/shared/model-router" ]
   [ "$(vault_paths_for_service ui)" = "secret/ui/config" ]
   [ "$(vault_paths_for_service minio)" = "secret/minio/config" ]
   [ "$(vault_paths_for_service infra)" = "secret/infra/traefik secret/infra/dns-manager" ]

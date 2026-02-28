@@ -7,6 +7,15 @@ path "secret/metadata/ai/*" {
   capabilities = ["read", "list"]
 }
 
+# Shared database credentials (DB_USER, DB_PASSWORD for policy/usage tables)
+path "secret/data/shared/database" {
+  capabilities = ["read"]
+}
+
+path "secret/metadata/shared/database" {
+  capabilities = ["read"]
+}
+
 # Shared model-router internal service token (for verifying revocation requests from API)
 path "secret/data/shared/model-router" {
   capabilities = ["read"]
