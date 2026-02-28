@@ -376,18 +376,21 @@ async def _handle_streaming(settings, body, claims, requested_model):
             else:
                 status = "success"
             try:
-                async with get_db_conn() as conn:
-                    await log_usage(
-                        conn=conn,
-                        agent_id=claims.sub,
-                        model_name=requested_model,
-                        request_type="chat.completion",
-                        status=status,
-                        latency_ms=elapsed_ms,
-                        input_tokens=streaming_result.input_tokens,
-                        output_tokens=streaming_result.output_tokens,
-                        cost_usd=0.0 if cancelled else streaming_result.cost_usd,
-                    )
+                # Shield from cancellation so the DB write completes even on client disconnect.
+                # Without this, anyio cancels the DB call and usage is never logged.
+                with anyio.CancelScope(shield=True):
+                    async with get_db_conn() as conn:
+                        await log_usage(
+                            conn=conn,
+                            agent_id=claims.sub,
+                            model_name=requested_model,
+                            request_type="chat.completion",
+                            status=status,
+                            latency_ms=elapsed_ms,
+                            input_tokens=streaming_result.input_tokens,
+                            output_tokens=streaming_result.output_tokens,
+                            cost_usd=0.0 if cancelled else streaming_result.cost_usd,
+                        )
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
 
