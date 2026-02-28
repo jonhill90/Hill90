@@ -717,7 +717,7 @@ async def create_delegation_endpoint(
             parent_claims=claims,
             parent_policy=parent_policy,
             child_label=body.child_label,
-            allowed_models=body.allowed_models,
+            allowed_models=resolved_models,
             max_rpm=body.max_requests_per_minute,
             max_tpd=body.max_tokens_per_day,
             expires_at=body.expires_at,
