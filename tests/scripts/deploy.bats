@@ -314,7 +314,7 @@
 
 @test "_common.sh vault_paths_for_service returns correct paths" {
   source scripts/_common.sh
-  [ "$(vault_paths_for_service api)" = "secret/shared/database secret/api/config secret/knowledge/config" ]
+  [ "$(vault_paths_for_service api)" = "secret/shared/database secret/api/config secret/knowledge/config secret/shared/model-router" ]
   [ "$(vault_paths_for_service db)" = "secret/shared/database" ]
   [ "$(vault_paths_for_service auth)" = "secret/shared/database secret/auth/config" ]
   [ "$(vault_paths_for_service ai)" = "secret/shared/database secret/ai/config secret/shared/model-router" ]
