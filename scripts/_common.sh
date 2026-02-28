@@ -154,7 +154,7 @@ vault_paths_for_service() {
     case "$service" in
         db)            echo "secret/shared/database" ;;
         api)           echo "secret/shared/database secret/api/config secret/knowledge/config" ;;
-        ai)            echo "secret/ai/config" ;;
+        ai)            echo "secret/shared/database secret/ai/config secret/shared/model-router" ;;
         auth)          echo "secret/shared/database secret/auth/config" ;;
         ui)            echo "secret/ui/config" ;;
         minio)         echo "secret/minio/config" ;;
