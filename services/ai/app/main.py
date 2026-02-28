@@ -122,8 +122,47 @@ async def require_agent_auth(authorization: str | None = Header(None)) -> AgentC
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint — no auth required."""
+    """Liveness check — process is running."""
     return {"status": "healthy", "service": "ai"}
+
+
+@app.get("/health/ready")
+async def readiness_check():
+    """Readiness check — all dependencies available for authenticated inference."""
+    errors = []
+
+    # Check DB pool
+    if _db_pool is None:
+        errors.append("db_pool_unavailable")
+    else:
+        try:
+            async with _db_pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+        except Exception:
+            errors.append("db_query_failed")
+
+    # Check public key loaded
+    if _public_key is None:
+        errors.append("public_key_not_loaded")
+
+    # Check LiteLLM reachable
+    if _http_client is None:
+        errors.append("http_client_unavailable")
+    else:
+        settings = get_settings()
+        try:
+            resp = await _http_client.get(f"{settings.litellm_url}/health/liveliness", timeout=5.0)
+            if resp.status_code >= 400:
+                errors.append("litellm_unhealthy")
+        except Exception:
+            errors.append("litellm_unreachable")
+
+    if errors:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "service": "ai", "errors": errors},
+        )
+    return {"status": "ready", "service": "ai"}
 
 
 @app.post("/v1/chat/completions")

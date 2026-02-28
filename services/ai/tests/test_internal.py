@@ -25,6 +25,85 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
 
 
+class TestReadinessEndpoint:
+    """Readiness check endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_readiness_returns_503_when_db_unavailable(self):
+        """GET /health/ready returns 503 when DB pool is None."""
+        from app.main import app
+        import app.main as main_module
+
+        original_pool = main_module._db_pool
+        main_module._db_pool = None
+
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/health/ready")
+            assert resp.status_code == 503
+            data = resp.json()
+            assert "db_pool_unavailable" in data["errors"]
+        finally:
+            main_module._db_pool = original_pool
+
+    @pytest.mark.asyncio
+    async def test_readiness_returns_503_when_public_key_missing(self):
+        """GET /health/ready returns 503 when public key is not loaded."""
+        from app.main import app
+        import app.main as main_module
+
+        original_key = main_module._public_key
+        main_module._public_key = None
+
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/health/ready")
+            assert resp.status_code == 503
+            data = resp.json()
+            assert "public_key_not_loaded" in data["errors"]
+        finally:
+            main_module._public_key = original_key
+
+    @pytest.mark.asyncio
+    async def test_readiness_returns_200_when_all_deps_available(self):
+        """GET /health/ready returns 200 when DB, key, and LiteLLM are available."""
+        from app.main import app
+        import app.main as main_module
+
+        mock_pool = MagicMock()
+        mock_conn = AsyncMock()
+        mock_conn.fetchval.return_value = 1
+        mock_pool.acquire.return_value.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        mock_client = AsyncMock()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client.get.return_value = mock_resp
+
+        original_pool = main_module._db_pool
+        original_client = main_module._http_client
+        original_key = main_module._public_key
+        main_module._db_pool = mock_pool
+        main_module._http_client = mock_client
+        main_module._public_key = b"fake-key"
+
+        try:
+            with patch("app.main.get_settings") as mock_settings:
+                mock_settings.return_value.litellm_url = "http://litellm:4000"
+                transport = ASGITransport(app=app)
+                async with AsyncClient(transport=transport, base_url="http://test") as client:
+                    resp = await client.get("/health/ready")
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "ready"
+        finally:
+            main_module._db_pool = original_pool
+            main_module._http_client = original_client
+            main_module._public_key = original_key
+
+
 class TestRevokeEndpoint:
     """Internal token revocation endpoint."""
 

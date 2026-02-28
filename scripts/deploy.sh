@@ -76,7 +76,7 @@ cmd_verify() {
         db)            check_cmd='docker exec postgres pg_isready -U postgres'; diag_container="postgres" ;;
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
         api)           check_cmd='docker exec api node -e "require(\"http\").get(\"http://localhost:3000/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="api" ;;
-        ai)            check_cmd='docker exec ai python -c "import requests; r=requests.get(\"http://localhost:8000/health\"); exit(0 if r.ok else 1)"'; diag_container="ai" ;;
+        ai)            check_cmd='docker exec ai python -c "import urllib.request, sys; r=urllib.request.urlopen(\"http://localhost:8000/health/ready\"); sys.exit(0 if r.status < 400 else 1)"'; diag_container="ai" ;;
         mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"'; diag_container="mcp" ;;
         ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="ui" ;;
         knowledge)     check_cmd='docker exec knowledge python -c "from urllib.request import urlopen; r=urlopen(\"http://localhost:8002/health\"); exit(0 if r.status == 200 else 1)"'; diag_container="knowledge" ;;
