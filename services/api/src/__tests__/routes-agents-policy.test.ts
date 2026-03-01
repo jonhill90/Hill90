@@ -193,3 +193,107 @@ describe('Agent PUT model_policy_id behavior', () => {
     expect(res.body.name).toBe('New Name');
   });
 });
+
+describe('Agent POST model_policy_id behavior', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('POST /agents with model_policy_id assigns policy', async () => {
+    // FK validation returns policy owned by user
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'regular-user' }] });
+    // INSERT
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'uuid-new',
+        agent_id: 'test-agent',
+        name: 'Test',
+        model_policy_id: 'policy-1',
+        created_by: 'regular-user',
+      }],
+    });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test', model_policy_id: 'policy-1' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.model_policy_id).toBe('policy-1');
+  });
+
+  it('POST /agents rejects other user policy for non-admin', async () => {
+    // FK validation returns policy owned by user-b
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-b-policy', created_by: 'user-b' }] });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test', model_policy_id: 'user-b-policy' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("another user's policy");
+  });
+
+  it('POST /agents admin can assign any policy', async () => {
+    // FK validation returns policy owned by someone else
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'any-policy', created_by: 'someone' }] });
+    // INSERT
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'uuid-new',
+        agent_id: 'test-agent',
+        name: 'Test',
+        model_policy_id: 'any-policy',
+        created_by: 'admin-user',
+      }],
+    });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test', model_policy_id: 'any-policy' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.model_policy_id).toBe('any-policy');
+  });
+
+  it('POST /agents rejects invalid model_policy_id FK', async () => {
+    // FK validation returns no rows
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test', model_policy_id: 'nonexistent' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('not found');
+  });
+
+  it('POST /agents without model_policy_id works as before', async () => {
+    // INSERT (no FK check needed)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'uuid-new',
+        agent_id: 'test-agent',
+        name: 'Test',
+        model_policy_id: null,
+        created_by: 'regular-user',
+      }],
+    });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.model_policy_id).toBeNull();
+  });
+});
