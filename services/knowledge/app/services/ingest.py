@@ -37,33 +37,31 @@ async def ingest_source(
 
     Creates source, ingest job, runs chunker, stores document + chunks.
     Returns the source with ingest job summary.
+
+    For web_page sources, the fetch happens after source/job creation so
+    that failures leave a source record in error state (visible in UI)
+    rather than returning a bare 422 with no DB record.
     """
     if source_type not in ("text", "markdown", "web_page"):
         raise IngestError(f"unsupported source_type: {source_type}")
 
-    # Web page: fetch URL, extract text, then treat like text
+    # Pre-validation (before any DB writes)
     if source_type == "web_page":
         if not source_url or not source_url.strip():
             raise IngestError("source_url is required for web_page sources")
-
-        try:
-            result = await fetch_and_extract(source_url)
-        except FetchError as exc:
-            raise IngestError(str(exc))
-
-        raw_content = result["content"]
-        if not title or title.strip() == source_url:
-            title = result.get("title", title)
+        # Placeholder — real content fetched after source/job records exist
+        raw_content = ""
+        content_hash = ""
     else:
         if not raw_content or not raw_content.strip():
             raise IngestError("content is required for text/markdown sources")
 
-    if len(raw_content.encode()) > MAX_SOURCE_SIZE:
-        raise IngestError(
-            f"content exceeds maximum size of {MAX_SOURCE_SIZE // 1024}KB"
-        )
+        if len(raw_content.encode()) > MAX_SOURCE_SIZE:
+            raise IngestError(
+                f"content exceeds maximum size of {MAX_SOURCE_SIZE // 1024}KB"
+            )
 
-    content_hash = hashlib.sha256(raw_content.encode()).hexdigest()
+        content_hash = hashlib.sha256(raw_content.encode()).hexdigest()
 
     # Create source record
     source = await shared_store.create_source(
@@ -83,6 +81,19 @@ async def ingest_source(
     try:
         # Mark job as running
         await shared_store.update_ingest_job(pool, job["id"], status="running")
+
+        # Web page: fetch and extract content now (after source/job exist)
+        if source_type == "web_page":
+            result = await fetch_and_extract(source_url)
+            raw_content = result["content"]
+            if not title or title.strip() == source_url:
+                title = result.get("title", title)
+            content_hash = hashlib.sha256(raw_content.encode()).hexdigest()
+
+            if len(raw_content.encode()) > MAX_SOURCE_SIZE:
+                raise IngestError(
+                    f"extracted content exceeds maximum size of {MAX_SOURCE_SIZE // 1024}KB"
+                )
 
         # Run chunker
         chunks: list[Chunk]

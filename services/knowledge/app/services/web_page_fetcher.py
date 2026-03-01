@@ -173,7 +173,10 @@ async def fetch_and_extract(url: str) -> dict[str, Any]:
     ) as client:
         while True:
             try:
-                response = await client.get(current_url)
+                response = await client.send(
+                    client.build_request("GET", current_url),
+                    stream=True,
+                )
             except httpx.ConnectTimeout:
                 raise FetchError(f"Connection timed out fetching '{hostname}'")
             except httpx.ReadTimeout:
@@ -185,6 +188,7 @@ async def fetch_and_extract(url: str) -> dict[str, Any]:
 
             # Handle redirects manually with re-validation
             if response.is_redirect:
+                await response.aclose()
                 redirects += 1
                 if redirects > MAX_REDIRECTS:
                     raise FetchError(
@@ -207,24 +211,35 @@ async def fetch_and_extract(url: str) -> dict[str, Any]:
                 current_url = location
                 continue
 
-            # Non-redirect response
+            # Non-redirect response — check Content-Length header first
+            content_length = response.headers.get("content-length")
+            if content_length and int(content_length) > MAX_RESPONSE_BYTES:
+                await response.aclose()
+                raise FetchError(
+                    f"Response size {int(content_length)} bytes exceeds limit of {MAX_RESPONSE_BYTES} bytes"
+                )
+
+            # Stream body with incremental size enforcement
+            chunks: list[bytes] = []
+            bytes_read = 0
+            try:
+                async for chunk in response.aiter_bytes(chunk_size=65536):
+                    bytes_read += len(chunk)
+                    if bytes_read > MAX_RESPONSE_BYTES:
+                        raise FetchError(
+                            f"Response body exceeds size limit of {MAX_RESPONSE_BYTES} bytes"
+                        )
+                    chunks.append(chunk)
+            finally:
+                await response.aclose()
+
+            body = b"".join(chunks)
             break
 
-    # Check response size
-    content_length = response.headers.get("content-length")
-    if content_length and int(content_length) > MAX_RESPONSE_BYTES:
-        raise FetchError(
-            f"Response size {int(content_length)} bytes exceeds limit of {MAX_RESPONSE_BYTES} bytes"
-        )
-
-    if len(response.text.encode()) > MAX_RESPONSE_BYTES:
-        raise FetchError(
-            f"Response body exceeds size limit of {MAX_RESPONSE_BYTES} bytes"
-        )
-
     # Extract content with trafilatura
-    html = response.text
     content_type = response.headers.get("content-type", "text/html")
+    encoding = response.charset_encoding or "utf-8"
+    html = body.decode(encoding, errors="replace")
     extracted = trafilatura.extract(html)
 
     if not extracted or not extracted.strip():

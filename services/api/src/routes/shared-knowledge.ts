@@ -165,10 +165,17 @@ router.get('/sources/:id', requireRole('user'), async (req: Request, res: Respon
       return;
     }
 
-    // Verify ownership/visibility via the source's created_by
+    // Verify access via parent collection visibility/ownership
+    const src = result.data as { collection_id: string };
+    const collection = await skProxy.getCollection(src.collection_id);
+    if (collection.status !== 200) {
+      res.status(404).json({ error: 'Source not found' });
+      return;
+    }
+
     const scope = scopeToOwner(req);
-    const src = result.data as { created_by: string };
-    if (scope.where !== '1=1' && src.created_by !== (req as any).user.sub) {
+    const col = collection.data as { created_by: string; visibility: string };
+    if (scope.where !== '1=1' && col.created_by !== (req as any).user.sub && col.visibility !== 'shared') {
       res.status(404).json({ error: 'Source not found' });
       return;
     }

@@ -5,7 +5,7 @@ Tests cover the full Fetch Safety Contract:
 - DNS resolution check against blocked CIDR ranges
 - Redirect re-validation on every hop
 - Error message information leak prevention
-- Response size limits
+- Response size limits (Content-Length header + streaming body enforcement)
 """
 
 from __future__ import annotations
@@ -19,10 +19,62 @@ import pytest
 from app.services.web_page_fetcher import (
     BLOCKED_HOSTNAMES,
     FetchError,
+    MAX_RESPONSE_BYTES,
     _is_blocked_ip,
     _validate_url,
     fetch_and_extract,
 )
+
+
+# ---------------------------------------------------------------------------
+# Helper: build mock streaming client + response
+# ---------------------------------------------------------------------------
+
+
+def _make_streaming_response(
+    *,
+    status_code: int = 200,
+    headers: dict[str, str] | None = None,
+    body: bytes = b"",
+    is_redirect: bool = False,
+    charset_encoding: str | None = "utf-8",
+) -> MagicMock:
+    """Build a mock httpx response compatible with streaming (send + aiter_bytes)."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.is_redirect = is_redirect
+    resp.headers = headers or {}
+    resp.charset_encoding = charset_encoding
+    resp.aclose = AsyncMock()
+
+    # Create an async generator for aiter_bytes
+    _body = body
+
+    async def _aiter_bytes(chunk_size: int = 65536):
+        for i in range(0, len(_body), chunk_size):
+            yield _body[i : i + chunk_size]
+
+    resp.aiter_bytes = _aiter_bytes
+    return resp
+
+
+def _make_mock_client(response: MagicMock | Exception) -> AsyncMock:
+    """Build a mock httpx.AsyncClient with send + build_request."""
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+
+    if isinstance(response, Exception):
+        mock_client.send = AsyncMock(side_effect=response)
+    else:
+        mock_client.send = AsyncMock(return_value=response)
+
+    return mock_client
+
+
+# DNS mock that returns a public IP (passes all checks)
+PUBLIC_DNS = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))]
 
 
 # ---------------------------------------------------------------------------
@@ -202,22 +254,14 @@ class TestRedirectRevalidation:
             patch("app.services.web_page_fetcher.socket.getaddrinfo") as mock_dns,
             patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
         ):
-            # First DNS check passes (public IP)
-            mock_dns.return_value = [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))
-            ]
+            mock_dns.return_value = PUBLIC_DNS
 
-            # First request returns redirect to loopback
-            mock_response = MagicMock()
-            mock_response.status_code = 301
-            mock_response.headers = {"location": "http://127.0.0.1/secret"}
-            mock_response.is_redirect = True
-
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
+            redirect_resp = _make_streaming_response(
+                status_code=301,
+                headers={"location": "http://127.0.0.1/secret"},
+                is_redirect=True,
+            )
+            mock_client_cls.return_value = _make_mock_client(redirect_resp)
 
             with pytest.raises(FetchError, match="blocked|internal"):
                 await fetch_and_extract("https://redirect.example.com/go")
@@ -229,20 +273,14 @@ class TestRedirectRevalidation:
             patch("app.services.web_page_fetcher.socket.getaddrinfo") as mock_dns,
             patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
         ):
-            mock_dns.return_value = [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))
-            ]
+            mock_dns.return_value = PUBLIC_DNS
 
-            mock_response = MagicMock()
-            mock_response.status_code = 302
-            mock_response.headers = {"location": "ftp://files.example.com/data"}
-            mock_response.is_redirect = True
-
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
+            redirect_resp = _make_streaming_response(
+                status_code=302,
+                headers={"location": "ftp://files.example.com/data"},
+                is_redirect=True,
+            )
+            mock_client_cls.return_value = _make_mock_client(redirect_resp)
 
             with pytest.raises(FetchError, match="scheme"):
                 await fetch_and_extract("https://redirect.example.com/go")
@@ -254,21 +292,14 @@ class TestRedirectRevalidation:
             patch("app.services.web_page_fetcher.socket.getaddrinfo") as mock_dns,
             patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
         ):
-            mock_dns.return_value = [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))
-            ]
+            mock_dns.return_value = PUBLIC_DNS
 
-            # Every request returns a redirect
-            mock_response = MagicMock()
-            mock_response.status_code = 302
-            mock_response.headers = {"location": "https://example.com/next"}
-            mock_response.is_redirect = True
-
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
+            redirect_resp = _make_streaming_response(
+                status_code=302,
+                headers={"location": "https://example.com/next"},
+                is_redirect=True,
+            )
+            mock_client_cls.return_value = _make_mock_client(redirect_resp)
 
             with pytest.raises(FetchError, match="redirect"):
                 await fetch_and_extract("https://loop.example.com/start")
@@ -296,37 +327,91 @@ class TestErrorMessageNoIpLeak:
 
 
 # ---------------------------------------------------------------------------
-# Response size limit
+# Response size limit — Content-Length header + streaming enforcement
 # ---------------------------------------------------------------------------
 
 
 class TestResponseSizeLimit:
     @pytest.mark.asyncio
-    async def test_response_size_limit(self) -> None:
-        """Responses exceeding 2MB must be rejected."""
+    async def test_rejects_oversized_content_length_header(self) -> None:
+        """Response with Content-Length > 2MB must be rejected before reading body."""
         with (
             patch("app.services.web_page_fetcher.socket.getaddrinfo") as mock_dns,
             patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
         ):
-            mock_dns.return_value = [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))
-            ]
+            mock_dns.return_value = PUBLIC_DNS
 
-            # Return a response with Content-Length > 2MB
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.is_redirect = False
-            mock_response.headers = {"content-length": str(3 * 1024 * 1024), "content-type": "text/html"}
-            mock_response.text = "<html><body>big</body></html>"
-
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
+            resp = _make_streaming_response(
+                headers={
+                    "content-length": str(3 * 1024 * 1024),
+                    "content-type": "text/html",
+                },
+            )
+            mock_client = _make_mock_client(resp)
             mock_client_cls.return_value = mock_client
 
             with pytest.raises(FetchError, match="size"):
                 await fetch_and_extract("https://big.example.com/huge-page")
+
+            # aclose must be called even on rejection
+            resp.aclose.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_rejects_oversized_body_without_content_length(self) -> None:
+        """Response without Content-Length that exceeds 2MB during streaming must be rejected."""
+        with (
+            patch("app.services.web_page_fetcher.socket.getaddrinfo") as mock_dns,
+            patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_dns.return_value = PUBLIC_DNS
+
+            # No content-length header — server streams without advertising size
+            oversized_body = b"x" * (MAX_RESPONSE_BYTES + 1)
+            resp = _make_streaming_response(
+                headers={"content-type": "text/html"},
+                body=oversized_body,
+            )
+            mock_client_cls.return_value = _make_mock_client(resp)
+
+            with pytest.raises(FetchError, match="size limit"):
+                await fetch_and_extract("https://big.example.com/no-content-length")
+
+            # aclose must be called via finally block
+            resp.aclose.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_aborts_mid_read(self) -> None:
+        """Body exceeding 2MB is rejected during streaming, not after full buffering."""
+        with (
+            patch("app.services.web_page_fetcher.socket.getaddrinfo") as mock_dns,
+            patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_dns.return_value = PUBLIC_DNS
+
+            # Build a response that yields many 64KB chunks exceeding the limit
+            chunk_count = (MAX_RESPONSE_BYTES // 65536) + 2  # enough to exceed limit
+            chunks_yielded: list[int] = []
+
+            async def _tracked_aiter_bytes(chunk_size: int = 65536):
+                for i in range(chunk_count):
+                    chunks_yielded.append(i)
+                    yield b"x" * 65536
+
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.is_redirect = False
+            resp.headers = {"content-type": "text/html"}
+            resp.charset_encoding = "utf-8"
+            resp.aclose = AsyncMock()
+            resp.aiter_bytes = _tracked_aiter_bytes
+
+            mock_client_cls.return_value = _make_mock_client(resp)
+
+            with pytest.raises(FetchError, match="size limit"):
+                await fetch_and_extract("https://big.example.com/streaming")
+
+            # Verify streaming aborted before all chunks were read
+            assert len(chunks_yielded) < chunk_count
 
 
 # ---------------------------------------------------------------------------
@@ -344,21 +429,13 @@ class TestFetchAndExtract:
             patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
             patch("app.services.web_page_fetcher.trafilatura") as mock_traf,
         ):
-            mock_dns.return_value = [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))
-            ]
+            mock_dns.return_value = PUBLIC_DNS
 
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.is_redirect = False
-            mock_response.headers = {"content-length": "200", "content-type": "text/html"}
-            mock_response.text = html
-
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
+            resp = _make_streaming_response(
+                headers={"content-length": "200", "content-type": "text/html"},
+                body=html.encode(),
+            )
+            mock_client_cls.return_value = _make_mock_client(resp)
 
             mock_traf.extract.return_value = "Hello world paragraph."
 
@@ -374,15 +451,11 @@ class TestFetchAndExtract:
             patch("app.services.web_page_fetcher.socket.getaddrinfo") as mock_dns,
             patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
         ):
-            mock_dns.return_value = [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))
-            ]
+            mock_dns.return_value = PUBLIC_DNS
 
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(side_effect=httpx.ConnectTimeout("timed out"))
-            mock_client_cls.return_value = mock_client
+            mock_client_cls.return_value = _make_mock_client(
+                httpx.ConnectTimeout("timed out")
+            )
 
             with pytest.raises(FetchError, match="timed out|timeout"):
                 await fetch_and_extract("https://slow.example.com/page")
@@ -395,21 +468,13 @@ class TestFetchAndExtract:
             patch("app.services.web_page_fetcher.httpx.AsyncClient") as mock_client_cls,
             patch("app.services.web_page_fetcher.trafilatura") as mock_traf,
         ):
-            mock_dns.return_value = [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 443))
-            ]
+            mock_dns.return_value = PUBLIC_DNS
 
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.is_redirect = False
-            mock_response.headers = {"content-length": "200", "content-type": "text/html"}
-            mock_response.text = "<html></html>"
-
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
+            resp = _make_streaming_response(
+                headers={"content-length": "200", "content-type": "text/html"},
+                body=b"<html></html>",
+            )
+            mock_client_cls.return_value = _make_mock_client(resp)
 
             mock_traf.extract.return_value = None
 

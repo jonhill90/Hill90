@@ -127,7 +127,8 @@ class TestIngestWebPage:
                 "created_by": "user-ingest",
             },
         )
-        assert resp.status_code == 422
+        # Fetch failures create source/job in error state (500), not bare 422
+        assert resp.status_code == 500
         assert "timed out" in resp.json()["detail"].lower()
 
     async def test_ingest_web_page_missing_url(self, app_client):
