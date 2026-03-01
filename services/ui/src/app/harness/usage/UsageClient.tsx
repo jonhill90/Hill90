@@ -113,9 +113,9 @@ export default function UsageClient() {
       {/* Summary cards */}
       {summary && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <SummaryCard label="Total Requests" value={summary.total_requests.toLocaleString()} />
-          <SummaryCard label="Total Tokens" value={summary.total_tokens.toLocaleString()} />
-          <SummaryCard label="Estimated Cost" value={`$${summary.total_cost_usd.toFixed(4)}`} />
+          <SummaryCard label="Total Requests" value={Number(summary.total_requests).toLocaleString()} />
+          <SummaryCard label="Total Tokens" value={Number(summary.total_tokens).toLocaleString()} />
+          <SummaryCard label="Estimated Cost" value={`$${Number(summary.total_cost_usd).toFixed(4)}`} />
         </div>
       )}
 
@@ -216,8 +216,8 @@ export default function UsageClient() {
                 return (
                   <tr key={i} className="bg-navy-900 hover:bg-navy-800 transition-colors">
                     <td className="px-4 py-3 text-white">{groupLabel}</td>
-                    <td className="px-4 py-3 text-mountain-300 text-right">{row.total_requests.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-mountain-300 text-right">{row.total_tokens.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-mountain-300 text-right">{Number(row.total_requests).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-mountain-300 text-right">{Number(row.total_tokens).toLocaleString()}</td>
                     <td className="px-4 py-3 text-mountain-300 text-right">${Number(row.total_cost_usd).toFixed(4)}</td>
                   </tr>
                 )
