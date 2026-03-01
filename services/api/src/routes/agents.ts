@@ -318,7 +318,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     let akmExp: number | null = null;
     if (isAkmConfigured()) {
       try {
-        const akmToken = await generateAgentAkmToken(agent.agent_id);
+        const akmToken = await generateAgentAkmToken(agent.agent_id, ['akm:read', 'akm:write'], agent.created_by);
         akmEnv = getAkmEnvVars(akmToken);
         akmJti = akmToken.jti;
         akmExp = akmToken.expiresAt;

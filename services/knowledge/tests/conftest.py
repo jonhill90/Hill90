@@ -35,7 +35,7 @@ def ed25519_keypair() -> tuple[bytes, bytes]:
 
 @pytest.fixture()
 def agent_token(ed25519_keypair: tuple[bytes, bytes]) -> str:
-    """Generate a valid agent JWT for test-agent."""
+    """Generate a valid agent JWT for test-agent with owner claim."""
     private_pem, _ = ed25519_keypair
     now = int(time.time())
     payload = {
@@ -46,6 +46,7 @@ def agent_token(ed25519_keypair: tuple[bytes, bytes]) -> str:
         "iat": now,
         "jti": str(uuid.uuid4()),
         "scopes": ["akm:read", "akm:write"],
+        "owner": "test-user-sub",
     }
     return jwt.encode(payload, private_pem, algorithm="EdDSA")
 
@@ -69,7 +70,7 @@ def shared_write_token(ed25519_keypair: tuple[bytes, bytes]) -> str:
 
 @pytest.fixture()
 def other_agent_token(ed25519_keypair: tuple[bytes, bytes]) -> str:
-    """Generate a valid agent JWT for other-agent (different sub)."""
+    """Generate a valid agent JWT for other-agent (different sub and owner)."""
     private_pem, _ = ed25519_keypair
     now = int(time.time())
     payload = {
@@ -80,6 +81,7 @@ def other_agent_token(ed25519_keypair: tuple[bytes, bytes]) -> str:
         "iat": now,
         "jti": str(uuid.uuid4()),
         "scopes": ["akm:read", "akm:write"],
+        "owner": "other-user-sub",
     }
     return jwt.encode(payload, private_pem, algorithm="EdDSA")
 
@@ -119,6 +121,14 @@ async def db_pool(test_settings: Settings) -> AsyncGenerator[asyncpg.Pool, None]
 
     # Clean up tables after tests
     async with pool.acquire() as conn:
+        # Shared knowledge tables (cascade handles chunks/documents via FK)
+        await conn.execute("DELETE FROM shared_retrievals")
+        await conn.execute("DELETE FROM shared_chunks")
+        await conn.execute("DELETE FROM shared_documents")
+        await conn.execute("DELETE FROM shared_ingest_jobs")
+        await conn.execute("DELETE FROM shared_sources")
+        await conn.execute("DELETE FROM shared_collections")
+        # AKM tables
         await conn.execute("DELETE FROM quarantine_entries")
         await conn.execute("DELETE FROM agent_tokens")
         await conn.execute("DELETE FROM revoked_tokens")
