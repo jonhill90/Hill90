@@ -143,6 +143,7 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
 
   function renderItem(item: NavItem) {
     if (item.type === 'group') {
+      if (item.adminOnly && !isAdmin) return null
       return renderGroup(item)
     }
 
