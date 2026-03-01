@@ -33,6 +33,12 @@ async def search_shared(
     claims = _get_claims(request)
     pool = request.app.state.pool
 
+    if collection_id is not None:
+        try:
+            __import__("uuid").UUID(collection_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail=f"invalid collection_id: {collection_id}")
+
     # Owner from JWT claim (added at signing time)
     owner = claims.owner
     if owner is None:

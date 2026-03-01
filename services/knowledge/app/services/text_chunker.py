@@ -32,8 +32,10 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+", re.MULTILINE)
 
 
 def estimate_tokens(text: str) -> int:
-    """Estimate token count from text length."""
-    return len(text) // _CHARS_PER_TOKEN
+    """Estimate token count from text length. Returns at least 1 for non-empty text."""
+    if not text:
+        return 0
+    return max(1, len(text) // _CHARS_PER_TOKEN)
 
 
 def _split_into_sections(text: str) -> list[str]:

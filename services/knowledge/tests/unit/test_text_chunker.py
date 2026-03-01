@@ -19,6 +19,12 @@ class TestEstimateTokens:
         assert estimate_tokens("abcd") == 1
         assert estimate_tokens("a" * 400) == 100
 
+    def test_short_strings_return_at_least_one(self):
+        # Non-empty strings shorter than 4 chars return 1, not 0
+        assert estimate_tokens("a") == 1
+        assert estimate_tokens("ab") == 1
+        assert estimate_tokens("abc") == 1
+
 
 class TestChunkTextParagraphs:
     def test_single_short_paragraph(self):

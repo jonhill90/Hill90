@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import asyncpg
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
@@ -68,13 +69,11 @@ async def create_collection(
             visibility=body.visibility,
             created_by=body.created_by,
         )
-    except Exception as exc:
-        if "unique" in str(exc).lower():
-            raise HTTPException(
-                status_code=409,
-                detail=f"collection '{body.name}' already exists for this user",
-            )
-        raise
+    except asyncpg.UniqueViolationError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"collection '{body.name}' already exists for this user",
+        )
 
 
 @router.get("/collections")
@@ -185,6 +184,7 @@ async def list_sources(
     collection_id: str = Query(..., description="Collection to list sources from"),
 ) -> list[dict[str, Any]]:
     _verify_service_token(request)
+    _validate_uuid(collection_id, "collection_id")
     pool = request.app.state.pool
     return await shared_store.list_sources(pool, collection_id)
 
@@ -228,6 +228,9 @@ async def search_shared(
 ) -> dict[str, Any]:
     _verify_service_token(request)
     pool = request.app.state.pool
+
+    if collection_id is not None:
+        _validate_uuid(collection_id, "collection_id")
 
     if requester_type not in ("user", "agent"):
         raise HTTPException(status_code=422, detail="requester_type must be 'user' or 'agent'")

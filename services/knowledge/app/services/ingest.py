@@ -115,8 +115,11 @@ async def ingest_source(
             chunk_count=len(chunks),
         )
 
+        # Strip raw_content from response to avoid sending large payloads
+        source_response = {k: v for k, v in source.items() if k != "raw_content"}
+
         return {
-            "source": {**source, "status": "active"},
+            "source": {**source_response, "status": "active"},
             "ingest_job": {
                 "id": job["id"],
                 "status": "completed",
@@ -145,8 +148,10 @@ async def ingest_source(
             pool, source["id"], status="error", error_message=error_msg
         )
 
+        source_err = {k: v for k, v in source.items() if k != "raw_content"}
+
         return {
-            "source": {**source, "status": "error", "error_message": error_msg},
+            "source": {**source_err, "status": "error", "error_message": error_msg},
             "ingest_job": {
                 "id": job["id"],
                 "status": "failed",

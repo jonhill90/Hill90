@@ -8,13 +8,14 @@ INTERNAL_TOKEN = "test-internal-token"
 HEADERS = {"Authorization": f"Bearer {INTERNAL_TOKEN}"}
 
 
-async def _setup_collection_with_sources(app_client, name, owner, visibility="private"):
-    """Helper to create a collection and ingest sources."""
+async def _setup_collection(app_client, name, owner, visibility="private"):
+    """Helper to create a collection. Returns the collection ID."""
     resp = await app_client.post(
         "/internal/admin/shared/collections",
         headers=HEADERS,
         json={"name": name, "created_by": owner, "visibility": visibility},
     )
+    assert resp.status_code == 200, f"collection create failed: {resp.text}"
     cid = resp.json()["id"]
     return cid
 
@@ -37,7 +38,7 @@ async def _ingest_source(app_client, collection_id, title, content, owner):
 
 class TestFtsSearchRanked:
     async def test_fts_search_ranked(self, app_client):
-        cid = await _setup_collection_with_sources(app_client, "Search Ranked Col", "user-search", "shared")
+        cid = await _setup_collection(app_client, "Search Ranked Col", "user-search", "shared")
 
         await _ingest_source(
             app_client, cid, "FastAPI Guide",
@@ -67,7 +68,7 @@ class TestFtsSearchRanked:
 class TestFtsSearchVisibilityScoped:
     async def test_fts_search_visibility_scoped(self, app_client):
         # Private collection owned by user-priv
-        priv_cid = await _setup_collection_with_sources(
+        priv_cid = await _setup_collection(
             app_client, "Private Search Col", "user-priv", "private"
         )
         await _ingest_source(
@@ -97,7 +98,7 @@ class TestFtsSearchVisibilityScoped:
 
 class TestSearchReturnsProvenance:
     async def test_search_returns_provenance(self, app_client):
-        cid = await _setup_collection_with_sources(
+        cid = await _setup_collection(
             app_client, "Provenance Col", "user-prov", "shared"
         )
         await _ingest_source(
