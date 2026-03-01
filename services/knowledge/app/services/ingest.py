@@ -14,6 +14,7 @@ import structlog
 
 from app.services import shared_store
 from app.services.text_chunker import MAX_SOURCE_SIZE, Chunk, chunk_markdown, chunk_text
+from app.services.web_page_fetcher import FetchError, fetch_and_extract
 
 logger = structlog.get_logger()
 
@@ -36,23 +37,31 @@ async def ingest_source(
 
     Creates source, ingest job, runs chunker, stores document + chunks.
     Returns the source with ingest job summary.
-    """
-    # V1: reject web_page
-    if source_type == "web_page":
-        raise IngestError("web_page ingestion not yet supported (Phase 2)")
 
-    if source_type not in ("text", "markdown"):
+    For web_page sources, the fetch happens after source/job creation so
+    that failures leave a source record in error state (visible in UI)
+    rather than returning a bare 422 with no DB record.
+    """
+    if source_type not in ("text", "markdown", "web_page"):
         raise IngestError(f"unsupported source_type: {source_type}")
 
-    if not raw_content or not raw_content.strip():
-        raise IngestError("content is required for text/markdown sources")
+    # Pre-validation (before any DB writes)
+    if source_type == "web_page":
+        if not source_url or not source_url.strip():
+            raise IngestError("source_url is required for web_page sources")
+        # Placeholder — real content fetched after source/job records exist
+        raw_content = ""
+        content_hash = ""
+    else:
+        if not raw_content or not raw_content.strip():
+            raise IngestError("content is required for text/markdown sources")
 
-    if len(raw_content.encode()) > MAX_SOURCE_SIZE:
-        raise IngestError(
-            f"content exceeds maximum size of {MAX_SOURCE_SIZE // 1024}KB"
-        )
+        if len(raw_content.encode()) > MAX_SOURCE_SIZE:
+            raise IngestError(
+                f"content exceeds maximum size of {MAX_SOURCE_SIZE // 1024}KB"
+            )
 
-    content_hash = hashlib.sha256(raw_content.encode()).hexdigest()
+        content_hash = hashlib.sha256(raw_content.encode()).hexdigest()
 
     # Create source record
     source = await shared_store.create_source(
@@ -73,11 +82,24 @@ async def ingest_source(
         # Mark job as running
         await shared_store.update_ingest_job(pool, job["id"], status="running")
 
+        # Web page: fetch and extract content now (after source/job exist)
+        if source_type == "web_page":
+            result = await fetch_and_extract(source_url)
+            raw_content = result["content"]
+            if not title or title.strip() == source_url:
+                title = result.get("title", title)
+            content_hash = hashlib.sha256(raw_content.encode()).hexdigest()
+
+            if len(raw_content.encode()) > MAX_SOURCE_SIZE:
+                raise IngestError(
+                    f"extracted content exceeds maximum size of {MAX_SOURCE_SIZE // 1024}KB"
+                )
+
         # Run chunker
         chunks: list[Chunk]
         if source_type == "markdown":
             chunks = chunk_markdown(raw_content)
-        else:
+        else:  # text and web_page
             chunks = chunk_text(raw_content)
 
         if not chunks:

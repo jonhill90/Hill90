@@ -157,6 +157,36 @@ router.get('/sources', requireRole('user'), async (req: Request, res: Response) 
   }
 });
 
+router.get('/sources/:id', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const result = await skProxy.getSource(req.params.id);
+    if (result.status !== 200) {
+      res.status(result.status).json(result.data);
+      return;
+    }
+
+    // Verify access via parent collection visibility/ownership
+    const src = result.data as { collection_id: string };
+    const collection = await skProxy.getCollection(src.collection_id);
+    if (collection.status !== 200) {
+      res.status(404).json({ error: 'Source not found' });
+      return;
+    }
+
+    const scope = scopeToOwner(req);
+    const col = collection.data as { created_by: string; visibility: string };
+    if (scope.where !== '1=1' && col.created_by !== (req as any).user.sub && col.visibility !== 'shared') {
+      res.status(404).json({ error: 'Source not found' });
+      return;
+    }
+
+    res.json(result.data);
+  } catch (err) {
+    console.error('[shared-knowledge] Get source error:', err);
+    res.status(500).json({ error: 'Failed to get source' });
+  }
+});
+
 router.post('/sources', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
