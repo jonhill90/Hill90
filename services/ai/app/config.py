@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Internal service token for /internal/* endpoints
     model_router_internal_service_token: str = ""
 
+    # AES-256-GCM key for decrypting user provider API keys (BYOK)
+    provider_key_encryption_key: str = ""
+
     # API service URL for delegation token signing (service-to-service)
     api_service_url: str = "http://api:3000"
 

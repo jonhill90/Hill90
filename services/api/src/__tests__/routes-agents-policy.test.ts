@@ -44,6 +44,7 @@ function makeToken(sub: string, roles: string[]) {
 
 const adminToken = makeToken('admin-user', ['admin', 'user']);
 const userToken = makeToken('regular-user', ['user']);
+const userBToken = makeToken('user-b', ['user']);
 
 describe('Agent PUT model_policy_id behavior', () => {
   const agentRow = {
@@ -64,23 +65,58 @@ describe('Agent PUT model_policy_id behavior', () => {
     delete process.env.DATABASE_URL;
   });
 
-  it('rejects model_policy_id from non-admin user', async () => {
-    // ownership check returns the agent
+  it('user assigns own policy to own agent', async () => {
+    // ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // FK validation returns policy with created_by = user
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'regular-user' }] });
+    // UPDATE
+    mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
       .set('Authorization', `Bearer ${userToken}`)
-      .send({ model_policy_id: 'some-policy-id' });
+      .send({ model_policy_id: 'policy-1' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.model_policy_id).toBe('policy-1');
+  });
+
+  it('user assigns platform policy to own agent', async () => {
+    // ownership check returns agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // FK validation returns platform policy (created_by = null)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'platform-policy', created_by: null }] });
+    // UPDATE
+    mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'platform-policy' }] });
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ model_policy_id: 'platform-policy' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('user cannot assign another users policy', async () => {
+    // ownership check returns agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // FK validation returns policy owned by user-b
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-b-policy', created_by: 'user-b' }] });
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ model_policy_id: 'user-b-policy' });
 
     expect(res.status).toBe(403);
-    expect(res.body.error).toContain('model_policy_id');
+    expect(res.body.error).toContain("another user's policy");
   });
 
   it('allows model_policy_id from admin with valid FK', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
-      .mockResolvedValueOnce({ rows: [{ id: 'policy-1' }] }) // FK validation
+      .mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'someone' }] }) // FK validation
       .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] }); // UPDATE
 
     const res = await request(app)

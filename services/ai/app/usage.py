@@ -1,6 +1,6 @@
 """Usage logger for model requests with token counts and cost.
 
-Records agent_id, model, status, latency, token counts, and cost per request.
+Records agent_id, model, status, latency, token counts, cost, and owner per request.
 """
 
 from typing import Any
@@ -18,14 +18,15 @@ async def log_usage(
     output_tokens: int = 0,
     cost_usd: float = 0.0,
     delegation_id: str | None = None,
+    owner: str | None = None,
 ) -> None:
-    """Write a usage record to model_usage including token counts and cost."""
+    """Write a usage record to model_usage including token counts, cost, and owner."""
     await conn.execute(
         """
         INSERT INTO model_usage
             (agent_id, model_name, request_type, status, latency_ms,
-             input_tokens, output_tokens, cost_usd, delegation_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             input_tokens, output_tokens, cost_usd, delegation_id, owner)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """,
         agent_id,
         model_name,
@@ -36,6 +37,7 @@ async def log_usage(
         output_tokens,
         cost_usd,
         delegation_id,
+        owner,
     )
 
 
