@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import ssl
 from typing import Any
 from urllib.parse import urlparse
 
@@ -170,6 +171,7 @@ async def fetch_and_extract(url: str) -> dict[str, Any]:
         timeout=httpx.Timeout(connect=CONNECT_TIMEOUT, read=READ_TIMEOUT, write=READ_TIMEOUT, pool=READ_TIMEOUT),
         follow_redirects=False,
         headers={"User-Agent": USER_AGENT},
+        verify=ssl.create_default_context(),
     ) as client:
         while True:
             try:
