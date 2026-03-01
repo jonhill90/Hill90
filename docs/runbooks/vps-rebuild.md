@@ -162,7 +162,6 @@ make deploy-all
 
 **Application services deployed:**
 - `api.hill90.com` - API Gateway
-- `ai.hill90.com` - LangChain/LangGraph agents
 - `ai.hill90.com/mcp` - MCP Gateway (authenticated)
 - `hill90.com` - Frontend UI
 - `keycloak` - Keycloak identity provider (auth.hill90.com)
@@ -187,7 +186,7 @@ make health
 - ✅ Traefik dashboard accessible (https://traefik.hill90.com via Tailscale)
 - ✅ Portainer accessible (https://portainer.hill90.com via Tailscale)
 - ✅ API service responding (https://api.hill90.com/health)
-- ✅ AI service responding (https://ai.hill90.com/health)
+- ✅ MCP gateway responding (https://ai.hill90.com/mcp)
 - ✅ Keycloak OIDC responding (https://auth.hill90.com/realms/hill90)
 - ✅ DNS resolution correct for all domains
 - ✅ SSL certificates valid
@@ -203,7 +202,7 @@ DNS records are **automatically updated** during Step 2 (config-vps).
 **Automatic updates:**
 - `@` (hill90.com) → A record to new VPS IP
 - `api.hill90.com` → A record to new VPS IP
-- `ai.hill90.com` → A record to new VPS IP
+- `ai.hill90.com` → A record to new VPS IP (serves MCP gateway)
 - `auth.hill90.com` → A record to new VPS IP
 - `portainer.hill90.com` → A record to new Tailscale IP
 - `traefik.hill90.com` → A record to new Tailscale IP
@@ -215,7 +214,7 @@ make dns-verify
 
 # Or manually:
 dig +short api.hill90.com
-dig +short ai.hill90.com
+dig +short ai.hill90.com     # MCP gateway
 dig +short hill90.com
 dig +short portainer.hill90.com  # Tailscale IP
 dig +short traefik.hill90.com    # Tailscale IP
@@ -366,7 +365,7 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 3. **Firewall:** HTTP/HTTPS public, SSH from Tailscale network only (configured via firewalld)
 4. **Secrets:** Encrypted with SOPS + age, decrypted only on VPS during deployment
 5. **SSL/TLS:** Automatic via Traefik + Let's Encrypt
-   - HTTP-01 challenge for public services (api, ai, mcp, ui)
+   - HTTP-01 challenge for public services (api, MCP gateway, ui)
    - DNS-01 challenge for Tailscale-only services (traefik, portainer)
 6. **Traefik authentication:** Password hash auto-generated from encrypted secrets, bcrypt format
 7. **IP whitelisting:** Tailscale services protected by IP whitelist middleware (100.64.0.0/10)

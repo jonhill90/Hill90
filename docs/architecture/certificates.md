@@ -4,7 +4,7 @@
 
 Hill90 uses Let's Encrypt for SSL/TLS certificates with two different challenge methods:
 
-1. **HTTP-01** - For public services (api, ai, mcp)
+1. **HTTP-01** - For public services (api, MCP gateway on ai.hill90.com)
 2. **DNS-01** - For Tailscale-only services (traefik, portainer, storage)
 
 ## Why DNS-01 for Tailscale Services?

@@ -11,7 +11,7 @@ The Hill90 domain (hill90.com) uses DNS records to route traffic to the VPS and 
 **Public Services (accessible via internet):**
 - `hill90.com` (@) → 76.13.26.69 (VPS public IP)
 - `api.hill90.com` → 76.13.26.69 (API service)
-- `ai.hill90.com` → 76.13.26.69 (AI service)
+- `ai.hill90.com` → 76.13.26.69 (MCP gateway; AI service is internal-only)
 - `www.hill90.com` → CNAME to hill90.com
 
 **Tailscale-Only Services (accessible only on Tailscale network):**

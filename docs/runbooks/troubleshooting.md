@@ -86,14 +86,14 @@ Common issues and solutions for Hill90 VPS infrastructure.
 
 ### HTTP-01 Certificate Not Issued (Public Services)
 
-**Problem**: Let's Encrypt certificate not issued for api.hill90.com, ai.hill90.com, etc.
+**Problem**: Let's Encrypt certificate not issued for api.hill90.com, etc.
 
 **Solutions**:
 
 1. **Verify DNS records:**
    ```bash
    dig +short api.hill90.com
-   dig +short ai.hill90.com
+   dig +short ai.hill90.com   # MCP gateway
    # Should return VPS public IP
    ```
 

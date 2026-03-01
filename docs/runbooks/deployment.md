@@ -88,7 +88,7 @@ Optional targeted checks:
 ```bash
 make logs-traefik
 curl -f https://api.hill90.com/health
-curl -f https://ai.hill90.com/health
+curl -f https://ai.hill90.com/mcp   # MCP gateway (AI service is internal-only)
 curl -f https://auth.hill90.com/realms/hill90/.well-known/openid-configuration
 
 # MinIO console (Tailscale-only):
