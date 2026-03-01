@@ -13,25 +13,38 @@ interface Agent {
   cpus: string
   mem_limit: string
   pids_limit: number
+  model_policy_id: string | null
   created_at: string
   updated_at: string
   created_by: string
 }
 
+interface ModelPolicy {
+  id: string
+  name: string
+}
+
 export default function AgentsClient({ session }: { session: Session }) {
   const [agents, setAgents] = useState<Agent[]>([])
+  const [policies, setPolicies] = useState<ModelPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const isAdmin = session.user?.roles?.includes('admin')
 
-  const fetchAgents = useCallback(async () => {
+  const policyName = useCallback((id: string | null) => {
+    if (!id) return null
+    return policies.find((p) => p.id === id)?.name ?? null
+  }, [policies])
+
+  const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/agents')
-      if (res.ok) {
-        const data = await res.json()
-        setAgents(data)
-      }
+      const [agentsRes, policiesRes] = await Promise.all([
+        fetch('/api/agents'),
+        fetch('/api/model-policies'),
+      ])
+      if (agentsRes.ok) setAgents(await agentsRes.json())
+      if (policiesRes.ok) setPolicies(await policiesRes.json())
     } catch (err) {
       console.error('Failed to fetch agents:', err)
     } finally {
@@ -40,8 +53,8 @@ export default function AgentsClient({ session }: { session: Session }) {
   }, [])
 
   useEffect(() => {
-    fetchAgents()
-  }, [fetchAgents])
+    fetchData()
+  }, [fetchData])
 
   const handleAction = async (agentId: string, action: 'start' | 'stop') => {
     setActionLoading(agentId)
@@ -51,7 +64,7 @@ export default function AgentsClient({ session }: { session: Session }) {
         const data = await res.json()
         alert(data.error || `Failed to ${action} agent`)
       }
-      await fetchAgents()
+      await fetchData()
     } catch (err) {
       console.error(`Failed to ${action} agent:`, err)
     } finally {
@@ -96,62 +109,73 @@ export default function AgentsClient({ session }: { session: Session }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {agents.map((agent) => (
-            <div
-              key={agent.id}
-              className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex flex-col"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <Link
-                  href={`/agents/${agent.id}`}
-                  className="font-semibold text-white hover:text-brand-400 transition-colors truncate"
-                >
-                  {agent.name}
-                </Link>
-                <StatusBadge status={agent.status} />
-              </div>
+          {agents.map((agent) => {
+            const policy = policyName(agent.model_policy_id)
+            return (
+              <div
+                key={agent.id}
+                className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex flex-col"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <Link
+                    href={`/agents/${agent.id}`}
+                    className="font-semibold text-white hover:text-brand-400 transition-colors truncate"
+                  >
+                    {agent.name}
+                  </Link>
+                  <StatusBadge status={agent.status} />
+                </div>
 
-              <p className="text-sm text-mountain-400 mb-3 line-clamp-2 flex-1">
-                {agent.description || 'No description'}
-              </p>
+                <p className="text-sm text-mountain-400 mb-3 line-clamp-2 flex-1">
+                  {agent.description || 'No description'}
+                </p>
 
-              <div className="flex items-center gap-3 text-xs text-mountain-500 mb-4">
-                <span>{agent.cpus} CPU</span>
-                <span>{agent.mem_limit} RAM</span>
-                <span>{agent.pids_limit} PIDs</span>
-              </div>
+                <div className="flex items-center gap-3 text-xs text-mountain-500 mb-3">
+                  <span>{agent.cpus} CPU</span>
+                  <span>{agent.mem_limit} RAM</span>
+                  <span>{agent.pids_limit} PIDs</span>
+                </div>
 
-              <div className="flex items-center gap-2">
-                {isAdmin && (
-                  <>
-                    {agent.status === 'stopped' || agent.status === 'error' ? (
-                      <button
-                        onClick={() => handleAction(agent.id, 'start')}
-                        disabled={actionLoading === agent.id}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        {actionLoading === agent.id ? 'Starting...' : 'Start'}
-                      </button>
-                    ) : agent.status === 'running' ? (
-                      <button
-                        onClick={() => handleAction(agent.id, 'stop')}
-                        disabled={actionLoading === agent.id}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        {actionLoading === agent.id ? 'Stopping...' : 'Stop'}
-                      </button>
-                    ) : null}
-                  </>
+                {policy && (
+                  <div className="mb-3">
+                    <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-brand-900/30 text-brand-400 border border-brand-800">
+                      {policy}
+                    </span>
+                  </div>
                 )}
-                <Link
-                  href={`/agents/${agent.id}`}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors"
-                >
-                  Details
-                </Link>
+
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <>
+                      {agent.status === 'stopped' || agent.status === 'error' ? (
+                        <button
+                          onClick={() => handleAction(agent.id, 'start')}
+                          disabled={actionLoading === agent.id}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          {actionLoading === agent.id ? 'Starting...' : 'Start'}
+                        </button>
+                      ) : agent.status === 'running' ? (
+                        <button
+                          onClick={() => handleAction(agent.id, 'stop')}
+                          disabled={actionLoading === agent.id}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          {actionLoading === agent.id ? 'Stopping...' : 'Stop'}
+                        </button>
+                      ) : null}
+                    </>
+                  )}
+                  <Link
+                    href={`/agents/${agent.id}`}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors"
+                  >
+                    Details
+                  </Link>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </>
