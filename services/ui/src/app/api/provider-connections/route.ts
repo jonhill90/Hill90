@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { proxyToApi } from '@/utils/api-proxy'
 
 async function proxyRequest(req: NextRequest) {
-  return proxyToApi(req, '/agents', { label: 'agents-proxy' })
+  return proxyToApi(req, '/provider-connections', { label: 'provider-connections-proxy' })
 }
 
 export const GET = proxyRequest
