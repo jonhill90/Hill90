@@ -47,7 +47,7 @@ export default function UsageClient() {
   const [modelFilter, setModelFilter] = useState('')
 
   const agentName = useCallback((id: string) =>
-    agents.find((a) => a.id === id)?.name ?? id.substring(0, 8),
+    agents.find((a) => a.id === id || a.agent_id === id)?.name ?? id.substring(0, 8),
   [agents])
 
   const buildQuery = useCallback((extra?: Record<string, string>) => {
