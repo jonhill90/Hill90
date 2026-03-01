@@ -320,7 +320,31 @@ describe('Model Policy CRUD routes', () => {
     expect(updateCall[1][6]).toBeNull();  // tpd value = null
   });
 
-  // Aliases
+  // Aliases — admin-only boundary
+  it('POST /model-policies user cannot set model_aliases', async () => {
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        name: 'user-alias-attempt',
+        allowed_models: ['gpt-4o-mini'],
+        model_aliases: { fast: 'gpt-4o-mini' },
+      });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('model_aliases can only be set by admins');
+  });
+
+  it('PUT /model-policies/:id user cannot set model_aliases', async () => {
+    // Ownership check passes
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p3', allowed_models: ['gpt-4o-mini'], created_by: 'regular-user' }] });
+    const res = await request(app)
+      .put('/model-policies/p3')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ model_aliases: { fast: 'gpt-4o-mini' } });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('model_aliases can only be set by admins');
+  });
+
   it('POST /model-policies creates policy with aliases', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'p3', name: 'aliased', allowed_models: ['gpt-4o-mini', 'gpt-4o'], model_aliases: { fast: 'gpt-4o-mini', smart: 'gpt-4o' } }],

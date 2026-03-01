@@ -55,7 +55,7 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: ID of the model policy controlling LLM access for this agent (admin-only to set)
+          description: ID of the model policy controlling LLM access. Users can assign own or platform policies to own agents; admins can assign any.
         error_message:
           type: string
           nullable: true
@@ -395,7 +395,7 @@ paths:
 
     put:
       summary: Update agent
-      description: Updates agent configuration. Agent must be stopped. Setting model_policy_id requires admin role.
+      description: Updates agent configuration. Agent must be stopped. Users can assign own or platform policies to own agents.
       security:
         - bearerAuth: []
       requestBody:
@@ -425,7 +425,7 @@ paths:
                   type: string
                   format: uuid
                   nullable: true
-                  description: Model policy ID (admin-only). Set to null to remove policy.
+                  description: Model policy ID. Users can assign own or platform policies; admins can assign any. Set to null to remove.
       responses:
         "200":
           description: Agent updated
@@ -1237,11 +1237,11 @@ paths:
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role
+          description: Requires user role
 
     post:
       summary: Create model policy
-      description: Creates a new model policy. Admin policies are platform-scoped; user policies are owner-scoped.
+      description: Creates a new model policy. Admin policies are platform-scoped; user policies are owner-scoped. model_aliases can only be set by admins.
       security:
         - bearerAuth: []
       requestBody:
@@ -1268,6 +1268,11 @@ paths:
                 max_tokens_per_day:
                   type: integer
                   nullable: true
+                model_aliases:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Alias map (admin-only). Each key maps to an allowed_models entry.
       responses:
         "201":
           description: Policy created
@@ -1280,7 +1285,7 @@ paths:
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role
+          description: Requires user role
         "409":
           description: Duplicate policy name
 
@@ -1308,13 +1313,13 @@ paths:
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role
+          description: Requires user role
         "404":
           description: Policy not found
 
     put:
       summary: Update model policy
-      description: Updates a model policy. Users can update own policies; admins can update any.
+      description: Updates a model policy. Users can update own policies; admins can update any. model_aliases can only be set by admins.
       security:
         - bearerAuth: []
       requestBody:
@@ -1338,6 +1343,11 @@ paths:
                 max_tokens_per_day:
                   type: integer
                   nullable: true
+                model_aliases:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Alias map (admin-only). Each key maps to an allowed_models entry.
       responses:
         "200":
           description: Policy updated
@@ -1348,7 +1358,7 @@ paths:
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role
+          description: Requires user role (model_aliases requires admin)
         "404":
           description: Policy not found
         "409":
@@ -1372,7 +1382,7 @@ paths:
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role
+          description: Requires user role
         "404":
           description: Policy not found
         "409":
@@ -1441,4 +1451,4 @@ paths:
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role
+          description: Requires user role

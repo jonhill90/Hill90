@@ -134,6 +134,12 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
+    // model_aliases are admin/platform-scoped only (Phase 5 design decision 3H)
+    if (model_aliases !== undefined && !admin) {
+      res.status(403).json({ error: 'model_aliases can only be set by admins' });
+      return;
+    }
+
     // Validate model_aliases: each alias target must be in allowed_models
     const aliases = model_aliases || {};
     if (typeof aliases !== 'object' || Array.isArray(aliases)) {
@@ -212,6 +218,12 @@ router.put('/:id', async (req: Request, res: Response) => {
     const { rows: existing } = await getPool().query(existingQuery, existingParams);
     if (existing.length === 0) {
       res.status(404).json({ error: 'Model policy not found' });
+      return;
+    }
+
+    // model_aliases are admin/platform-scoped only (Phase 5 design decision 3H)
+    if (model_aliases !== undefined && !admin) {
+      res.status(403).json({ error: 'model_aliases can only be set by admins' });
       return;
     }
 

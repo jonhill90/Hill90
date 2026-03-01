@@ -985,39 +985,54 @@ async def validate_provider(body: ValidateProviderRequest, authorization: str = 
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
 
-    # Send a minimal test request through LiteLLM using the provider's wildcard route
-    # Use a tiny max_tokens to minimize cost
-    test_model = f"{body.provider}/gpt-4o-mini" if body.provider == "openai" else f"{body.provider}/claude-sonnet-4-20250514"
-    test_body: dict[str, Any] = {
-        "model": test_model,
-        "messages": [{"role": "user", "content": "hi"}],
-        "max_tokens": 1,
-        "api_key": api_key,
+    # Validate by calling the provider's model-listing endpoint directly.
+    # This proves the key is accepted without assuming access to any specific model.
+    provider_endpoints: dict[str, str] = {
+        "openai": "https://api.openai.com/v1/models",
+        "anthropic": "https://api.anthropic.com/v1/models",
     }
+
+    endpoint = provider_endpoints.get(body.provider)
+    if endpoint is None:
+        # Unknown provider — fall back to LiteLLM key_check endpoint
+        # which validates the key format but may not reach the provider
+        return JSONResponse(
+            status_code=200,
+            content={"valid": False, "error": f"Unsupported provider for validation: {body.provider}"},
+        )
+
+    # Build provider-appropriate auth headers
+    if body.provider == "anthropic":
+        headers: dict[str, str] = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+    else:
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+    # Override base URL if custom api_base is set
     if body.api_base_url:
-        test_body["api_base"] = body.api_base_url
+        endpoint = f"{body.api_base_url.rstrip('/')}/v1/models"
 
     try:
-        resp = await _http_client.post(
-            f"{settings.litellm_url}/v1/chat/completions",
-            json=test_body,
-            headers={
-                "Authorization": f"Bearer {settings.litellm_master_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=30.0,
-        )
+        resp = await _http_client.get(endpoint, headers=headers, timeout=15.0)
     except Exception as e:
-        logger.error("validate_provider_request_failed", error=str(e))
-        raise HTTPException(status_code=502, detail="Failed to reach LiteLLM")
+        logger.error("validate_provider_request_failed", provider=body.provider, error=str(e))
+        return JSONResponse(
+            status_code=200,
+            content={"valid": False, "error": f"Could not reach provider: {str(e)}"},
+        )
 
     if resp.status_code == 200:
         return {"valid": True}
 
-    # Try to extract error message from LiteLLM response
+    # Non-200 means auth failed or provider error
     try:
         error_body = resp.json()
-        error_msg = error_body.get("error", {}).get("message", resp.text[:500])
+        if body.provider == "anthropic":
+            error_msg = error_body.get("error", {}).get("message", resp.text[:500])
+        else:
+            error_msg = error_body.get("error", {}).get("message", resp.text[:500])
     except Exception:
         error_msg = resp.text[:500]
 
