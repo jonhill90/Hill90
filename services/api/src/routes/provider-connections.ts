@@ -204,8 +204,8 @@ router.post('/:id/validate', async (req: Request, res: Response) => {
       `${aiServiceUrl}/internal/validate-provider`,
       {
         provider: row.provider,
-        api_key_encrypted: Buffer.from(row.api_key_encrypted).toString('base64'),
-        api_key_nonce: Buffer.from(row.api_key_nonce).toString('base64'),
+        api_key_encrypted: Buffer.from(row.api_key_encrypted).toString('hex'),
+        api_key_nonce: Buffer.from(row.api_key_nonce).toString('hex'),
         api_base_url: row.api_base_url,
       },
       {
