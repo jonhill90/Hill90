@@ -8,7 +8,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - **Runtime**: Docker Engine + Docker Compose
 - **Edge Proxy**: Traefik with Let's Encrypt TLS
   - **HTTP-01 Challenge**: For public services (api, ai, mcp, keycloak, ui)
-  - **DNS-01 Challenge**: For Tailscale-only services (traefik, portainer, storage)
+  - **DNS-01 Challenge**: For Tailscale-only services (traefik, portainer, storage, grafana, vault, litellm)
 - **Languages**:
   - Python (FastAPI) for AI and MCP services
   - TypeScript (Express/Next.js) for API and UI services
@@ -28,6 +28,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | MinIO | - | https://storage.hill90.com | S3-compatible object storage |
 | Grafana | - | https://grafana.hill90.com | Observability dashboards (metrics, logs, traces) |
 | OpenBao | - | https://vault.hill90.com | Secrets management (vault) |
+| LiteLLM | - | https://litellm.hill90.com | LLM proxy gateway (model routing) |
 | DNS Manager | Python | Internal | DNS-01 challenge webhook for Let's Encrypt |
 | API | TypeScript | https://api.hill90.com | API Gateway |
 | AI | Python | https://ai.hill90.com | LangChain/LangGraph agents |
@@ -36,7 +37,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | UI | TypeScript | https://hill90.com | Frontend |
 | Docs | - | https://docs.hill90.com | Platform documentation (Mintlify) |
 
-**Note:** Traefik, Portainer, MinIO console, Grafana, and OpenBao are accessible only via Tailscale network (100.64.0.0/10).
+**Note:** Traefik, Portainer, MinIO console, Grafana, OpenBao, and LiteLLM are accessible only via Tailscale network (100.64.0.0/10).
 
 ## Prerequisites
 
