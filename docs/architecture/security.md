@@ -33,13 +33,86 @@ Hill90 uses layered controls to keep public services reachable while restricting
 - `SMTP_PASSWORD` is stored in SOPS (`infra/secrets/prod.enc.env`) and injected into the Keycloak realm via the `setup-realm.sh` phase1 REST API call — it is not a Docker environment variable.
 - DNS email authentication: SPF (`v=spf1 include:_spf.hostinger.email ~all`), DKIM (hostingermail CNAME records), and DMARC (`v=DMARC1; p=none`).
 
+## Agent Authentication
+
+The agent harness uses two independent Ed25519 key pairs to authenticate agent containers with internal services. Both private keys are held exclusively by the API service and used to sign JWTs at agent start.
+
+**Model-router key pair** (AI service):
+- Signs JWTs with claims: `sub` (agent_id), `iss`, `aud`, `exp`, `iat`, `jti`
+- Verified by the AI service using the corresponding public key
+- Revoked on agent stop via `POST /internal/revoke` (JTI blacklisted)
+- In-memory revocation cache refreshed every 30 seconds from `model_router_revoked_tokens` table
+
+**AKM key pair** (Knowledge service):
+- Signs JWTs with claims: `sub` (agent_id), `iss`, `aud`, `exp`, `iat`, `jti`, `scopes`
+- Verified by the Knowledge service using the corresponding public key
+- Revoked on agent stop via `POST /internal/revoke` (JTI blacklisted)
+- In-memory revocation cache refreshed every 30 seconds from `revoked_tokens` table
+- Includes single-use refresh secret for token rotation (see below)
+
+**Delegation tokens** (child agents):
+- Signed by the API service via `POST /internal/delegation-token` (called by AI service)
+- Carry `delegation_id` and `parent_jti` claims in addition to standard fields
+- Allowed models must be a subset of the parent agent's effective model set
+- Cascading revocation: revoking a parent JTI invalidates all child delegations
+
+## AKM Token Refresh
+
+Agent JWTs have a 1-hour expiry. The AKM token includes a single-use refresh mechanism:
+
+1. At agent start, the API service generates a UUID `refresh_secret` and injects it into the agent container
+2. The Knowledge service stores the SHA256 hash of the secret in `agent_tokens.token_hash`
+3. Before JWT expiry, the agent calls `POST /internal/agents/refresh-token` with the current JWT and refresh secret
+4. The service verifies the hash, issues a new JWT + new refresh secret, and invalidates the old secret atomically
+5. Only the first caller with a valid secret succeeds — prevents race conditions in concurrent refresh attempts
+6. Revoked JTIs cannot refresh even with a valid secret
+
+## BYOK Trust Boundaries
+
+User-provided API keys (Bring Your Own Key) are encrypted at rest and handled with strict trust boundaries:
+
+- **At rest**: Provider connection API keys are encrypted with AES-256-GCM before storage in `provider_connections.api_key_encrypted` (with per-row nonce in `api_key_nonce`)
+- **Encryption key**: 64-character hex key stored in vault at `secret/shared/model-router`, injected as `PROVIDER_KEY_ENCRYPTION_KEY` to both API and AI services
+- **In transit**: Decrypted keys exist only in AI service memory during request processing
+- **Post-proxy**: After LiteLLM forwards the request to the provider, the AI service scrubs the decrypted key from memory and ensures it does not appear in response bodies
+- **Network boundary**: Decrypted keys never leave the `internal` network — agents on `agent_internal` send model names, not API keys
+- **API responses**: The `api_key_encrypted` and `api_key_nonce` fields are never returned in API responses
+
+## Agentbox Sandboxing
+
+Agent containers run in a sandboxed environment with multiple isolation layers:
+
+- **Non-root user**: `agentuser` (UID 1000) — prevents privilege escalation
+- **Network isolation**: `hill90_agent_internal` network only — agents can reach the AI service and Knowledge service but cannot access the edge network, public internet, or other internal services
+- **Environment stripping**: Agent containers receive only `PATH`, `HOME`, `LANG`, `TERM`, plus explicitly injected service tokens — no inherited secrets from the host
+- **Resource limits**: CPU (NanoCPUs), memory, and PID limits enforced by Docker per agent configuration
+- **Shell policy**: Command allowlist (optional) + deny pattern regex applied before execution; `subprocess.run(shell=False)` prevents shell injection
+- **Filesystem policy**: Allowed path allowlist + denied path denylist with symlink resolution via `os.path.realpath()` — blocks path traversal attacks
+- **Read-only config**: Agent config files mounted at `/etc/agentbox` as read-only
+- **Container labels**: `managed-by=hill90-api` label verified before any container operation — prevents the API from accidentally managing unrelated containers
+- **Docker socket proxy**: API service accesses Docker through a socket proxy that allows only container and volume operations (no image pulls, network changes, or builds)
+
+## Service-to-Service Authentication
+
+Internal service endpoints use bearer tokens (shared secrets) distinct from agent JWTs:
+
+| Token | Env Var | Used By | Authenticates To |
+|-------|---------|---------|-----------------|
+| AKM internal service token | `AKM_INTERNAL_SERVICE_TOKEN` | API service | Knowledge service `/internal/*` endpoints |
+| Model-router internal service token | `MODEL_ROUTER_INTERNAL_SERVICE_TOKEN` | API service, AI service | AI service `/internal/*` endpoints |
+| Delegation token signing | `MODEL_ROUTER_SIGNING_PRIVATE_KEY` | API service | Signs child delegation JWTs (private key never leaves API service) |
+
+Both AKM and model-router signing private keys are held exclusively by the API service. The AI and Knowledge services only hold the corresponding public keys for JWT verification.
+
 ## Network Segmentation
 
 - `hill90_edge`: ingress-facing network for Traefik and public app routes.
-- `hill90_internal`: internal-only network for private service communication.
+- `hill90_internal`: internal-only network for private service communication (API, AI, Knowledge, PostgreSQL, LiteLLM).
+- `hill90_agent_internal`: agent isolation network — agentbox containers reach AI and Knowledge services but not edge or public internet.
 - Keycloak bridges both edge (public OIDC) and internal (database) networks.
 - MinIO connects to both edge (Tailscale console) and internal (S3 API for app containers) networks.
 - Tailscale-only routes are protected with Traefik middleware and IP allowlists.
+- The AI service and Knowledge service both set `traefik.enable=false` — they are not publicly routed.
 
 ## TLS And Certificate Controls
 

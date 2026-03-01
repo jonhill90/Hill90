@@ -39,7 +39,9 @@ All secrets are stored in vault KV v2 under `secret/`.
 | `secret/shared/database` | DB_USER, DB_PASSWORD, DB_NAME | db, auth, api |
 | `secret/shared/jwt` | JWT_SECRET, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY | api, ai, mcp |
 | `secret/api/config` | INTERNAL_SERVICE_SECRET, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | api |
-| `secret/ai/config` | ANTHROPIC_API_KEY, OPENAI_API_KEY | ai |
+| `secret/ai/config` | ANTHROPIC_API_KEY, OPENAI_API_KEY, LITELLM_MASTER_KEY | ai |
+| `secret/shared/model-router` | MODEL_ROUTER_INTERNAL_SERVICE_TOKEN, MODEL_ROUTER_SIGNING_PRIVATE_KEY, PROVIDER_KEY_ENCRYPTION_KEY | api, ai |
+| `secret/knowledge/config` | AKM_INTERNAL_SERVICE_TOKEN, AKM_SIGNING_PRIVATE_KEY, AKM_SIGNING_PUBLIC_KEY | api, knowledge |
 | `secret/auth/config` | KC_ADMIN_USERNAME, KC_ADMIN_PASSWORD, SMTP_PASSWORD | auth (Keycloak) |
 | `secret/ui/config` | AUTH_KEYCLOAK_ID, AUTH_KEYCLOAK_SECRET, AUTH_SECRET | ui |
 | `secret/minio/config` | MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | minio |
@@ -48,6 +50,8 @@ All secrets are stored in vault KV v2 under `secret/`.
 | `secret/observability/grafana` | GRAFANA_ADMIN_PASSWORD | grafana |
 
 Some keys exist in multiple vault paths (e.g., MINIO_ROOT_USER in both `secret/api/config` and `secret/minio/config`). The schema YAML tracks these as `dedup` annotations to prevent false-positive warnings.
+
+**Signing keys**: `MODEL_ROUTER_SIGNING_PRIVATE_KEY` and `AKM_SIGNING_PRIVATE_KEY` are both Ed25519 (EdDSA) keys — separate key pairs, distinct from the RSA keys used by Keycloak for OIDC. Both private keys are held by the API service; the AI and Knowledge services hold only the corresponding public keys. `PROVIDER_KEY_ENCRYPTION_KEY` is a 64-character hex key used for AES-256-GCM encryption of user-provided API keys (BYOK).
 
 ## AppRole Authentication
 

@@ -162,7 +162,7 @@ On first setup, point these domains to your VPS:
 **Public services (VPS public IP):**
 - `@` (hill90.com)
 - `api.hill90.com`
-- `ai.hill90.com`
+- `ai.hill90.com` (MCP gateway)
 - `auth.hill90.com`
 
 **Tailscale-only services (Tailscale IP):**
