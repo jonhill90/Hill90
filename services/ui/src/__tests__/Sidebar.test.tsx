@@ -141,7 +141,9 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    // Harness group should auto-expand when a child is active
+    // Expand the Harness group first
+    fireEvent.click(screen.getByRole('button', { name: /harness/i }))
+
     const connectionsLink = screen.getByRole('link', { name: /connections/i })
     expect(connectionsLink.getAttribute('aria-current')).toBe('page')
   })
