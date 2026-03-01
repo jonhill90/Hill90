@@ -5,9 +5,7 @@ description: Get started with the Hill90 platform.
 
 # Quickstart
 
-<Info>
-  This guide is a work in progress. Full quickstart content will be added in a future update.
-</Info>
+This guide walks through the core Hill90 workflow: creating an agent, configuring model access, and querying agent knowledge and usage.
 
 ## Prerequisites
 
@@ -19,12 +17,11 @@ description: Get started with the Hill90 platform.
 
 The Hill90 UI is available at [hill90.com](https://hill90.com). Sign in with your Keycloak credentials to access the dashboard.
 
-## Making Your First API Call
+## 1. Health Check
 
-Once authenticated, you can interact with the Hill90 API:
+Verify the API is running (no authentication required):
 
 ```bash
-# Health check (no authentication required)
 curl https://api.hill90.com/health
 ```
 
@@ -35,16 +32,176 @@ curl https://api.hill90.com/health
 }
 ```
 
-For authenticated endpoints, include your JWT bearer token:
+## 2. Authenticate
+
+For all remaining calls, include your Keycloak JWT bearer token:
 
 ```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" \
-  https://api.hill90.com/agents
+export TOKEN="YOUR_JWT_TOKEN"
 ```
 
-See the [API Reference](/api-reference/overview) for full endpoint documentation.
+See [Authentication](/getting-started/authentication) for details on obtaining tokens.
+
+## 3. Create an Agent
+
+Define an agent with a unique slug, name, and optional identity documents:
+
+```bash
+curl -X POST https://api.hill90.com/agents \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "my-first-agent",
+    "name": "My First Agent",
+    "description": "A test agent",
+    "soul_md": "You are a helpful research assistant.",
+    "rules_md": "Always cite your sources."
+  }'
+```
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "agent_id": "my-first-agent",
+  "name": "My First Agent",
+  "status": "stopped",
+  ...
+}
+```
+
+## 4. Create a Provider Connection
+
+Register your LLM provider API key. The key is encrypted at rest and never returned in responses:
+
+```bash
+curl -X POST https://api.hill90.com/provider-connections \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My OpenAI Key",
+    "provider": "openai",
+    "api_key": "sk-..."
+  }'
+```
+
+```json
+{
+  "id": "660e8400-e29b-41d4-a716-446655440001",
+  "name": "My OpenAI Key",
+  "provider": "openai",
+  "is_valid": null,
+  ...
+}
+```
+
+## 5. Create a User Model
+
+Define a model that references your provider connection:
+
+```bash
+curl -X POST https://api.hill90.com/user-models \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-gpt4o",
+    "connection_id": "660e8400-e29b-41d4-a716-446655440001",
+    "litellm_model": "openai/gpt-4o"
+  }'
+```
+
+## 6. Create a Model Policy
+
+Define which models the agent can access, with optional rate limits:
+
+```bash
+curl -X POST https://api.hill90.com/model-policies \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "standard-access",
+    "allowed_models": ["my-gpt4o"],
+    "max_requests_per_minute": 10,
+    "max_tokens_per_day": 100000
+  }'
+```
+
+## 7. Assign the Policy to Your Agent
+
+Update the agent to use the model policy:
+
+```bash
+curl -X PUT https://api.hill90.com/agents/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_policy_id": "POLICY_UUID_FROM_STEP_6"
+  }'
+```
+
+## 8. Start the Agent
+
+Start the agent container (requires admin role):
+
+```bash
+curl -X POST https://api.hill90.com/agents/550e8400-e29b-41d4-a716-446655440000/start \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{
+  "status": "running",
+  "container_id": "abc123..."
+}
+```
+
+The agent is now running in a sandboxed container with access to LLM inference (via the model policy) and persistent knowledge storage.
+
+## 9. Browse Agent Knowledge
+
+After the agent runs, browse what it has learned:
+
+```bash
+# List agents with knowledge entries
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.hill90.com/knowledge/agents
+
+# List entries for a specific agent
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.hill90.com/knowledge/entries?agent_id=my-first-agent"
+
+# Search across knowledge
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.hill90.com/knowledge/search?q=research+findings"
+```
+
+## 10. Query Usage
+
+Check how much the agent has consumed:
+
+```bash
+# Summary of today's usage
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.hill90.com/usage
+
+# Usage grouped by model
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.hill90.com/usage?group_by=model"
+```
+
+```json
+{
+  "total_requests": 42,
+  "successful_requests": 40,
+  "total_input_tokens": 15000,
+  "total_output_tokens": 8000,
+  "total_tokens": 23000,
+  "total_cost_usd": 0.035
+}
+```
 
 ## Next Steps
 
 - [Authentication](/getting-started/authentication) — Learn how to obtain and use JWT tokens
 - [API Reference](/api-reference/overview) — Explore all available endpoints
+- [Knowledge API](/api-reference/knowledge) — Browse agent knowledge entries
+- [Architecture](/architecture/overview) — Understand the platform architecture
