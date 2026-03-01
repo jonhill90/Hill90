@@ -14,6 +14,7 @@ import structlog
 
 from app.services import shared_store
 from app.services.text_chunker import MAX_SOURCE_SIZE, Chunk, chunk_markdown, chunk_text
+from app.services.web_page_fetcher import FetchError, fetch_and_extract
 
 logger = structlog.get_logger()
 
@@ -37,15 +38,25 @@ async def ingest_source(
     Creates source, ingest job, runs chunker, stores document + chunks.
     Returns the source with ingest job summary.
     """
-    # V1: reject web_page
-    if source_type == "web_page":
-        raise IngestError("web_page ingestion not yet supported (Phase 2)")
-
-    if source_type not in ("text", "markdown"):
+    if source_type not in ("text", "markdown", "web_page"):
         raise IngestError(f"unsupported source_type: {source_type}")
 
-    if not raw_content or not raw_content.strip():
-        raise IngestError("content is required for text/markdown sources")
+    # Web page: fetch URL, extract text, then treat like text
+    if source_type == "web_page":
+        if not source_url or not source_url.strip():
+            raise IngestError("source_url is required for web_page sources")
+
+        try:
+            result = await fetch_and_extract(source_url)
+        except FetchError as exc:
+            raise IngestError(str(exc))
+
+        raw_content = result["content"]
+        if not title or title.strip() == source_url:
+            title = result.get("title", title)
+    else:
+        if not raw_content or not raw_content.strip():
+            raise IngestError("content is required for text/markdown sources")
 
     if len(raw_content.encode()) > MAX_SOURCE_SIZE:
         raise IngestError(
@@ -77,7 +88,7 @@ async def ingest_source(
         chunks: list[Chunk]
         if source_type == "markdown":
             chunks = chunk_markdown(raw_content)
-        else:
+        else:  # text and web_page
             chunks = chunk_text(raw_content)
 
         if not chunks:

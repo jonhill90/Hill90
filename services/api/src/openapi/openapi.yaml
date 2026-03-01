@@ -1253,6 +1253,18 @@ paths:
         schema:
           type: string
           format: uuid
+    get:
+      summary: Get source by ID
+      description: Returns a single source with its metadata, status, and chunk count.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Source details
+        "401":
+          description: Not authenticated
+        "404":
+          description: Source not found
     delete:
       summary: Delete source
       description: Deletes a source and its documents/chunks (cascade).

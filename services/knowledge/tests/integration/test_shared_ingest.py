@@ -1,5 +1,7 @@
 """Integration tests for shared knowledge ingestion."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 pytestmark = pytest.mark.integration
@@ -79,8 +81,15 @@ class TestIngestJobLifecycle:
         assert data["ingest_job"]["chunk_count"] >= 1
 
 
-class TestIngestRejectsWebPage:
-    async def test_ingest_rejects_web_page(self, app_client):
+class TestIngestWebPage:
+    @patch("app.services.ingest.fetch_and_extract", new_callable=AsyncMock)
+    async def test_ingest_web_page_success(self, mock_fetch, app_client):
+        mock_fetch.return_value = {
+            "url": "https://example.com/article",
+            "title": "Example Article",
+            "content": "This is the extracted article content with enough text to chunk.",
+            "content_type": "text/html",
+        }
         cid = await _create_collection(app_client, "Web Page Col")
         resp = await app_client.post(
             "/internal/admin/shared/sources",
@@ -89,13 +98,52 @@ class TestIngestRejectsWebPage:
                 "collection_id": cid,
                 "title": "Web Page Test",
                 "source_type": "web_page",
-                "source_url": "https://example.com",
-                "raw_content": "",
+                "source_url": "https://example.com/article",
+                "created_by": "user-ingest",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"]["status"] == "active"
+        assert data["source"]["source_url"] == "https://example.com/article"
+        assert data["ingest_job"]["status"] == "completed"
+        assert data["ingest_job"]["chunk_count"] >= 1
+        mock_fetch.assert_called_once_with("https://example.com/article")
+
+    @patch("app.services.ingest.fetch_and_extract", new_callable=AsyncMock)
+    async def test_ingest_web_page_fetch_error(self, mock_fetch, app_client):
+        from app.services.web_page_fetcher import FetchError
+
+        mock_fetch.side_effect = FetchError("Connection timed out fetching 'example.com'")
+        cid = await _create_collection(app_client, "Web Page Error Col")
+        resp = await app_client.post(
+            "/internal/admin/shared/sources",
+            headers=HEADERS,
+            json={
+                "collection_id": cid,
+                "title": "Unreachable Page",
+                "source_type": "web_page",
+                "source_url": "https://example.com/timeout",
                 "created_by": "user-ingest",
             },
         )
         assert resp.status_code == 422
-        assert "not yet supported" in resp.json()["detail"].lower()
+        assert "timed out" in resp.json()["detail"].lower()
+
+    async def test_ingest_web_page_missing_url(self, app_client):
+        cid = await _create_collection(app_client, "Web Page No URL Col")
+        resp = await app_client.post(
+            "/internal/admin/shared/sources",
+            headers=HEADERS,
+            json={
+                "collection_id": cid,
+                "title": "No URL",
+                "source_type": "web_page",
+                "created_by": "user-ingest",
+            },
+        )
+        assert resp.status_code == 422
+        assert "source_url" in resp.json()["detail"].lower()
 
 
 class TestContentHashDedup:

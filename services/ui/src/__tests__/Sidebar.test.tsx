@@ -129,7 +129,8 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /models/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /policies/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /usage/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /knowledge/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^knowledge$/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /shared knowledge/i })).toBeInTheDocument()
   })
 
   it('highlights active harness route', () => {
