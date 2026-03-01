@@ -25,6 +25,9 @@ Hill90 is a Docker-based microservices platform hosted on a single VPS, providin
 ## Key Features
 
 - **AI Agent Management** — Create, configure, start, and stop sandboxed AI agents via REST API.
+- **Bring Your Own Key** — Register your own LLM provider keys. Keys are encrypted at rest and never exposed.
+- **Model Policies & Usage Tracking** — Control which models agents can access with rate limits and token budgets. Track usage and costs.
+- **Agent Knowledge & Memory** — Agents maintain persistent knowledge across sessions. Browse and search what your agents have learned.
 - **Identity & Access Control** — Keycloak OIDC/OAuth2 with JWT-based API authentication.
 - **Automatic HTTPS** — Traefik reverse proxy with Let's Encrypt (HTTP-01 and DNS-01 challenges).
 - **Full Observability** — Prometheus, Grafana, Loki, and Tempo for metrics, logs, and traces.

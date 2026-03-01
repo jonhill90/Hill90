@@ -21,11 +21,13 @@ The platform is organized into four layers:
 
 ### Application Layer
 
-Five application services handle business logic:
+Application services handle business logic:
 
-- **API** — REST API gateway (Express/TypeScript) for agent management and user profiles
-- **AI** — LangChain/LangGraph agents (FastAPI/Python)
+- **API** — REST API gateway (Express/TypeScript) for agent management, model policies, and user profiles
+- **AI (Model-Router)** — Internal policy-gated LLM inference gateway (FastAPI/Python)
+- **Knowledge (AKM)** — Persistent agent memory with full-text search (FastAPI/Python)
 - **MCP** — Model Context Protocol gateway (FastAPI/Python), JWT-authenticated
+- **Agentbox** — Sandboxed agent runtime containers (FastMCP/Python)
 - **Keycloak** — Identity provider (OIDC/OAuth2) at `auth.hill90.com`
 - **UI** — Next.js frontend application
 
@@ -54,10 +56,13 @@ Internet
 Traefik (edge network)
    |
    +-- Public Services (HTTP-01 certs)
-   |     API, AI, MCP, Keycloak, UI
+   |     API, MCP Gateway, Keycloak, UI
    |
    +-- Internal Services
-   |     PostgreSQL, MinIO
+   |     AI (Model-Router), Knowledge (AKM), PostgreSQL, MinIO
+   |
+   +-- Agent Network
+   |     Agentbox → AI Service, Knowledge Service
    |
    +-- Observability
          Prometheus, Loki, Tempo, Grafana
@@ -68,15 +73,16 @@ Traefik (edge network)
 | Network | Purpose | Access |
 |---------|---------|--------|
 | `edge` | Public-facing services | Internet via Traefik |
-| `internal` | Databases, storage, observability | Service-to-service only |
+| `internal` | Service-to-service communication | API, AI, Knowledge, databases |
+| `agent_internal` | Agent container isolation | Agentbox → AI + Knowledge only |
 
-VPN-only services (Traefik dashboard, Grafana, MinIO console) are protected by IP whitelist middleware, accessible only through the VPN network.
+VPN-only services (Traefik dashboard, Grafana, MinIO console) are protected by IP whitelist middleware, accessible only through the VPN network. The AI service and Knowledge service are internal-only — they are not publicly routed through Traefik.
 
 ## Certificate Management
 
 | Challenge Type | Used For | How It Works |
 |----------------|----------|--------------|
-| HTTP-01 | Public services (API, AI, UI, etc.) | Let's Encrypt validates via port 80 |
+| HTTP-01 | Public services (API, MCP Gateway, UI, etc.) | Let's Encrypt validates via port 80 |
 | DNS-01 | VPN-only services (Traefik dashboard, Grafana) | DNS TXT record validation via DNS Manager webhook |
 
 The **DNS Manager** is an internal webhook that translates Traefik ACME requests into DNS API calls for TXT record management.
