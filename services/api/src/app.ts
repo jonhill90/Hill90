@@ -4,6 +4,8 @@ import type { JwtHeader } from 'jsonwebtoken';
 import agentsRouter from './routes/agents';
 import knowledgeRouter from './routes/knowledge';
 import modelPoliciesRouter from './routes/model-policies';
+import providerConnectionsRouter from './routes/provider-connections';
+import userModelsRouter from './routes/user-models';
 import profileRouter from './routes/profile';
 import usageRouter from './routes/usage';
 import { requireRole } from './middleware/role';
@@ -47,7 +49,13 @@ export function createApp(opts: AppOptions = {}): Application {
   // Model policy management routes (admin-only, enforced in router)
   app.use('/model-policies', requireAuth, modelPoliciesRouter);
 
-  // Usage query routes (admin-only, enforced in router)
+  // Provider connections (user-scoped BYOK credentials)
+  app.use('/provider-connections', requireAuth, providerConnectionsRouter);
+
+  // User-defined models (user-scoped BYOK model definitions)
+  app.use('/user-models', requireAuth, userModelsRouter);
+
+  // Usage query routes (enforced in router)
   app.use('/usage', requireAuth, usageRouter);
 
   // Knowledge proxy routes (read-only, owner-scoped)

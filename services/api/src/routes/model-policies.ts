@@ -14,17 +14,38 @@ function dbHealthCheck(_req: Request, res: Response, next: () => void) {
 
 router.use(dbHealthCheck);
 
-// All model-policy endpoints require admin role
-router.use(requireRole('admin'));
+// All model-policy endpoints require at least user role
+router.use(requireRole('user'));
 
-// List all policies
-router.get('/', async (_req: Request, res: Response) => {
+function isAdmin(req: Request): boolean {
+  const user = (req as any).user;
+  const roles: string[] = user?.realm_roles || [];
+  return roles.includes('admin');
+}
+
+// List policies — users see own + platform, admins see all
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const { rows } = await getPool().query(
-      `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
-              created_at, updated_at, updated_by
-       FROM model_policies ORDER BY created_at ASC`
-    );
+    const user = (req as any).user;
+
+    let query: string;
+    let params: any[];
+
+    if (isAdmin(req)) {
+      query = `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
+                      created_by, created_at, updated_at, updated_by
+               FROM model_policies ORDER BY created_at ASC`;
+      params = [];
+    } else {
+      query = `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
+                      created_by, created_at, updated_at, updated_by
+               FROM model_policies
+               WHERE created_by = $1 OR created_by IS NULL
+               ORDER BY created_at ASC`;
+      params = [user.sub];
+    }
+
+    const { rows } = await getPool().query(query, params);
     res.json(rows);
   } catch (err) {
     console.error('[model-policies] List error:', err);
@@ -32,15 +53,27 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-// Get single policy
+// Get single policy — users can see own + platform, admins see all
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { rows } = await getPool().query(
-      `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
-              created_at, updated_at, updated_by
-       FROM model_policies WHERE id = $1`,
-      [req.params.id]
-    );
+    const user = (req as any).user;
+
+    let query: string;
+    let params: any[];
+
+    if (isAdmin(req)) {
+      query = `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
+                      created_by, created_at, updated_at, updated_by
+               FROM model_policies WHERE id = $1`;
+      params = [req.params.id];
+    } else {
+      query = `SELECT id, name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day,
+                      created_by, created_at, updated_at, updated_by
+               FROM model_policies WHERE id = $1 AND (created_by = $2 OR created_by IS NULL)`;
+      params = [req.params.id, user.sub];
+    }
+
+    const { rows } = await getPool().query(query, params);
     if (rows.length === 0) {
       res.status(404).json({ error: 'Model policy not found' });
       return;
@@ -52,10 +85,44 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Validate that each model in allowed_models exists in the user's own
+ * user_models or in the active platform model_catalog.
+ * Admins skip this check (platform policies can reference any model).
+ */
+async function validateAllowedModels(
+  allowedModels: string[],
+  userSub: string,
+  admin: boolean
+): Promise<string | null> {
+  if (admin) return null;
+
+  for (const modelName of allowedModels) {
+    // Check user's own models
+    const { rows: userRows } = await getPool().query(
+      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2`,
+      [modelName, userSub]
+    );
+    if (userRows.length > 0) continue;
+
+    // Check platform model catalog
+    const { rows: platformRows } = await getPool().query(
+      `SELECT name FROM model_catalog WHERE name = $1 AND is_active = true`,
+      [modelName]
+    );
+    if (platformRows.length > 0) continue;
+
+    return `Model '${modelName}' not found`;
+  }
+
+  return null;
+}
+
 // Create policy
 router.post('/', async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
+    const admin = isAdmin(req);
     const { name, description, allowed_models, max_requests_per_minute, max_tokens_per_day, model_aliases } = req.body;
 
     if (!name) {
@@ -64,6 +131,12 @@ router.post('/', async (req: Request, res: Response) => {
     }
     if (!Array.isArray(allowed_models)) {
       res.status(400).json({ error: 'allowed_models must be an array' });
+      return;
+    }
+
+    // model_aliases are admin/platform-scoped only (Phase 5 design decision 3H)
+    if (model_aliases !== undefined && !admin) {
+      res.status(403).json({ error: 'model_aliases can only be set by admins' });
       return;
     }
 
@@ -80,9 +153,20 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
 
+    // Validate allowed_models exist (user-scoped check)
+    const modelError = await validateAllowedModels(allowed_models, user.sub, admin);
+    if (modelError) {
+      res.status(400).json({ error: modelError });
+      return;
+    }
+
+    // User-created policies get created_by = user.sub
+    // Admin platform policies get created_by = NULL
+    const createdBy = admin ? null : user.sub;
+
     const { rows } = await getPool().query(
-      `INSERT INTO model_policies (name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day, updated_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO model_policies (name, description, allowed_models, model_aliases, max_requests_per_minute, max_tokens_per_day, updated_by, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         name,
@@ -92,6 +176,7 @@ router.post('/', async (req: Request, res: Response) => {
         max_requests_per_minute ?? null,
         max_tokens_per_day ?? null,
         user.sub,
+        createdBy,
       ]
     );
 
@@ -106,10 +191,11 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-// Update policy
+// Update policy — users can only update own, admins can update any
 router.put('/:id', async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
+    const admin = isAdmin(req);
     const { name, description, allowed_models, max_requests_per_minute, max_tokens_per_day, model_aliases } = req.body;
 
     if (allowed_models !== undefined && !Array.isArray(allowed_models)) {
@@ -117,12 +203,27 @@ router.put('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const { rows: existing } = await getPool().query(
-      'SELECT id, allowed_models FROM model_policies WHERE id = $1',
-      [req.params.id]
-    );
+    // Ownership check: users can only update their own policies (not platform ones)
+    let existingQuery: string;
+    let existingParams: any[];
+
+    if (admin) {
+      existingQuery = 'SELECT id, allowed_models FROM model_policies WHERE id = $1';
+      existingParams = [req.params.id];
+    } else {
+      existingQuery = 'SELECT id, allowed_models FROM model_policies WHERE id = $1 AND created_by = $2';
+      existingParams = [req.params.id, user.sub];
+    }
+
+    const { rows: existing } = await getPool().query(existingQuery, existingParams);
     if (existing.length === 0) {
       res.status(404).json({ error: 'Model policy not found' });
+      return;
+    }
+
+    // model_aliases are admin/platform-scoped only (Phase 5 design decision 3H)
+    if (model_aliases !== undefined && !admin) {
+      res.status(403).json({ error: 'model_aliases can only be set by admins' });
       return;
     }
 
@@ -139,6 +240,15 @@ router.put('/:id', async (req: Request, res: Response) => {
           res.status(400).json({ error: `Alias '${alias}' target '${target}' is not in allowed_models` });
           return;
         }
+      }
+    }
+
+    // Validate allowed_models if provided (user-scoped check)
+    if (allowed_models !== undefined) {
+      const modelError = await validateAllowedModels(allowed_models, user.sub, admin);
+      if (modelError) {
+        res.status(400).json({ error: modelError });
+        return;
       }
     }
 
@@ -185,9 +295,12 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Delete policy
+// Delete policy — users can only delete own, admins can delete any
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+
     // Check for agents using this policy
     const { rows: agents } = await getPool().query(
       'SELECT id, agent_id FROM agents WHERE model_policy_id = $1 LIMIT 1',
@@ -201,10 +314,19 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    const { rowCount } = await getPool().query(
-      'DELETE FROM model_policies WHERE id = $1',
-      [req.params.id]
-    );
+    let deleteQuery: string;
+    let deleteParams: any[];
+
+    if (admin) {
+      deleteQuery = 'DELETE FROM model_policies WHERE id = $1';
+      deleteParams = [req.params.id];
+    } else {
+      // Users can only delete their own policies (not platform ones)
+      deleteQuery = 'DELETE FROM model_policies WHERE id = $1 AND created_by = $2';
+      deleteParams = [req.params.id, user.sub];
+    }
+
+    const { rowCount } = await getPool().query(deleteQuery, deleteParams);
     if (rowCount === 0) {
       res.status(404).json({ error: 'Model policy not found' });
       return;

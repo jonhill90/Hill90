@@ -71,6 +71,7 @@ services:
       - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/hill90_api
       - PUBLIC_KEY_PATH=/etc/akm/model-router-public.pem
       - MODEL_ROUTER_INTERNAL_SERVICE_TOKEN=${MODEL_ROUTER_INTERNAL_SERVICE_TOKEN}
+      - PROVIDER_KEY_ENCRYPTION_KEY=${PROVIDER_KEY_ENCRYPTION_KEY}
       - API_SERVICE_URL=http://api:3000
       - OTEL_SERVICE_NAME=ai
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318

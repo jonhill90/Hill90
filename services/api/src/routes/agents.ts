@@ -155,24 +155,30 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
 
     const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id } = req.body;
 
-    // model_policy_id requires admin role
+    // model_policy_id assignment: admins can assign any, users can assign own or platform
     if (model_policy_id !== undefined) {
       const user = (req as any).user;
       const roles: string[] = user.realm_roles || [];
-      if (!roles.includes('admin')) {
-        res.status(403).json({ error: 'Setting model_policy_id requires admin role' });
-        return;
-      }
+      const admin = roles.includes('admin');
 
       // Validate FK if non-null
       if (model_policy_id !== null) {
         const { rows: policyRows } = await getPool().query(
-          'SELECT id FROM model_policies WHERE id = $1',
+          'SELECT id, created_by FROM model_policies WHERE id = $1',
           [model_policy_id]
         );
         if (policyRows.length === 0) {
           res.status(400).json({ error: 'Model policy not found' });
           return;
+        }
+
+        // Non-admin users can only assign their own policies or platform policies
+        if (!admin) {
+          const policyOwner = policyRows[0].created_by;
+          if (policyOwner !== null && policyOwner !== user.sub) {
+            res.status(403).json({ error: "Cannot assign another user's policy" });
+            return;
+          }
         }
       }
     }

@@ -13,16 +13,26 @@ function dbHealthCheck(_req: Request, res: Response, next: () => void) {
 }
 
 router.use(dbHealthCheck);
-router.use(requireRole('admin'));
+router.use(requireRole('user'));
 
 // Query usage with optional filtering and aggregation
 router.get('/', async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
+    const roles: string[] = user?.realm_roles || [];
+    const admin = roles.includes('admin');
+
     const { agent_id, model_name, request_type, status, delegation_id, from, to, group_by } = req.query;
 
     const conditions: string[] = [];
     const params: any[] = [];
     let paramIdx = 1;
+
+    // Non-admin users can only see their own usage (via durable owner column)
+    if (!admin) {
+      conditions.push(`owner = $${paramIdx++}`);
+      params.push(user.sub);
+    }
 
     if (agent_id) {
       conditions.push(`agent_id = $${paramIdx++}`);

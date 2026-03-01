@@ -261,9 +261,9 @@ class TestUsageLogging:
         assert "output_tokens" in sql
         assert "cost_usd" in sql
         # Params: agent_id, model_name, request_type, status, latency_ms,
-        #         input_tokens, output_tokens, cost_usd, delegation_id
+        #         input_tokens, output_tokens, cost_usd, delegation_id, owner
         params = call_args[0][1:]
-        assert len(params) == 9
+        assert len(params) == 10
 
     @pytest.mark.asyncio
     async def test_logs_usage_defaults_to_zero(self, mock_db_pool):
