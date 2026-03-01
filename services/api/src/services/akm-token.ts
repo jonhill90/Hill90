@@ -40,6 +40,7 @@ export interface AkmTokenResult {
 export async function generateAgentAkmToken(
   agentId: string,
   scopes: string[] = ['akm:read', 'akm:write'],
+  owner?: string,
 ): Promise<AkmTokenResult> {
   const privateKey = getPrivateKey();
   const jti = crypto.randomUUID();
@@ -56,6 +57,7 @@ export async function generateAgentAkmToken(
     iat: now,
     jti,
     scopes,
+    ...(owner ? { owner } : {}),
   }));
 
   const signingInput = `${header}.${payload}`;
