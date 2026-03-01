@@ -112,6 +112,42 @@ describe('Sidebar', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith('sidebar-collapsed', 'true')
   })
 
+  it('renders Harness nav group', () => {
+    mockSession = {
+      data: { user: { roles: ['user'] } },
+      status: 'authenticated',
+    }
+
+    render(<Sidebar />)
+
+    const harnessButton = screen.getByRole('button', { name: /harness/i })
+    expect(harnessButton).toBeInTheDocument()
+
+    fireEvent.click(harnessButton)
+
+    expect(screen.getByRole('link', { name: /connections/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /models/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /policies/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /usage/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /knowledge/i })).toBeInTheDocument()
+  })
+
+  it('highlights active harness route', () => {
+    mockPathname = '/harness/connections'
+    mockSession = {
+      data: { user: { roles: ['user'] } },
+      status: 'authenticated',
+    }
+
+    render(<Sidebar />)
+
+    // Expand the Harness group first
+    fireEvent.click(screen.getByRole('button', { name: /harness/i }))
+
+    const connectionsLink = screen.getByRole('link', { name: /connections/i })
+    expect(connectionsLink.getAttribute('aria-current')).toBe('page')
+  })
+
   it('hides labels when collapsed', () => {
     localStorageMock.getItem.mockReturnValue('true')
     mockSession = {
