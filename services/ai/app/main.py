@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from app.auth import AuthError, AgentClaims, verify_model_router_token
 from app.config import Settings, get_settings, load_public_key
+from app.crypto import decrypt_provider_key
 from app.delegation import (
     compute_effective_policy,
     create_delegation,
@@ -31,6 +32,7 @@ from app.delegation import (
     validate_narrowing,
 )
 from app.limits import check_rate_limit, check_token_budget
+from app.models import get_agent_owner, is_platform_model, resolve_user_model, UserModelInfo
 from app.policy import resolve_agent_policy, resolve_alias, resolve_aliases_list, resolve_model_policy
 from app.proxy import StreamOpenResult, proxy_chat_completion, proxy_embeddings, stream_chat_completion
 from app.revocation import RevocationManager, revocation_manager
@@ -182,6 +184,9 @@ class PolicyResult:
     """Result of policy enforcement — resolved model and delegation context."""
     resolved_model: str
     delegation_id: str | None = None
+    # BYOK fields — populated when model resolves to a user-owned model
+    user_model: UserModelInfo | None = None
+    owner: str | None = None
 
 
 async def _enforce_policy(
@@ -420,6 +425,70 @@ async def _enforce_policy(
     return PolicyResult(resolved_model=resolved_model)
 
 
+async def _resolve_byok(
+    policy_result: PolicyResult, claims: AgentClaims, body: dict[str, Any]
+) -> PolicyResult:
+    """Resolve BYOK model if applicable, mutating the request body for key injection.
+
+    After alias resolution and policy check, determine if the resolved model is:
+    1. A user-owned model (BYOK) — decrypt key, inject into body, swap model name
+    2. A platform model — no changes
+    3. Neither — raise 403
+
+    Mutates `body` in place (sets model name, api_key, api_base).
+    Returns the enriched PolicyResult with owner and user_model fields.
+    """
+    resolved_model = policy_result.resolved_model
+
+    # Look up agent owner (cached)
+    async with get_db_conn() as conn:
+        owner = await get_agent_owner(conn, claims.sub)
+
+    if owner is None:
+        # Agent not in DB — shouldn't happen if JWT is valid, but be safe
+        raise HTTPException(status_code=403, detail=f"Agent '{claims.sub}' not found")
+
+    policy_result.owner = owner
+
+    # Try user model first (BYOK path)
+    async with get_db_conn() as conn:
+        user_model = await resolve_user_model(conn, resolved_model, owner)
+
+    if user_model is not None:
+        # BYOK: decrypt key and inject into request body
+        settings = get_settings()
+        try:
+            api_key = decrypt_provider_key(
+                user_model.api_key_encrypted,
+                user_model.api_key_nonce,
+                settings.provider_key_encryption_key,
+            )
+        except Exception as e:
+            logger.error("provider_key_decrypt_failed", agent_id=claims.sub, model=resolved_model, error=str(e))
+            raise HTTPException(status_code=500, detail="Failed to decrypt provider key")
+
+        # Swap model name to provider-prefixed form for LiteLLM wildcard matching
+        body["model"] = user_model.litellm_model
+        body["api_key"] = api_key
+        if user_model.api_base_url:
+            body["api_base"] = user_model.api_base_url
+
+        policy_result.user_model = user_model
+        return policy_result
+
+    # Try platform model catalog
+    async with get_db_conn() as conn:
+        if await is_platform_model(conn, resolved_model):
+            # Platform model — no key injection, existing LiteLLM config handles it
+            return policy_result
+
+    # Neither user model nor platform model
+    raise HTTPException(
+        status_code=403,
+        detail=f"Model '{resolved_model}' not found in user models or platform catalog",
+    )
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request, claims: AgentClaims = Depends(require_agent_auth)):
     """Proxy chat completion to LiteLLM after policy, rate limit, and budget checks."""
@@ -437,14 +506,18 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     delegation_id = policy_result.delegation_id
     body["model"] = resolved_model
 
+    # BYOK model resolution — may inject api_key/api_base into body
+    policy_result = await _resolve_byok(policy_result, claims, body)
+
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
 
     # Streaming path
     if body.get("stream") is True:
-        return await _handle_streaming(settings, body, claims, resolved_model, delegation_id)
+        return await _handle_streaming(settings, body, claims, resolved_model, delegation_id, policy_result.owner)
 
     # Non-streaming path
+    owner = policy_result.owner
     start = time.monotonic()
     try:
         result = await proxy_chat_completion(
@@ -464,9 +537,14 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
                 status="error",
                 latency_ms=elapsed_ms,
                 delegation_id=delegation_id,
+                owner=owner,
             )
         logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
+    finally:
+        # Scrub BYOK key from request body — prevents key persistence in dict reference
+        body.pop("api_key", None)
+        body.pop("api_base", None)
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     status = "success" if result["status_code"] == 200 else "error"
@@ -484,6 +562,7 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
                 output_tokens=result["output_tokens"],
                 cost_usd=result["cost_usd"],
                 delegation_id=delegation_id,
+                owner=owner,
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))
@@ -491,7 +570,7 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     return JSONResponse(content=result["body"], status_code=result["status_code"])
 
 
-async def _handle_streaming(settings, body, claims, requested_model, delegation_id=None):
+async def _handle_streaming(settings, body, claims, requested_model, delegation_id=None, owner=None):
     """Handle streaming chat completion with SSE passthrough and usage capture."""
 
     start = time.monotonic()
@@ -515,11 +594,16 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                     status="error",
                     latency_ms=elapsed_ms,
                     delegation_id=delegation_id,
+                    owner=owner,
                 )
         except Exception as log_err:
             logger.warning("usage_log_failed", error=str(log_err))
         logger.error("stream_open_error", agent_id=claims.sub, model=requested_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
+    finally:
+        # Scrub BYOK key from request body
+        body.pop("api_key", None)
+        body.pop("api_base", None)
 
     # Non-2xx from LiteLLM before stream started — return upstream error body
     if open_result.error_body is not None:
@@ -534,6 +618,7 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                     status="error",
                     latency_ms=elapsed_ms,
                     delegation_id=delegation_id,
+                    owner=owner,
                 )
         except Exception as log_err:
             logger.warning("usage_log_failed", error=str(log_err))
@@ -576,6 +661,7 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                             output_tokens=streaming_result.output_tokens,
                             cost_usd=0.0 if cancelled else streaming_result.cost_usd,
                             delegation_id=delegation_id,
+                            owner=owner,
                         )
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
@@ -603,6 +689,10 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
     delegation_id = policy_result.delegation_id
     body["model"] = resolved_model
 
+    # BYOK model resolution
+    policy_result = await _resolve_byok(policy_result, claims, body)
+    owner = policy_result.owner
+
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
 
@@ -625,9 +715,13 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
                 status="error",
                 latency_ms=elapsed_ms,
                 delegation_id=delegation_id,
+                owner=owner,
             )
         logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
+    finally:
+        body.pop("api_key", None)
+        body.pop("api_base", None)
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
     status = "success" if result["status_code"] == 200 else "error"
@@ -645,6 +739,7 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
                 output_tokens=0,
                 cost_usd=result["cost_usd"],
                 delegation_id=delegation_id,
+                owner=owner,
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))
@@ -851,3 +946,82 @@ async def revoke_token(body: RevokeRequest, authorization: str = Header(...)):
 
     logger.info("token_revoked", jti=body.jti, agent_id=body.agent_id)
     return {"status": "revoked", "jti": body.jti}
+
+
+class ValidateProviderRequest(BaseModel):
+    provider: str
+    api_key_encrypted: str  # hex-encoded
+    api_key_nonce: str  # hex-encoded
+    api_base_url: str | None = None
+
+
+@app.post("/internal/validate-provider")
+async def validate_provider(body: ValidateProviderRequest, authorization: str = Header(...)):
+    """Validate a provider connection by sending a test request through LiteLLM.
+
+    Authenticated via internal service token (same as /internal/revoke).
+    Decrypts the provider key and sends a minimal request to verify the key works.
+    """
+    settings = get_settings()
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=403, detail="Missing Bearer token")
+
+    token = authorization[7:]
+    if not hmac.compare_digest(token, settings.model_router_internal_service_token):
+        raise HTTPException(status_code=403, detail="Invalid service token")
+
+    # Decrypt the provider key
+    try:
+        api_key = decrypt_provider_key(
+            bytes.fromhex(body.api_key_encrypted),
+            bytes.fromhex(body.api_key_nonce),
+            settings.provider_key_encryption_key,
+        )
+    except Exception as e:
+        logger.error("validate_provider_decrypt_failed", error=str(e))
+        raise HTTPException(status_code=400, detail="Failed to decrypt provider key")
+
+    if _http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    # Send a minimal test request through LiteLLM using the provider's wildcard route
+    # Use a tiny max_tokens to minimize cost
+    test_model = f"{body.provider}/gpt-4o-mini" if body.provider == "openai" else f"{body.provider}/claude-sonnet-4-20250514"
+    test_body: dict[str, Any] = {
+        "model": test_model,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "api_key": api_key,
+    }
+    if body.api_base_url:
+        test_body["api_base"] = body.api_base_url
+
+    try:
+        resp = await _http_client.post(
+            f"{settings.litellm_url}/v1/chat/completions",
+            json=test_body,
+            headers={
+                "Authorization": f"Bearer {settings.litellm_master_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+    except Exception as e:
+        logger.error("validate_provider_request_failed", error=str(e))
+        raise HTTPException(status_code=502, detail="Failed to reach LiteLLM")
+
+    if resp.status_code == 200:
+        return {"valid": True}
+
+    # Try to extract error message from LiteLLM response
+    try:
+        error_body = resp.json()
+        error_msg = error_body.get("error", {}).get("message", resp.text[:500])
+    except Exception:
+        error_msg = resp.text[:500]
+
+    return JSONResponse(
+        status_code=200,
+        content={"valid": False, "error": error_msg},
+    )
