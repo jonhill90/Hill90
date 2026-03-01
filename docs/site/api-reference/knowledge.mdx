@@ -5,13 +5,25 @@ description: Read-only access to agent knowledge entries, search, and stats.
 
 # Knowledge API
 
-The Knowledge API provides read-only access to agent knowledge. Agents write knowledge via the `akm` CLI; the Knowledge API lets humans browse what agents know.
+The Knowledge API provides read-only access to agent knowledge. Agents maintain persistent memory across sessions — they write plans, decisions, journals, research notes, and other entries that survive container restarts. The Knowledge API lets you browse and search what your agents have learned.
+
+## Entry Types
+
+Agents organize knowledge into typed entries:
+
+| Type | Purpose |
+|------|---------|
+| `plan` | Action plans and implementation strategies |
+| `decision` | Recorded decisions with rationale |
+| `journal` | Append-only daily activity logs |
+| `research` | Research findings and references |
+| `note` | General-purpose notes |
 
 ## Access Model
 
 - **Users** see knowledge from agents they own.
 - **Admins** see knowledge from all agents.
-- **Read-only** — only agents write knowledge through the AKM service.
+- **Read-only** — only agents write knowledge through internal services.
 
 ## Endpoints
 

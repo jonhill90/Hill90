@@ -5,7 +5,7 @@ description: Hill90 REST API endpoint documentation.
 
 # API Reference
 
-The Hill90 API provides endpoints for agent management, agent knowledge, user profiles, and platform health checks.
+The Hill90 API provides endpoints for agent management, model access configuration, agent knowledge, user profiles, and platform health checks.
 
 ## Base URL
 
@@ -59,6 +59,8 @@ See [Authentication](/getting-started/authentication) for details on obtaining t
 
 ### Knowledge
 
+Browse and search agent knowledge entries. Agents write knowledge; humans browse it here.
+
 | Endpoint | Auth | Description |
 |----------|------|-------------|
 | `GET /knowledge/agents` | Bearer | List agents with knowledge stats |
@@ -67,6 +69,49 @@ See [Authentication](/getting-started/authentication) for details on obtaining t
 | `GET /knowledge/search` | Bearer | Full-text search across entries |
 
 See [Knowledge API](/api-reference/knowledge) for details on access scoping.
+
+### Provider Connections
+
+Manage your own API key connections to LLM providers. Keys are encrypted at rest and never returned in responses.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /provider-connections` | Bearer | List your provider connections |
+| `POST /provider-connections` | Bearer | Create a provider connection |
+| `PUT /provider-connections/{id}` | Bearer | Update a provider connection |
+| `DELETE /provider-connections/{id}` | Bearer | Delete a provider connection |
+| `POST /provider-connections/{id}/validate` | Bearer | Test if a provider key is valid |
+
+### User Models
+
+Define models that reference your provider connections. Model names must not conflict with platform models.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /user-models` | Bearer | List your models |
+| `POST /user-models` | Bearer | Create a user model |
+| `PUT /user-models/{id}` | Bearer | Update a user model |
+| `DELETE /user-models/{id}` | Bearer | Delete a user model |
+
+### Model Policies
+
+Control which models an agent can access, with optional rate limits and token budgets. Users can create and manage their own policies; admins can also create platform-wide policies.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /model-policies` | Bearer | List policies (own + platform) |
+| `POST /model-policies` | Bearer | Create a model policy |
+| `GET /model-policies/{id}` | Bearer | Get policy detail |
+| `PUT /model-policies/{id}` | Bearer | Update a policy |
+| `DELETE /model-policies/{id}` | Bearer | Delete a policy |
+
+### Usage
+
+Query model usage statistics with filtering and grouping options. Users see their own usage; admins see all.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /usage` | Bearer | Query usage (filter by agent, model, date; group by agent, model, day) |
 
 ## Auto-Generated Documentation
 

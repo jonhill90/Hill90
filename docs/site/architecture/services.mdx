@@ -11,27 +11,47 @@ Hill90 is composed of application services, infrastructure services, and an obse
 
 | Service | Language | URL | Description |
 |---------|----------|-----|-------------|
-| **API** | TypeScript (Express) | `api.hill90.com` | REST API gateway — agent CRUD, user profiles, avatar management |
-| **AI** | Python (FastAPI) | `ai.hill90.com` | LangChain/LangGraph AI agents and operations |
+| **API** | TypeScript (Express) | `api.hill90.com` | REST API gateway — agent CRUD, model management, user profiles |
+| **AI (Model-Router)** | Python (FastAPI) | Internal only | Policy-gated LLM inference gateway for agents |
+| **Knowledge (AKM)** | Python (FastAPI) | Internal only | Persistent agent memory with full-text search |
 | **MCP** | Python (FastAPI) | `ai.hill90.com/mcp` | Model Context Protocol gateway (JWT-authenticated) |
+| **Agentbox** | Python (FastMCP) | Internal only | Sandboxed agent runtime containers |
 | **Keycloak** | Java | `auth.hill90.com` | OIDC/OAuth2 identity provider |
 | **UI** | TypeScript (Next.js) | `hill90.com` | Frontend application with Auth.js v5 session management |
 
 ### API Service
 
-The API service is the primary REST gateway. It handles:
-- Agent lifecycle management (create, read, update, delete)
-- Agent container operations (start, stop, status, logs)
+The API service is the primary REST gateway and control plane. It handles:
+- Agent lifecycle management (create, configure, start, stop, delete)
+- Agent container operations (status, logs, config generation)
+- Provider connections and user model management (BYOK)
+- Model policy management and assignment
+- Usage tracking queries
+- Knowledge entry browsing and search (proxied from AKM)
 - User profile and avatar management
 - JWT validation via Keycloak
 
-### AI Service
+### AI Service (Model-Router)
 
-The AI service hosts LangChain/LangGraph agents for AI operations. It provides endpoints for interacting with AI models and running agent workflows.
+The AI service is an internal model-router gateway — it is not publicly accessible. Agent containers reach it on the internal network to perform LLM inference. It enforces model access policies (allowed models, rate limits, token budgets), resolves user-owned model configurations, and proxies requests to LLM providers. Supports chat completions (streaming and non-streaming) and embeddings.
+
+### Knowledge Service (AKM)
+
+The Agent Knowledge Manager provides persistent memory for agent containers. Agents write knowledge entries (plans, decisions, journals, research notes) that survive across sessions. The service provides full-text search, append-only journaling, and intelligent context assembly with configurable token budgets. Knowledge is scoped per agent — agents cannot read each other's entries. Users can browse and search their agents' knowledge via the API service proxy.
+
+### Agentbox
+
+Each agent runs in a sandboxed container with configurable tools:
+- **Shell** — Policy-gated command execution with allowlists and deny patterns
+- **Filesystem** — Policy-gated file operations with path restrictions
+- **Identity** — Agent personality (SOUL.md) and rules (RULES.md)
+- **Health** — Container health monitoring
+
+Agentbox containers are network-isolated and can only communicate with the AI service (for inference) and Knowledge service (for memory). They cannot reach the public internet or other services.
 
 ### MCP Service
 
-The MCP (Model Context Protocol) gateway exposes tool-augmented AI capabilities. All requests require Keycloak JWT authentication.
+The MCP (Model Context Protocol) gateway exposes tool-augmented AI capabilities at `ai.hill90.com/mcp`. All requests require Keycloak JWT authentication. This is the only publicly routed service on the `ai.hill90.com` hostname.
 
 ### Keycloak
 

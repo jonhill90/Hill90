@@ -7,8 +7,10 @@ description: What Hill90 is, how it works, and the technology stack.
 
 Hill90 is a production-ready microservices platform hosted on a single VPS. It provides:
 
-- A **REST API** for managing AI agents and user profiles
-- An **AI service** powered by LangChain/LangGraph
+- A **REST API** for managing AI agents, model access, and user profiles
+- **Sandboxed agent containers** with configurable tools and resource limits
+- **Policy-gated LLM inference** with bring-your-own-key (BYOK) model management
+- **Persistent agent knowledge** — memory that survives across sessions, with full-text search
 - A **Model Context Protocol (MCP) gateway** for tool-augmented AI
 - A **Next.js frontend** with Keycloak-backed authentication
 - Full **observability** via the LGTM stack (Loki, Grafana, Tempo, Prometheus)
@@ -38,18 +40,22 @@ Internet
 Traefik (reverse proxy, automatic HTTPS)
    |
    +-- API Service (Express, TypeScript)
-   +-- AI Service (FastAPI, Python)
    +-- MCP Gateway (FastAPI, Python)
    +-- Keycloak (Identity Provider)
    +-- UI (Next.js)
    |
 Internal Network
+   +-- AI Service / Model-Router (FastAPI, Python)
+   +-- Knowledge Service / AKM (FastAPI, Python)
    +-- PostgreSQL
    +-- MinIO (S3 storage)
    +-- Observability Stack (Prometheus, Grafana, Loki, Tempo)
+   |
+Agent Network
+   +-- Agentbox containers → AI Service, Knowledge Service
 ```
 
-Traffic enters through Traefik, which handles TLS termination, routing, and load balancing. Public services use HTTP-01 certificates, while admin-only services use DNS-01 certificates and are restricted to the VPN network.
+Traffic enters through Traefik, which handles TLS termination, routing, and load balancing. Public services use HTTP-01 certificates, while admin-only services use DNS-01 certificates and are restricted to the VPN network. The AI service and Knowledge service are internal-only — agent containers communicate with them on an isolated network.
 
 ## Next Steps
 
