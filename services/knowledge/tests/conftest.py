@@ -93,6 +93,10 @@ def test_settings(tmp_path: Path, ed25519_keypair: tuple[bytes, bytes]) -> Setti
     public_key_path = tmp_path / "public.pem"
     public_key_path.write_bytes(public_pem)
 
+    private_pem, _ = ed25519_keypair
+    private_key_path = tmp_path / "private.pem"
+    private_key_path.write_bytes(private_pem)
+
     return Settings(
         port=8002,
         database_url=os.environ.get(
@@ -100,6 +104,7 @@ def test_settings(tmp_path: Path, ed25519_keypair: tuple[bytes, bytes]) -> Setti
             "postgresql://postgres:postgres@localhost:5432/hill90_akm_test",
         ),
         public_key_path=str(public_key_path),
+        private_key_path=str(private_key_path),
         data_dir=str(tmp_path / "knowledge"),
         context_token_budget=2000,
         internal_service_token="test-internal-token",
