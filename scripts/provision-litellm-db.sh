@@ -12,7 +12,7 @@ DB_USER="${DB_USER:-hill90}"
 
 echo "Provisioning hill90_litellm database (user: $DB_USER)..."
 
-docker exec postgres psql -v ON_ERROR_STOP=1 --username "$DB_USER" --dbname postgres <<-EOSQL
+docker exec -i postgres psql -v ON_ERROR_STOP=1 --username "$DB_USER" --dbname postgres <<-EOSQL
     SELECT 'CREATE DATABASE hill90_litellm'
     WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'hill90_litellm')\\gexec
 
