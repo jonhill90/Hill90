@@ -18,10 +18,20 @@ interface Agent {
   soul_md: string
   rules_md: string
   container_id: string | null
+  model_policy_id: string | null
   error_message: string | null
   created_at: string
   updated_at: string
   created_by: string
+}
+
+interface ModelPolicy {
+  id: string
+  name: string
+  allowed_models: string[]
+  max_requests_per_minute: number | null
+  max_tokens_per_day: number | null
+  created_by: string | null
 }
 
 export default function AgentDetailClient({
@@ -33,8 +43,10 @@ export default function AgentDetailClient({
 }) {
   const router = useRouter()
   const [agent, setAgent] = useState<Agent | null>(null)
+  const [policies, setPolicies] = useState<ModelPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+  const [policyLoading, setPolicyLoading] = useState(false)
   const [logs, setLogs] = useState('')
   const [showLogs, setShowLogs] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
@@ -57,9 +69,21 @@ export default function AgentDetailClient({
     }
   }, [agentId, router])
 
+  const fetchPolicies = useCallback(async () => {
+    try {
+      const res = await fetch('/api/model-policies')
+      if (res.ok) {
+        setPolicies(await res.json())
+      }
+    } catch (err) {
+      console.error('Failed to fetch policies:', err)
+    }
+  }, [])
+
   useEffect(() => {
     fetchAgent()
-  }, [fetchAgent])
+    fetchPolicies()
+  }, [fetchAgent, fetchPolicies])
 
   // Poll status while running
   useEffect(() => {
@@ -128,6 +152,27 @@ export default function AgentDetailClient({
       console.error('Failed to delete:', err)
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const handlePolicyChange = async (policyId: string) => {
+    setPolicyLoading(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_policy_id: policyId || null }),
+      })
+      if (res.ok) {
+        await fetchAgent()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to update policy')
+      }
+    } catch (err) {
+      console.error('Failed to update policy:', err)
+    } finally {
+      setPolicyLoading(false)
     }
   }
 
@@ -262,6 +307,77 @@ export default function AgentDetailClient({
             <dd className="text-white mt-1 text-sm">{agent.description}</dd>
           </div>
         )}
+      </div>
+
+      {/* Model Policy */}
+      <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
+        <h2 className="text-lg font-semibold text-white mb-3">Model Policy</h2>
+        {(() => {
+          const currentPolicy = policies.find((p) => p.id === agent.model_policy_id)
+          return (
+            <>
+              {currentPolicy ? (
+                <div className="space-y-3">
+                  <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <dt className="text-mountain-400">Policy</dt>
+                      <dd className="text-white mt-1">{currentPolicy.name}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-mountain-400">Rate Limit</dt>
+                      <dd className="text-white mt-1">
+                        {currentPolicy.max_requests_per_minute
+                          ? `${currentPolicy.max_requests_per_minute} req/min`
+                          : 'Unlimited'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-mountain-400">Token Budget</dt>
+                      <dd className="text-white mt-1">
+                        {currentPolicy.max_tokens_per_day
+                          ? `${currentPolicy.max_tokens_per_day.toLocaleString()} tokens/day`
+                          : 'Unlimited'}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div>
+                    <dt className="text-mountain-400 text-sm">Allowed Models</dt>
+                    <dd className="mt-1 flex flex-wrap gap-1">
+                      {currentPolicy.allowed_models.map((m) => (
+                        <span
+                          key={m}
+                          className="px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700"
+                        >
+                          {m}
+                        </span>
+                      ))}
+                    </dd>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-mountain-500">No model policy assigned</p>
+              )}
+              {agent.status !== 'running' && (
+                <div className="mt-4">
+                  <label className="block text-sm text-mountain-400 mb-1">
+                    {currentPolicy ? 'Change Policy' : 'Assign Policy'}
+                  </label>
+                  <select
+                    value={agent.model_policy_id || ''}
+                    onChange={(e) => handlePolicyChange(e.target.value)}
+                    disabled={policyLoading}
+                    className="rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
+                  >
+                    <option value="">None</option>
+                    {policies.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          )
+        })()}
       </div>
 
       {/* Identity */}
