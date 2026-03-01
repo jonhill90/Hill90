@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { Terminal, Folder, Heart } from 'lucide-react'
 import type { Session } from 'next-auth'
 
 interface Agent {
@@ -13,6 +14,7 @@ interface Agent {
   cpus: string
   mem_limit: string
   pids_limit: number
+  tools_config: Record<string, any> | null
   model_policy_id: string | null
   created_at: string
   updated_at: string
@@ -24,11 +26,16 @@ interface ModelPolicy {
   name: string
 }
 
+type StatusFilter = 'all' | 'running' | 'stopped' | 'error'
+
+const STATUS_ORDER: Record<string, number> = { running: 0, error: 1, stopped: 2 }
+
 export default function AgentsClient({ session }: { session: Session }) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [policies, setPolicies] = useState<ModelPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const isAdmin = session.user?.roles?.includes('admin')
 
@@ -72,6 +79,11 @@ export default function AgentsClient({ session }: { session: Session }) {
     }
   }
 
+  // Filter then sort: running first, then error, then stopped
+  const filteredAgents = agents
+    .filter((a) => statusFilter === 'all' || a.status === statusFilter)
+    .sort((a, b) => (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3))
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -82,7 +94,7 @@ export default function AgentsClient({ session }: { session: Session }) {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Agents</h1>
           <p className="text-sm text-mountain-400 mt-1">
@@ -97,6 +109,25 @@ export default function AgentsClient({ session }: { session: Session }) {
         </Link>
       </div>
 
+      {/* Status Filter */}
+      {agents.length > 0 && (
+        <div className="flex gap-1 mb-6">
+          {(['all', 'running', 'stopped', 'error'] as StatusFilter[]).map((f) => (
+            <button
+              key={f}
+              onClick={() => setStatusFilter(f)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                statusFilter === f
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-navy-800 text-mountain-400 hover:text-white border border-navy-700'
+              }`}
+            >
+              {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+      )}
+
       {agents.length === 0 ? (
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
           <p className="text-mountain-400 mb-4">No agents yet</p>
@@ -107,10 +138,15 @@ export default function AgentsClient({ session }: { session: Session }) {
             Create your first agent
           </Link>
         </div>
+      ) : filteredAgents.length === 0 ? (
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
+          <p className="text-mountain-400">No {statusFilter} agents</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {agents.map((agent) => {
+          {filteredAgents.map((agent) => {
             const policy = policyName(agent.model_policy_id)
+            const tc = agent.tools_config || {}
             return (
               <div
                 key={agent.id}
@@ -129,6 +165,25 @@ export default function AgentsClient({ session }: { session: Session }) {
                 <p className="text-sm text-mountain-400 mb-3 line-clamp-2 flex-1">
                   {agent.description || 'No description'}
                 </p>
+
+                {/* Tool Badges */}
+                <div className="flex items-center gap-1.5 mb-3">
+                  {tc.shell?.enabled && (
+                    <span aria-label="Shell access" className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy-900 border border-navy-600" title="Shell access">
+                      <Terminal className="h-3.5 w-3.5 text-brand-400" />
+                    </span>
+                  )}
+                  {tc.filesystem?.enabled && (
+                    <span aria-label="Filesystem access" className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy-900 border border-navy-600" title="Filesystem access">
+                      <Folder className="h-3.5 w-3.5 text-brand-400" />
+                    </span>
+                  )}
+                  {tc.health?.enabled && (
+                    <span aria-label="Health endpoint" className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy-900 border border-navy-600" title="Health endpoint">
+                      <Heart className="h-3.5 w-3.5 text-mountain-400" />
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-3 text-xs text-mountain-500 mb-3">
                   <span>{agent.cpus} CPU</span>

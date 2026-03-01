@@ -34,6 +34,8 @@ interface ModelPolicy {
   created_by: string | null
 }
 
+type TabId = 'overview' | 'configuration' | 'model-access' | 'knowledge' | 'logs'
+
 export default function AgentDetailClient({
   agentId,
   session,
@@ -46,7 +48,17 @@ export default function AgentDetailClient({
   const [policies, setPolicies] = useState<ModelPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-  const [policyLoading, setPolicyLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<TabId>('overview')
+
+  // Lazy-loaded data
+  const [usage, setUsage] = useState<any>(null)
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [usageFetched, setUsageFetched] = useState(false)
+  const [knowledge, setKnowledge] = useState<any[]>([])
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false)
+  const [knowledgeFetched, setKnowledgeFetched] = useState(false)
+
+  // Logs
   const [logs, setLogs] = useState('')
   const [showLogs, setShowLogs] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
@@ -92,6 +104,28 @@ export default function AgentDetailClient({
     return () => clearInterval(interval)
   }, [agent?.status, fetchAgent])
 
+  // Lazy-load usage when Model Access tab selected
+  useEffect(() => {
+    if (activeTab !== 'model-access' || usageFetched || !agent) return
+    setUsageLoading(true)
+    fetch(`/api/usage?agent_id=${agent.agent_id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data) setUsage(data) })
+      .catch(() => {})
+      .finally(() => { setUsageLoading(false); setUsageFetched(true) })
+  }, [activeTab, usageFetched, agent])
+
+  // Lazy-load knowledge when Knowledge tab selected
+  useEffect(() => {
+    if (activeTab !== 'knowledge' || knowledgeFetched || !agent) return
+    setKnowledgeLoading(true)
+    fetch(`/api/knowledge/entries?agent_id=${agent.agent_id}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setKnowledge(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => { setKnowledgeLoading(false); setKnowledgeFetched(true) })
+  }, [activeTab, knowledgeFetched, agent])
+
   // SSE log streaming
   useEffect(() => {
     if (!showLogs || !isAdmin || agent?.status !== 'running') {
@@ -108,17 +142,10 @@ export default function AgentDetailClient({
       logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
 
-    es.addEventListener('end', () => {
-      es.close()
-    })
+    es.addEventListener('end', () => { es.close() })
+    es.addEventListener('error', () => { es.close() })
 
-    es.addEventListener('error', () => {
-      es.close()
-    })
-
-    return () => {
-      es.close()
-    }
+    return () => { es.close() }
   }, [showLogs, isAdmin, agent?.status, agentId])
 
   const handleAction = async (action: 'start' | 'stop') => {
@@ -155,27 +182,6 @@ export default function AgentDetailClient({
     }
   }
 
-  const handlePolicyChange = async (policyId: string) => {
-    setPolicyLoading(true)
-    try {
-      const res = await fetch(`/api/agents/${agentId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_policy_id: policyId || null }),
-      })
-      if (res.ok) {
-        await fetchAgent()
-      } else {
-        const data = await res.json()
-        alert(data.error || 'Failed to update policy')
-      }
-    } catch (err) {
-      console.error('Failed to update policy:', err)
-    } finally {
-      setPolicyLoading(false)
-    }
-  }
-
   const fetchLogs = async () => {
     try {
       const res = await fetch(`/api/agents/${agentId}/logs?tail=200`)
@@ -198,10 +204,21 @@ export default function AgentDetailClient({
 
   if (!agent) return null
 
+  const currentPolicy = policies.find((p) => p.id === agent.model_policy_id)
+  const tc = agent.tools_config || {}
+
+  const tabs: { id: TabId; label: string; adminOnly?: boolean }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'configuration', label: 'Configuration' },
+    { id: 'model-access', label: 'Model Access' },
+    { id: 'knowledge', label: 'Knowledge' },
+    { id: 'logs', label: 'Logs', adminOnly: true },
+  ]
+
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">{agent.name}</h1>
           <p className="text-sm text-mountain-400 mt-1 font-mono">{agent.agent_id}</p>
@@ -245,166 +262,369 @@ export default function AgentDetailClient({
         </div>
       </div>
 
-      {/* Status */}
-      <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
-        <h2 className="text-lg font-semibold text-white mb-3">Status</h2>
-        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-          <div>
-            <dt className="text-mountain-400">State</dt>
-            <dd className="text-white mt-1 flex items-center gap-2">
-              <StatusDot status={agent.status} />
-              {agent.status}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-mountain-400">Container</dt>
-            <dd className="text-white mt-1 font-mono text-xs">
-              {agent.container_id ? agent.container_id.substring(0, 12) : '--'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-mountain-400">Last Updated</dt>
-            <dd className="text-white mt-1">{new Date(agent.updated_at).toLocaleString()}</dd>
-          </div>
-        </dl>
-        {agent.error_message && (
-          <div className="mt-3 rounded-md border border-red-700 bg-red-900/30 p-3 text-sm text-red-400">
-            {agent.error_message}
-          </div>
-        )}
+      {/* Tab Bar */}
+      <div className="flex gap-1 border-b border-navy-700 mb-6">
+        {tabs
+          .filter((t) => !t.adminOnly || isAdmin)
+          .map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                activeTab === t.id
+                  ? 'text-brand-400 border-brand-500'
+                  : 'text-mountain-400 border-transparent hover:text-white hover:border-navy-500'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
       </div>
 
-      {/* Config */}
-      <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
-        <h2 className="text-lg font-semibold text-white mb-3">Configuration</h2>
-        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-          <div>
-            <dt className="text-mountain-400">CPUs</dt>
-            <dd className="text-white mt-1">{agent.cpus}</dd>
+      {/* Tab Content */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Status Card */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">Status</h2>
+            <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+              <div>
+                <dt className="text-mountain-400">State</dt>
+                <dd className="text-white mt-1 flex items-center gap-2">
+                  <StatusDot status={agent.status} />
+                  {agent.status}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-mountain-400">Container</dt>
+                <dd className="text-white mt-1 font-mono text-xs">
+                  {agent.container_id ? agent.container_id.substring(0, 12) : '--'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-mountain-400">Last Updated</dt>
+                <dd className="text-white mt-1">{new Date(agent.updated_at).toLocaleString()}</dd>
+              </div>
+            </dl>
+            {agent.error_message && (
+              <div className="mt-3 rounded-md border border-red-700 bg-red-900/30 p-3 text-sm text-red-400">
+                {agent.error_message}
+              </div>
+            )}
           </div>
-          <div>
-            <dt className="text-mountain-400">Memory</dt>
-            <dd className="text-white mt-1">{agent.mem_limit}</dd>
-          </div>
-          <div>
-            <dt className="text-mountain-400">PID Limit</dt>
-            <dd className="text-white mt-1">{agent.pids_limit}</dd>
-          </div>
-        </dl>
 
-        <div className="mt-4">
-          <dt className="text-mountain-400 text-sm">Tools</dt>
-          <dd className="mt-1 flex gap-2">
-            <ToolBadge label="Shell" enabled={agent.tools_config?.shell?.enabled} />
-            <ToolBadge label="Filesystem" enabled={agent.tools_config?.filesystem?.enabled} />
-            <ToolBadge label="Health" enabled={agent.tools_config?.health?.enabled} />
-          </dd>
+          {/* Description */}
+          {agent.description && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <h2 className="text-lg font-semibold text-white mb-2">Description</h2>
+              <p className="text-sm text-mountain-300">{agent.description}</p>
+            </div>
+          )}
+
+          {/* Quick Tool Summary */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">Tool Access</h2>
+            <div className="flex flex-wrap gap-2">
+              <ToolBadge label="Shell" enabled={tc.shell?.enabled} summary={tc.shell?.enabled ? `${tc.shell.allowed_binaries?.length || 0} binaries, ${tc.shell.denied_patterns?.length || 0} patterns` : undefined} />
+              <ToolBadge label="Filesystem" enabled={tc.filesystem?.enabled} summary={tc.filesystem?.enabled ? (tc.filesystem.read_only ? 'Read-only' : 'Read-write') : undefined} />
+              <ToolBadge label="Health" enabled={tc.health?.enabled} />
+            </div>
+          </div>
+
+          {/* Resource Grid */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">Resources</h2>
+            <dl className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <dt className="text-mountain-400">CPUs</dt>
+                <dd className="text-white mt-1">{agent.cpus}</dd>
+              </div>
+              <div>
+                <dt className="text-mountain-400">Memory</dt>
+                <dd className="text-white mt-1">{agent.mem_limit}</dd>
+              </div>
+              <div>
+                <dt className="text-mountain-400">PID Limit</dt>
+                <dd className="text-white mt-1">{agent.pids_limit}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* Policy Summary */}
+          {currentPolicy && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <h2 className="text-lg font-semibold text-white mb-2">Model Policy</h2>
+              <p className="text-sm text-mountain-300">
+                {currentPolicy.name} — {currentPolicy.allowed_models.length} model{currentPolicy.allowed_models.length !== 1 ? 's' : ''}
+                {currentPolicy.max_requests_per_minute ? `, ${currentPolicy.max_requests_per_minute} req/min` : ''}
+              </p>
+            </div>
+          )}
+
+          {/* Meta */}
+          <div className="text-xs text-mountain-500">
+            Created {new Date(agent.created_at).toLocaleString()} by {agent.created_by}
+          </div>
         </div>
+      )}
 
-        {agent.description && (
-          <div className="mt-4">
-            <dt className="text-mountain-400 text-sm">Description</dt>
-            <dd className="text-white mt-1 text-sm">{agent.description}</dd>
-          </div>
-        )}
-      </div>
+      {activeTab === 'configuration' && (
+        <div className="space-y-6">
+          {/* Tool Details */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white">Tool Configuration</h2>
+              {agent.status !== 'running' && (
+                <Link
+                  href={`/agents/${agent.id}/edit`}
+                  className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
+                >
+                  Edit
+                </Link>
+              )}
+            </div>
 
-      {/* Model Policy */}
-      <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
-        <h2 className="text-lg font-semibold text-white mb-3">Model Policy</h2>
-        {(() => {
-          const currentPolicy = policies.find((p) => p.id === agent.model_policy_id)
-          return (
-            <>
-              {currentPolicy ? (
-                <div className="space-y-3">
-                  <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+            <div className="space-y-4">
+              {/* Shell */}
+              <ConfigSection title="Shell" enabled={tc.shell?.enabled}>
+                {tc.shell?.enabled && (
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div>
-                      <dt className="text-mountain-400">Policy</dt>
-                      <dd className="text-white mt-1">{currentPolicy.name}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-mountain-400">Rate Limit</dt>
-                      <dd className="text-white mt-1">
-                        {currentPolicy.max_requests_per_minute
-                          ? `${currentPolicy.max_requests_per_minute} req/min`
-                          : 'Unlimited'}
+                      <dt className="text-mountain-400 mb-1">Allowed Binaries</dt>
+                      <dd className="flex flex-wrap gap-1">
+                        {(tc.shell.allowed_binaries || []).length > 0
+                          ? tc.shell.allowed_binaries.map((b: string) => <Badge key={b}>{b}</Badge>)
+                          : <span className="text-mountain-500 text-xs">All allowed</span>}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-mountain-400">Token Budget</dt>
-                      <dd className="text-white mt-1">
-                        {currentPolicy.max_tokens_per_day
-                          ? `${currentPolicy.max_tokens_per_day.toLocaleString()} tokens/day`
-                          : 'Unlimited'}
+                      <dt className="text-mountain-400 mb-1">Denied Patterns</dt>
+                      <dd className="flex flex-wrap gap-1">
+                        {(tc.shell.denied_patterns || []).length > 0
+                          ? tc.shell.denied_patterns.map((p: string) => <Badge key={p} variant="red">{p}</Badge>)
+                          : <span className="text-mountain-500 text-xs">None</span>}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-mountain-400 mb-1">Max Timeout</dt>
+                      <dd className="text-white">{tc.shell.max_timeout || 300}s</dd>
+                    </div>
+                  </dl>
+                )}
+              </ConfigSection>
+
+              {/* Filesystem */}
+              <ConfigSection title="Filesystem" enabled={tc.filesystem?.enabled}>
+                {tc.filesystem?.enabled && (
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-mountain-400 mb-1">Mode</dt>
+                      <dd className="text-white">{tc.filesystem.read_only ? 'Read-only' : 'Read-write'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-mountain-400 mb-1">Allowed Paths</dt>
+                      <dd className="flex flex-wrap gap-1">
+                        {(tc.filesystem.allowed_paths || []).map((p: string) => <Badge key={p}>{p}</Badge>)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-mountain-400 mb-1">Denied Paths</dt>
+                      <dd className="flex flex-wrap gap-1">
+                        {(tc.filesystem.denied_paths || []).length > 0
+                          ? tc.filesystem.denied_paths.map((p: string) => <Badge key={p} variant="red">{p}</Badge>)
+                          : <span className="text-mountain-500 text-xs">None</span>}
                       </dd>
                     </div>
                   </dl>
-                  <div>
-                    <dt className="text-mountain-400 text-sm">Allowed Models</dt>
-                    <dd className="mt-1 flex flex-wrap gap-1">
-                      {currentPolicy.allowed_models.map((m) => (
-                        <span
-                          key={m}
-                          className="px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700"
-                        >
-                          {m}
-                        </span>
-                      ))}
-                    </dd>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-sm text-mountain-500">No model policy assigned</p>
-              )}
-              {agent.status !== 'running' && (
-                <div className="mt-4">
-                  <label className="block text-sm text-mountain-400 mb-1">
-                    {currentPolicy ? 'Change Policy' : 'Assign Policy'}
-                  </label>
-                  <select
-                    value={agent.model_policy_id || ''}
-                    onChange={(e) => handlePolicyChange(e.target.value)}
-                    disabled={policyLoading}
-                    className="rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
-                  >
-                    <option value="">None</option>
-                    {policies.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </>
-          )
-        })()}
-      </div>
+                )}
+              </ConfigSection>
 
-      {/* Identity */}
-      {(agent.soul_md || agent.rules_md) && (
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
-          <h2 className="text-lg font-semibold text-white mb-3">Identity</h2>
-          {agent.soul_md && (
-            <div className="mb-4">
-              <h3 className="text-sm font-medium text-mountain-400 mb-2">SOUL.md</h3>
-              <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-48 overflow-y-auto">
-                {agent.soul_md}
-              </pre>
+              {/* Health */}
+              <ConfigSection title="Health" enabled={tc.health?.enabled} />
             </div>
-          )}
-          {agent.rules_md && (
-            <div>
-              <h3 className="text-sm font-medium text-mountain-400 mb-2">RULES.md</h3>
-              <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-48 overflow-y-auto">
-                {agent.rules_md}
-              </pre>
+          </div>
+
+          {/* Resources */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">Resources</h2>
+            <dl className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <dt className="text-mountain-400">CPUs</dt>
+                <dd className="text-white mt-1">{agent.cpus}</dd>
+              </div>
+              <div>
+                <dt className="text-mountain-400">Memory</dt>
+                <dd className="text-white mt-1">{agent.mem_limit}</dd>
+              </div>
+              <div>
+                <dt className="text-mountain-400">PID Limit</dt>
+                <dd className="text-white mt-1">{agent.pids_limit}</dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* Identity */}
+          {(agent.soul_md || agent.rules_md) && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <h2 className="text-lg font-semibold text-white mb-3">Identity</h2>
+              {agent.soul_md && (
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium text-mountain-400 mb-2">SOUL.md</h3>
+                  <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-48 overflow-y-auto">
+                    {agent.soul_md}
+                  </pre>
+                </div>
+              )}
+              {agent.rules_md && (
+                <div>
+                  <h3 className="text-sm font-medium text-mountain-400 mb-2">RULES.md</h3>
+                  <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-48 overflow-y-auto">
+                    {agent.rules_md}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* Logs */}
-      {isAdmin && (
+      {activeTab === 'model-access' && (
+        <div className="space-y-6">
+          {/* Policy Detail */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">Model Policy</h2>
+            {currentPolicy ? (
+              <div className="space-y-3">
+                <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <dt className="text-mountain-400">Policy</dt>
+                    <dd className="text-white mt-1">{currentPolicy.name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-mountain-400">Rate Limit</dt>
+                    <dd className="text-white mt-1">
+                      {currentPolicy.max_requests_per_minute
+                        ? `${currentPolicy.max_requests_per_minute} req/min`
+                        : 'Unlimited'}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-mountain-400">Token Budget</dt>
+                    <dd className="text-white mt-1">
+                      {currentPolicy.max_tokens_per_day
+                        ? `${Number(currentPolicy.max_tokens_per_day).toLocaleString()} tokens/day`
+                        : 'Unlimited'}
+                    </dd>
+                  </div>
+                </dl>
+                <div>
+                  <dt className="text-mountain-400 text-sm">Allowed Models</dt>
+                  <dd className="mt-1 flex flex-wrap gap-1">
+                    {currentPolicy.allowed_models.map((m) => (
+                      <span
+                        key={m}
+                        className="px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700"
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </dd>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-mountain-500">No model policy assigned</p>
+            )}
+          </div>
+
+          {/* Usage Summary */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-white">Usage (7-day)</h2>
+              <Link
+                href={`/harness/usage?agent_id=${agent.agent_id}`}
+                className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                View full usage in Harness
+              </Link>
+            </div>
+            {usageLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+              </div>
+            ) : usage ? (
+              <dl className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <dt className="text-mountain-400">Requests</dt>
+                  <dd className="text-white mt-1 text-lg font-semibold">
+                    {Number(usage.total_requests || 0).toLocaleString()}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Tokens</dt>
+                  <dd className="text-white mt-1 text-lg font-semibold">
+                    {Number(usage.total_tokens || 0).toLocaleString()}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Cost</dt>
+                  <dd className="text-white mt-1 text-lg font-semibold">
+                    ${Number(usage.total_cost_usd || 0).toFixed(2)}
+                  </dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="text-sm text-mountain-500">No usage data available</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'knowledge' && (
+        <div className="space-y-6">
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-white">Knowledge Entries</h2>
+              <Link
+                href="/harness/knowledge"
+                className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                Browse in Harness
+              </Link>
+            </div>
+            {knowledgeLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+              </div>
+            ) : knowledge.length > 0 ? (
+              <div className="space-y-2">
+                <p className="text-sm text-mountain-400 mb-3">{knowledge.length} entries</p>
+                {knowledge.slice(0, 10).map((entry: any) => (
+                  <div key={entry.id} className="rounded-md border border-navy-700 bg-navy-900 p-3">
+                    <pre className="text-xs text-mountain-300 whitespace-pre-wrap line-clamp-3">
+                      {entry.content}
+                    </pre>
+                    <p className="text-xs text-mountain-500 mt-1">
+                      {new Date(entry.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                ))}
+                {knowledge.length > 10 && (
+                  <p className="text-xs text-mountain-500">
+                    Showing 10 of {knowledge.length} entries.{' '}
+                    <Link href="/harness/knowledge" className="text-brand-400 hover:text-brand-300">
+                      View all
+                    </Link>
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-mountain-500">No knowledge entries</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'logs' && isAdmin && (
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-white">Logs</h2>
@@ -437,11 +657,6 @@ export default function AgentDetailClient({
           </div>
         </div>
       )}
-
-      {/* Meta */}
-      <div className="mt-6 text-xs text-mountain-500">
-        Created {new Date(agent.created_at).toLocaleString()} by {agent.created_by}
-      </div>
     </>
   )
 }
@@ -453,14 +668,37 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`h-2 w-2 rounded-full ${color} inline-block`} />
 }
 
-function ToolBadge({ label, enabled }: { label: string; enabled?: boolean }) {
+function ToolBadge({ label, enabled, summary }: { label: string; enabled?: boolean; summary?: string }) {
   return (
-    <span className={`px-2 py-0.5 text-xs rounded-md ${
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md ${
       enabled
         ? 'bg-brand-900/50 text-brand-400 border border-brand-700'
         : 'bg-navy-900 text-mountain-500 border border-navy-700'
     }`}>
       {label}
+      {summary && <span className="text-mountain-400">({summary})</span>}
     </span>
   )
+}
+
+function ConfigSection({ title, enabled, children }: { title: string; enabled?: boolean; children?: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-navy-700 bg-navy-900 p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`h-2 w-2 rounded-full ${enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
+        <h3 className="text-sm font-medium text-white">{title}</h3>
+        <span className={`text-xs ${enabled ? 'text-brand-400' : 'text-mountain-500'}`}>
+          {enabled ? 'Enabled' : 'Disabled'}
+        </span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Badge({ children, variant }: { children: React.ReactNode; variant?: 'red' }) {
+  const cls = variant === 'red'
+    ? 'bg-red-900/30 text-red-400 border border-red-800'
+    : 'bg-navy-800 text-mountain-300 border border-navy-600'
+  return <span className={`px-2 py-0.5 text-xs rounded-md ${cls}`}>{children}</span>
 }

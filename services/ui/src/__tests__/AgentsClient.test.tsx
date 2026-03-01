@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next/link
@@ -31,6 +31,11 @@ const MOCK_AGENTS = [
     cpus: '0.5',
     mem_limit: '512m',
     pids_limit: 64,
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['bash'], denied_patterns: [], max_timeout: 300 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
+      health: { enabled: true },
+    },
     model_policy_id: 'policy-1',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -45,9 +50,33 @@ const MOCK_AGENTS = [
     cpus: '1.0',
     mem_limit: '1g',
     pids_limit: 128,
+    tools_config: {
+      shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
+      filesystem: { enabled: false, read_only: false, allowed_paths: [], denied_paths: [] },
+      health: { enabled: true },
+    },
     model_policy_id: null,
     created_at: '2026-02-01T00:00:00Z',
     updated_at: '2026-02-01T00:00:00Z',
+    created_by: 'admin',
+  },
+  {
+    id: 'agent-3',
+    agent_id: 'error-bot',
+    name: 'ErrorBot',
+    description: 'Has an error',
+    status: 'error',
+    cpus: '1.0',
+    mem_limit: '1g',
+    pids_limit: 128,
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
+      filesystem: { enabled: false, read_only: false, allowed_paths: [], denied_paths: [] },
+      health: { enabled: false },
+    },
+    model_policy_id: null,
+    created_at: '2026-03-01T00:00:00Z',
+    updated_at: '2026-03-01T00:00:00Z',
     created_by: 'admin',
   },
 ]
@@ -87,9 +116,10 @@ describe('AgentsClient', () => {
       expect(screen.getByText('WriterBot')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Running')).toBeInTheDocument()
-    expect(screen.getByText('Stopped')).toBeInTheDocument()
-    expect(screen.getByText('2 agents')).toBeInTheDocument()
+    // Status badges + filter buttons both show these texts
+    expect(screen.getAllByText('Running').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Stopped').length).toBeGreaterThan(0)
+    expect(screen.getByText('3 agents')).toBeInTheDocument()
   })
 
   it('shows policy name badge on agents with assigned policy', async () => {
@@ -99,7 +129,6 @@ describe('AgentsClient', () => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // ResearchBot has policy-1 assigned → should show "Default Policy" badge
     expect(screen.getByText('Default Policy')).toBeInTheDocument()
   })
 
@@ -110,7 +139,6 @@ describe('AgentsClient', () => {
       expect(screen.getByText('WriterBot')).toBeInTheDocument()
     })
 
-    // WriterBot has no policy → "Restricted Policy" should not appear (only Default Policy is shown)
     const policyBadges = screen.queryAllByText('Restricted Policy')
     expect(policyBadges.length).toBe(0)
   })
@@ -151,10 +179,8 @@ describe('AgentsClient', () => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // Running agent should have Stop button
     expect(screen.getByText('Stop')).toBeInTheDocument()
-    // Stopped agent should have Start button
-    expect(screen.getByText('Start')).toBeInTheDocument()
+    expect(screen.getAllByText('Start').length).toBeGreaterThan(0)
   })
 
   it('fetches both agents and policies on mount', async () => {
@@ -166,5 +192,53 @@ describe('AgentsClient', () => {
 
     expect(mockFetch).toHaveBeenCalledWith('/api/agents')
     expect(mockFetch).toHaveBeenCalledWith('/api/model-policies')
+  })
+
+  it('renders tool capability badges from tools_config', async () => {
+    render(<AgentsClient session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // ResearchBot has shell + filesystem enabled, so should have both tool badges
+    // Look for the Terminal and Folder icons via their aria-labels
+    const shellBadges = screen.getAllByLabelText('Shell access')
+    expect(shellBadges.length).toBeGreaterThan(0)
+
+    const fsBadges = screen.getAllByLabelText('Filesystem access')
+    expect(fsBadges.length).toBeGreaterThan(0)
+  })
+
+  it('status filter shows only matching agents', async () => {
+    render(<AgentsClient session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Click "Running" filter
+    fireEvent.click(screen.getByRole('button', { name: /^Running$/i }))
+
+    // Only ResearchBot should be visible
+    expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    expect(screen.queryByText('WriterBot')).not.toBeInTheDocument()
+    expect(screen.queryByText('ErrorBot')).not.toBeInTheDocument()
+  })
+
+  it('running agents appear before stopped agents', async () => {
+    render(<AgentsClient session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Get all agent name links in order
+    const links = screen.getAllByRole('link').filter(
+      (el) => ['ResearchBot', 'WriterBot', 'ErrorBot'].includes(el.textContent || '')
+    )
+
+    // Running agent should be first
+    expect(links[0].textContent).toBe('ResearchBot')
   })
 })
