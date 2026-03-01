@@ -78,6 +78,11 @@ The Next.js frontend provides:
 | **PostgreSQL** | Internal only | Relational database |
 | **MinIO** | `storage.hill90.com` (VPN-only) | S3-compatible object storage |
 | **OpenBao** | `vault.hill90.com` (VPN-only) | Secrets management (vault) |
+| **LiteLLM** | `litellm.hill90.com` (VPN-only) | LLM proxy for provider API routing (internal to AI service); admin dashboard exposed via Tailscale |
+
+### LiteLLM
+
+LiteLLM is a stateless LLM proxy that routes inference requests to provider APIs (OpenAI, Anthropic). The AI service (model-router) reaches LiteLLM on the internal Docker network at `http://litellm:4000` — it is not publicly accessible for API traffic. The admin dashboard is exposed at `litellm.hill90.com` for operational visibility, restricted to the Tailscale network (VPN-only).
 
 ## Observability Stack
 

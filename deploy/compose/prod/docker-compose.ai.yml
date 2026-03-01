@@ -44,7 +44,12 @@ services:
     mem_limit: 1g
     cpus: 1.0
     labels:
-      - "traefik.enable=false"
+      - "traefik.enable=true"
+      - "traefik.http.routers.litellm.rule=Host(`litellm.hill90.com`)"
+      - "traefik.http.routers.litellm.entrypoints=websecure"
+      - "traefik.http.routers.litellm.tls.certresolver=letsencrypt-dns"
+      - "traefik.http.routers.litellm.middlewares=tailscale-only@file"
+      - "traefik.http.services.litellm.loadbalancer.server.port=4000"
 
   # AI Service (Python/FastAPI) — model-router gateway
   # On internal + agent_internal (reachable from agentboxes as http://ai:8000)

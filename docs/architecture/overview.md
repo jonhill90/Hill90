@@ -27,11 +27,12 @@ Traefik (edge network)           ┌──────────────�
    ↓                             │ Admin Services           │
 ┌─────────────────────────────┐  │ - Traefik Dashboard      │
 │ Public Services (edge)      │  │ - Portainer UI           │
-│ - API (HTTP-01 cert)        │  └──────────────────────────┘
-│ - MCP gateway (HTTP-01)     │           ↓ (DNS-01 certs)
-│ - Keycloak (HTTP-01 cert)   │  ┌──────────────────────────┐
-│ - UI (HTTP-01 cert)         │  │ DNS Manager              │
-└─────────────────────────────┘  │ (Webhook for ACME)       │
+│ - API (HTTP-01 cert)        │  │ - LiteLLM Dashboard      │
+│ - MCP gateway (HTTP-01)     │  └──────────────────────────┘
+│ - Keycloak (HTTP-01 cert)   │           ↓ (DNS-01 certs)
+│ - UI (HTTP-01 cert)         │  ┌──────────────────────────┐
+└─────────────────────────────┘  │ DNS Manager              │
+                                 │ (Webhook for ACME)       │
    ↓                             └──────────────────────────┘
 ┌─────────────────────────────┐           ↓
 │ Internal Services (internal)│  Hostinger DNS API
@@ -70,7 +71,7 @@ Traefik (edge network)           ┌──────────────�
 - **edge network**: Public-facing services (Traefik → API, MCP gateway, Keycloak, UI)
 - **internal network**: Private services (Keycloak, PostgreSQL, AKM, observability stack)
 - **agent_internal network**: Agent containers ↔ API ↔ AKM (isolated from edge)
-- **Tailscale network**: Admin-only services (Traefik dashboard, Portainer, MinIO console, Grafana)
+- **Tailscale network**: Admin-only services (Traefik dashboard, Portainer, MinIO console, Grafana, LiteLLM dashboard)
 - **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via middleware
 
 ## Service Responsibilities
@@ -102,6 +103,7 @@ See [Agent Harness Architecture](./agent-harness.md) for the full design: agentb
 - **DNS Manager**: HTTP webhook for Let's Encrypt DNS-01 challenges
   - Translates Lego httpreq provider format to Hostinger DNS API
   - Creates/deletes DNS TXT records for ACME validation
+- **LiteLLM**: LLM proxy for provider API routing. The AI service reaches LiteLLM on the internal network (`http://litellm:4000`). The admin dashboard is exposed at https://litellm.hill90.com (Tailscale-only via DNS-01 cert).
 - **PostgreSQL**: Relational database for persistent storage (separate deploy: `make deploy-db`)
 
 ## Technology Stack
@@ -114,6 +116,7 @@ See [Agent Harness Architecture](./agent-harness.md) for the full design: agentb
   - Portainer (container management)
   - PostgreSQL
   - MinIO (S3-compatible object storage)
+  - LiteLLM (LLM proxy gateway)
 - **Observability**:
   - Prometheus (metrics collection and alerting)
   - Grafana (dashboards and exploration)
