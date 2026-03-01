@@ -395,19 +395,24 @@ print(json.dumps({
     fi
 
     # Seed shared/model-router (if keys exist)
-    local mr_token mr_priv
+    local mr_token mr_priv mr_enc_key
     mr_token=$(get_secret MODEL_ROUTER_INTERNAL_SERVICE_TOKEN)
     mr_priv=$(get_secret MODEL_ROUTER_SIGNING_PRIVATE_KEY)
+    mr_enc_key=$(get_secret PROVIDER_KEY_ENCRYPTION_KEY)
     if [ -n "$mr_token" ] && [ -n "$mr_priv" ]; then
         echo "Seeding secret/shared/model-router..."
         # Use JSON via stdin to handle multiline PEM values safely
         local mr_json
         mr_json=$(python3 -c "
 import json
-print(json.dumps({
+d = {
     'MODEL_ROUTER_INTERNAL_SERVICE_TOKEN': '''$(printf '%s' "$mr_token")''',
-    'MODEL_ROUTER_SIGNING_PRIVATE_KEY': '''$(printf '%s' "$mr_priv")'''
-}))
+    'MODEL_ROUTER_SIGNING_PRIVATE_KEY': '''$(printf '%s' "$mr_priv")''',
+}
+enc_key = '''$(printf '%s' "$mr_enc_key")'''
+if enc_key:
+    d['PROVIDER_KEY_ENCRYPTION_KEY'] = enc_key
+print(json.dumps(d))
 ")
         local token="${BAO_TOKEN:-}"
         echo "$mr_json" | docker exec -i \
