@@ -349,6 +349,11 @@ paths:
                   type: string
                 rules_md:
                   type: string
+                model_policy_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: ID of a model policy to assign at creation. Users can assign own or platform policies; admins can assign any.
       responses:
         "201":
           description: Agent created

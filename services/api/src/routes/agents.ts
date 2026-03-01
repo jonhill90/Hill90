@@ -56,7 +56,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const scope = scopeToOwner(req);
     const paramOffset = scope.params.length;
     const { rows } = await getPool().query(
-      `SELECT id, agent_id, name, description, status, cpus, mem_limit, pids_limit, model_policy_id, created_at, updated_at, created_by
+      `SELECT id, agent_id, name, description, status, tools_config, cpus, mem_limit, pids_limit, model_policy_id, created_at, updated_at, created_by
        FROM agents WHERE ${scope.where} ORDER BY created_at DESC`,
       scope.params
     );
@@ -71,7 +71,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
 router.post('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md } = req.body;
+    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id } = req.body;
 
     if (!agent_id || !name) {
       res.status(400).json({ error: 'agent_id and name are required' });
@@ -84,9 +84,32 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
+    // Validate model_policy_id ownership (same logic as PUT handler)
+    let validatedPolicyId: string | null = null;
+    if (model_policy_id) {
+      const { rows: policyRows } = await getPool().query(
+        'SELECT id, created_by FROM model_policies WHERE id = $1',
+        [model_policy_id]
+      );
+      if (policyRows.length === 0) {
+        res.status(400).json({ error: 'Model policy not found' });
+        return;
+      }
+      const roles: string[] = user.realm_roles || [];
+      const admin = roles.includes('admin');
+      if (!admin) {
+        const policyOwner = policyRows[0].created_by;
+        if (policyOwner !== null && policyOwner !== user.sub) {
+          res.status(403).json({ error: "Cannot assign another user's policy" });
+          return;
+        }
+      }
+      validatedPolicyId = model_policy_id;
+    }
+
     const { rows } = await getPool().query(
-      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         agent_id,
@@ -98,6 +121,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         pids_limit || 200,
         soul_md || '',
         rules_md || '',
+        validatedPolicyId,
         user.sub,
       ]
     );

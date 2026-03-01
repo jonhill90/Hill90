@@ -1,8 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import TagInput from '@/components/TagInput'
 
+// Mirrors agentbox Pydantic ToolsConfig (services/agentbox/app/config.py)
 interface ToolsConfig {
   shell: { enabled: boolean; allowed_binaries: string[]; denied_patterns: string[]; max_timeout: number }
   filesystem: { enabled: boolean; read_only: boolean; allowed_paths: string[]; denied_paths: string[] }
@@ -13,6 +15,11 @@ const defaultTools: ToolsConfig = {
   shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
   filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
   health: { enabled: true },
+}
+
+interface PolicyOption {
+  id: string
+  name: string
 }
 
 export default function AgentFormClient({
@@ -30,6 +37,7 @@ export default function AgentFormClient({
     pids_limit: number
     soul_md: string
     rules_md: string
+    model_policy_id?: string | null
   }
   agentUuid?: string
   disabled?: boolean
@@ -38,6 +46,7 @@ export default function AgentFormClient({
   const isEdit = !!agentUuid
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [validationError, setValidationError] = useState('')
 
   const [agentId, setAgentId] = useState(initial?.agent_id || '')
   const [name, setName] = useState(initial?.name || '')
@@ -48,13 +57,38 @@ export default function AgentFormClient({
   const [pidsLimit, setPidsLimit] = useState(initial?.pids_limit || 200)
   const [soulMd, setSoulMd] = useState(initial?.soul_md || '')
   const [rulesMd, setRulesMd] = useState(initial?.rules_md || '')
+  const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
+  const [policies, setPolicies] = useState<PolicyOption[]>([])
+
+  const [shellAdvanced, setShellAdvanced] = useState(false)
+  const [fsAdvanced, setFsAdvanced] = useState(false)
+  const [soulPreview, setSoulPreview] = useState(false)
+  const [rulesPreview, setRulesPreview] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/model-policies')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setPolicies(data))
+      .catch(() => {})
+  }, [])
+
+  const validateForm = (): boolean => {
+    if (tools.shell.enabled && tools.shell.max_timeout < 1) {
+      setValidationError('Timeout must be at least 1 second')
+      return false
+    }
+    setValidationError('')
+    return true
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validateForm()) return
+
     setSaving(true)
     setError('')
 
-    const body = {
+    const body: Record<string, unknown> = {
       agent_id: agentId,
       name,
       description,
@@ -64,6 +98,7 @@ export default function AgentFormClient({
       pids_limit: pidsLimit,
       soul_md: soulMd,
       rules_md: rulesMd,
+      model_policy_id: modelPolicyId || null,
     }
 
     try {
@@ -90,11 +125,19 @@ export default function AgentFormClient({
     }
   }
 
+  const pathValidate = (v: string) => (v.startsWith('/') ? null : 'Must start with /')
+
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
       {error && (
         <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-sm text-red-400">
           {error}
+        </div>
+      )}
+
+      {validationError && (
+        <div className="rounded-lg border border-red-700 bg-red-900/30 p-4 text-sm text-red-400">
+          {validationError}
         </div>
       )}
 
@@ -162,6 +205,7 @@ export default function AgentFormClient({
         <legend className="text-lg font-semibold text-white mb-4">Tools</legend>
 
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
+          {/* Shell */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -172,6 +216,50 @@ export default function AgentFormClient({
             <span className="text-sm text-white">Shell access</span>
           </label>
 
+          {tools.shell.enabled && (
+            <div className="ml-6 space-y-3">
+              <button
+                type="button"
+                onClick={() => setShellAdvanced(!shellAdvanced)}
+                className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                Advanced settings
+              </button>
+              {shellAdvanced && (
+                <div className="space-y-3 border-l-2 border-navy-600 pl-4">
+                  <TagInput
+                    label="Allowed Binaries"
+                    value={tools.shell.allowed_binaries}
+                    onChange={(v) => setTools({ ...tools, shell: { ...tools.shell, allowed_binaries: v } })}
+                    placeholder="Add binary (e.g. bash)..."
+                    disabled={disabled}
+                  />
+                  <TagInput
+                    label="Denied Patterns"
+                    value={tools.shell.denied_patterns}
+                    onChange={(v) => setTools({ ...tools, shell: { ...tools.shell, denied_patterns: v } })}
+                    placeholder="Add pattern (e.g. rm -rf)..."
+                    disabled={disabled}
+                  />
+                  <div>
+                    <label htmlFor="max_timeout" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
+                      Max Timeout (seconds)
+                    </label>
+                    <input
+                      id="max_timeout"
+                      type="number"
+                      value={tools.shell.max_timeout}
+                      onChange={(e) => setTools({ ...tools, shell: { ...tools.shell, max_timeout: parseInt(e.target.value) || 0 } })}
+                      min={1}
+                      className="w-32 rounded-lg border border-navy-600 bg-navy-900 px-3 py-1.5 text-white text-sm focus:border-brand-500 focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Filesystem */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -183,17 +271,48 @@ export default function AgentFormClient({
           </label>
 
           {tools.filesystem.enabled && (
-            <label className="flex items-center gap-2 cursor-pointer ml-6">
-              <input
-                type="checkbox"
-                checked={tools.filesystem.read_only}
-                onChange={(e) => setTools({ ...tools, filesystem: { ...tools.filesystem, read_only: e.target.checked } })}
-                className="rounded border-navy-600"
-              />
-              <span className="text-sm text-mountain-400">Read-only filesystem</span>
-            </label>
+            <div className="ml-6 space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={tools.filesystem.read_only}
+                  onChange={(e) => setTools({ ...tools, filesystem: { ...tools.filesystem, read_only: e.target.checked } })}
+                  className="rounded border-navy-600"
+                />
+                <span className="text-sm text-mountain-400">Read-only filesystem</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setFsAdvanced(!fsAdvanced)}
+                className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                Advanced settings
+              </button>
+              {fsAdvanced && (
+                <div className="space-y-3 border-l-2 border-navy-600 pl-4">
+                  <TagInput
+                    label="Allowed Paths"
+                    value={tools.filesystem.allowed_paths}
+                    onChange={(v) => setTools({ ...tools, filesystem: { ...tools.filesystem, allowed_paths: v } })}
+                    validate={pathValidate}
+                    placeholder="Add path (e.g. /workspace)..."
+                    disabled={disabled}
+                  />
+                  <TagInput
+                    label="Denied Paths"
+                    value={tools.filesystem.denied_paths}
+                    onChange={(v) => setTools({ ...tools, filesystem: { ...tools.filesystem, denied_paths: v } })}
+                    validate={pathValidate}
+                    placeholder="Add path (e.g. /etc/shadow)..."
+                    disabled={disabled}
+                  />
+                </div>
+              )}
+            </div>
           )}
 
+          {/* Health */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -203,6 +322,31 @@ export default function AgentFormClient({
             />
             <span className="text-sm text-white">Health endpoint</span>
           </label>
+        </div>
+      </fieldset>
+
+      {/* Model Policy */}
+      <fieldset disabled={disabled} className="space-y-4">
+        <legend className="text-lg font-semibold text-white mb-4">Model Policy</legend>
+
+        <div>
+          <label htmlFor="model_policy_id" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
+            Model Policy
+          </label>
+          <select
+            id="model_policy_id"
+            value={modelPolicyId}
+            onChange={(e) => setModelPolicyId(e.target.value)}
+            className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
+          >
+            <option value="">None</option>
+            {policies.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-mountain-500 mt-1">
+            Controls which LLM models this agent can access.
+          </p>
         </div>
       </fieldset>
 
@@ -257,31 +401,67 @@ export default function AgentFormClient({
         <legend className="text-lg font-semibold text-white mb-4">Identity</legend>
 
         <div>
-          <label htmlFor="soul_md" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            SOUL.md
-          </label>
-          <textarea
-            id="soul_md"
-            value={soulMd}
-            onChange={(e) => setSoulMd(e.target.value)}
-            rows={6}
-            placeholder="Agent personality and purpose..."
-            className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm font-mono placeholder:text-mountain-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
-          />
+          <div className="flex items-center justify-between mb-1">
+            <label htmlFor="soul_md" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide">
+              SOUL.md
+            </label>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-mountain-500">{soulMd.length} characters</span>
+              <button
+                type="button"
+                onClick={() => setSoulPreview(!soulPreview)}
+                className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                {soulPreview ? 'Edit' : 'Preview'}
+              </button>
+            </div>
+          </div>
+          {soulPreview ? (
+            <pre className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm font-mono whitespace-pre-wrap min-h-[12rem] max-h-96 overflow-y-auto">
+              {soulMd || 'Nothing to preview'}
+            </pre>
+          ) : (
+            <textarea
+              id="soul_md"
+              value={soulMd}
+              onChange={(e) => setSoulMd(e.target.value)}
+              rows={12}
+              placeholder="Agent personality and purpose..."
+              className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm font-mono placeholder:text-mountain-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
+            />
+          )}
         </div>
 
         <div>
-          <label htmlFor="rules_md" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            RULES.md
-          </label>
-          <textarea
-            id="rules_md"
-            value={rulesMd}
-            onChange={(e) => setRulesMd(e.target.value)}
-            rows={6}
-            placeholder="Agent operational constraints..."
-            className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm font-mono placeholder:text-mountain-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
-          />
+          <div className="flex items-center justify-between mb-1">
+            <label htmlFor="rules_md" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide">
+              RULES.md
+            </label>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-mountain-500">{rulesMd.length} characters</span>
+              <button
+                type="button"
+                onClick={() => setRulesPreview(!rulesPreview)}
+                className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+              >
+                {rulesPreview ? 'Edit' : 'Preview'}
+              </button>
+            </div>
+          </div>
+          {rulesPreview ? (
+            <pre className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm font-mono whitespace-pre-wrap min-h-[12rem] max-h-96 overflow-y-auto">
+              {rulesMd || 'Nothing to preview'}
+            </pre>
+          ) : (
+            <textarea
+              id="rules_md"
+              value={rulesMd}
+              onChange={(e) => setRulesMd(e.target.value)}
+              rows={12}
+              placeholder="Agent operational constraints..."
+              className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm font-mono placeholder:text-mountain-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
+            />
+          )}
         </div>
       </fieldset>
 

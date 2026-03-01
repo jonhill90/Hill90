@@ -49,6 +49,7 @@ export default function AgentEditClient({ agentId }: { agentId: string }) {
         pids_limit: agent.pids_limit,
         soul_md: agent.soul_md,
         rules_md: agent.rules_md,
+        model_policy_id: agent.model_policy_id,
       }}
       agentUuid={agent.id}
       disabled={agent.status === 'running'}
