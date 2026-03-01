@@ -45,6 +45,7 @@ function makeToken(sub: string, roles: string[]) {
 
 const adminToken = makeToken('admin-user', ['admin', 'user']);
 const userToken = makeToken('regular-user', ['user']);
+const userBToken = makeToken('user-b', ['user']);
 
 describe('Model Policy CRUD routes', () => {
   beforeEach(() => {
@@ -62,10 +63,11 @@ describe('Model Policy CRUD routes', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /model-policies returns 403 for non-admin', async () => {
+  it('GET /model-policies returns 403 for no-role user', async () => {
+    const noRoleToken = makeToken('no-role-user', []);
     const res = await request(app)
       .get('/model-policies')
-      .set('Authorization', `Bearer ${userToken}`);
+      .set('Authorization', `Bearer ${noRoleToken}`);
     expect(res.status).toBe(403);
   });
 
@@ -77,19 +79,37 @@ describe('Model Policy CRUD routes', () => {
     expect(res.status).toBe(503);
   });
 
-  // List
+  // List — admin sees all
   it('GET /model-policies lists all policies for admin', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [
-        { id: 'p1', name: 'default', allowed_models: ['gpt-4o-mini'], max_requests_per_minute: null, max_tokens_per_day: null },
+        { id: 'p1', name: 'default', allowed_models: ['gpt-4o-mini'], created_by: null },
+        { id: 'p2', name: 'user-policy', allowed_models: ['my-model'], created_by: 'regular-user' },
       ],
     });
     const res = await request(app)
       .get('/model-policies')
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(1);
-    expect(res.body[0].name).toBe('default');
+    expect(res.body).toHaveLength(2);
+  });
+
+  // List — user sees own + platform
+  it('GET /model-policies lists own + platform policies for user', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { id: 'p1', name: 'default', created_by: null },
+        { id: 'p2', name: 'my-policy', created_by: 'regular-user' },
+      ],
+    });
+    const res = await request(app)
+      .get('/model-policies')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(200);
+    // Verify the query scopes to own + platform
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('created_by = $1 OR created_by IS NULL');
+    expect(call[1]).toEqual(['regular-user']);
   });
 
   // Get single
@@ -112,10 +132,23 @@ describe('Model Policy CRUD routes', () => {
     expect(res.status).toBe(404);
   });
 
-  // Create
-  it('POST /model-policies creates policy', async () => {
+  it('GET /model-policies/:id user can see platform policy', async () => {
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'p2', name: 'premium', allowed_models: ['gpt-4o'], max_requests_per_minute: 10, max_tokens_per_day: 100000 }],
+      rows: [{ id: 'p1', name: 'default', created_by: null }],
+    });
+    const res = await request(app)
+      .get('/model-policies/p1')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(200);
+    // Verify scoped query
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('created_by = $2 OR created_by IS NULL');
+  });
+
+  // Create — admin (platform policy, no model validation)
+  it('POST /model-policies creates platform policy for admin', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'p2', name: 'premium', allowed_models: ['gpt-4o'], created_by: null }],
     });
     const res = await request(app)
       .post('/model-policies')
@@ -123,6 +156,60 @@ describe('Model Policy CRUD routes', () => {
       .send({ name: 'premium', allowed_models: ['gpt-4o'], max_requests_per_minute: 10, max_tokens_per_day: 100000 });
     expect(res.status).toBe(201);
     expect(res.body.name).toBe('premium');
+    // Admin policies get created_by = null
+    const insertCall = mockQuery.mock.calls[0];
+    expect(insertCall[1][7]).toBeNull(); // created_by param
+  });
+
+  // Create — user (validates allowed_models)
+  it('POST /model-policies user creates own policy', async () => {
+    // First query: check user_models for "my-gpt4"
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-1' }] });
+    // Second query: check model_catalog for "gpt-4o-mini"
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // not a user model
+    mockQuery.mockResolvedValueOnce({ rows: [{ name: 'gpt-4o-mini' }] }); // is a platform model
+    // Insert
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'p3', name: 'my-policy', allowed_models: ['my-gpt4', 'gpt-4o-mini'], created_by: 'regular-user' }],
+    });
+
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ name: 'my-policy', allowed_models: ['my-gpt4', 'gpt-4o-mini'] });
+    expect(res.status).toBe(201);
+    expect(res.body.created_by).toBe('regular-user');
+  });
+
+  it('POST /model-policies user policy rejects other users models', async () => {
+    // user_models check: not found for this user
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // model_catalog check: not found
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ name: 'bad-policy', allowed_models: ['user-b-model'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Model 'user-b-model' not found");
+  });
+
+  it('POST /model-policies user policy accepts platform models', async () => {
+    // user_models check: not found
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // model_catalog check: found as platform model
+    mockQuery.mockResolvedValueOnce({ rows: [{ name: 'gpt-4o-mini' }] });
+    // Insert
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'p4', name: 'platform-only', allowed_models: ['gpt-4o-mini'], created_by: 'regular-user' }],
+    });
+
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ name: 'platform-only', allowed_models: ['gpt-4o-mini'] });
+    expect(res.status).toBe(201);
   });
 
   it('POST /model-policies rejects missing name', async () => {
@@ -152,8 +239,8 @@ describe('Model Policy CRUD routes', () => {
     expect(res.status).toBe(409);
   });
 
-  // Update
-  it('PUT /model-policies/:id updates policy', async () => {
+  // Update — admin can update any
+  it('PUT /model-policies/:id updates policy (admin)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini'] }] }) // existence check
       .mockResolvedValueOnce({
@@ -165,6 +252,35 @@ describe('Model Policy CRUD routes', () => {
       .send({ allowed_models: ['gpt-4o', 'gpt-4o-mini'], max_requests_per_minute: 20 });
     expect(res.status).toBe(200);
     expect(res.body.max_requests_per_minute).toBe(20);
+  });
+
+  // Update — user can only update own
+  it('PUT /model-policies/:id user can update own policy', async () => {
+    // Ownership check returns the policy (created_by matches)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p3', allowed_models: ['my-gpt4'], created_by: 'regular-user' }] });
+    // Update
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'p3', name: 'updated', allowed_models: ['my-gpt4'], created_by: 'regular-user' }],
+    });
+    const res = await request(app)
+      .put('/model-policies/p3')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ name: 'updated' });
+    expect(res.status).toBe(200);
+    // Verify ownership-scoped query
+    const checkCall = mockQuery.mock.calls[0];
+    expect(checkCall[0]).toContain('created_by = $2');
+    expect(checkCall[1]).toEqual(['p3', 'regular-user']);
+  });
+
+  it('PUT /model-policies/:id user cannot update platform policy', async () => {
+    // Ownership check returns nothing (platform policy has created_by = NULL, user query won't match)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    const res = await request(app)
+      .put('/model-policies/p1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ name: 'hijack' });
+    expect(res.status).toBe(404);
   });
 
   it('PUT /model-policies/:id returns 404 for unknown', async () => {
@@ -271,8 +387,8 @@ describe('Model Policy CRUD routes', () => {
     expect(res.body[0].model_aliases).toEqual({ fast: 'gpt-4o-mini' });
   });
 
-  // Delete
-  it('DELETE /model-policies/:id deletes policy', async () => {
+  // Delete — admin
+  it('DELETE /model-policies/:id deletes policy (admin)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [] }) // no agents assigned
       .mockResolvedValueOnce({ rowCount: 1 }); // delete succeeds
@@ -281,6 +397,31 @@ describe('Model Policy CRUD routes', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.deleted).toBe(true);
+  });
+
+  // Delete — user can delete own
+  it('DELETE /model-policies/:id user deletes own policy', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // no agents assigned
+      .mockResolvedValueOnce({ rowCount: 1 }); // delete succeeds
+    const res = await request(app)
+      .delete('/model-policies/p3')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(200);
+    // Verify ownership-scoped delete
+    const deleteCall = mockQuery.mock.calls[1];
+    expect(deleteCall[0]).toContain('created_by = $2');
+    expect(deleteCall[1]).toEqual(['p3', 'regular-user']);
+  });
+
+  it('DELETE /model-policies/:id user cannot delete platform policy', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // no agents assigned
+      .mockResolvedValueOnce({ rowCount: 0 }); // delete finds nothing (scoped by created_by)
+    const res = await request(app)
+      .delete('/model-policies/p1')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(404);
   });
 
   it('DELETE /model-policies/:id returns 409 when agents assigned', async () => {

@@ -28,6 +28,17 @@ model_list:
       model: openai/text-embedding-ada-002
       api_key: os.environ/OPENAI_API_KEY
 
+  # BYOK wildcard routes — accept per-request api_key from AI service
+  - model_name: openai/*
+    litellm_params:
+      model: openai/*
+      configurable_clientside_auth_params: ["api_key", "api_base"]
+
+  - model_name: anthropic/*
+    litellm_params:
+      model: anthropic/*
+      configurable_clientside_auth_params: ["api_key"]
+
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 

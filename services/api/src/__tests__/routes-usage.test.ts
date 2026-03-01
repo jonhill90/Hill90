@@ -60,11 +60,56 @@ describe('Usage query routes', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /usage returns 403 for non-admin', async () => {
+  it('GET /usage returns 403 for no-role user', async () => {
+    const noRoleToken = makeToken('no-role', []);
+    const res = await request(app)
+      .get('/usage')
+      .set('Authorization', `Bearer ${noRoleToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  // User-scoped: owner filter applied
+  it('GET /usage user sees own usage only (owner filter)', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        total_requests: '5',
+        successful_requests: '5',
+        total_input_tokens: '2000',
+        total_output_tokens: '1000',
+        total_tokens: '3000',
+        total_cost_usd: '0.015000',
+      }],
+    });
     const res = await request(app)
       .get('/usage')
       .set('Authorization', `Bearer ${userToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    // Verify owner filter is in the query
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).toContain('owner = $');
+    expect(call[1][0]).toBe('regular-user');
+  });
+
+  // Admin: no owner filter
+  it('GET /usage admin sees all (no owner filter)', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        total_requests: '10',
+        successful_requests: '8',
+        total_input_tokens: '5000',
+        total_output_tokens: '2000',
+        total_tokens: '7000',
+        total_cost_usd: '0.035000',
+      }],
+    });
+    const res = await request(app)
+      .get('/usage')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.total_requests).toBe('10');
+    // Verify no owner filter
+    const call = mockQuery.mock.calls[0];
+    expect(call[0]).not.toContain('owner = $');
   });
 
   it('GET /usage returns summary without group_by', async () => {
@@ -243,5 +288,22 @@ describe('Usage query routes', () => {
     expect(res.body.data).toHaveLength(2);
     const call = mockQuery.mock.calls[0];
     expect(call[0]).toContain('GROUP BY delegation_id');
+  });
+
+  // User-scoped with filters
+  it('GET /usage user filters combine with owner scope', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ total_requests: '2', successful_requests: '2', total_input_tokens: '200', total_output_tokens: '100', total_tokens: '300', total_cost_usd: '0.002000' }],
+    });
+    const res = await request(app)
+      .get('/usage?agent_id=my-agent&group_by=model')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(200);
+    const call = mockQuery.mock.calls[0];
+    // Both owner and agent_id filters should be present
+    expect(call[0]).toContain('owner = $');
+    expect(call[0]).toContain('agent_id = $');
+    expect(call[1][0]).toBe('regular-user');
+    expect(call[1][1]).toBe('my-agent');
   });
 });

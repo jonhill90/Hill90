@@ -220,6 +220,10 @@ components:
         updated_by:
           type: string
           nullable: true
+        created_by:
+          type: string
+          nullable: true
+          description: Owner (user sub). NULL for platform policies.
 
     UsageSummary:
       type: object
@@ -1218,7 +1222,7 @@ paths:
   /model-policies:
     get:
       summary: List model policies
-      description: Returns all model policies. Requires admin role.
+      description: Returns model policies. Admins see all; users see own + platform.
       security:
         - bearerAuth: []
       responses:
@@ -1237,7 +1241,7 @@ paths:
 
     post:
       summary: Create model policy
-      description: Creates a new model policy. Requires admin role.
+      description: Creates a new model policy. Admin policies are platform-scoped; user policies are owner-scoped.
       security:
         - bearerAuth: []
       requestBody:
@@ -1291,7 +1295,7 @@ paths:
 
     get:
       summary: Get model policy
-      description: Returns a single model policy. Requires admin role.
+      description: Returns a single model policy. Users can see own + platform policies.
       security:
         - bearerAuth: []
       responses:
@@ -1310,7 +1314,7 @@ paths:
 
     put:
       summary: Update model policy
-      description: Updates a model policy. Requires admin role.
+      description: Updates a model policy. Users can update own policies; admins can update any.
       security:
         - bearerAuth: []
       requestBody:
@@ -1352,7 +1356,7 @@ paths:
 
     delete:
       summary: Delete model policy
-      description: Deletes a model policy. Fails if agents are assigned. Requires admin role.
+      description: Deletes a model policy. Fails if agents are assigned. Users can delete own; admins can delete any.
       security:
         - bearerAuth: []
       responses:
@@ -1380,7 +1384,7 @@ paths:
       description: >
         Query model usage with optional filtering by agent, model, request type,
         and date range. Supports grouping by agent, model, day, or request type.
-        Requires admin role.
+        Users see own usage only (via owner column); admins see all.
       security:
         - bearerAuth: []
       parameters:
