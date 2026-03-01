@@ -895,6 +895,326 @@ paths:
         "403":
           description: Not authorized to search this agent's knowledge
 
+  /provider-connections:
+    get:
+      summary: List provider connections
+      description: Returns provider connections owned by the authenticated user. API keys are never exposed.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Connection list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    name:
+                      type: string
+                    provider:
+                      type: string
+                    api_base_url:
+                      type: string
+                      nullable: true
+                    is_valid:
+                      type: boolean
+                      nullable: true
+                    created_at:
+                      type: string
+                      format: date-time
+                    updated_at:
+                      type: string
+                      format: date-time
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+    post:
+      summary: Create provider connection
+      description: >
+        Creates a new provider connection with an encrypted API key.
+        The key is encrypted at rest and never returned in responses.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - provider
+                - api_key
+              properties:
+                name:
+                  type: string
+                provider:
+                  type: string
+                  description: Provider identifier (e.g., openai, anthropic)
+                api_key:
+                  type: string
+                  description: Provider API key (encrypted at rest, never returned)
+                api_base_url:
+                  type: string
+                  description: Custom API base URL (optional)
+      responses:
+        "201":
+          description: Connection created
+        "400":
+          description: Invalid input
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "409":
+          description: Duplicate connection name
+
+  /provider-connections/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    put:
+      summary: Update provider connection
+      description: Updates a provider connection. If api_key is provided, it is re-encrypted and is_valid is reset.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                provider:
+                  type: string
+                api_key:
+                  type: string
+                api_base_url:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Connection updated
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Connection not found
+        "409":
+          description: Duplicate connection name
+
+    delete:
+      summary: Delete provider connection
+      description: Deletes a provider connection. Cascades to user models referencing it.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Connection deleted
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Connection not found
+
+  /provider-connections/{id}/validate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      summary: Validate provider connection
+      description: >
+        Tests whether the provider key is valid by sending a lightweight request
+        through the AI service. Updates is_valid on the connection.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  is_valid:
+                    type: boolean
+                  error:
+                    type: string
+                    description: Error message if validation failed
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Connection not found
+
+  /user-models:
+    get:
+      summary: List user models
+      description: Returns models defined by the authenticated user.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    name:
+                      type: string
+                    connection_id:
+                      type: string
+                      format: uuid
+                    litellm_model:
+                      type: string
+                    description:
+                      type: string
+                    is_active:
+                      type: boolean
+                    created_at:
+                      type: string
+                      format: date-time
+                    updated_at:
+                      type: string
+                      format: date-time
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+    post:
+      summary: Create user model
+      description: >
+        Creates a user-defined model referencing a provider connection.
+        Name must not conflict with active platform models.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - connection_id
+                - litellm_model
+              properties:
+                name:
+                  type: string
+                  description: Friendly model name (unique per user)
+                connection_id:
+                  type: string
+                  format: uuid
+                  description: Provider connection to use (must be owned by user)
+                litellm_model:
+                  type: string
+                  description: Provider-prefixed model string (e.g., openai/gpt-4o)
+                description:
+                  type: string
+      responses:
+        "201":
+          description: Model created
+        "400":
+          description: Invalid input or unowned connection
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "409":
+          description: Name conflict with platform model or duplicate name
+
+  /user-models/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    put:
+      summary: Update user model
+      description: Updates a user-defined model. Name collision checks apply on rename.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                connection_id:
+                  type: string
+                  format: uuid
+                litellm_model:
+                  type: string
+                description:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: Model updated
+        "400":
+          description: Invalid input or unowned connection
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Model not found
+        "409":
+          description: Name conflict
+
+    delete:
+      summary: Delete user model
+      description: Deletes a user-defined model.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Model deleted
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Model not found
+
   /model-policies:
     get:
       summary: List model policies
