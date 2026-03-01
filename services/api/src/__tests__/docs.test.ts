@@ -162,6 +162,11 @@ const EXPECTED_PATHS = [
   '/profile',
   '/profile/avatar',
   '/profile/password',
+  '/shared-knowledge/collections',
+  '/shared-knowledge/collections/{id}',
+  '/shared-knowledge/sources',
+  '/shared-knowledge/sources/{id}',
+  '/shared-knowledge/search',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token'];

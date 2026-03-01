@@ -21,6 +21,7 @@ class AgentClaims:
     iat: int
     jti: str
     scopes: list[str] = field(default_factory=list)
+    owner: str | None = None
 
 
 EXPECTED_ISSUER = "hill90-api"
@@ -78,4 +79,5 @@ def verify_agent_token(
         iat=payload["iat"],
         jti=jti,
         scopes=payload.get("scopes", []),
+        owner=payload.get("owner"),
     )

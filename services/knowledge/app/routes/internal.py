@@ -85,17 +85,21 @@ async def refresh_token(body: RefreshRequest, request: Request) -> dict[str, Any
     now = int(time.time())
     new_exp = now + 3600
 
-    # Issue new JWT
+    # Issue new JWT — preserve all claims from the original token
+    new_payload: dict[str, Any] = {
+        "sub": claims.sub,
+        "iss": "hill90-api",
+        "aud": "hill90-akm",
+        "exp": new_exp,
+        "iat": now,
+        "jti": new_jti,
+        "scopes": claims.scopes,
+    }
+    if claims.owner is not None:
+        new_payload["owner"] = claims.owner
+
     new_token = jwt.encode(
-        {
-            "sub": claims.sub,
-            "iss": "hill90-api",
-            "aud": "hill90-akm",
-            "exp": new_exp,
-            "iat": now,
-            "jti": new_jti,
-            "scopes": claims.scopes,
-        },
+        new_payload,
         private_key,
         algorithm="EdDSA",
     )

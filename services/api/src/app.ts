@@ -3,6 +3,7 @@ import { createRequireAuth, createJwksKeyResolver } from './middleware/auth';
 import type { JwtHeader } from 'jsonwebtoken';
 import agentsRouter from './routes/agents';
 import knowledgeRouter from './routes/knowledge';
+import sharedKnowledgeRouter from './routes/shared-knowledge';
 import modelPoliciesRouter from './routes/model-policies';
 import providerConnectionsRouter from './routes/provider-connections';
 import userModelsRouter from './routes/user-models';
@@ -60,6 +61,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Knowledge proxy routes (read-only, owner-scoped)
   app.use('/knowledge', requireAuth, knowledgeRouter);
+
+  // Shared knowledge proxy routes (user-scoped CRUD)
+  app.use('/shared-knowledge', requireAuth, sharedKnowledgeRouter);
 
   // User profile routes
   app.use('/profile', requireAuth, profileRouter);
