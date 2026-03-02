@@ -312,9 +312,9 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // Should show the preset name in the Tool Access section
+    // Should show the preset name in the Tool Access section (now prefixed with "Skill:")
     await waitFor(() => {
-      expect(screen.getByText('Developer')).toBeInTheDocument()
+      expect(screen.getByText('Skill: Developer')).toBeInTheDocument()
     })
   })
 
@@ -328,5 +328,21 @@ describe('AgentDetailClient', () => {
 
     // Should show "Custom" label in Tool Access since tool_preset_id is null
     expect(screen.getByText('Custom')).toBeInTheDocument()
+  })
+
+  // T14: Agent detail badge says "Skill: Developer" when preset assigned
+  it('agent detail shows skill badge with Skill label', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_PRESET as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Badge should say "Skill:" prefix
+    await waitFor(() => {
+      expect(screen.getByText(/Skill:\s*Developer/i)).toBeInTheDocument()
+    })
   })
 })

@@ -10,21 +10,22 @@ interface ToolsConfig {
   health: { enabled: boolean }
 }
 
-interface ToolPreset {
+interface Skill {
   id: string
   name: string
   description: string
   tools_config: ToolsConfig
+  instructions_md: string
   is_platform: boolean
   created_at: string
   updated_at: string
 }
 
-export default function ToolProfilesClient() {
+export default function SkillsClient() {
   const { data: session } = useSession()
   const isAdmin = (session?.user as any)?.roles?.includes('admin')
 
-  const [presets, setPresets] = useState<ToolPreset[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -33,6 +34,7 @@ export default function ToolProfilesClient() {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    instructions_md: '',
     shellEnabled: false,
     filesystemEnabled: false,
     readOnly: false,
@@ -45,25 +47,26 @@ export default function ToolProfilesClient() {
   })
   const [formError, setFormError] = useState('')
 
-  const fetchPresets = useCallback(async () => {
+  const fetchSkills = useCallback(async () => {
     try {
       const res = await fetch('/api/tool-presets')
-      if (res.ok) setPresets(await res.json())
+      if (res.ok) setSkills(await res.json())
     } catch (err) {
-      console.error('Failed to fetch presets:', err)
+      console.error('Failed to fetch skills:', err)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    fetchPresets()
-  }, [fetchPresets])
+    fetchSkills()
+  }, [fetchSkills])
 
   const resetForm = () => {
     setFormData({
       name: '',
       description: '',
+      instructions_md: '',
       shellEnabled: false,
       filesystemEnabled: false,
       readOnly: false,
@@ -107,6 +110,7 @@ export default function ToolProfilesClient() {
     const body: Record<string, unknown> = {
       name: formData.name.trim(),
       tools_config,
+      instructions_md: formData.instructions_md,
     }
     if (formData.description.trim()) {
       body.description = formData.description.trim()
@@ -124,39 +128,40 @@ export default function ToolProfilesClient() {
 
       if (res.ok) {
         resetForm()
-        await fetchPresets()
+        await fetchSkills()
       } else {
         const data = await res.json()
-        setFormError(data.error || (editingId ? 'Failed to update profile' : 'Failed to create profile'))
+        setFormError(data.error || (editingId ? 'Failed to update skill' : 'Failed to create skill'))
       }
     } catch {
       setFormError('Request failed')
     }
   }
 
-  const handleDelete = async (preset: ToolPreset) => {
-    if (!confirm(`Delete profile "${preset.name}"? Agents using this profile will keep their current tool configuration.`)) return
-    setActionLoading(preset.id)
+  const handleDelete = async (skill: Skill) => {
+    if (!confirm(`Delete skill "${skill.name}"? Agents using this skill will keep their current tool configuration.`)) return
+    setActionLoading(skill.id)
     try {
-      const res = await fetch(`/api/tool-presets/${preset.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/tool-presets/${skill.id}`, { method: 'DELETE' })
       if (res.ok) {
-        await fetchPresets()
+        await fetchSkills()
       } else {
         const data = await res.json()
-        alert(data.error || 'Failed to delete profile')
+        alert(data.error || 'Failed to delete skill')
       }
     } catch {
-      alert('Failed to delete profile')
+      alert('Failed to delete skill')
     } finally {
       setActionLoading(null)
     }
   }
 
-  const handleEdit = (preset: ToolPreset) => {
-    const tc = preset.tools_config
+  const handleEdit = (skill: Skill) => {
+    const tc = skill.tools_config
     setFormData({
-      name: preset.name,
-      description: preset.description || '',
+      name: skill.name,
+      description: skill.description || '',
+      instructions_md: skill.instructions_md || '',
       shellEnabled: tc.shell.enabled,
       filesystemEnabled: tc.filesystem.enabled,
       readOnly: tc.filesystem.read_only,
@@ -167,7 +172,7 @@ export default function ToolProfilesClient() {
       denied_paths: tc.filesystem.denied_paths.join(', '),
       max_timeout: tc.shell.max_timeout.toString(),
     })
-    setEditingId(preset.id)
+    setEditingId(skill.id)
     setShowForm(true)
     setFormError('')
   }
@@ -184,9 +189,9 @@ export default function ToolProfilesClient() {
     <>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">Tool Profiles</h1>
+          <h1 className="text-2xl font-bold">Skills</h1>
           <p className="text-sm text-mountain-400 mt-1">
-            {presets.length} profile{presets.length !== 1 ? 's' : ''}
+            {skills.length} skill{skills.length !== 1 ? 's' : ''}
           </p>
         </div>
         {isAdmin && (
@@ -194,7 +199,7 @@ export default function ToolProfilesClient() {
             onClick={() => { resetForm(); setShowForm(true) }}
             className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
           >
-            Add Profile
+            Add Skill
           </button>
         )}
       </div>
@@ -203,7 +208,7 @@ export default function ToolProfilesClient() {
       {showForm && (
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
           <h2 className="text-lg font-semibold text-white mb-4">
-            {editingId ? 'Edit Tool Profile' : 'New Tool Profile'}
+            {editingId ? 'Edit Skill' : 'New Skill'}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -229,6 +234,23 @@ export default function ToolProfilesClient() {
                   placeholder="Brief description"
                 />
               </div>
+            </div>
+
+            {/* Instructions */}
+            <div>
+              <label className="block text-sm text-mountain-400 mb-1">
+                Instructions <span className="text-mountain-500">(optional)</span>
+              </label>
+              <textarea
+                value={formData.instructions_md}
+                onChange={(e) => setFormData({ ...formData, instructions_md: e.target.value })}
+                rows={4}
+                className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                placeholder="Behavioral instructions for agents using this skill"
+              />
+              <p className="text-xs text-mountain-500 mt-1">
+                Tool access is applied when a skill is assigned to an agent. Instructions take effect on the agent&apos;s next start.
+              </p>
             </div>
 
             {/* Tool toggles */}
@@ -313,38 +335,38 @@ export default function ToolProfilesClient() {
         </div>
       )}
 
-      {/* Presets list */}
-      {presets.length === 0 ? (
+      {/* Skills list */}
+      {skills.length === 0 ? (
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
-          <p className="text-mountain-400 mb-4">No tool profiles yet</p>
+          <p className="text-mountain-400 mb-4">No skills yet</p>
           <p className="text-sm text-mountain-500">
-            Create a profile to define reusable tool configurations for agents.
+            Create a skill to define reusable tool configurations and instructions for agents.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
-          {presets.map((preset) => {
-            const isExpanded = expandedId === preset.id
-            const tc = preset.tools_config
+          {skills.map((skill) => {
+            const isExpanded = expandedId === skill.id
+            const tc = skill.tools_config
 
             return (
               <div
-                key={preset.id}
+                key={skill.id}
                 className="rounded-lg border border-navy-700 bg-navy-900 overflow-hidden"
               >
                 {/* Summary row */}
                 <div
                   className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-navy-800 transition-colors"
-                  onClick={() => setExpandedId(isExpanded ? null : preset.id)}
+                  onClick={() => setExpandedId(isExpanded ? null : skill.id)}
                   role="button"
                   tabIndex={0}
                   aria-expanded={isExpanded}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setExpandedId(isExpanded ? null : preset.id) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setExpandedId(isExpanded ? null : skill.id) }}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3">
-                      <span className="font-medium text-white">{preset.name}</span>
-                      {preset.is_platform && (
+                      <span className="font-medium text-white">{skill.name}</span>
+                      {skill.is_platform && (
                         <span className="px-2 py-0.5 text-xs rounded-md bg-mountain-500/20 text-mountain-300 border border-mountain-500/30">
                           Platform
                         </span>
@@ -368,8 +390,8 @@ export default function ToolProfilesClient() {
                         )}
                       </div>
                     </div>
-                    {preset.description && (
-                      <p className="text-xs text-mountain-400 mt-1 truncate">{preset.description}</p>
+                    {skill.description && (
+                      <p className="text-xs text-mountain-400 mt-1 truncate">{skill.description}</p>
                     )}
                   </div>
                   <div className="shrink-0">
@@ -387,8 +409,18 @@ export default function ToolProfilesClient() {
                 {/* Expanded detail */}
                 {isExpanded && (
                   <div className="border-t border-navy-700 px-4 py-4 bg-navy-800/50">
-                    {preset.description && (
-                      <p className="text-sm text-mountain-300 mb-4">{preset.description}</p>
+                    {skill.description && (
+                      <p className="text-sm text-mountain-300 mb-4">{skill.description}</p>
+                    )}
+
+                    {/* Instructions preview */}
+                    {skill.instructions_md && (
+                      <div className="mb-4">
+                        <h3 className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-2">Instructions</h3>
+                        <div className="rounded-md border border-navy-700 bg-navy-900 p-3">
+                          <p className="text-sm text-mountain-300 whitespace-pre-wrap">{skill.instructions_md}</p>
+                        </div>
+                      </div>
                     )}
 
                     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm mb-4">
@@ -447,22 +479,22 @@ export default function ToolProfilesClient() {
 
                       <div>
                         <dt className="text-mountain-400">Created</dt>
-                        <dd className="text-white mt-1">{new Date(preset.created_at).toLocaleString()}</dd>
+                        <dd className="text-white mt-1">{new Date(skill.created_at).toLocaleString()}</dd>
                       </div>
                     </dl>
 
                     {/* Actions — admin only, non-platform only */}
-                    {isAdmin && !preset.is_platform && (
+                    {isAdmin && !skill.is_platform && (
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleEdit(preset)}
+                          onClick={() => handleEdit(skill)}
                           className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
                         >
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(preset)}
-                          disabled={actionLoading === preset.id}
+                          onClick={() => handleDelete(skill)}
+                          disabled={actionLoading === skill.id}
                           className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                         >
                           Delete
