@@ -27,7 +27,8 @@ export default function ToolProfilesClient() {
   const [presets, setPresets] = useState<ToolPreset[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [showCreate, setShowCreate] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
@@ -74,7 +75,8 @@ export default function ToolProfilesClient() {
       max_timeout: '300',
     })
     setFormError('')
-    setShowCreate(false)
+    setShowForm(false)
+    setEditingId(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -111,8 +113,11 @@ export default function ToolProfilesClient() {
     }
 
     try {
-      const res = await fetch('/api/tool-presets', {
-        method: 'POST',
+      const url = editingId
+        ? `/api/tool-presets/${editingId}`
+        : '/api/tool-presets'
+      const res = await fetch(url, {
+        method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
@@ -122,7 +127,7 @@ export default function ToolProfilesClient() {
         await fetchPresets()
       } else {
         const data = await res.json()
-        setFormError(data.error || 'Failed to create profile')
+        setFormError(data.error || (editingId ? 'Failed to update profile' : 'Failed to create profile'))
       }
     } catch {
       setFormError('Request failed')
@@ -147,6 +152,26 @@ export default function ToolProfilesClient() {
     }
   }
 
+  const handleEdit = (preset: ToolPreset) => {
+    const tc = preset.tools_config
+    setFormData({
+      name: preset.name,
+      description: preset.description || '',
+      shellEnabled: tc.shell.enabled,
+      filesystemEnabled: tc.filesystem.enabled,
+      readOnly: tc.filesystem.read_only,
+      healthEnabled: tc.health.enabled,
+      allowed_binaries: tc.shell.allowed_binaries.join(', '),
+      denied_patterns: tc.shell.denied_patterns.join(', '),
+      allowed_paths: tc.filesystem.allowed_paths.join(', '),
+      denied_paths: tc.filesystem.denied_paths.join(', '),
+      max_timeout: tc.shell.max_timeout.toString(),
+    })
+    setEditingId(preset.id)
+    setShowForm(true)
+    setFormError('')
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -166,7 +191,7 @@ export default function ToolProfilesClient() {
         </div>
         {isAdmin && (
           <button
-            onClick={() => { resetForm(); setShowCreate(true) }}
+            onClick={() => { resetForm(); setShowForm(true) }}
             className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
           >
             Add Profile
@@ -174,10 +199,12 @@ export default function ToolProfilesClient() {
         )}
       </div>
 
-      {/* Create form */}
-      {showCreate && (
+      {/* Create/Edit form */}
+      {showForm && (
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
-          <h2 className="text-lg font-semibold text-white mb-4">New Tool Profile</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">
+            {editingId ? 'Edit Tool Profile' : 'New Tool Profile'}
+          </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -272,7 +299,7 @@ export default function ToolProfilesClient() {
                 type="submit"
                 className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
               >
-                Create
+                {editingId ? 'Update' : 'Create'}
               </button>
               <button
                 type="button"
@@ -427,6 +454,12 @@ export default function ToolProfilesClient() {
                     {/* Actions — admin only, non-platform only */}
                     {isAdmin && !preset.is_platform && (
                       <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleEdit(preset)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                        >
+                          Edit
+                        </button>
                         <button
                           onClick={() => handleDelete(preset)}
                           disabled={actionLoading === preset.id}

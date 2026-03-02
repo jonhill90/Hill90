@@ -99,6 +99,9 @@ function mockFetchDefaults(presets = MOCK_PRESETS) {
     if (url === '/api/tool-presets' && opts?.method === 'POST') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'new-preset', ...JSON.parse(opts.body) }) })
     }
+    if (typeof url === 'string' && url.startsWith('/api/tool-presets/') && opts?.method === 'PUT') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: url.split('/').pop(), ...JSON.parse(opts.body) }) })
+    }
     if (typeof url === 'string' && url.startsWith('/api/tool-presets/') && opts?.method === 'DELETE') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
     }
@@ -266,6 +269,110 @@ describe('ToolProfilesClient', () => {
     expect(toolProfiles).toBeDefined()
     expect(toolProfiles!.label).toBe('Tool Profiles')
     expect(toolProfiles!.href).toBe('/harness/tool-profiles')
+  })
+
+  // Edit: non-platform preset shows Edit button
+  it('non-platform preset shows Edit button in expanded view', async () => {
+    render(<ToolProfilesClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('CI Runner'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Edit')).toBeInTheDocument()
+    })
+  })
+
+  // Edit: platform presets do not show Edit button
+  it('platform presets do not show Edit button', async () => {
+    render(<ToolProfilesClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Developer'))
+
+    await waitFor(() => {
+      expect(screen.getByText('bash')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Edit')).not.toBeInTheDocument()
+  })
+
+  // Edit: clicking Edit pre-populates the form
+  it('clicking Edit pre-populates form with preset values', async () => {
+    render(<ToolProfilesClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    })
+
+    // Expand CI Runner
+    fireEvent.click(screen.getByText('CI Runner'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Edit')).toBeInTheDocument()
+    })
+
+    // Click Edit
+    fireEvent.click(screen.getByText('Edit'))
+
+    // Form should appear with Edit heading
+    await waitFor(() => {
+      expect(screen.getByText('Edit Tool Profile')).toBeInTheDocument()
+    })
+
+    // Name should be pre-filled
+    const nameInput = screen.getByPlaceholderText('Profile name') as HTMLInputElement
+    expect(nameInput.value).toBe('CI Runner')
+
+    // Description pre-filled
+    const descInput = screen.getByPlaceholderText('Brief description') as HTMLInputElement
+    expect(descInput.value).toBe('Custom preset for CI pipelines.')
+
+    // Shell should be checked (CI Runner has shell enabled)
+    const shellCheckbox = screen.getByLabelText('Shell') as HTMLInputElement
+    expect(shellCheckbox.checked).toBe(true)
+
+    // Submit button should say Update
+    expect(screen.getByText('Update')).toBeInTheDocument()
+  })
+
+  // Edit: saving sends PUT to correct endpoint
+  it('saving edit sends PUT request with updated payload', async () => {
+    render(<ToolProfilesClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    })
+
+    // Expand and click Edit
+    fireEvent.click(screen.getByText('CI Runner'))
+    await waitFor(() => {
+      expect(screen.getByText('Edit')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Edit'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Edit Tool Profile')).toBeInTheDocument()
+    })
+
+    // Change name
+    fireEvent.change(screen.getByPlaceholderText('Profile name'), { target: { value: 'CI Runner v2' } })
+
+    // Click Update
+    fireEvent.click(screen.getByText('Update'))
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/tool-presets/preset-custom', expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"name":"CI Runner v2"'),
+      }))
+    })
   })
 
   // Tool summary badges on rows
