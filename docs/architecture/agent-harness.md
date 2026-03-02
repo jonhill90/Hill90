@@ -131,6 +131,48 @@ Docker enforces resource limits from agent configuration:
 - **Volumes**: three named volumes per agent — `agentbox-{agent_id}-workspace`, `agentbox-{agent_id}-logs`, `agentbox-{agent_id}-data`
 - **Network**: `hill90_agent_internal` only
 
+### Runtime Events
+
+Agentbox emits structured JSONL events for every tool invocation, providing operators with real-time visibility into agent behavior without exposing raw command output or file contents.
+
+**Event file**: `/var/log/agentbox/events.jsonl` (inside the agent container, on the `agentbox-{agent_id}-logs` volume)
+
+**Event schema**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string (UUID) | Unique event identifier |
+| `timestamp` | string (ISO 8601) | Event time in UTC |
+| `type` | string | Event type (see table below) |
+| `tool` | string | Tool category: `shell`, `filesystem`, `identity`, `health` |
+| `input_summary` | string | What was requested (truncated to 200 chars) |
+| `output_summary` | string or null | Structured metadata about the result — never raw content |
+| `duration_ms` | integer or null | Execution time in milliseconds |
+| `success` | boolean or null | Whether the operation succeeded |
+| `metadata` | object or null | Optional additional key-value data |
+
+**Event types and output policy**:
+
+| Event Type | Tool | `input_summary` | `output_summary` | What is NOT persisted |
+|---|---|---|---|---|
+| `command_start` | shell | Command string (≤200 chars) | `null` | N/A |
+| `command_complete` | shell | Command string (≤200 chars) | `"exit {code}, {N} bytes stdout"` | stdout/stderr content |
+| `file_read` | filesystem | File path | `"{N} bytes"` | File contents |
+| `file_write` | filesystem | File path | `"{N} bytes written"` | File contents |
+| `directory_list` | filesystem | Directory path | `"{N} entries"` | Directory listing |
+| `identity_read` | identity | `"SOUL.md + RULES.md"` | `"{N} bytes"` | Identity content |
+| `health_check` | health | `"health_check"` | `"cpu={N}%, mem={N}%, disk={N}%"` | Raw /proc data |
+
+**Redaction policy**: No raw stdout, stderr, or file contents are persisted in any event. The `output_summary` field contains only structured metadata (exit codes, byte counts, percentages). Shell command strings in `input_summary` may contain inline secrets — this is comparable to shell history behavior and is an accepted V1 limitation.
+
+**Access**: `GET /agents/{id}/events` with `requireRole('user')` and owner scoping (same pattern as `GET /agents/{id}`). Supports SSE streaming (`?follow=true`) or one-shot JSON array. Returns 409 for stopped agents — events are readable only while the container exists.
+
+**V1 limitations**:
+- Events are not persisted to a database — they exist only in the container's log volume
+- After container removal (agent stop), the events endpoint returns 409; volume data persists but has no read path
+- No file rotation or size limits — agents are expected to be short-lived
+- No command string secret redaction in `input_summary`
+
 ---
 
 ## Agent Lifecycle
@@ -160,7 +202,8 @@ Key columns: `id` (UUID PK), `agent_id` (VARCHAR unique slug), `name`, `descript
 | POST | `/agents/{id}/start` | admin | Write config, inject tokens, create container |
 | POST | `/agents/{id}/stop` | admin | Revoke tokens, stop container |
 | GET | `/agents/{id}/status` | user | Live container inspection + DB state |
-| GET | `/agents/{id}/logs` | admin | Tail logs or SSE stream |
+| GET | `/agents/{id}/events` | user | Structured event stream (SSE or JSON) |
+| GET | `/agents/{id}/logs` | admin | Tail raw container logs (SSE or text) |
 
 ### Start Flow
 

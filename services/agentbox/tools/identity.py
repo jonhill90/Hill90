@@ -4,20 +4,24 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 from fastmcp import FastMCP
 
 from app.config import AgentConfig
+from app.events import EventEmitter
 
 server = FastMCP("IdentityTools")
 _soul: str = ""
 _rules: str = ""
 _config: AgentConfig | None = None
+_emitter: EventEmitter | None = None
 
 
-def configure(config: AgentConfig) -> None:
-    global _soul, _rules, _config
+def configure(config: AgentConfig, emitter: EventEmitter | None = None) -> None:
+    global _soul, _rules, _config, _emitter
     _config = config
+    _emitter = emitter
 
     soul_path = "/etc/agentbox/SOUL.md"
     rules_path = "/etc/agentbox/RULES.md"
@@ -38,10 +42,25 @@ async def get_identity() -> str:
     Returns:
         JSON string with agent id, name, description, soul, and rules
     """
-    return json.dumps({
+    t0 = time.monotonic()
+    result = {
         "id": _config.id if _config else "unknown",
         "name": _config.name if _config else "Unknown Agent",
         "description": _config.description if _config else "",
         "soul": _soul,
         "rules": _rules,
-    })
+    }
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    if _emitter:
+        total_size = len(_soul) + len(_rules)
+        _emitter.emit(
+            type="identity_read",
+            tool="identity",
+            input_summary="SOUL.md + RULES.md",
+            output_summary=f"{total_size} bytes",
+            duration_ms=duration_ms,
+            success=True,
+        )
+
+    return json.dumps(result)

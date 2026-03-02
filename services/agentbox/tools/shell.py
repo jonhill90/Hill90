@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 import json
+import time
 
 from fastmcp import FastMCP
 
 from app.config import ShellConfig
+from app.events import EventEmitter
 from app.policy import CommandPolicy
 
 server = FastMCP("ShellTools")
 _policy: CommandPolicy | None = None
+_emitter: EventEmitter | None = None
 
 
-def configure(config: ShellConfig) -> None:
-    global _policy
+def configure(config: ShellConfig, emitter: EventEmitter | None = None) -> None:
+    global _policy, _emitter
     _policy = CommandPolicy(
         allowed_binaries=config.allowed_binaries,
         denied_patterns=config.denied_patterns,
         max_timeout=config.max_timeout,
     )
+    _emitter = emitter
 
 
 @server.tool()
@@ -38,7 +42,32 @@ async def execute_command(command: str, timeout: int = 30) -> str:
     """
     if _policy is None:
         return json.dumps({"success": False, "error": "Shell tools not configured"})
+
+    if _emitter:
+        _emitter.emit(
+            type="command_start",
+            tool="shell",
+            input_summary=command,
+            output_summary=None,
+            duration_ms=None,
+            success=None,
+        )
+
+    t0 = time.monotonic()
     result = _policy.execute(command, timeout=timeout)
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    if _emitter:
+        stdout_len = len(result.get("stdout", ""))
+        _emitter.emit(
+            type="command_complete",
+            tool="shell",
+            input_summary=command,
+            output_summary=f"exit {result.get('exit_code', -1)}, {stdout_len} bytes stdout",
+            duration_ms=duration_ms,
+            success=result.get("success", False),
+        )
+
     return json.dumps(result)
 
 

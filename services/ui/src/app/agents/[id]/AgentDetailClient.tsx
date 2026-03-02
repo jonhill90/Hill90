@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
+import EventTimeline from './EventTimeline'
 
 interface Agent {
   id: string
@@ -42,7 +43,7 @@ interface ToolPreset {
   is_platform: boolean
 }
 
-type TabId = 'overview' | 'configuration' | 'model-access' | 'knowledge' | 'logs'
+type TabId = 'overview' | 'configuration' | 'model-access' | 'knowledge' | 'activity'
 
 export default function AgentDetailClient({
   agentId,
@@ -72,6 +73,9 @@ export default function AgentDetailClient({
   const [showLogs, setShowLogs] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
+
+  // Activity sub-view state
+  const [activityView, setActivityView] = useState<'events' | 'logs'>('events')
 
   const isAdmin = session.user?.roles?.includes('admin')
 
@@ -234,7 +238,7 @@ export default function AgentDetailClient({
     { id: 'configuration', label: 'Configuration' },
     { id: 'model-access', label: 'Model Access' },
     { id: 'knowledge', label: 'Knowledge' },
-    { id: 'logs', label: 'Logs', adminOnly: true },
+    { id: 'activity', label: 'Activity' },
   ]
 
   return (
@@ -655,37 +659,72 @@ export default function AgentDetailClient({
         </div>
       )}
 
-      {activeTab === 'logs' && isAdmin && (
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-white">Logs</h2>
-            <div className="flex items-center gap-2">
-              {agent.status === 'running' && (
-                <button
-                  onClick={() => setShowLogs(!showLogs)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
-                >
-                  {showLogs ? 'Stop Streaming' : 'Stream Live'}
-                </button>
-              )}
+      {activeTab === 'activity' && (
+        <div className="space-y-4">
+          {/* Sub-view toggle */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setActivityView('events')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                activityView === 'events'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+              }`}
+            >
+              Events
+            </button>
+            {isAdmin && (
               <button
-                onClick={fetchLogs}
-                className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                onClick={() => setActivityView('logs')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  activityView === 'logs'
+                    ? 'bg-brand-600 text-white'
+                    : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+                }`}
+                data-testid="raw-logs-toggle"
               >
-                Fetch Logs
+                Raw Logs
               </button>
-            </div>
-          </div>
-          <div className="bg-navy-900 rounded-md p-3 h-64 overflow-y-auto font-mono text-xs text-mountain-300">
-            {logs ? (
-              <>
-                <pre className="whitespace-pre-wrap">{logs}</pre>
-                <div ref={logsEndRef} />
-              </>
-            ) : (
-              <p className="text-mountain-500">No logs available</p>
             )}
           </div>
+
+          {activityView === 'events' && (
+            <EventTimeline agentId={agentId} agentStatus={agent.status} />
+          )}
+
+          {activityView === 'logs' && isAdmin && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-white">Logs</h2>
+                <div className="flex items-center gap-2">
+                  {agent.status === 'running' && (
+                    <button
+                      onClick={() => setShowLogs(!showLogs)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                    >
+                      {showLogs ? 'Stop Streaming' : 'Stream Live'}
+                    </button>
+                  )}
+                  <button
+                    onClick={fetchLogs}
+                    className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                  >
+                    Fetch Logs
+                  </button>
+                </div>
+              </div>
+              <div className="bg-navy-900 rounded-md p-3 h-64 overflow-y-auto font-mono text-xs text-mountain-300">
+                {logs ? (
+                  <>
+                    <pre className="whitespace-pre-wrap">{logs}</pre>
+                    <div ref={logsEndRef} />
+                  </>
+                ) : (
+                  <p className="text-mountain-500">No logs available</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>
