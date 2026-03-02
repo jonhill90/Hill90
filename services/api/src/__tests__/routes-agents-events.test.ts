@@ -1,7 +1,8 @@
 import request from 'supertest';
+import * as http from 'http';
 import * as crypto from 'crypto';
 import * as jwt from 'jsonwebtoken';
-import { Readable } from 'stream';
+import { Readable, PassThrough } from 'stream';
 import { createApp } from '../app';
 
 // Generate a throwaway RSA keypair for test signing
@@ -194,30 +195,60 @@ describe('GET /agents/:id/events', () => {
     expect(res.body).toHaveLength(0); // All events corrupted — none parse
   });
 
-  it('SSE follow on empty file (fresh agent, no events) sends end without error', async () => {
+  it('SSE follow forwards a late-arriving event without reconnect', (done) => {
+    // Models the real behavior: tail -f holds the stream open on an empty file,
+    // then forwards the first line when an event is appended later.
+    // Uses a PassThrough stream to control timing: open → idle → push event → end.
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
     });
 
-    // Fresh agent: events.jsonl exists but is empty. tail -f outputs nothing initially
-    // then waits. When the stream ends (e.g., agent stops), we get 'end'.
-    const fakeStream = new Readable({
-      read() {
-        // Empty file — tail outputs nothing, then ends
-        this.push(null);
-      },
+    const controlStream = new PassThrough();
+    mockExecInContainer.mockResolvedValueOnce(controlStream);
+
+    const lateEvent = JSON.stringify({ id: 'late-1', type: 'command_start', tool: 'shell', input_summary: 'echo late' });
+
+    // Start a real HTTP server so we can read the SSE response incrementally
+    const server = app.listen(0, () => {
+      const port = (server.address() as any).port;
+      const req = http.get(
+        `http://127.0.0.1:${port}/agents/${AGENT_UUID}/events?follow=true&tail=50`,
+        { headers: { Authorization: `Bearer ${userToken}` } },
+        (res) => {
+          expect(res.headers['content-type']).toMatch(/text\/event-stream/);
+
+          let body = '';
+          res.on('data', (chunk: Buffer) => {
+            body += chunk.toString();
+
+            // Once we see the late event forwarded as SSE data, the test passes
+            if (body.includes(`data: ${lateEvent}`)) {
+              // End the stream (simulates tail -f closing when container stops)
+              controlStream.end();
+            }
+          });
+
+          res.on('end', () => {
+            // Final assertion: the late event appeared in the SSE body
+            expect(body).toContain(`data: ${lateEvent}`);
+            expect(body).toContain('event: end');
+            server.close();
+            done();
+          });
+        },
+      );
+
+      req.on('error', (err) => {
+        server.close();
+        done(err);
+      });
+
+      // After a short delay (simulating idle time on empty file),
+      // push the event line — this is what tail -f does when a line is appended.
+      setTimeout(() => {
+        controlStream.write(`${lateEvent}\n`);
+      }, 50);
     });
-    mockExecInContainer.mockResolvedValueOnce(fakeStream);
-
-    const res = await request(app)
-      .get(`/agents/${AGENT_UUID}/events?follow=true&tail=50`)
-      .set('Authorization', `Bearer ${userToken}`)
-      .buffer(true);
-
-    expect(res.headers['content-type']).toMatch(/text\/event-stream/);
-    // Should contain the end event, no error events
-    expect(res.text).toContain('event: end');
-    expect(res.text).not.toContain('event: error');
   });
 
   it('one-shot on empty file returns empty array', async () => {
