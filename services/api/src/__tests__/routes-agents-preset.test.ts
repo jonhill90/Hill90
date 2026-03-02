@@ -264,3 +264,83 @@ describe('Agent PUT tool_preset_id behavior', () => {
     expect(res.body.name).toBe('Updated Name');
   });
 });
+
+const { writeAgentFiles } = jest.requireMock('../services/agent-files') as { writeAgentFiles: jest.Mock };
+
+describe('Agent start skill instructions merge', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    writeAgentFiles.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+    process.env.AGENTBOX_CONFIG_HOST_PATH = '/opt/hill90/agentbox-configs';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.AGENTBOX_CONFIG_HOST_PATH;
+  });
+
+  // T5: Agent start merges skill instructions into RULES.md
+  it('start agent with skill appends instructions to RULES.md', async () => {
+    const agentWithPresetAndRules = {
+      ...agentRow,
+      tool_preset_id: 'preset-dev',
+      rules_md: 'Agent-specific rules here.',
+      status: 'stopped',
+    };
+
+    const { createAndStartContainer } = jest.requireMock('../services/docker') as any;
+    createAndStartContainer.mockResolvedValue('container-123');
+
+    // 1. SELECT agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentWithPresetAndRules] });
+    // 2. SELECT instructions_md from tool_presets
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.' }],
+    });
+    // 3-5. UPDATE agent status queries
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+
+    // Verify writeAgentFiles was called with merged rules
+    expect(writeAgentFiles).toHaveBeenCalledTimes(1);
+    const callArgs = writeAgentFiles.mock.calls[0];
+    // First arg is the agent row, second is skillInstructions
+    expect(callArgs[1]).toBe('You have full developer access with bash, git, make, curl, and jq available.');
+  });
+
+  // T6: Agent start without skill writes only agent rules_md
+  it('start agent without skill writes only agent rules_md', async () => {
+    const agentNoPreset = {
+      ...agentRow,
+      tool_preset_id: null,
+      rules_md: 'Agent-specific rules only.',
+      status: 'stopped',
+    };
+
+    const { createAndStartContainer } = jest.requireMock('../services/docker') as any;
+    createAndStartContainer.mockResolvedValue('container-456');
+
+    // 1. SELECT agent (no tool_preset_id)
+    mockQuery.mockResolvedValueOnce({ rows: [agentNoPreset] });
+    // 2-4. UPDATE agent status queries
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+
+    // Verify writeAgentFiles was called WITHOUT skillInstructions
+    expect(writeAgentFiles).toHaveBeenCalledTimes(1);
+    const callArgs = writeAgentFiles.mock.calls[0];
+    // Second arg should be undefined (no skill instructions)
+    expect(callArgs[1]).toBeUndefined();
+  });
+});
