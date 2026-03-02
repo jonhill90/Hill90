@@ -1,6 +1,6 @@
 ---
 name: using-tmux
-description: Use tmux correctly from an agent — explicit pane targeting, send verification, state distinction, and recovery. Use when Claude Code, Codex, GitHub Copilot CLI, or any TUI/REPL must keep state across commands.
+description: Use tmux correctly from an agent — explicit pane targeting, safe-state verification, send verification, state distinction, and recovery. Use when Claude Code, Codex, GitHub Copilot CLI, or any TUI/REPL must keep state across commands.
 argument-hint: <goal or command>
 ---
 
@@ -93,17 +93,51 @@ tmux -S "$SOCKET" capture-pane -p -J -t "$SESSION":shell.{bottom} -S -5
 
 If the content doesn't match your expectation (wrong shell, wrong directory, unexpected output), you have the wrong target. Fix the target before sending.
 
-## Sending Input Reliably
+## Safe-State Verification
 
-### Pre-send readiness check
+**Before sending any input**, verify the pane is in a state where your input will be interpreted correctly. This is the most common agent failure mode: correct pane, wrong pane state.
 
-Before sending to a pane, verify it is ready to receive input:
+### The problem
+
+A pane might be:
+- Running a command (your text queues in the terminal input buffer, executes after the current command finishes — or corrupts it)
+- Showing an approval prompt (your text answers the prompt instead of going to the shell)
+- Mid-edit in a TUI (your text inserts into an editor or REPL, not the shell)
+- Processing a previous agent task (your new prompt interrupts or corrupts the current work)
+
+### The check
+
+Always `capture-pane` and inspect the last few lines before sending:
 
 ```bash
-# Check the pane has a shell prompt (not a running command)
-OUTPUT=$(tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -3)
-echo "$OUTPUT"  # inspect: do you see a prompt?
+OUTPUT=$(tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -5)
+echo "$OUTPUT"
 ```
+
+**What to look for:**
+
+| Pane state | What you see in capture | Safe to send? | Action |
+|------------|------------------------|---------------|--------|
+| Shell prompt idle | `$`, `❯`, `%` at the end with no running process | Yes | Send your command |
+| Command running | Output scrolling, no prompt visible | **No** | Wait for completion, or `C-c` first |
+| Approval/confirm prompt | `[Y/n]`, `(y/N)`, `Continue?`, `approve?` | **No** — your text answers the prompt | Answer the prompt deliberately, or `C-c` to cancel |
+| TUI active (editor, REPL) | Editor chrome, line numbers, REPL `>>>` | **No** — your text inserts into the TUI | Use TUI-appropriate input, or exit the TUI first |
+| Agent thinking | Spinner, `Thinking...`, progress indicator | **No** — agent hasn't finished | Wait for agent to return to its prompt |
+| Agent prompt waiting | Agent's input prompt visible (e.g. `claude>`) | Yes — for agent input | Send agent-directed input |
+
+### Verify process state programmatically
+
+```bash
+# What process owns the pane right now?
+tmux -S "$SOCKET" list-panes -t "$TARGET" \
+  -F '#{pane_current_command} #{pane_pid}'
+```
+
+If `pane_current_command` is `bash`/`zsh`/`fish`, the shell is likely at a prompt. If it shows another process name (`node`, `python`, `vim`, `claude`), something is running.
+
+> **Rule: Never send to a pane you haven't captured in this turn.** Pane state changes between tool calls. Always capture, inspect, then send.
+
+## Sending Input Reliably
 
 ### Send text and Enter separately
 
@@ -120,12 +154,12 @@ tmux -S "$SOCKET" send-keys -t "$TARGET" Enter
 
 ## Send Verification
 
-After sending input, verify it landed. Two distinct checks:
+After sending input, verify it landed. Two distinct checks using plain tmux:
 
 | Check | What it answers | How to do it |
 |-------|----------------|--------------|
 | **Send confirmation** | Did the text arrive in the target pane? | `capture-pane` + grep for the sent text |
-| **Response readiness** | Has the command produced output or returned to prompt? | `wait-for-text.sh` with output/prompt pattern |
+| **Response readiness** | Has the command produced output or returned to prompt? | Poll with `capture-pane` in a loop, grep for output/prompt pattern |
 
 ### Send confirmation
 
@@ -144,9 +178,23 @@ fi
 
 ### Response readiness
 
+Poll `capture-pane` until you see the expected output or a shell prompt:
+
 ```bash
-.github/skills/using-tmux/scripts/wait-for-text.sh \
-  -S "$SOCKET" -t "$TARGET" -p 'Done|ready|❯|\$' -T 30
+# Simple poll loop — wait up to 15s for a pattern
+DEADLINE=$(($(date +%s) + 15))
+while true; do
+  OUTPUT=$(tmux -S "$SOCKET" capture-pane -p -J -t "$TARGET" -S -50)
+  if echo "$OUTPUT" | grep -qE 'Done|ready|❯|\$'; then
+    echo "Response detected"
+    break
+  fi
+  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    echo "Timed out waiting for response"
+    break
+  fi
+  sleep 0.5
+done
 ```
 
 > **Never skip send verification.** "I sent it" is not the same as "the pane received it." Silent failures (wrong target, pane not ready, socket mismatch) produce no error — only verification catches them.
@@ -160,7 +208,7 @@ When working with tmux panes, distinguish these four states clearly:
 | **Text visible in pane** | tmux rendered the text | `capture-pane` shows the text | Assuming visible = accepted |
 | **Input accepted** | The process in the pane received the keystrokes | Process shows activity (spinner, "thinking...") | Assuming accepted = responded |
 | **Delivered to intended pane** | The text landed in the pane you targeted | `capture-pane -t $TARGET` + grep confirms | Sending to active pane instead of explicit target |
-| **Process responding** | The process is producing meaningful output | `wait-for-text.sh` detects output pattern | Treating silence as "still working" when the send was lost |
+| **Process responding** | The process is producing meaningful output | Polling `capture-pane` detects output pattern | Treating silence as "still working" when the send was lost |
 
 Always confirm at least states 3 and 4 for critical operations.
 
@@ -214,38 +262,14 @@ kill -9 "$PANE_PID"
 When a pane runs a TUI (agent CLI, REPL, editor):
 
 - **Do not guess state** — always `capture-pane` before sending. The TUI may have advanced, errored, or prompted since you last looked.
-- **Use `wait-for-text.sh`** with appropriate patterns and timeouts for TUI readiness markers.
 - **Detect TUI exit** — check `pane_current_command` from `list-panes`. If it shows `bash`/`zsh` instead of the TUI process, the TUI has exited.
+- **Poll for readiness** — use a `capture-pane` + grep loop with appropriate patterns and timeouts for TUI readiness markers.
 
 ```bash
 # Check what process is running in the pane
 tmux -S "$SOCKET" list-panes -t "$SESSION":shell \
   -F '#{pane_id} #{pane_current_command}'
 ```
-
-## Live Supervision Workflow
-
-Use this when a user wants to watch an agent run and intervene live.
-
-```bash
-# start session and launch agent
-tmux -S "$SOCKET" new-session -d -s review-agent -n shell
-tmux -S "$SOCKET" send-keys -t review-agent:shell -l -- "cd /path/to/repo && codex"
-sleep 0.1
-tmux -S "$SOCKET" send-keys -t review-agent:shell Enter
-
-# watch live in another terminal
-tmux -S "$SOCKET" attach -t review-agent
-
-# from operator terminal: inspect and steer
-tmux -S "$SOCKET" capture-pane -p -J -t review-agent:shell -S -200
-tmux -S "$SOCKET" send-keys -t review-agent:shell -l -- "run tests and summarize failures"
-sleep 0.1
-tmux -S "$SOCKET" send-keys -t review-agent:shell Enter
-tmux -S "$SOCKET" send-keys -t review-agent:shell C-c
-```
-
-Use explicit session names per task (e.g. `review-agent`, `fix-auth`, `release-check`) so operators can track runs quickly.
 
 ## Common Commands
 
@@ -277,22 +301,6 @@ tmux -S "$SOCKET" new-session -d -s codex-main -n shell
 tmux -S "$SOCKET" send-keys -t codex-main:shell -l -- "cd /path/to/repo && codex"
 sleep 0.1
 tmux -S "$SOCKET" send-keys -t codex-main:shell Enter
-
-# GitHub Copilot CLI (detect installed command)
-COPILOT_CMD=""
-for cmd in copilot ghcs; do
-  command -v "$cmd" >/dev/null 2>&1 && COPILOT_CMD="$cmd" && break
-done
-if [[ -z "$COPILOT_CMD" ]] && gh copilot --help >/dev/null 2>&1; then
-  COPILOT_CMD="gh copilot"
-fi
-
-if [[ -n "$COPILOT_CMD" ]]; then
-  tmux -S "$SOCKET" new-session -d -s copilot-main -n shell
-  tmux -S "$SOCKET" send-keys -t copilot-main:shell -l -- "cd /path/to/repo && $COPILOT_CMD"
-  sleep 0.1
-  tmux -S "$SOCKET" send-keys -t copilot-main:shell Enter
-fi
 ```
 
 When prompting these tools later, keep using the same session and split text/Enter.
@@ -303,25 +311,15 @@ For filesystem isolation between agents, use the `using-git-worktrees` skill to 
 
 Pattern: one worktree per agent, one tmux session (or pane) per worktree.
 
-## Helpers
-
-Use bundled scripts:
-
-- `scripts/find-sessions.sh` to inspect sessions/sockets.
-- `scripts/wait-for-text.sh` to wait for a prompt or ready marker.
-
-Both scripts support `-S` (socket path) and `-L` (socket name) flags.
-
-Examples:
-
-```bash
-.github/skills/using-tmux/scripts/find-sessions.sh -S "$SOCKET"
-.github/skills/using-tmux/scripts/wait-for-text.sh -S "$SOCKET" -t "$SESSION":shell -p 'ready|Done|❯|\\$'
-```
-
 ## Self-Test
 
-To verify tmux mechanics work in your environment, run the self-test procedure in [references/self-test.md](references/self-test.md).
+Run the self-test script to verify tmux mechanics work in your environment:
+
+```bash
+bash .github/skills/using-tmux/scripts/self-test.sh
+```
+
+See [scripts/self-test.sh](scripts/self-test.sh) for the full test procedure. It creates an isolated tmux socket, verifies pane targeting, send verification, cross-pane isolation, and wrong-target recovery, then cleans up.
 
 ## Cleanup
 
@@ -333,7 +331,6 @@ tmux -S "$SOCKET" kill-server
 ## References
 
 - [references/fundamentals.md](references/fundamentals.md) — Session/window/pane structure, targeting, splits, resize, capture-pane, scrollback, environment variables, troubleshooting.
-- [references/self-test.md](references/self-test.md) — Deterministic smoke test for verifying tmux mechanics.
 
 ## Notes
 

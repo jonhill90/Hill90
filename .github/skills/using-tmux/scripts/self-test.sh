@@ -1,22 +1,11 @@
-# using-tmux Self-Test
-
-Deterministic smoke test for verifying tmux mechanics in a fresh session. Run this to confirm pane targeting, send verification, and helpers work correctly.
-
-## Prerequisites
-
-- tmux installed (`tmux -V`)
-- `wait-for-text.sh` script available at `scripts/wait-for-text.sh` relative to this file's skill directory
-
-## Procedure
-
-Run these commands sequentially. Each check prints `PASS` or `FAIL`.
-
-```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WAIT_SCRIPT="$SCRIPT_DIR/scripts/wait-for-text.sh"
+# using-tmux self-test
+# Deterministic smoke test for verifying tmux mechanics in a fresh session.
+# Uses only plain tmux commands — no helper scripts required.
+#
+# Usage: bash .github/skills/using-tmux/scripts/self-test.sh
 
 SOCKET_DIR="${TMPDIR:-/tmp}/using-tmux-selftest-$$"
 mkdir -p "$SOCKET_DIR"
@@ -24,7 +13,7 @@ SOCKET="$SOCKET_DIR/test.sock"
 SESSION="selftest"
 PASS=0
 FAIL=0
-TOTAL=8
+TOTAL=7
 
 cleanup() {
   tmux -S "$SOCKET" kill-server 2>/dev/null || true
@@ -97,7 +86,7 @@ else
   check "Cross-pane isolation" "PASS"
 fi
 
-# --- Check 6: Send verification procedure ---
+# --- Check 6: Send verification (capture-after-send) ---
 CANARY_VERIFY="VERIFY_$$"
 tmux -S "$SOCKET" send-keys -t "$SESSION":shell.{top} -l -- "echo $CANARY_VERIFY"
 sleep 0.1
@@ -110,18 +99,7 @@ else
   check "Send verification (capture-after-send)" "FAIL"
 fi
 
-# --- Check 7: wait-for-text.sh helper works ---
-CANARY_WAIT="WAITFOR_$$"
-tmux -S "$SOCKET" send-keys -t "$SESSION":shell.{top} -l -- "sleep 1 && echo $CANARY_WAIT"
-sleep 0.1
-tmux -S "$SOCKET" send-keys -t "$SESSION":shell.{top} Enter
-if "$WAIT_SCRIPT" -S "$SOCKET" -t "$SESSION":shell.{top} -p "$CANARY_WAIT" -T 5; then
-  check "wait-for-text.sh helper" "PASS"
-else
-  check "wait-for-text.sh helper" "FAIL"
-fi
-
-# --- Check 8: Wrong-target recovery ---
+# --- Check 7: Wrong-target recovery ---
 CANARY_WRONG="WRONG_$$"
 # Send to bottom (simulating wrong target)
 tmux -S "$SOCKET" send-keys -t "$SESSION":shell.{bottom} -l -- "echo $CANARY_WRONG"
@@ -155,31 +133,3 @@ if [[ "$FAIL" -gt 0 ]]; then
   echo "$FAIL check(s) FAILED"
   exit 1
 fi
-```
-
-## Running the Self-Test
-
-From the repository root:
-
-```bash
-bash .github/skills/using-tmux/references/self-test.md
-```
-
-Or extract the script block and run it directly. The test creates an isolated tmux socket (unique per PID), runs all checks, and cleans up on exit.
-
-## Expected Output
-
-```
-=== using-tmux self-test ===
-
-  [PASS] Session + window creation
-  [PASS] Split into two panes
-  [PASS] Explicit targeting — top pane
-  [PASS] Explicit targeting — bottom pane
-  [PASS] Cross-pane isolation
-  [PASS] Send verification (capture-after-send)
-  [PASS] wait-for-text.sh helper
-  [PASS] Wrong-target recovery
-
-=== 8/8 checks passed ===
-```
