@@ -56,6 +56,11 @@ components:
           format: uuid
           nullable: true
           description: ID of the model policy controlling LLM access. Users can assign own or platform policies to own agents; admins can assign any.
+        tool_preset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of the tool preset applied at assignment time. Config is copied (resolve-on-save).
         error_message:
           type: string
           nullable: true
@@ -224,6 +229,33 @@ components:
           type: string
           nullable: true
           description: Owner (user sub). NULL for platform policies.
+
+    ToolPreset:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        tools_config:
+          type: object
+          description: JSONB tool configuration (shell, filesystem, health settings)
+        is_platform:
+          type: boolean
+          description: Platform presets are immutable and undeletable.
+        created_by:
+          type: string
+          nullable: true
+          description: Always NULL in Phase 1 (admin-created shared resources).
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     UsageSummary:
       type: object
@@ -484,6 +516,11 @@ paths:
                   format: uuid
                   nullable: true
                   description: ID of a model policy to assign at creation. Users can assign own or platform policies; admins can assign any.
+                tool_preset_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: ID of a tool preset. Config is copied into agent at save time (resolve-on-save).
       responses:
         "201":
           description: Agent created
@@ -561,6 +598,11 @@ paths:
                   format: uuid
                   nullable: true
                   description: Model policy ID. Users can assign own or platform policies; admins can assign any. Set to null to remove.
+                tool_preset_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Tool preset ID. Config is copied into agent at save time. Set to null to detach preset.
       responses:
         "200":
           description: Agent updated
@@ -1878,3 +1920,147 @@ paths:
           description: Not authenticated
         "403":
           description: Requires user role
+
+  /tool-presets:
+    get:
+      summary: List tool presets
+      description: Returns all tool presets. All authenticated users see all presets.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Preset list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ToolPreset"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+    post:
+      summary: Create tool preset
+      description: Creates a new tool preset. Admin only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - tools_config
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                tools_config:
+                  type: object
+                  description: Tool configuration (shell, filesystem, health settings)
+      responses:
+        "201":
+          description: Preset created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolPreset"
+        "400":
+          description: Invalid input
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "409":
+          description: Duplicate preset name
+
+  /tool-presets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get tool preset
+      description: Returns a single tool preset. All authenticated users can read.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Preset detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolPreset"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Preset not found
+
+    put:
+      summary: Update tool preset
+      description: Updates a tool preset. Admin only. Platform presets are immutable (403).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                tools_config:
+                  type: object
+      responses:
+        "200":
+          description: Preset updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolPreset"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role or platform preset is immutable
+        "404":
+          description: Preset not found
+        "409":
+          description: Duplicate preset name
+
+    delete:
+      summary: Delete tool preset
+      description: Deletes a tool preset. Admin only. Platform presets cannot be deleted. Presets assigned to agents cannot be deleted.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Preset deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role or platform preset is undeletable
+        "404":
+          description: Preset not found
+        "409":
+          description: Preset is assigned to agents

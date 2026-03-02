@@ -56,7 +56,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const scope = scopeToOwner(req);
     const paramOffset = scope.params.length;
     const { rows } = await getPool().query(
-      `SELECT id, agent_id, name, description, status, tools_config, cpus, mem_limit, pids_limit, model_policy_id, created_at, updated_at, created_by
+      `SELECT id, agent_id, name, description, status, tools_config, cpus, mem_limit, pids_limit, model_policy_id, tool_preset_id, created_at, updated_at, created_by
        FROM agents WHERE ${scope.where} ORDER BY created_at DESC`,
       scope.params
     );
@@ -71,7 +71,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
 router.post('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id } = req.body;
+    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, tool_preset_id } = req.body;
 
     if (!agent_id || !name) {
       res.status(400).json({ error: 'agent_id and name are required' });
@@ -107,21 +107,38 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       validatedPolicyId = model_policy_id;
     }
 
+    // Resolve tool preset: if tool_preset_id provided, use preset's tools_config (resolve-on-save)
+    let resolvedToolsConfig = tools_config || { shell: { enabled: false }, filesystem: { enabled: false }, health: { enabled: true } };
+    let validatedPresetId: string | null = null;
+    if (tool_preset_id) {
+      const { rows: presetRows } = await getPool().query(
+        'SELECT id, tools_config FROM tool_presets WHERE id = $1',
+        [tool_preset_id]
+      );
+      if (presetRows.length === 0) {
+        res.status(400).json({ error: 'Tool preset not found' });
+        return;
+      }
+      resolvedToolsConfig = presetRows[0].tools_config;
+      validatedPresetId = tool_preset_id;
+    }
+
     const { rows } = await getPool().query(
-      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, tool_preset_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         agent_id,
         name,
         description || '',
-        JSON.stringify(tools_config || { shell: { enabled: false }, filesystem: { enabled: false }, health: { enabled: true } }),
+        JSON.stringify(resolvedToolsConfig),
         cpus || '1.0',
         mem_limit || '1g',
         pids_limit || 200,
         soul_md || '',
         rules_md || '',
         validatedPolicyId,
+        validatedPresetId,
         user.sub,
       ]
     );
@@ -177,7 +194,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id } = req.body;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, tool_preset_id } = req.body;
 
     // model_policy_id assignment: admins can assign any, users can assign own or platform
     if (model_policy_id !== undefined) {
@@ -207,8 +224,23 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       }
     }
 
-    // Build SET clause: model_policy_id uses explicit flag to allow clearing to NULL
+    // Resolve tool preset: if tool_preset_id provided and non-null, look up and resolve
+    let resolvedToolsConfig = tools_config ? JSON.stringify(tools_config) : null;
+    if (tool_preset_id !== undefined && tool_preset_id !== null) {
+      const { rows: presetRows } = await getPool().query(
+        'SELECT id, tools_config FROM tool_presets WHERE id = $1',
+        [tool_preset_id]
+      );
+      if (presetRows.length === 0) {
+        res.status(400).json({ error: 'Tool preset not found' });
+        return;
+      }
+      resolvedToolsConfig = JSON.stringify(presetRows[0].tools_config);
+    }
+
+    // Build SET clause: model_policy_id and tool_preset_id use explicit flags to allow clearing to NULL
     const modelPolicyProvided = model_policy_id !== undefined;
+    const toolPresetProvided = tool_preset_id !== undefined;
     const { rows } = await getPool().query(
       `UPDATE agents SET
         name = COALESCE($1, name),
@@ -220,13 +252,14 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         soul_md = COALESCE($7, soul_md),
         rules_md = COALESCE($8, rules_md),
         model_policy_id = CASE WHEN $9::boolean THEN $10::uuid ELSE model_policy_id END,
+        tool_preset_id = CASE WHEN $11::boolean THEN $12::uuid ELSE tool_preset_id END,
         updated_at = NOW()
-       WHERE id = $11
+       WHERE id = $13
        RETURNING *`,
       [
         name || null,
         description ?? null,
-        tools_config ? JSON.stringify(tools_config) : null,
+        resolvedToolsConfig,
         cpus || null,
         mem_limit || null,
         pids_limit ?? null,
@@ -234,6 +267,8 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         rules_md ?? null,
         modelPolicyProvided,
         modelPolicyProvided ? (model_policy_id ?? null) : null,
+        toolPresetProvided,
+        toolPresetProvided ? (tool_preset_id ?? null) : null,
         req.params.id,
       ]
     );
