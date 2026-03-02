@@ -198,18 +198,49 @@ export async function execInContainer(
   const info = await container.inspect();
   assertManagedLabel(info.Config.Labels);
 
-  // Tty: true allocates a pseudo-TTY, giving plain UTF-8 text output
-  // without Docker's multiplexed stream framing (8-byte headers per frame).
-  // This is appropriate for read-only text commands like `tail`.
   const exec = await container.exec({
     Cmd: cmd,
     AttachStdout: true,
     AttachStderr: false,
-    Tty: true,
+    Tty: false,
   });
 
-  const stream = await exec.start({ hijack: true, stdin: false });
-  return stream;
+  const rawStream = await exec.start({ hijack: true, stdin: false });
+
+  // Docker multiplexed stream: each frame has an 8-byte header.
+  // Byte 0: stream type (1=stdout, 2=stderr)
+  // Bytes 1-3: padding
+  // Bytes 4-7: payload size (big-endian uint32)
+  // We strip headers and emit only stdout payload.
+  const { Transform } = require('stream');
+  const demux = new Transform({
+    transform(chunk: Buffer, _encoding: string, callback: Function) {
+      let offset = 0;
+      while (offset < chunk.length) {
+        if (offset + 8 > chunk.length) {
+          // Incomplete header — stash remainder for next chunk
+          this._remainder = chunk.slice(offset);
+          break;
+        }
+        const payloadSize = chunk.readUInt32BE(offset + 4);
+        const frameEnd = offset + 8 + payloadSize;
+        if (frameEnd > chunk.length) {
+          this._remainder = chunk.slice(offset);
+          break;
+        }
+        const streamType = chunk[offset];
+        if (streamType === 1) {
+          // stdout — forward payload
+          this.push(chunk.slice(offset + 8, frameEnd));
+        }
+        // stderr (type 2) is dropped
+        offset = frameEnd;
+      }
+      callback();
+    },
+  });
+  rawStream.pipe(demux);
+  return demux;
 }
 
 export async function removeAgentVolumes(agentId: string): Promise<void> {

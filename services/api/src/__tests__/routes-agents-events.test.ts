@@ -58,16 +58,6 @@ const otherUserToken = makeToken('other-user', ['user']);
 
 const AGENT_UUID = '550e8400-e29b-41d4-a716-446655440000';
 
-/** Build a Docker multiplexed stream frame (8-byte header + payload).
- *  Type 1 = stdout. This is what exec produces when Tty: false. */
-function dockerFrame(text: string): Buffer {
-  const payload = Buffer.from(text, 'utf-8');
-  const header = Buffer.alloc(8);
-  header[0] = 1; // stdout stream
-  header.writeUInt32BE(payload.length, 4);
-  return Buffer.concat([header, payload]);
-}
-
 describe('GET /agents/:id/events', () => {
   beforeEach(() => {
     mockQuery.mockReset();
@@ -113,7 +103,7 @@ describe('GET /agents/:id/events', () => {
       rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
     });
 
-    // Simulate Tty: true output — plain UTF-8 text, no Docker frame headers
+    // execInContainer returns demuxed stdout — plain UTF-8 text
     const event = JSON.stringify({ id: '1', type: 'command_start', tool: 'shell', input_summary: 'echo hi' });
     const fakeStream = new Readable({
       read() {
@@ -139,7 +129,7 @@ describe('GET /agents/:id/events', () => {
       rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
     });
 
-    // Tty: true gives plain UTF-8 lines
+    // execInContainer demuxes Docker frames, gives plain UTF-8 lines
     const event1 = JSON.stringify({ id: '1', type: 'command_start', tool: 'shell' });
     const event2 = JSON.stringify({ id: '2', type: 'command_complete', tool: 'shell' });
     const fakeStream = new Readable({
@@ -161,24 +151,17 @@ describe('GET /agents/:id/events', () => {
     expect(res.body[1].type).toBe('command_complete');
   });
 
-  it('Docker-framed data (Tty: false) would corrupt JSON parsing', async () => {
-    // This test proves WHY Tty: true is required.
-    // Docker multiplexed frames have 8-byte binary headers that would
-    // appear as garbage bytes in the UTF-8 text, causing JSON.parse to fail.
+  it('skips non-JSON lines in one-shot mode', async () => {
+    // If tail output includes any non-JSON lines (e.g. empty lines, error text),
+    // the route silently filters them out via JSON.parse validation.
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
     });
 
     const event1 = JSON.stringify({ id: '1', type: 'command_start', tool: 'shell' });
-    const event2 = JSON.stringify({ id: '2', type: 'command_complete', tool: 'shell' });
-    // Simulate what Tty: false would produce: Docker frame headers around each line
-    const framedData = Buffer.concat([
-      dockerFrame(event1 + '\n'),
-      dockerFrame(event2 + '\n'),
-    ]);
     const fakeStream = new Readable({
       read() {
-        this.push(framedData);
+        this.push(`some warning text\n${event1}\n\n`);
         this.push(null);
       },
     });
@@ -188,11 +171,9 @@ describe('GET /agents/:id/events', () => {
       .get(`/agents/${AGENT_UUID}/events?tail=50`)
       .set('Authorization', `Bearer ${userToken}`);
 
-    // With framed data hitting the plain-text parser, the 8-byte headers
-    // corrupt the JSON lines. JSON.parse fails, events are filtered out as null.
-    // This demonstrates the route relies on clean text from Tty: true.
     expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(0); // All events corrupted — none parse
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].type).toBe('command_start');
   });
 
   it('SSE follow forwards a late-arriving event without reconnect', (done) => {

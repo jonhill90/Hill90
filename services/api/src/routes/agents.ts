@@ -491,7 +491,8 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
       return;
     }
 
-    const tail = parseInt(req.query.tail as string) || 100;
+    const parsedTail = parseInt(req.query.tail as string);
+    const tail = Number.isNaN(parsedTail) ? 100 : Math.max(0, parsedTail);
     const follow = req.query.follow === 'true';
 
     if (follow) {
@@ -514,7 +515,7 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
           for (const line of lines) {
             const trimmed = line.trim();
             if (!trimmed) continue;
-            // Validate JSON to filter out tail stderr (Tty merges streams)
+            // Validate JSON — skip any non-JSON lines (e.g. tail errors)
             try { JSON.parse(trimmed); } catch { continue; }
             res.write(`data: ${trimmed}\n\n`);
           }
