@@ -187,6 +187,27 @@ export async function getContainerLogs(
   return stream;
 }
 
+export async function execInContainer(
+  agentId: string,
+  cmd: string[],
+): Promise<NodeJS.ReadableStream> {
+  const containerName = `${CONTAINER_PREFIX}${agentId}`;
+  assertAgentboxName(containerName);
+
+  const container = docker.getContainer(containerName);
+  const info = await container.inspect();
+  assertManagedLabel(info.Config.Labels);
+
+  const exec = await container.exec({
+    Cmd: cmd,
+    AttachStdout: true,
+    AttachStderr: false,
+  });
+
+  const stream = await exec.start({ hijack: true, stdin: false });
+  return stream;
+}
+
 export async function removeAgentVolumes(agentId: string): Promise<void> {
   for (const suffix of VOLUME_SUFFIXES) {
     const volumeName = `${CONTAINER_PREFIX}${agentId}-${suffix}`;

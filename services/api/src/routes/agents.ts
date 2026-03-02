@@ -8,6 +8,7 @@ import {
   stopAndRemoveContainer,
   inspectContainer,
   getContainerLogs,
+  execInContainer,
   removeAgentVolumes,
 } from '../services/docker';
 import {
@@ -467,6 +468,109 @@ router.get('/:id/status', requireRole('user'), async (req: Request, res: Respons
   } catch (err) {
     console.error('[agents] Status error:', err);
     res.status(500).json({ error: 'Failed to get status' });
+  }
+});
+
+// Get agent events (structured activity timeline)
+router.get('/:id/events', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT agent_id, status FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const agent = rows[0];
+    if (agent.status !== 'running') {
+      res.status(409).json({ error: 'Agent is not running. Event history is not available for stopped agents.' });
+      return;
+    }
+
+    const tail = parseInt(req.query.tail as string) || 100;
+    const follow = req.query.follow === 'true';
+
+    if (follow) {
+      // SSE streaming
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      try {
+        const stream = await execInContainer(agent.agent_id, [
+          'tail', '-f', '-n', String(tail), '/var/log/agentbox/events.jsonl',
+        ]);
+
+        let buffer = '';
+        stream.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString('utf-8');
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || ''; // keep incomplete line in buffer
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed) {
+              res.write(`data: ${trimmed}\n\n`);
+            }
+          }
+        });
+
+        stream.on('end', () => {
+          if (buffer.trim()) {
+            res.write(`data: ${buffer.trim()}\n\n`);
+          }
+          res.write('event: end\ndata: stream closed\n\n');
+          res.end();
+        });
+
+        stream.on('error', (err: Error) => {
+          res.write(`event: error\ndata: ${err.message}\n\n`);
+          res.end();
+        });
+
+        req.on('close', () => {
+          (stream as any).destroy?.();
+        });
+      } catch (err: any) {
+        res.write(`event: error\ndata: ${err.message}\n\n`);
+        res.end();
+      }
+      return;
+    }
+
+    // One-shot: return events as JSON array
+    try {
+      const stream = await execInContainer(agent.agent_id, [
+        'tail', '-n', String(tail), '/var/log/agentbox/events.jsonl',
+      ]);
+
+      const chunks: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        const events = raw
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line.length > 0)
+          .map(line => {
+            try { return JSON.parse(line); } catch { return null; }
+          })
+          .filter(e => e !== null);
+        res.json(events);
+      });
+      stream.on('error', (err: Error) => {
+        res.status(500).json({ error: 'Failed to read events', detail: err.message });
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Failed to read events', detail: err.message });
+    }
+  } catch (err) {
+    console.error('[agents] Events error:', err);
+    res.status(500).json({ error: 'Failed to get events' });
   }
 });
 

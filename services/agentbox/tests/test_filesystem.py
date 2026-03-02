@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -118,6 +119,43 @@ class TestListDirectory:
             await filesystem.list_directory(str(workspace / "nope"))
         )
         assert result["success"] is False
+
+
+class TestEventEmission:
+    @pytest.mark.asyncio
+    async def test_read_file_emits_event(self, workspace):
+        emitter = MagicMock()
+        filesystem._emitter = emitter
+        await filesystem.read_file(str(workspace / "test.txt"))
+        assert emitter.emit.call_count == 1
+        call = emitter.emit.call_args
+        assert call.kwargs["type"] == "file_read"
+        assert call.kwargs["tool"] == "filesystem"
+        assert call.kwargs["success"] is True
+        filesystem._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_write_file_emits_event(self, workspace):
+        emitter = MagicMock()
+        filesystem._emitter = emitter
+        await filesystem.write_file(str(workspace / "evt.txt"), "content")
+        assert emitter.emit.call_count == 1
+        call = emitter.emit.call_args
+        assert call.kwargs["type"] == "file_write"
+        assert call.kwargs["tool"] == "filesystem"
+        filesystem._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_filesystem_event_output_is_byte_count(self, workspace):
+        emitter = MagicMock()
+        filesystem._emitter = emitter
+        await filesystem.read_file(str(workspace / "test.txt"))
+        call = emitter.emit.call_args
+        output = call.kwargs["output_summary"]
+        # Must be byte count only, not file contents
+        assert "bytes" in output
+        assert "hello world" not in output
+        filesystem._emitter = None
 
 
 class TestUnconfigured:

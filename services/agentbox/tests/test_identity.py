@@ -2,6 +2,7 @@
 
 import json
 import os
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -51,3 +52,18 @@ class TestGetIdentity:
         assert "description" in result
         assert "soul" in result
         assert "rules" in result
+
+
+class TestEventEmission:
+    @pytest.mark.asyncio
+    async def test_identity_emits_event(self):
+        emitter = MagicMock()
+        identity._emitter = emitter
+        await identity.get_identity()
+        assert emitter.emit.call_count == 1
+        call = emitter.emit.call_args
+        assert call.kwargs["type"] == "identity_read"
+        assert call.kwargs["tool"] == "identity"
+        assert call.kwargs["input_summary"] == "SOUL.md + RULES.md"
+        assert "bytes" in call.kwargs["output_summary"]
+        identity._emitter = None

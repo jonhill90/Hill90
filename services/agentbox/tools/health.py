@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 from fastmcp import FastMCP
 
 from app.config import AgentConfig
+from app.events import EventEmitter
 
 server = FastMCP("HealthTools")
 _config: AgentConfig | None = None
+_emitter: EventEmitter | None = None
 
 
-def configure(config: AgentConfig) -> None:
-    global _config
+def configure(config: AgentConfig, emitter: EventEmitter | None = None) -> None:
+    global _config, _emitter
     _config = config
+    _emitter = emitter
 
 
 @server.tool()
@@ -25,6 +29,7 @@ async def health_check() -> str:
     Returns:
         JSON string with health status, agent info, and resource stats
     """
+    t0 = time.monotonic()
     agent_id = _config.id if _config else "unknown"
 
     # Basic resource stats
@@ -47,6 +52,21 @@ async def health_check() -> str:
         stats = {"error": "psutil not available"}
     except Exception as e:
         stats = {"error": f"Resource stats failed: {e}"}
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    if _emitter:
+        cpu = stats.get("cpu_percent", "?")
+        mem_pct = stats.get("memory_percent", "?")
+        disk_pct = stats.get("disk_percent", "?")
+        _emitter.emit(
+            type="health_check",
+            tool="health",
+            input_summary="health_check",
+            output_summary=f"cpu={cpu}%, mem={mem_pct}%, disk={disk_pct}%",
+            duration_ms=duration_ms,
+            success=True,
+        )
 
     return json.dumps({
         "status": "healthy",

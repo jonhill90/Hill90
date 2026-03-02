@@ -24,6 +24,7 @@ jest.mock('../services/docker', () => ({
   stopAndRemoveContainer: jest.fn(),
   inspectContainer: jest.fn(),
   getContainerLogs: jest.fn(),
+  execInContainer: jest.fn(),
   removeAgentVolumes: jest.fn(),
   reconcileAgentStatuses: jest.fn(),
 }));
@@ -146,6 +147,7 @@ const EXPECTED_PATHS = [
   '/agents/{id}/start',
   '/agents/{id}/stop',
   '/agents/{id}/status',
+  '/agents/{id}/events',
   '/agents/{id}/logs',
   '/model-policies',
   '/model-policies/{id}',
