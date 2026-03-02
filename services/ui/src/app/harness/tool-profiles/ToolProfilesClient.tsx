@@ -1,0 +1,481 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
+import { Terminal, FolderOpen, Heart } from 'lucide-react'
+
+interface ToolsConfig {
+  shell: { enabled: boolean; allowed_binaries: string[]; denied_patterns: string[]; max_timeout: number }
+  filesystem: { enabled: boolean; read_only: boolean; allowed_paths: string[]; denied_paths: string[] }
+  health: { enabled: boolean }
+}
+
+interface ToolPreset {
+  id: string
+  name: string
+  description: string
+  tools_config: ToolsConfig
+  is_platform: boolean
+  created_at: string
+  updated_at: string
+}
+
+export default function ToolProfilesClient() {
+  const { data: session } = useSession()
+  const isAdmin = (session?.user as any)?.roles?.includes('admin')
+
+  const [presets, setPresets] = useState<ToolPreset[]>([])
+  const [loading, setLoading] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    shellEnabled: false,
+    filesystemEnabled: false,
+    readOnly: false,
+    healthEnabled: true,
+    allowed_binaries: '' ,
+    denied_patterns: '',
+    allowed_paths: '/workspace',
+    denied_paths: '/etc/shadow, /etc/passwd, /root',
+    max_timeout: '300',
+  })
+  const [formError, setFormError] = useState('')
+
+  const fetchPresets = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tool-presets')
+      if (res.ok) setPresets(await res.json())
+    } catch (err) {
+      console.error('Failed to fetch presets:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchPresets()
+  }, [fetchPresets])
+
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      description: '',
+      shellEnabled: false,
+      filesystemEnabled: false,
+      readOnly: false,
+      healthEnabled: true,
+      allowed_binaries: '',
+      denied_patterns: '',
+      allowed_paths: '/workspace',
+      denied_paths: '/etc/shadow, /etc/passwd, /root',
+      max_timeout: '300',
+    })
+    setFormError('')
+    setShowForm(false)
+    setEditingId(null)
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setFormError('')
+
+    if (!formData.name.trim()) {
+      setFormError('Name is required')
+      return
+    }
+
+    const tools_config: ToolsConfig = {
+      shell: {
+        enabled: formData.shellEnabled,
+        allowed_binaries: formData.allowed_binaries ? formData.allowed_binaries.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        denied_patterns: formData.denied_patterns ? formData.denied_patterns.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        max_timeout: parseInt(formData.max_timeout, 10) || 300,
+      },
+      filesystem: {
+        enabled: formData.filesystemEnabled,
+        read_only: formData.readOnly,
+        allowed_paths: formData.allowed_paths ? formData.allowed_paths.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        denied_paths: formData.denied_paths ? formData.denied_paths.split(',').map((s) => s.trim()).filter(Boolean) : [],
+      },
+      health: { enabled: formData.healthEnabled },
+    }
+
+    const body: Record<string, unknown> = {
+      name: formData.name.trim(),
+      tools_config,
+    }
+    if (formData.description.trim()) {
+      body.description = formData.description.trim()
+    }
+
+    try {
+      const url = editingId
+        ? `/api/tool-presets/${editingId}`
+        : '/api/tool-presets'
+      const res = await fetch(url, {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+      if (res.ok) {
+        resetForm()
+        await fetchPresets()
+      } else {
+        const data = await res.json()
+        setFormError(data.error || (editingId ? 'Failed to update profile' : 'Failed to create profile'))
+      }
+    } catch {
+      setFormError('Request failed')
+    }
+  }
+
+  const handleDelete = async (preset: ToolPreset) => {
+    if (!confirm(`Delete profile "${preset.name}"? Agents using this profile will keep their current tool configuration.`)) return
+    setActionLoading(preset.id)
+    try {
+      const res = await fetch(`/api/tool-presets/${preset.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        await fetchPresets()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to delete profile')
+      }
+    } catch {
+      alert('Failed to delete profile')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleEdit = (preset: ToolPreset) => {
+    const tc = preset.tools_config
+    setFormData({
+      name: preset.name,
+      description: preset.description || '',
+      shellEnabled: tc.shell.enabled,
+      filesystemEnabled: tc.filesystem.enabled,
+      readOnly: tc.filesystem.read_only,
+      healthEnabled: tc.health.enabled,
+      allowed_binaries: tc.shell.allowed_binaries.join(', '),
+      denied_patterns: tc.shell.denied_patterns.join(', '),
+      allowed_paths: tc.filesystem.allowed_paths.join(', '),
+      denied_paths: tc.filesystem.denied_paths.join(', '),
+      max_timeout: tc.shell.max_timeout.toString(),
+    })
+    setEditingId(preset.id)
+    setShowForm(true)
+    setFormError('')
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-bold">Tool Profiles</h1>
+          <p className="text-sm text-mountain-400 mt-1">
+            {presets.length} profile{presets.length !== 1 ? 's' : ''}
+          </p>
+        </div>
+        {isAdmin && (
+          <button
+            onClick={() => { resetForm(); setShowForm(true) }}
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+          >
+            Add Profile
+          </button>
+        )}
+      </div>
+
+      {/* Create/Edit form */}
+      {showForm && (
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-6">
+          <h2 className="text-lg font-semibold text-white mb-4">
+            {editingId ? 'Edit Tool Profile' : 'New Tool Profile'}
+          </h2>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-mountain-400 mb-1">Name</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                  placeholder="Profile name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-mountain-400 mb-1">
+                  Description <span className="text-mountain-500">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                  placeholder="Brief description"
+                />
+              </div>
+            </div>
+
+            {/* Tool toggles */}
+            <div className="space-y-3">
+              <label className="block text-sm text-mountain-400">Tools</label>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.shellEnabled}
+                    onChange={(e) => setFormData({ ...formData, shellEnabled: e.target.checked })}
+                    className="rounded border-navy-600"
+                  />
+                  Shell
+                </label>
+                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.filesystemEnabled}
+                    onChange={(e) => setFormData({ ...formData, filesystemEnabled: e.target.checked })}
+                    className="rounded border-navy-600"
+                  />
+                  Filesystem
+                </label>
+                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.healthEnabled}
+                    onChange={(e) => setFormData({ ...formData, healthEnabled: e.target.checked })}
+                    className="rounded border-navy-600"
+                  />
+                  Health
+                </label>
+              </div>
+            </div>
+
+            {formData.shellEnabled && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-mountain-400 mb-1">Allowed Binaries (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={formData.allowed_binaries}
+                    onChange={(e) => setFormData({ ...formData, allowed_binaries: e.target.value })}
+                    className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                    placeholder="bash, git, curl"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-mountain-400 mb-1">Timeout (seconds)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.max_timeout}
+                    onChange={(e) => setFormData({ ...formData, max_timeout: e.target.value })}
+                    className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                    placeholder="300"
+                  />
+                </div>
+              </div>
+            )}
+
+            {formError && (
+              <p className="text-sm text-red-400">{formError}</p>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+              >
+                {editingId ? 'Update' : 'Create'}
+              </button>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Presets list */}
+      {presets.length === 0 ? (
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
+          <p className="text-mountain-400 mb-4">No tool profiles yet</p>
+          <p className="text-sm text-mountain-500">
+            Create a profile to define reusable tool configurations for agents.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {presets.map((preset) => {
+            const isExpanded = expandedId === preset.id
+            const tc = preset.tools_config
+
+            return (
+              <div
+                key={preset.id}
+                className="rounded-lg border border-navy-700 bg-navy-900 overflow-hidden"
+              >
+                {/* Summary row */}
+                <div
+                  className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-navy-800 transition-colors"
+                  onClick={() => setExpandedId(isExpanded ? null : preset.id)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setExpandedId(isExpanded ? null : preset.id) }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="font-medium text-white">{preset.name}</span>
+                      {preset.is_platform && (
+                        <span className="px-2 py-0.5 text-xs rounded-md bg-mountain-500/20 text-mountain-300 border border-mountain-500/30">
+                          Platform
+                        </span>
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {tc.shell.enabled && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
+                            <Terminal className="w-3 h-3" /> Shell
+                          </span>
+                        )}
+                        {tc.filesystem.enabled && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
+                            <FolderOpen className="w-3 h-3" /> Filesystem
+                            {tc.filesystem.read_only && <span className="text-mountain-400">(ro)</span>}
+                          </span>
+                        )}
+                        {tc.health.enabled && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
+                            <Heart className="w-3 h-3" /> Health
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {preset.description && (
+                      <p className="text-xs text-mountain-400 mt-1 truncate">{preset.description}</p>
+                    )}
+                  </div>
+                  <div className="shrink-0">
+                    <svg
+                      className={`w-4 h-4 text-mountain-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div className="border-t border-navy-700 px-4 py-4 bg-navy-800/50">
+                    {preset.description && (
+                      <p className="text-sm text-mountain-300 mb-4">{preset.description}</p>
+                    )}
+
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm mb-4">
+                      {/* Shell config */}
+                      <div>
+                        <dt className="text-mountain-400 mb-1">Shell</dt>
+                        <dd className="text-white">
+                          {tc.shell.enabled ? (
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap gap-1">
+                                {tc.shell.allowed_binaries.map((b) => (
+                                  <span key={b} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700">
+                                    {b}
+                                  </span>
+                                ))}
+                              </div>
+                              {tc.shell.denied_patterns.length > 0 && (
+                                <div className="text-xs text-mountain-400">
+                                  Denied: {tc.shell.denied_patterns.map((p) => (
+                                    <span key={p} className="px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-700/50 mr-1">
+                                      {p}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="text-xs text-mountain-500">Timeout: {tc.shell.max_timeout}s</div>
+                            </div>
+                          ) : (
+                            <span className="text-mountain-500">Disabled</span>
+                          )}
+                        </dd>
+                      </div>
+
+                      {/* Filesystem config */}
+                      <div>
+                        <dt className="text-mountain-400 mb-1">Filesystem</dt>
+                        <dd className="text-white">
+                          {tc.filesystem.enabled ? (
+                            <div className="space-y-1">
+                              <div className="text-xs">
+                                {tc.filesystem.read_only ? 'Read-only' : 'Read-write'}
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {tc.filesystem.allowed_paths.map((p) => (
+                                  <span key={p} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700">
+                                    {p}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-mountain-500">Disabled</span>
+                          )}
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt className="text-mountain-400">Created</dt>
+                        <dd className="text-white mt-1">{new Date(preset.created_at).toLocaleString()}</dd>
+                      </div>
+                    </dl>
+
+                    {/* Actions — admin only, non-platform only */}
+                    {isAdmin && !preset.is_platform && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleEdit(preset)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(preset)}
+                          disabled={actionLoading === preset.id}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </>
+  )
+}
