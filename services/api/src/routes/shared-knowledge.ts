@@ -14,6 +14,21 @@ import * as skProxy from '../services/shared-knowledge-proxy';
 const router = Router();
 
 // ---------------------------------------------------------------------------
+// Stats
+// ---------------------------------------------------------------------------
+
+router.get('/stats', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const since = req.query.since as string | undefined;
+    const result = await skProxy.getStats(since);
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    console.error('[shared-knowledge] Stats error:', err);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Collections
 // ---------------------------------------------------------------------------
 

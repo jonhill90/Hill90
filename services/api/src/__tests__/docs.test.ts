@@ -164,6 +164,7 @@ const EXPECTED_PATHS = [
   '/profile',
   '/profile/avatar',
   '/profile/password',
+  '/shared-knowledge/stats',
   '/shared-knowledge/collections',
   '/shared-knowledge/collections/{id}',
   '/shared-knowledge/sources',
