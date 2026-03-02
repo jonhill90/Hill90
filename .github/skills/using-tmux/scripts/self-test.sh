@@ -25,10 +25,10 @@ check() {
   local name="$1" result="$2"
   if [[ "$result" == "PASS" ]]; then
     echo "  [$result] $name"
-    ((PASS++))
+    PASS=$((PASS + 1))
   else
     echo "  [$result] $name"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
   fi
 }
 
