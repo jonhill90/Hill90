@@ -30,9 +30,9 @@ tmux sessions survive SSH drops, terminal closes, and laptop sleep. This makes t
 Use a dedicated socket directory:
 
 ```bash
-SOCKET_DIR="${VIBES_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/vibes-tmux-sockets}"
+SOCKET_DIR="${TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/tmux-agent-sockets}"
 mkdir -p "$SOCKET_DIR"
-SOCKET="$SOCKET_DIR/vibes.sock"
+SOCKET="$SOCKET_DIR/agent.sock"
 ```
 
 Use short session names with no spaces. Target panes by window name (e.g. `session:shell`) rather than numeric index (e.g. `session:0.0`) — numeric indexes depend on `base-index`/`pane-base-index` settings and are not portable.
@@ -40,7 +40,7 @@ Use short session names with no spaces. Target panes by window name (e.g. `sessi
 ## Quickstart
 
 ```bash
-SESSION="vibes-work"
+SESSION="agent-work"
 tmux -S "$SOCKET" new-session -d -s "$SESSION" -n shell
 tmux -S "$SOCKET" send-keys -t "$SESSION":shell -l -- "echo ready"
 sleep 0.1
@@ -261,9 +261,9 @@ ls -la "$SOCKET"
 # Common fix: socket dir not writable
 chmod 700 "$SOCKET_DIR"
 
-# On shared systems, use VIBES_TMUX_SOCKET_DIR to isolate
-export VIBES_TMUX_SOCKET_DIR="$HOME/.tmux-sockets"
-mkdir -p "$VIBES_TMUX_SOCKET_DIR"
+# On shared systems, use TMUX_SOCKET_DIR to isolate
+export TMUX_SOCKET_DIR="$HOME/.tmux-sockets"
+mkdir -p "$TMUX_SOCKET_DIR"
 ```
 
 ### Hung-process recovery
