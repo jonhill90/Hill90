@@ -21,10 +21,38 @@ const MOCK_POLICIES = [
   { id: 'policy-2', name: 'Restricted Policy' },
 ]
 
+const MOCK_PRESETS = [
+  {
+    id: 'preset-min',
+    name: 'Minimal',
+    description: 'Health monitoring only',
+    tools_config: {
+      shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
+      filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+      health: { enabled: true },
+    },
+    is_platform: true,
+  },
+  {
+    id: 'preset-dev',
+    name: 'Developer',
+    description: 'Full dev environment',
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['bash', 'git', 'make', 'curl', 'jq'], denied_patterns: ['rm -rf /', ':(){ :|:& };:'], max_timeout: 300 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+      health: { enabled: true },
+    },
+    is_platform: true,
+  },
+]
+
 function mockFetchDefaults() {
   mockFetch.mockImplementation((url: string, opts?: any) => {
     if (url === '/api/model-policies') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
+    }
+    if (url === '/api/tool-presets') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_PRESETS) })
     }
     if (url === '/api/agents' && opts?.method === 'POST') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'new-uuid' }) })
@@ -310,5 +338,182 @@ describe('AgentFormClient', () => {
     fireEvent.change(soulTextarea, { target: { value: 'Hello world' } })
 
     expect(screen.getByText('11 characters')).toBeInTheDocument()
+  })
+
+  // T18: Preset dropdown renders options
+  it('renders preset dropdown with preset options and Custom', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Developer')).toBeInTheDocument()
+
+    // "Custom" option should exist in the tool profile selector
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    expect(profileSelect).toBeInTheDocument()
+    const customOption = screen.getByRole('option', { name: /custom/i })
+    expect(customOption).toBeInTheDocument()
+  })
+
+  // T19: Selecting preset shows summary card
+  it('selecting preset shows summary card with tool details', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Select the Developer preset
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // Should show summary with enabled tools info
+    await waitFor(() => {
+      expect(screen.getByText(/shell/i)).toBeInTheDocument()
+      expect(screen.getByText(/bash/i)).toBeInTheDocument()
+    })
+
+    // Manual tool checkboxes (Shell access, Filesystem access) should NOT be visible
+    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
+  })
+
+  // T20: Selecting Custom reveals manual config
+  it('selecting Custom shows tool toggles', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Select Developer preset first
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // Now switch to Custom
+    fireEvent.change(profileSelect, { target: { value: '' } })
+
+    // Manual tool checkboxes should be visible again
+    await waitFor(() => {
+      expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
+    })
+    expect(screen.getByLabelText('Filesystem access')).toBeInTheDocument()
+    expect(screen.getByLabelText('Health endpoint')).toBeInTheDocument()
+  })
+
+  // T21: Preset→Custom populates fields from preset
+  it('switching from preset to Custom populates tool fields from preset', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Select Developer preset
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // Switch to Custom
+    fireEvent.change(profileSelect, { target: { value: '' } })
+
+    // Shell should be enabled (from Developer preset)
+    await waitFor(() => {
+      const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
+      expect(shellCheckbox.checked).toBe(true)
+    })
+
+    // Filesystem should be enabled (from Developer preset)
+    const fsCheckbox = screen.getByLabelText('Filesystem access') as HTMLInputElement
+    expect(fsCheckbox.checked).toBe(true)
+  })
+
+  // T18 continued: Submit body includes tool_preset_id when preset selected
+  it('submit body includes tool_preset_id when preset selected', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Fill required fields
+    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
+
+    // Select Developer preset
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // Submit
+    fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
+        method: 'POST',
+      }))
+    })
+
+    const postCall = mockFetch.mock.calls.find(
+      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
+    )!
+    const body = JSON.parse(postCall[1].body)
+    expect(body.tool_preset_id).toBe('preset-dev')
+  })
+
+  // Submit body sends tool_preset_id = null when Custom selected
+  it('submit body sends tool_preset_id null when Custom selected', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Fill required fields
+    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
+
+    // Keep Custom (default — no preset selected)
+    // Submit
+    fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
+        method: 'POST',
+      }))
+    })
+
+    const postCall = mockFetch.mock.calls.find(
+      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
+    )!
+    const body = JSON.parse(postCall[1].body)
+    expect(body.tool_preset_id).toBeNull()
+  })
+
+  // Edit form pre-selects preset when initial has tool_preset_id
+  it('pre-selects preset when initial has tool_preset_id', async () => {
+    const initial = {
+      agent_id: 'existing',
+      name: 'Existing Agent',
+      description: 'Test',
+      tools_config: {
+        shell: { enabled: true, allowed_binaries: ['bash', 'git', 'make', 'curl', 'jq'], denied_patterns: ['rm -rf /', ':(){ :|:& };:'], max_timeout: 300 },
+        filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+        health: { enabled: true },
+      },
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      model_policy_id: null,
+      tool_preset_id: 'preset-dev',
+    }
+
+    render(<AgentFormClient initial={initial} agentUuid="uuid-1" />)
+
+    await waitFor(() => {
+      const profileSelect = screen.getByRole('combobox', { name: /tool profile/i }) as HTMLSelectElement
+      expect(profileSelect.value).toBe('preset-dev')
+    })
   })
 })
