@@ -147,6 +147,6 @@ git worktree lock "$WORKTREE_DIR/$BRANCH"
 
 ## Integration
 
-- **tmux skill**: Use the `tmux` skill for session-per-worktree orchestration. This skill handles worktree creation; tmux handles running agents in separate terminal sessions within those worktrees.
+- **using-tmux skill**: Use the `using-tmux` skill for session-per-worktree orchestration. This skill handles worktree creation; tmux handles running agents in separate terminal sessions within those worktrees.
 - **Branch naming**: Follow AGENTS.md conventions (`feat/`, `fix/`, `refactor/`, `docs/`, `enhance/`).
 - **Parallel agents**: Combine with the `dispatching-parallel-agents` skill when multiple agents need isolated workspaces.
