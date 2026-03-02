@@ -14,6 +14,10 @@ vi.mock('next/navigation', () => ({
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
+// Mock confirm for overwrite protection tests
+const mockConfirm = vi.fn(() => true)
+vi.stubGlobal('confirm', mockConfirm)
+
 import AgentFormClient from '@/app/agents/new/AgentFormClient'
 
 const MOCK_POLICIES = [
@@ -64,9 +68,19 @@ function mockFetchDefaults() {
   })
 }
 
+/** Helper: wait for presets to load then select Custom mode */
+async function selectCustomMode() {
+  await waitFor(() => {
+    expect(screen.getByRole('combobox', { name: /tool profile/i })).toBeInTheDocument()
+  })
+  const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+  fireEvent.change(profileSelect, { target: { value: '' } })
+}
+
 describe('AgentFormClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockConfirm.mockReturnValue(true)
     mockFetchDefaults()
   })
 
@@ -104,10 +118,7 @@ describe('AgentFormClient', () => {
 
   it('shows shell advanced fields when shell enabled', async () => {
     render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Tools')).toBeInTheDocument()
-    })
+    await selectCustomMode()
 
     // Enable shell
     const shellCheckbox = screen.getByLabelText('Shell access')
@@ -124,10 +135,7 @@ describe('AgentFormClient', () => {
 
   it('shows filesystem advanced fields when filesystem enabled', async () => {
     render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Tools')).toBeInTheDocument()
-    })
+    await selectCustomMode()
 
     // Enable filesystem
     const fsCheckbox = screen.getByLabelText('Filesystem access')
@@ -143,6 +151,7 @@ describe('AgentFormClient', () => {
 
   it('submit body includes model_policy_id', async () => {
     render(<AgentFormClient />)
+    await selectCustomMode()
 
     await waitFor(() => {
       expect(screen.getByText('Default Policy')).toBeInTheDocument()
@@ -174,10 +183,7 @@ describe('AgentFormClient', () => {
 
   it('submit body includes advanced tools_config fields', async () => {
     render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Tools')).toBeInTheDocument()
-    })
+    await selectCustomMode()
 
     // Fill required fields
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
@@ -207,10 +213,7 @@ describe('AgentFormClient', () => {
 
   it('rejects max_timeout less than 1', async () => {
     render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Tools')).toBeInTheDocument()
-    })
+    await selectCustomMode()
 
     // Fill required fields
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
@@ -241,10 +244,7 @@ describe('AgentFormClient', () => {
 
   it('rejects path not starting with /', async () => {
     render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Tools')).toBeInTheDocument()
-    })
+    await selectCustomMode()
 
     // Enable filesystem and open advanced
     fireEvent.click(screen.getByLabelText('Filesystem access'))
@@ -284,11 +284,10 @@ describe('AgentFormClient', () => {
       expect(screen.getByText('Tools')).toBeInTheDocument()
     })
 
-    // Shell should be checked
+    // Edit mode with no preset → Custom mode, tool toggles visible
     const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
     expect(shellCheckbox.checked).toBe(true)
 
-    // Filesystem should be checked
     const fsCheckbox = screen.getByLabelText('Filesystem access') as HTMLInputElement
     expect(fsCheckbox.checked).toBe(true)
 
@@ -340,6 +339,25 @@ describe('AgentFormClient', () => {
     expect(screen.getByText('11 characters')).toBeInTheDocument()
   })
 
+  // T18: New agent starts in unselected prompt state
+  it('new agent starts with unselected prompt, not Custom', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /tool profile/i })).toBeInTheDocument()
+    })
+
+    // The select should show "Select a profile..." prompt
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i }) as HTMLSelectElement
+    expect(profileSelect.value).toBe('__unselected__')
+
+    // Prompt message should be visible
+    expect(screen.getByText(/choose a tool profile/i)).toBeInTheDocument()
+
+    // Tool checkboxes should NOT be visible (neither preset summary nor custom toggles)
+    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
+  })
+
   // T18: Preset dropdown renders options
   it('renders preset dropdown with preset options and Custom', async () => {
     render(<AgentFormClient />)
@@ -355,6 +373,33 @@ describe('AgentFormClient', () => {
     expect(profileSelect).toBeInTheDocument()
     const customOption = screen.getByRole('option', { name: /custom/i })
     expect(customOption).toBeInTheDocument()
+  })
+
+  // T18: Submit blocked when still in unselected state
+  it('submit blocked when no profile selected', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /tool profile/i })).toBeInTheDocument()
+    })
+
+    // Fill required fields
+    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
+
+    // Submit without selecting a profile
+    const form = screen.getByRole('button', { name: /create agent/i }).closest('form')!
+    fireEvent.submit(form)
+
+    await waitFor(() => {
+      expect(screen.getByText(/please select a tool profile/i)).toBeInTheDocument()
+    })
+
+    // Should NOT have sent a POST request
+    const postCalls = mockFetch.mock.calls.filter(
+      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
+    )
+    expect(postCalls).toHaveLength(0)
   })
 
   // T19: Selecting preset shows summary card
@@ -387,7 +432,7 @@ describe('AgentFormClient', () => {
       expect(screen.getByText('Developer')).toBeInTheDocument()
     })
 
-    // Select Developer preset first
+    // Select Developer preset first (from unselected)
     const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
@@ -398,6 +443,16 @@ describe('AgentFormClient', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
     })
+    expect(screen.getByLabelText('Filesystem access')).toBeInTheDocument()
+    expect(screen.getByLabelText('Health endpoint')).toBeInTheDocument()
+  })
+
+  // T20 continued: Selecting Custom from unselected also shows toggles
+  it('selecting Custom from unselected shows tool toggles', async () => {
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
     expect(screen.getByLabelText('Filesystem access')).toBeInTheDocument()
     expect(screen.getByLabelText('Health endpoint')).toBeInTheDocument()
   })
@@ -428,7 +483,7 @@ describe('AgentFormClient', () => {
     expect(fsCheckbox.checked).toBe(true)
   })
 
-  // T18 continued: Submit body includes tool_preset_id when preset selected
+  // Submit body includes tool_preset_id when preset selected
   it('submit body includes tool_preset_id when preset selected', async () => {
     render(<AgentFormClient />)
 
@@ -463,16 +518,12 @@ describe('AgentFormClient', () => {
   // Submit body sends tool_preset_id = null when Custom selected
   it('submit body sends tool_preset_id null when Custom selected', async () => {
     render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Developer')).toBeInTheDocument()
-    })
+    await selectCustomMode()
 
     // Fill required fields
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
-    // Keep Custom (default — no preset selected)
     // Submit
     fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
 
@@ -515,5 +566,82 @@ describe('AgentFormClient', () => {
       const profileSelect = screen.getByRole('combobox', { name: /tool profile/i }) as HTMLSelectElement
       expect(profileSelect.value).toBe('preset-dev')
     })
+  })
+
+  // Overwrite protection: dirty custom → preset selection prompts confirmation
+  it('dirty custom state prompts confirmation before switching to preset', async () => {
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    // Make a manual change in Custom mode (enable shell = dirty)
+    fireEvent.click(screen.getByLabelText('Shell access'))
+
+    // Now try to switch to Developer preset
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // confirm() should have been called
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.stringContaining('overwrite')
+    )
+  })
+
+  // Overwrite protection: cancel keeps custom state intact
+  it('cancel on overwrite confirmation keeps custom state', async () => {
+    mockConfirm.mockReturnValue(false)
+
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    // Make a manual change (enable shell)
+    fireEvent.click(screen.getByLabelText('Shell access'))
+
+    // Try to switch to preset — user cancels
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // Should still be in Custom mode
+    expect((profileSelect as HTMLSelectElement).value).toBe('')
+
+    // Shell should still be checked (custom state preserved)
+    const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
+    expect(shellCheckbox.checked).toBe(true)
+  })
+
+  // Overwrite protection: confirm applies the preset
+  it('confirm on overwrite applies preset config', async () => {
+    mockConfirm.mockReturnValue(true)
+
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    // Make a manual change (enable shell only, filesystem stays disabled)
+    fireEvent.click(screen.getByLabelText('Shell access'))
+
+    // Switch to Developer preset — user confirms
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // Should now be in preset mode
+    expect((profileSelect as HTMLSelectElement).value).toBe('preset-dev')
+
+    // Manual tool checkboxes should NOT be visible (preset summary shown instead)
+    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
+
+    // Preset summary should show Developer description
+    expect(screen.getByText('Full dev environment')).toBeInTheDocument()
+  })
+
+  // No confirmation when switching from clean Custom (no changes) to preset
+  it('no confirmation when switching from unmodified Custom to preset', async () => {
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    // Don't make any changes — just switch to preset
+    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
+
+    // confirm() should NOT have been called
+    expect(mockConfirm).not.toHaveBeenCalled()
   })
 })

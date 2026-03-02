@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import TagInput from '@/components/TagInput'
 
@@ -10,6 +10,9 @@ interface ToolsConfig {
   filesystem: { enabled: boolean; read_only: boolean; allowed_paths: string[]; denied_paths: string[] }
   health: { enabled: boolean }
 }
+
+// Sentinel value — new agents start here, forcing the user to choose
+const UNSELECTED = '__unselected__'
 
 const defaultTools: ToolsConfig = {
   shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
@@ -69,7 +72,11 @@ export default function AgentFormClient({
   const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
   const [policies, setPolicies] = useState<PolicyOption[]>([])
   const [presets, setPresets] = useState<PresetOption[]>([])
-  const [toolPresetId, setToolPresetId] = useState(initial?.tool_preset_id || '')
+  // New agents: unselected prompt. Edit agents: preset ID or '' (Custom).
+  const [toolPresetId, setToolPresetId] = useState(
+    initial ? (initial.tool_preset_id || '') : UNSELECTED
+  )
+  const toolsCustomDirty = useRef(false)
 
   const [shellAdvanced, setShellAdvanced] = useState(false)
   const [fsAdvanced, setFsAdvanced] = useState(false)
@@ -87,7 +94,43 @@ export default function AgentFormClient({
       .catch(() => {})
   }, [])
 
+  // Wrapper: marks tools as user-modified when editing in Custom mode
+  const updateToolsCustom = (newTools: ToolsConfig) => {
+    setTools(newTools)
+    toolsCustomDirty.current = true
+  }
+
+  const handleProfileChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newId = e.target.value
+    const switchingFromCustom = toolPresetId === ''
+
+    // Overwrite protection: if user has made manual changes in Custom mode
+    if (switchingFromCustom && newId && newId !== UNSELECTED && toolsCustomDirty.current) {
+      if (!confirm('Switching to a preset will overwrite your custom tool configuration. Continue?')) {
+        return
+      }
+    }
+
+    if (newId && newId !== UNSELECTED) {
+      // Switching to a preset — copy its tools_config
+      const preset = presets.find((p) => p.id === newId)
+      if (preset) {
+        setTools(preset.tools_config)
+      }
+      toolsCustomDirty.current = false
+    } else if (newId === '') {
+      // Switching to Custom — inherited config is the new baseline
+      toolsCustomDirty.current = false
+    }
+
+    setToolPresetId(newId)
+  }
+
   const validateForm = (): boolean => {
+    if (toolPresetId === UNSELECTED) {
+      setValidationError('Please select a tool profile or choose Custom')
+      return false
+    }
     if (tools.shell.enabled && tools.shell.max_timeout < 1) {
       setValidationError('Timeout must be at least 1 second')
       return false
@@ -227,19 +270,12 @@ export default function AgentFormClient({
           <select
             id="tool_profile"
             value={toolPresetId}
-            onChange={(e) => {
-              const newId = e.target.value
-              if (newId) {
-                // Switching to a preset — copy its tools_config into local state
-                const preset = presets.find((p) => p.id === newId)
-                if (preset) {
-                  setTools(preset.tools_config)
-                }
-              }
-              setToolPresetId(newId)
-            }}
+            onChange={handleProfileChange}
             className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
           >
+            {toolPresetId === UNSELECTED && (
+              <option value={UNSELECTED} disabled>Select a profile...</option>
+            )}
             <option value="">Custom</option>
             {presets.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -250,7 +286,14 @@ export default function AgentFormClient({
           </p>
         </div>
 
-        {toolPresetId ? (
+        {toolPresetId === UNSELECTED ? (
+          /* No selection yet — prompt user */
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
+            <p className="text-sm text-mountain-400">
+              Choose a tool profile above to configure this agent&apos;s capabilities.
+            </p>
+          </div>
+        ) : toolPresetId ? (
           /* Preset selected — show read-only summary */
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
             {(() => {
@@ -301,7 +344,7 @@ export default function AgentFormClient({
               <input
                 type="checkbox"
                 checked={tools.shell.enabled}
-                onChange={(e) => setTools({ ...tools, shell: { ...tools.shell, enabled: e.target.checked } })}
+                onChange={(e) => updateToolsCustom({ ...tools, shell: { ...tools.shell, enabled: e.target.checked } })}
                 className="rounded border-navy-600"
               />
               <span className="text-sm text-white">Shell access</span>
@@ -321,14 +364,14 @@ export default function AgentFormClient({
                     <TagInput
                       label="Allowed Binaries"
                       value={tools.shell.allowed_binaries}
-                      onChange={(v) => setTools({ ...tools, shell: { ...tools.shell, allowed_binaries: v } })}
+                      onChange={(v) => updateToolsCustom({ ...tools, shell: { ...tools.shell, allowed_binaries: v } })}
                       placeholder="Add binary (e.g. bash)..."
                       disabled={disabled}
                     />
                     <TagInput
                       label="Denied Patterns"
                       value={tools.shell.denied_patterns}
-                      onChange={(v) => setTools({ ...tools, shell: { ...tools.shell, denied_patterns: v } })}
+                      onChange={(v) => updateToolsCustom({ ...tools, shell: { ...tools.shell, denied_patterns: v } })}
                       placeholder="Add pattern (e.g. rm -rf)..."
                       disabled={disabled}
                     />
@@ -340,7 +383,7 @@ export default function AgentFormClient({
                         id="max_timeout"
                         type="number"
                         value={tools.shell.max_timeout}
-                        onChange={(e) => setTools({ ...tools, shell: { ...tools.shell, max_timeout: parseInt(e.target.value) || 0 } })}
+                        onChange={(e) => updateToolsCustom({ ...tools, shell: { ...tools.shell, max_timeout: parseInt(e.target.value) || 0 } })}
                         min={1}
                         className="w-32 rounded-lg border border-navy-600 bg-navy-900 px-3 py-1.5 text-white text-sm focus:border-brand-500 focus:outline-none disabled:opacity-50"
                       />
@@ -355,7 +398,7 @@ export default function AgentFormClient({
               <input
                 type="checkbox"
                 checked={tools.filesystem.enabled}
-                onChange={(e) => setTools({ ...tools, filesystem: { ...tools.filesystem, enabled: e.target.checked } })}
+                onChange={(e) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, enabled: e.target.checked } })}
                 className="rounded border-navy-600"
               />
               <span className="text-sm text-white">Filesystem access</span>
@@ -367,7 +410,7 @@ export default function AgentFormClient({
                   <input
                     type="checkbox"
                     checked={tools.filesystem.read_only}
-                    onChange={(e) => setTools({ ...tools, filesystem: { ...tools.filesystem, read_only: e.target.checked } })}
+                    onChange={(e) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, read_only: e.target.checked } })}
                     className="rounded border-navy-600"
                   />
                   <span className="text-sm text-mountain-400">Read-only filesystem</span>
@@ -385,7 +428,7 @@ export default function AgentFormClient({
                     <TagInput
                       label="Allowed Paths"
                       value={tools.filesystem.allowed_paths}
-                      onChange={(v) => setTools({ ...tools, filesystem: { ...tools.filesystem, allowed_paths: v } })}
+                      onChange={(v) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, allowed_paths: v } })}
                       validate={pathValidate}
                       placeholder="Add path (e.g. /workspace)..."
                       disabled={disabled}
@@ -393,7 +436,7 @@ export default function AgentFormClient({
                     <TagInput
                       label="Denied Paths"
                       value={tools.filesystem.denied_paths}
-                      onChange={(v) => setTools({ ...tools, filesystem: { ...tools.filesystem, denied_paths: v } })}
+                      onChange={(v) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, denied_paths: v } })}
                       validate={pathValidate}
                       placeholder="Add path (e.g. /etc/shadow)..."
                       disabled={disabled}
@@ -408,7 +451,7 @@ export default function AgentFormClient({
               <input
                 type="checkbox"
                 checked={tools.health.enabled}
-                onChange={(e) => setTools({ ...tools, health: { ...tools.health, enabled: e.target.checked } })}
+                onChange={(e) => updateToolsCustom({ ...tools, health: { ...tools.health, enabled: e.target.checked } })}
                 className="rounded border-navy-600"
               />
               <span className="text-sm text-white">Health endpoint</span>
