@@ -215,25 +215,28 @@ export async function execInContainer(
   const { Transform } = require('stream');
   const demux = new Transform({
     transform(chunk: Buffer, _encoding: string, callback: Function) {
+      // Prepend any leftover bytes from the previous chunk
+      let buf: Buffer = this._remainder
+        ? Buffer.concat([this._remainder, chunk])
+        : chunk;
+      this._remainder = null;
+
       let offset = 0;
-      while (offset < chunk.length) {
-        if (offset + 8 > chunk.length) {
-          // Incomplete header — stash remainder for next chunk
-          this._remainder = chunk.slice(offset);
+      while (offset < buf.length) {
+        if (offset + 8 > buf.length) {
+          this._remainder = buf.slice(offset);
           break;
         }
-        const payloadSize = chunk.readUInt32BE(offset + 4);
+        const payloadSize = buf.readUInt32BE(offset + 4);
         const frameEnd = offset + 8 + payloadSize;
-        if (frameEnd > chunk.length) {
-          this._remainder = chunk.slice(offset);
+        if (frameEnd > buf.length) {
+          this._remainder = buf.slice(offset);
           break;
         }
-        const streamType = chunk[offset];
+        const streamType = buf[offset];
         if (streamType === 1) {
-          // stdout — forward payload
-          this.push(chunk.slice(offset + 8, frameEnd));
+          this.push(buf.slice(offset + 8, frameEnd));
         }
-        // stderr (type 2) is dropped
         offset = frameEnd;
       }
       callback();
