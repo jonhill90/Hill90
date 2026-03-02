@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, Shield, BarChart3, BookOpen, Library, Layers } from 'lucide-react'
+import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, Shield, BarChart3, BookOpen, Library, Layers, Settings, Server } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavLink {
@@ -17,6 +17,7 @@ export interface NavGroup {
   label: string
   icon: LucideIcon
   children: NavLink[]
+  adminOnly?: boolean
 }
 
 export type NavItem = NavLink | NavGroup
@@ -47,6 +48,16 @@ export const NAV_ITEMS: NavItem[] = [
     children: [
       { type: 'link', id: 'api-docs', label: 'API Docs', href: '/docs/api', icon: FileText, adminOnly: true },
       { type: 'link', id: 'platform-docs', label: 'Platform Docs', href: 'https://docs.hill90.com', icon: ExternalLink, external: true },
+    ],
+  },
+  {
+    type: 'group',
+    id: 'admin',
+    label: 'Admin',
+    icon: Settings,
+    adminOnly: true,
+    children: [
+      { type: 'link', id: 'admin-services', label: 'Services', href: '/admin/services', icon: Server },
     ],
   },
 ]

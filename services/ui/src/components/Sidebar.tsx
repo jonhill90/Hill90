@@ -158,6 +158,7 @@ export default function Sidebar() {
 
   function renderItem(item: NavItem) {
     if (item.type === 'group') {
+      if (item.adminOnly && !isAdmin) return null
       return renderGroup(item)
     }
 
