@@ -513,15 +513,16 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
           buffer = lines.pop() || ''; // keep incomplete line in buffer
           for (const line of lines) {
             const trimmed = line.trim();
-            if (trimmed) {
-              res.write(`data: ${trimmed}\n\n`);
-            }
+            if (!trimmed) continue;
+            // Validate JSON to filter out tail stderr (Tty merges streams)
+            try { JSON.parse(trimmed); } catch { continue; }
+            res.write(`data: ${trimmed}\n\n`);
           }
         });
 
         stream.on('end', () => {
           if (buffer.trim()) {
-            res.write(`data: ${buffer.trim()}\n\n`);
+            try { JSON.parse(buffer.trim()); res.write(`data: ${buffer.trim()}\n\n`); } catch { /* skip */ }
           }
           res.write('event: end\ndata: stream closed\n\n');
           res.end();

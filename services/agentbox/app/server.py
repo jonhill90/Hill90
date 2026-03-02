@@ -19,7 +19,7 @@ config = AgentConfig.from_file(
     os.environ.get("AGENT_CONFIG", "/etc/agentbox/agent.yml")
 )
 
-mcp = FastMCP(f"AgentBox-{config.id}", host="0.0.0.0", port=8054)
+mcp = FastMCP(f"AgentBox-{config.id}")
 
 # Structured event emitter — writes JSONL to the logs volume
 emitter = EventEmitter(os.path.join(config.state.logs, "events.jsonl"))
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     logger.info("  Transport: streamable-http on :8054")
 
     try:
-        mcp.run(transport="streamable-http")
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=8054)
     except KeyboardInterrupt:
         logger.info("AgentBox server stopped by user")
     except Exception as e:
