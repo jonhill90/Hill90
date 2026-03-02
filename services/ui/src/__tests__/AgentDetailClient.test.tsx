@@ -44,11 +44,27 @@ const MOCK_AGENT = {
   rules_md: 'Always cite sources.',
   container_id: null,
   model_policy_id: 'policy-1',
+  tool_preset_id: null,
   error_message: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-15T00:00:00Z',
   created_by: 'admin',
 }
+
+const MOCK_AGENT_WITH_PRESET = {
+  ...MOCK_AGENT,
+  tool_preset_id: 'preset-dev',
+}
+
+const MOCK_PRESETS = [
+  {
+    id: 'preset-dev',
+    name: 'Developer',
+    description: 'Full dev environment',
+    tools_config: {},
+    is_platform: true,
+  },
+]
 
 const MOCK_POLICIES = [
   {
@@ -82,13 +98,16 @@ const USER_SESSION = {
   expires: '2026-12-31',
 }
 
-function mockFetchDefaults() {
+function mockFetchDefaults(agentOverride?: typeof MOCK_AGENT) {
   mockFetch.mockImplementation((url: string) => {
     if (url === `/api/agents/uuid-1`) {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENT) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(agentOverride || MOCK_AGENT) })
     }
     if (url === '/api/model-policies') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
+    }
+    if (url === '/api/tool-presets') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_PRESETS) })
     }
     if (typeof url === 'string' && url.includes('/api/usage')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USAGE) })
@@ -246,5 +265,33 @@ describe('AgentDetailClient', () => {
     })
     expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
     expect(screen.getByText('claude-sonnet-4-5-20250929')).toBeInTheDocument()
+  })
+
+  // T22: Agent detail shows preset badge when assigned
+  it('shows preset name badge when tool_preset_id is set', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_PRESET as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Should show the preset name in the Tool Access section
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+  })
+
+  // T23: Agent detail shows Custom when no preset
+  it('shows Custom when no preset assigned', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Should show "Custom" label in Tool Access since tool_preset_id is null
+    expect(screen.getByText('Custom')).toBeInTheDocument()
   })
 })

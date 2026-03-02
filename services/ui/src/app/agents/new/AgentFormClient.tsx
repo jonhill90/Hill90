@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import TagInput from '@/components/TagInput'
 
@@ -11,10 +11,21 @@ interface ToolsConfig {
   health: { enabled: boolean }
 }
 
+// Sentinel value — new agents start here, forcing the user to choose
+const UNSELECTED = '__unselected__'
+
 const defaultTools: ToolsConfig = {
   shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
   filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
   health: { enabled: true },
+}
+
+interface PresetOption {
+  id: string
+  name: string
+  description: string
+  tools_config: ToolsConfig
+  is_platform: boolean
 }
 
 interface PolicyOption {
@@ -38,6 +49,7 @@ export default function AgentFormClient({
     soul_md: string
     rules_md: string
     model_policy_id?: string | null
+    tool_preset_id?: string | null
   }
   agentUuid?: string
   disabled?: boolean
@@ -59,6 +71,12 @@ export default function AgentFormClient({
   const [rulesMd, setRulesMd] = useState(initial?.rules_md || '')
   const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
   const [policies, setPolicies] = useState<PolicyOption[]>([])
+  const [presets, setPresets] = useState<PresetOption[]>([])
+  // New agents: unselected prompt. Edit agents: preset ID or '' (Custom).
+  const [toolPresetId, setToolPresetId] = useState(
+    initial ? (initial.tool_preset_id || '') : UNSELECTED
+  )
+  const toolsCustomDirty = useRef(false)
 
   const [shellAdvanced, setShellAdvanced] = useState(false)
   const [fsAdvanced, setFsAdvanced] = useState(false)
@@ -70,9 +88,49 @@ export default function AgentFormClient({
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setPolicies(data))
       .catch(() => {})
+    fetch('/api/tool-presets')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setPresets(data))
+      .catch(() => {})
   }, [])
 
+  // Wrapper: marks tools as user-modified when editing in Custom mode
+  const updateToolsCustom = (newTools: ToolsConfig) => {
+    setTools(newTools)
+    toolsCustomDirty.current = true
+  }
+
+  const handleProfileChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newId = e.target.value
+    const switchingFromCustom = toolPresetId === ''
+
+    // Overwrite protection: if user has made manual changes in Custom mode
+    if (switchingFromCustom && newId && newId !== UNSELECTED && toolsCustomDirty.current) {
+      if (!confirm('Switching to a preset will overwrite your custom tool configuration. Continue?')) {
+        return
+      }
+    }
+
+    if (newId && newId !== UNSELECTED) {
+      // Switching to a preset — copy its tools_config
+      const preset = presets.find((p) => p.id === newId)
+      if (preset) {
+        setTools(preset.tools_config)
+      }
+      toolsCustomDirty.current = false
+    } else if (newId === '') {
+      // Switching to Custom — inherited config is the new baseline
+      toolsCustomDirty.current = false
+    }
+
+    setToolPresetId(newId)
+  }
+
   const validateForm = (): boolean => {
+    if (toolPresetId === UNSELECTED) {
+      setValidationError('Please select a tool profile or choose Custom')
+      return false
+    }
     if (tools.shell.enabled && tools.shell.max_timeout < 1) {
       setValidationError('Timeout must be at least 1 second')
       return false
@@ -99,6 +157,7 @@ export default function AgentFormClient({
       soul_md: soulMd,
       rules_md: rulesMd,
       model_policy_id: modelPolicyId || null,
+      tool_preset_id: toolPresetId || null,
     }
 
     try {
@@ -200,129 +259,205 @@ export default function AgentFormClient({
         </div>
       </fieldset>
 
-      {/* Tools */}
+      {/* Tool Profile */}
       <fieldset disabled={disabled} className="space-y-4">
         <legend className="text-lg font-semibold text-white mb-4">Tools</legend>
 
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
-          {/* Shell */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={tools.shell.enabled}
-              onChange={(e) => setTools({ ...tools, shell: { ...tools.shell, enabled: e.target.checked } })}
-              className="rounded border-navy-600"
-            />
-            <span className="text-sm text-white">Shell access</span>
+        <div>
+          <label htmlFor="tool_profile" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
+            Tool Profile
           </label>
+          <select
+            id="tool_profile"
+            value={toolPresetId}
+            onChange={handleProfileChange}
+            className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
+          >
+            {toolPresetId === UNSELECTED && (
+              <option value={UNSELECTED} disabled>Select a profile...</option>
+            )}
+            <option value="">Custom</option>
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-mountain-500 mt-1">
+            Select a preset profile or choose Custom for manual configuration.
+          </p>
+        </div>
 
-          {tools.shell.enabled && (
-            <div className="ml-6 space-y-3">
-              <button
-                type="button"
-                onClick={() => setShellAdvanced(!shellAdvanced)}
-                className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
-              >
-                Advanced settings
-              </button>
-              {shellAdvanced && (
-                <div className="space-y-3 border-l-2 border-navy-600 pl-4">
-                  <TagInput
-                    label="Allowed Binaries"
-                    value={tools.shell.allowed_binaries}
-                    onChange={(v) => setTools({ ...tools, shell: { ...tools.shell, allowed_binaries: v } })}
-                    placeholder="Add binary (e.g. bash)..."
-                    disabled={disabled}
+        {toolPresetId === UNSELECTED ? (
+          /* No selection yet — prompt user */
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
+            <p className="text-sm text-mountain-400">
+              Choose a tool profile above to configure this agent&apos;s capabilities.
+            </p>
+          </div>
+        ) : toolPresetId ? (
+          /* Preset selected — show read-only summary */
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
+            {(() => {
+              const preset = presets.find((p) => p.id === toolPresetId)
+              if (!preset) return null
+              const tc = preset.tools_config
+              return (
+                <>
+                  {preset.description && (
+                    <p className="text-sm text-mountain-300">{preset.description}</p>
+                  )}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`h-2 w-2 rounded-full ${tc.shell.enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
+                      <span className="text-white">Shell</span>
+                      {tc.shell.enabled && (
+                        <span className="text-mountain-400">
+                          — {tc.shell.allowed_binaries.join(', ') || 'all binaries'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`h-2 w-2 rounded-full ${tc.filesystem.enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
+                      <span className="text-white">Filesystem</span>
+                      {tc.filesystem.enabled && (
+                        <span className="text-mountain-400">
+                          — {tc.filesystem.read_only ? 'Read-only' : 'Read-write'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className={`h-2 w-2 rounded-full ${tc.health.enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
+                      <span className="text-white">Health</span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-mountain-500">
+                    Profile applied at assignment time. Switch to Custom to edit manually.
+                  </p>
+                </>
+              )
+            })()}
+          </div>
+        ) : (
+          /* Custom mode — show manual tool toggles */
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
+            {/* Shell */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tools.shell.enabled}
+                onChange={(e) => updateToolsCustom({ ...tools, shell: { ...tools.shell, enabled: e.target.checked } })}
+                className="rounded border-navy-600"
+              />
+              <span className="text-sm text-white">Shell access</span>
+            </label>
+
+            {tools.shell.enabled && (
+              <div className="ml-6 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShellAdvanced(!shellAdvanced)}
+                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                >
+                  Advanced settings
+                </button>
+                {shellAdvanced && (
+                  <div className="space-y-3 border-l-2 border-navy-600 pl-4">
+                    <TagInput
+                      label="Allowed Binaries"
+                      value={tools.shell.allowed_binaries}
+                      onChange={(v) => updateToolsCustom({ ...tools, shell: { ...tools.shell, allowed_binaries: v } })}
+                      placeholder="Add binary (e.g. bash)..."
+                      disabled={disabled}
+                    />
+                    <TagInput
+                      label="Denied Patterns"
+                      value={tools.shell.denied_patterns}
+                      onChange={(v) => updateToolsCustom({ ...tools, shell: { ...tools.shell, denied_patterns: v } })}
+                      placeholder="Add pattern (e.g. rm -rf)..."
+                      disabled={disabled}
+                    />
+                    <div>
+                      <label htmlFor="max_timeout" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
+                        Max Timeout (seconds)
+                      </label>
+                      <input
+                        id="max_timeout"
+                        type="number"
+                        value={tools.shell.max_timeout}
+                        onChange={(e) => updateToolsCustom({ ...tools, shell: { ...tools.shell, max_timeout: parseInt(e.target.value) || 0 } })}
+                        min={1}
+                        className="w-32 rounded-lg border border-navy-600 bg-navy-900 px-3 py-1.5 text-white text-sm focus:border-brand-500 focus:outline-none disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Filesystem */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tools.filesystem.enabled}
+                onChange={(e) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, enabled: e.target.checked } })}
+                className="rounded border-navy-600"
+              />
+              <span className="text-sm text-white">Filesystem access</span>
+            </label>
+
+            {tools.filesystem.enabled && (
+              <div className="ml-6 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tools.filesystem.read_only}
+                    onChange={(e) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, read_only: e.target.checked } })}
+                    className="rounded border-navy-600"
                   />
-                  <TagInput
-                    label="Denied Patterns"
-                    value={tools.shell.denied_patterns}
-                    onChange={(v) => setTools({ ...tools, shell: { ...tools.shell, denied_patterns: v } })}
-                    placeholder="Add pattern (e.g. rm -rf)..."
-                    disabled={disabled}
-                  />
-                  <div>
-                    <label htmlFor="max_timeout" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-                      Max Timeout (seconds)
-                    </label>
-                    <input
-                      id="max_timeout"
-                      type="number"
-                      value={tools.shell.max_timeout}
-                      onChange={(e) => setTools({ ...tools, shell: { ...tools.shell, max_timeout: parseInt(e.target.value) || 0 } })}
-                      min={1}
-                      className="w-32 rounded-lg border border-navy-600 bg-navy-900 px-3 py-1.5 text-white text-sm focus:border-brand-500 focus:outline-none disabled:opacity-50"
+                  <span className="text-sm text-mountain-400">Read-only filesystem</span>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => setFsAdvanced(!fsAdvanced)}
+                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                >
+                  Advanced settings
+                </button>
+                {fsAdvanced && (
+                  <div className="space-y-3 border-l-2 border-navy-600 pl-4">
+                    <TagInput
+                      label="Allowed Paths"
+                      value={tools.filesystem.allowed_paths}
+                      onChange={(v) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, allowed_paths: v } })}
+                      validate={pathValidate}
+                      placeholder="Add path (e.g. /workspace)..."
+                      disabled={disabled}
+                    />
+                    <TagInput
+                      label="Denied Paths"
+                      value={tools.filesystem.denied_paths}
+                      onChange={(v) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, denied_paths: v } })}
+                      validate={pathValidate}
+                      placeholder="Add path (e.g. /etc/shadow)..."
+                      disabled={disabled}
                     />
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
 
-          {/* Filesystem */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={tools.filesystem.enabled}
-              onChange={(e) => setTools({ ...tools, filesystem: { ...tools.filesystem, enabled: e.target.checked } })}
-              className="rounded border-navy-600"
-            />
-            <span className="text-sm text-white">Filesystem access</span>
-          </label>
-
-          {tools.filesystem.enabled && (
-            <div className="ml-6 space-y-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={tools.filesystem.read_only}
-                  onChange={(e) => setTools({ ...tools, filesystem: { ...tools.filesystem, read_only: e.target.checked } })}
-                  className="rounded border-navy-600"
-                />
-                <span className="text-sm text-mountain-400">Read-only filesystem</span>
-              </label>
-
-              <button
-                type="button"
-                onClick={() => setFsAdvanced(!fsAdvanced)}
-                className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
-              >
-                Advanced settings
-              </button>
-              {fsAdvanced && (
-                <div className="space-y-3 border-l-2 border-navy-600 pl-4">
-                  <TagInput
-                    label="Allowed Paths"
-                    value={tools.filesystem.allowed_paths}
-                    onChange={(v) => setTools({ ...tools, filesystem: { ...tools.filesystem, allowed_paths: v } })}
-                    validate={pathValidate}
-                    placeholder="Add path (e.g. /workspace)..."
-                    disabled={disabled}
-                  />
-                  <TagInput
-                    label="Denied Paths"
-                    value={tools.filesystem.denied_paths}
-                    onChange={(v) => setTools({ ...tools, filesystem: { ...tools.filesystem, denied_paths: v } })}
-                    validate={pathValidate}
-                    placeholder="Add path (e.g. /etc/shadow)..."
-                    disabled={disabled}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Health */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={tools.health.enabled}
-              onChange={(e) => setTools({ ...tools, health: { ...tools.health, enabled: e.target.checked } })}
-              className="rounded border-navy-600"
-            />
-            <span className="text-sm text-white">Health endpoint</span>
-          </label>
-        </div>
+            {/* Health */}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tools.health.enabled}
+                onChange={(e) => updateToolsCustom({ ...tools, health: { ...tools.health, enabled: e.target.checked } })}
+                className="rounded border-navy-600"
+              />
+              <span className="text-sm text-white">Health endpoint</span>
+            </label>
+          </div>
+        )}
       </fieldset>
 
       {/* Model Policy */}
