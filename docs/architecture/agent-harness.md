@@ -144,7 +144,7 @@ Agentbox emits structured JSONL events for every tool invocation, providing oper
 | `id` | string (UUID) | Unique event identifier |
 | `timestamp` | string (ISO 8601) | Event time in UTC |
 | `type` | string | Event type (see table below) |
-| `tool` | string | Tool category: `shell`, `filesystem`, `identity`, `health` |
+| `tool` | string | Tool category: `shell`, `filesystem`, `identity`, `health`, `inference` |
 | `input_summary` | string | What was requested (truncated to 200 chars) |
 | `output_summary` | string or null | Structured metadata about the result — never raw content |
 | `duration_ms` | integer or null | Execution time in milliseconds |
@@ -162,8 +162,13 @@ Agentbox emits structured JSONL events for every tool invocation, providing oper
 | `directory_list` | filesystem | Directory path | `"{N} entries"` | Directory listing |
 | `identity_read` | identity | `"SOUL.md + RULES.md"` | `"{N} bytes"` | Identity content |
 | `health_check` | health | `"health_check"` | `"cpu={N}%, mem={N}%, disk={N}%"` | Raw /proc data |
+| `inference_start` | inference | `"model={model}"` (≤200 chars) | `null` | N/A |
+| `inference_complete` | inference | `"model={model}"` (≤200 chars) | `"tokens_in={N}, tokens_out={N}, cost=${N}"` | Prompt/completion content |
+| `inference_error` | inference | `"model={model}"` (≤200 chars) | `"{error_type}: {message}"` (≤200 chars) | Full stack traces |
 
-**Redaction policy**: No raw stdout, stderr, or file contents are persisted in any event. The `output_summary` field contains only structured metadata (exit codes, byte counts, percentages). Shell command strings in `input_summary` may contain inline secrets — this is comparable to shell history behavior and is an accepted V1 limitation.
+**Inference event injection**: Inference events originate in the AI service, not agentbox. When an agent makes an LLM call, the AI service emits a fire-and-forget POST to the API service's internal endpoint (`POST /internal/agents/{agent_id}/events`), which base64-encodes the event JSON and appends it to the agent's `events.jsonl` via `docker exec`. The agent_id is cryptographically verified from the Ed25519 JWT `sub` claim — the same trust chain used for inference authentication and usage logging.
+
+**Redaction policy**: No raw stdout, stderr, file contents, prompts, or completions are persisted in any event. The `output_summary` field contains only structured metadata (exit codes, byte counts, percentages, token counts, cost estimates). Shell command strings in `input_summary` may contain inline secrets — this is comparable to shell history behavior and is an accepted V1 limitation.
 
 **Access**: `GET /agents/{id}/events` with `requireRole('user')` and owner scoping (same pattern as `GET /agents/{id}`). Supports SSE streaming (`?follow=true`) or one-shot JSON array. Returns 409 for stopped agents — events are readable only while the container exists.
 

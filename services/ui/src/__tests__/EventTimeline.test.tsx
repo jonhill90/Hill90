@@ -9,6 +9,7 @@ vi.mock('lucide-react', () => ({
   FolderOpen: (props: any) => <span data-testid="icon-folder" {...props} />,
   User: (props: any) => <span data-testid="icon-user" {...props} />,
   HeartPulse: (props: any) => <span data-testid="icon-heart" {...props} />,
+  Zap: (props: any) => <span data-testid="icon-zap" {...props} />,
   ChevronDown: (props: any) => <span data-testid="icon-chevron-down" {...props} />,
   ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
 }))
@@ -49,6 +50,18 @@ const MOCK_EVENTS: AgentEvent[] = [
     success: true,
   },
 ]
+
+const MOCK_INFERENCE_EVENT: AgentEvent = {
+  id: 'evt-inf-1',
+  timestamp: new Date().toISOString(),
+  type: 'inference_complete',
+  tool: 'inference',
+  input_summary: 'model=gpt-4o-mini',
+  output_summary: 'tokens_in=150, tokens_out=42, cost=$0.0003',
+  duration_ms: 820,
+  success: true,
+  metadata: { model: 'gpt-4o-mini', tokens_in: 150, tokens_out: 42 },
+}
 
 describe('EventCard', () => {
   afterEach(() => cleanup())
@@ -93,6 +106,23 @@ describe('EventCard', () => {
     render(<EventCard event={MOCK_EVENTS[1]} />)
     expect(screen.getByText('15ms')).toBeInTheDocument()
   })
+
+  it('renders Zap icon for inference events', () => {
+    render(<EventCard event={MOCK_INFERENCE_EVENT} />)
+    expect(screen.getByTestId('icon-zap')).toBeInTheDocument()
+    expect(screen.getByText('inference')).toBeInTheDocument()
+  })
+
+  it('shows model and tokens in metadata when inference event expanded', () => {
+    render(<EventCard event={MOCK_INFERENCE_EVENT} />)
+    fireEvent.click(screen.getByTestId('event-card'))
+    expect(screen.getByTestId('event-details')).toBeInTheDocument()
+    expect(screen.getByText('tokens_in=150, tokens_out=42, cost=$0.0003')).toBeInTheDocument()
+    // Metadata should contain model info (appears in both summary and metadata pre block)
+    const details = screen.getByTestId('event-details')
+    expect(details.textContent).toContain('gpt-4o-mini')
+    expect(details.textContent).toContain('tokens_in')
+  })
 })
 
 describe('EventTimeline', () => {
@@ -121,7 +151,7 @@ describe('EventTimeline', () => {
     expect(screen.getByText('Waiting for events...')).toBeInTheDocument()
   })
 
-  it('renders filter buttons', () => {
+  it('renders filter buttons including Inference', () => {
     vi.stubGlobal('EventSource', vi.fn(() => ({
       onmessage: null,
       addEventListener: vi.fn(),
@@ -134,5 +164,6 @@ describe('EventTimeline', () => {
     expect(screen.getByText('Filesystem')).toBeInTheDocument()
     expect(screen.getByText('Identity')).toBeInTheDocument()
     expect(screen.getByText('Health')).toBeInTheDocument()
+    expect(screen.getByText('Inference')).toBeInTheDocument()
   })
 })

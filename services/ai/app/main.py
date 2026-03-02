@@ -36,6 +36,7 @@ from app.models import get_agent_owner, is_platform_model, resolve_user_model, U
 from app.policy import resolve_agent_policy, resolve_alias, resolve_aliases_list, resolve_model_policy
 from app.proxy import StreamOpenResult, proxy_chat_completion, proxy_embeddings, stream_chat_completion
 from app.revocation import RevocationManager, revocation_manager
+from app.activity import emit_agent_event
 from app.usage import log_usage
 
 logger = structlog.get_logger()
@@ -518,6 +519,16 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
 
     # Non-streaming path
     owner = policy_result.owner
+    try:
+        await emit_agent_event(
+            claims.sub,
+            type="inference_start",
+            tool="inference",
+            input_summary=f"model={resolved_model}",
+            metadata={"request_type": "chat.completion", "model": resolved_model},
+        )
+    except Exception:
+        pass
     start = time.monotonic()
     try:
         result = await proxy_chat_completion(
@@ -539,6 +550,19 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
                 delegation_id=delegation_id,
                 owner=owner,
             )
+        try:
+            await emit_agent_event(
+                claims.sub,
+                type="inference_error",
+                tool="inference",
+                input_summary=f"model={resolved_model}",
+                output_summary=f"error: {type(e).__name__}",
+                duration_ms=elapsed_ms,
+                success=False,
+                metadata={"request_type": "chat.completion", "model": resolved_model},
+            )
+        except Exception:
+            pass
         logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
     finally:
@@ -567,11 +591,42 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))
 
+    try:
+        await emit_agent_event(
+            claims.sub,
+            type="inference_complete",
+            tool="inference",
+            input_summary=f"model={resolved_model}",
+            output_summary=f"tokens_in={result['input_tokens']}, tokens_out={result['output_tokens']}, cost=${result['cost_usd']}",
+            duration_ms=elapsed_ms,
+            success=True,
+            metadata={
+                "request_type": "chat.completion",
+                "model": resolved_model,
+                "input_tokens": result["input_tokens"],
+                "output_tokens": result["output_tokens"],
+                "cost_usd": result["cost_usd"],
+            },
+        )
+    except Exception:
+        pass
+
     return JSONResponse(content=result["body"], status_code=result["status_code"])
 
 
 async def _handle_streaming(settings, body, claims, requested_model, delegation_id=None, owner=None):
     """Handle streaming chat completion with SSE passthrough and usage capture."""
+
+    try:
+        await emit_agent_event(
+            claims.sub,
+            type="inference_start",
+            tool="inference",
+            input_summary=f"model={requested_model}",
+            metadata={"request_type": "chat.completion", "model": requested_model},
+        )
+    except Exception:
+        pass
 
     start = time.monotonic()
 
@@ -663,6 +718,26 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                             delegation_id=delegation_id,
                             owner=owner,
                         )
+                    try:
+                        event_type = "inference_complete" if status == "success" else "inference_error"
+                        await emit_agent_event(
+                            claims.sub,
+                            type=event_type,
+                            tool="inference",
+                            input_summary=f"model={requested_model}",
+                            output_summary=f"tokens_in={streaming_result.input_tokens}, tokens_out={streaming_result.output_tokens}, cost=${0.0 if cancelled else streaming_result.cost_usd}",
+                            duration_ms=elapsed_ms,
+                            success=status == "success",
+                            metadata={
+                                "request_type": "chat.completion",
+                                "model": requested_model,
+                                "input_tokens": streaming_result.input_tokens,
+                                "output_tokens": streaming_result.output_tokens,
+                                "cost_usd": 0.0 if cancelled else streaming_result.cost_usd,
+                            },
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
 

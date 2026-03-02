@@ -13,6 +13,7 @@ import usageRouter from './routes/usage';
 import { requireRole } from './middleware/role';
 import { docsRouter, specRouter } from './routes/docs';
 import { delegationTokenHandler } from './services/model-router-delegation';
+import internalEventsRouter from './routes/internal-events';
 
 interface AppOptions {
   issuer?: string;
@@ -29,8 +30,9 @@ export function createApp(opts: AppOptions = {}): Application {
     res.json({ status: 'healthy', service: 'api' });
   });
 
-  // Internal service-to-service endpoint (service-token auth, not Keycloak)
+  // Internal service-to-service endpoints (service-token auth, not Keycloak)
   app.post('/internal/delegation-token', delegationTokenHandler);
+  app.use('/internal/agents', internalEventsRouter);
 
   // Protected routes
   const issuer = opts.issuer || process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';

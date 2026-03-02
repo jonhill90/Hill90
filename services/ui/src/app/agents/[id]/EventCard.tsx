@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Terminal, FolderOpen, User, HeartPulse, ChevronDown, ChevronRight } from 'lucide-react'
+import { Terminal, FolderOpen, User, HeartPulse, Zap, ChevronDown, ChevronRight } from 'lucide-react'
 
 export interface AgentEvent {
   id: string
@@ -20,6 +20,7 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
   filesystem: FolderOpen,
   identity: User,
   health: HeartPulse,
+  inference: Zap,
 }
 
 function relativeTime(timestamp: string): string {
