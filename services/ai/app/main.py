@@ -771,6 +771,17 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
 
+    try:
+        await emit_agent_event(
+            claims.sub,
+            type="inference_start",
+            tool="inference",
+            input_summary=f"model={resolved_model}",
+            metadata={"request_type": "embedding", "model": resolved_model},
+        )
+    except Exception:
+        pass
+
     start = time.monotonic()
     try:
         result = await proxy_embeddings(
@@ -792,6 +803,19 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
                 delegation_id=delegation_id,
                 owner=owner,
             )
+        try:
+            await emit_agent_event(
+                claims.sub,
+                type="inference_error",
+                tool="inference",
+                input_summary=f"model={resolved_model}",
+                output_summary=f"error: {type(e).__name__}",
+                duration_ms=elapsed_ms,
+                success=False,
+                metadata={"request_type": "embedding", "model": resolved_model},
+            )
+        except Exception:
+            pass
         logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
     finally:
@@ -818,6 +842,26 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))
+
+    try:
+        await emit_agent_event(
+            claims.sub,
+            type="inference_complete",
+            tool="inference",
+            input_summary=f"model={resolved_model}",
+            output_summary=f"tokens_in={result['input_tokens']}, tokens_out=0, cost=${result['cost_usd']}",
+            duration_ms=elapsed_ms,
+            success=True,
+            metadata={
+                "request_type": "embedding",
+                "model": resolved_model,
+                "input_tokens": result["input_tokens"],
+                "output_tokens": 0,
+                "cost_usd": result["cost_usd"],
+            },
+        )
+    except Exception:
+        pass
 
     return JSONResponse(content=result["body"], status_code=result["status_code"])
 
