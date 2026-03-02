@@ -7,5 +7,6 @@ describe('Docker service module', () => {
     expect(dockerModule.getContainerLogs).toBeDefined();
     expect(dockerModule.removeAgentVolumes).toBeDefined();
     expect(dockerModule.reconcileAgentStatuses).toBeDefined();
+    expect(dockerModule.execInContainer).toBeDefined();
   });
 });

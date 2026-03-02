@@ -404,6 +404,38 @@ components:
             chunk_count:
               type: integer
 
+    AgentEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [command_start, command_complete, file_read, file_write, directory_list, identity_read, health_check]
+        tool:
+          type: string
+          enum: [shell, filesystem, identity, health]
+        input_summary:
+          type: string
+          description: Truncated human-readable input (max 200 chars). May contain command strings.
+        output_summary:
+          type: string
+          nullable: true
+          description: Metadata-only result summary (exit codes, byte counts). Never contains raw output.
+        duration_ms:
+          type: integer
+          nullable: true
+        success:
+          type: boolean
+          nullable: true
+        metadata:
+          type: object
+          nullable: true
+
     Error:
       type: object
       properties:
@@ -740,6 +772,57 @@ paths:
           description: Requires user role
         "404":
           description: Agent not found
+
+  /agents/{id}/events:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Get agent events
+      description: >
+        Returns structured tool invocation events for a running agent.
+        With follow=true, returns an SSE stream (text/event-stream).
+        Without follow, returns a JSON array of recent events.
+        Scoped to ownership — users see own agents only.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tail
+          in: query
+          schema:
+            type: integer
+            default: 100
+          description: Number of tail events
+        - name: follow
+          in: query
+          schema:
+            type: string
+            enum: ["true", "false"]
+          description: If "true", stream events via SSE
+      responses:
+        "200":
+          description: Event output (JSON array or SSE stream)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentEvent"
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Agent not found
+        "409":
+          description: Agent is not running
 
   /agents/{id}/logs:
     parameters:

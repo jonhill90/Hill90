@@ -24,6 +24,13 @@ vi.stubGlobal('fetch', mockFetch)
 vi.stubGlobal('confirm', vi.fn(() => true))
 vi.stubGlobal('alert', vi.fn())
 
+// Mock EventTimeline to avoid EventSource in tests
+vi.mock('@/app/agents/[id]/EventTimeline', () => ({
+  default: ({ agentId, agentStatus }: { agentId: string; agentStatus: string }) => (
+    <div data-testid="event-timeline">EventTimeline: {agentStatus}</div>
+  ),
+}))
+
 import AgentDetailClient from '@/app/agents/[id]/AgentDetailClient'
 
 const MOCK_AGENT = {
@@ -215,24 +222,52 @@ describe('AgentDetailClient', () => {
     })
   })
 
-  it('hides Logs tab for non-admin users', async () => {
+  it('Activity tab visible to non-admin users', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={USER_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    expect(screen.queryByRole('button', { name: 'Logs' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Activity' })).toBeInTheDocument()
   })
 
-  it('shows Logs tab for admin users', async () => {
+  it('Activity tab visible to admin users', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    expect(screen.getByRole('button', { name: 'Logs' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Activity' })).toBeInTheDocument()
+  })
+
+  it('Raw Logs sub-view requires admin', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={USER_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Click Activity tab
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
+
+    // Non-admin should NOT see Raw Logs toggle
+    expect(screen.queryByTestId('raw-logs-toggle')).not.toBeInTheDocument()
+  })
+
+  it('Raw Logs sub-view visible to admins', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Click Activity tab
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
+
+    // Admin should see Raw Logs toggle
+    expect(screen.getByTestId('raw-logs-toggle')).toBeInTheDocument()
   })
 
   it('Configuration tab displays allowed_binaries and denied_patterns', async () => {

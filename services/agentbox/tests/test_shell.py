@@ -1,6 +1,8 @@
 """Tests for tools.shell — shell execution tools."""
 
 import json
+import re
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -58,6 +60,37 @@ class TestCheckCommand:
     async def test_denied(self):
         result = json.loads(await shell.check_command("rm -rf /home"))
         assert result["allowed"] is False
+
+
+class TestEventEmission:
+    @pytest.mark.asyncio
+    async def test_shell_emits_events(self):
+        emitter = MagicMock()
+        shell._emitter = emitter
+        await shell.execute_command("echo hello")
+        assert emitter.emit.call_count == 2
+        # First call is command_start, second is command_complete
+        start_call = emitter.emit.call_args_list[0]
+        assert start_call.kwargs["type"] == "command_start"
+        assert start_call.kwargs["tool"] == "shell"
+        complete_call = emitter.emit.call_args_list[1]
+        assert complete_call.kwargs["type"] == "command_complete"
+        assert complete_call.kwargs["tool"] == "shell"
+        assert complete_call.kwargs["success"] is True
+        assert complete_call.kwargs["duration_ms"] is not None
+        shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_shell_event_output_is_exit_code_and_byte_count(self):
+        emitter = MagicMock()
+        shell._emitter = emitter
+        await shell.execute_command("echo hello")
+        complete_call = emitter.emit.call_args_list[1]
+        output = complete_call.kwargs["output_summary"]
+        # Must match "exit N, M bytes stdout" — no actual stdout content
+        assert re.match(r"^exit \d+, \d+ bytes stdout$", output)
+        assert "hello" not in output
+        shell._emitter = None
 
 
 class TestUnconfigured:

@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from starlette.responses import JSONResponse
 
 from app.config import AgentConfig
+from app.events import EventEmitter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +19,10 @@ config = AgentConfig.from_file(
     os.environ.get("AGENT_CONFIG", "/etc/agentbox/agent.yml")
 )
 
-mcp = FastMCP(f"AgentBox-{config.id}", host="0.0.0.0", port=8054)
+mcp = FastMCP(f"AgentBox-{config.id}")
+
+# Structured event emitter — writes JSONL to the logs volume
+emitter = EventEmitter(os.path.join(config.state.logs, "events.jsonl"))
 
 
 # Health endpoint for Docker healthcheck (HTTP, not MCP)
@@ -30,26 +34,26 @@ async def health_endpoint(request):
 # Always mount identity tool
 from tools import identity  # noqa: E402
 
-identity.configure(config)
+identity.configure(config, emitter=emitter)
 mcp.mount(identity.server)
 
 # Mount enabled tools with policy config
 if config.tools.shell.enabled:
     from tools import shell  # noqa: E402
 
-    shell.configure(config.tools.shell)
+    shell.configure(config.tools.shell, emitter=emitter)
     mcp.mount(shell.server)
 
 if config.tools.filesystem.enabled:
     from tools import filesystem  # noqa: E402
 
-    filesystem.configure(config.tools.filesystem)
+    filesystem.configure(config.tools.filesystem, emitter=emitter)
     mcp.mount(filesystem.server)
 
 if config.tools.health.enabled:
     from tools import health  # noqa: E402
 
-    health.configure(config)
+    health.configure(config, emitter=emitter)
     mcp.mount(health.server)
 
 
@@ -61,7 +65,7 @@ if __name__ == "__main__":
     logger.info("  Transport: streamable-http on :8054")
 
     try:
-        mcp.run(transport="streamable-http")
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=8054)
     except KeyboardInterrupt:
         logger.info("AgentBox server stopped by user")
     except Exception as e:

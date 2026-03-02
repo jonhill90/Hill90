@@ -1,4 +1,5 @@
 import Docker from 'dockerode';
+import { Readable, Transform } from 'stream';
 
 function createDockerClient(): Docker {
   const dockerHost = process.env.DOCKER_HOST;
@@ -180,11 +181,68 @@ export async function getContainerLogs(
   });
 
   // Buffer case: wrap in a readable stream
-  const { Readable } = require('stream');
   const stream = new Readable();
   stream.push(buf);
   stream.push(null);
   return stream;
+}
+
+export async function execInContainer(
+  agentId: string,
+  cmd: string[],
+): Promise<NodeJS.ReadableStream> {
+  const containerName = `${CONTAINER_PREFIX}${agentId}`;
+  assertAgentboxName(containerName);
+
+  const container = docker.getContainer(containerName);
+  const info = await container.inspect();
+  assertManagedLabel(info.Config.Labels);
+
+  const exec = await container.exec({
+    Cmd: cmd,
+    AttachStdout: true,
+    AttachStderr: false,
+    Tty: false,
+  });
+
+  const rawStream = await exec.start({ hijack: true, stdin: false });
+
+  // Docker multiplexed stream: each frame has an 8-byte header.
+  // Byte 0: stream type (1=stdout, 2=stderr)
+  // Bytes 1-3: padding
+  // Bytes 4-7: payload size (big-endian uint32)
+  // We strip headers and emit only stdout payload.
+  let remainder: Buffer | null = null;
+  const demux = new Transform({
+    transform(chunk: Buffer, _encoding: string, callback: Function) {
+      let buf: Buffer = remainder
+        ? Buffer.concat([remainder, chunk])
+        : chunk;
+      remainder = null;
+
+      let offset = 0;
+      while (offset < buf.length) {
+        if (offset + 8 > buf.length) {
+          remainder = buf.slice(offset);
+          break;
+        }
+        const payloadSize = buf.readUInt32BE(offset + 4);
+        const frameEnd = offset + 8 + payloadSize;
+        if (frameEnd > buf.length) {
+          remainder = buf.slice(offset);
+          break;
+        }
+        const streamType = buf[offset];
+        if (streamType === 1) {
+          this.push(buf.slice(offset + 8, frameEnd));
+        }
+        offset = frameEnd;
+      }
+      callback();
+    },
+  });
+  rawStream.pipe(demux);
+  return demux;
 }
 
 export async function removeAgentVolumes(agentId: string): Promise<void> {
