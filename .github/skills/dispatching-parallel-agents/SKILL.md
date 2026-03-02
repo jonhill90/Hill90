@@ -162,5 +162,5 @@ After all agents complete, always:
 ## Integration
 
 - **using-git-worktrees skill**: When agents need filesystem isolation, create a worktree per agent before dispatching.
-- **tmux skill**: For agents running in separate terminal sessions, combine worktrees with tmux session-per-agent orchestration.
+- **using-tmux skill**: For agents running in separate terminal sessions, combine worktrees with tmux session-per-agent orchestration.
 - **Agent patterns**: See `.claude/references/patterns/agent-patterns.md` for subagent design patterns (read-only specialist, domain expert, background research).
