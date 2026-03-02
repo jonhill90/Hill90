@@ -6,6 +6,7 @@ Uses `owner` claim from JWT for visibility scoping.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -47,6 +48,7 @@ async def search_shared(
             detail="agent JWT missing owner claim — cannot determine visibility scope",
         )
 
+    t0 = time.monotonic()
     results = await shared_store.search_chunks(
         pool,
         q,
@@ -54,6 +56,7 @@ async def search_shared(
         collection_id=collection_id,
         limit=limit,
     )
+    duration_ms = int((time.monotonic() - t0) * 1000)
 
     # Record audit
     chunk_ids = [r["chunk_id"] for r in results]
@@ -65,6 +68,7 @@ async def search_shared(
         agent_owner=owner,
         result_count=len(results),
         chunk_ids=chunk_ids,
+        duration_ms=duration_ms,
     )
 
     return {

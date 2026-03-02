@@ -378,6 +378,79 @@ components:
           type: string
           example: ts_rank
 
+    SharedKnowledgeStats:
+      type: object
+      description: Aggregate-only quality and operations metrics. No raw query text, no requester identifiers.
+      properties:
+        search:
+          type: object
+          properties:
+            total:
+              type: integer
+            zero_result_count:
+              type: integer
+            zero_result_rate:
+              type: number
+            avg_duration_ms:
+              type: integer
+              nullable: true
+            by_requester_type:
+              type: array
+              items:
+                type: object
+                properties:
+                  requester_type:
+                    type: string
+                  total:
+                    type: integer
+                  zero_result_count:
+                    type: integer
+                  zero_result_rate:
+                    type: number
+        ingest:
+          type: object
+          properties:
+            total_jobs:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+            running:
+              type: integer
+            pending:
+              type: integer
+            error_rate:
+              type: number
+            avg_processing_ms:
+              type: integer
+              nullable: true
+        sources:
+          type: object
+          properties:
+            by_status:
+              type: object
+              additionalProperties:
+                type: integer
+            by_type:
+              type: object
+              additionalProperties:
+                type: integer
+        corpus:
+          type: object
+          properties:
+            total_collections:
+              type: integer
+            total_sources:
+              type: integer
+            total_chunks:
+              type: integer
+            total_tokens:
+              type: integer
+        since:
+          type: string
+          nullable: true
+
     IngestResult:
       type: object
       properties:
@@ -1158,6 +1231,34 @@ paths:
           description: Not authenticated
         "403":
           description: Not authorized to search this agent's knowledge
+
+  /shared-knowledge/stats:
+    get:
+      summary: Shared knowledge quality stats
+      description: >
+        Returns aggregate quality and operations metrics for shared knowledge.
+        Response contains only counts, rates, averages, and status distributions.
+        No raw query text, no requester identifiers, no cross-user query logs.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: ISO timestamp to scope time-based stats (search, ingest)
+      responses:
+        "200":
+          description: Aggregate stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedKnowledgeStats"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
 
   /shared-knowledge/collections:
     get:

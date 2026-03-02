@@ -35,7 +35,44 @@ interface SearchResult {
   collection_name: string
 }
 
-type Tab = 'collections' | 'search'
+interface RequesterTypeStats {
+  requester_type: string
+  total: number
+  zero_result_count: number
+  zero_result_rate: number
+}
+
+interface SharedStats {
+  search: {
+    total: number
+    zero_result_count: number
+    zero_result_rate: number
+    avg_duration_ms: number | null
+    by_requester_type: RequesterTypeStats[]
+  }
+  ingest: {
+    total_jobs: number
+    completed: number
+    failed: number
+    running: number
+    pending: number
+    error_rate: number
+    avg_processing_ms: number | null
+  }
+  sources: {
+    by_status: Record<string, number>
+    by_type: Record<string, number>
+  }
+  corpus: {
+    total_collections: number
+    total_sources: number
+    total_chunks: number
+    total_tokens: number
+  }
+  since: string | null
+}
+
+type Tab = 'collections' | 'search' | 'quality'
 
 export default function SharedKnowledgeClient() {
   // Data state
@@ -54,6 +91,9 @@ export default function SharedKnowledgeClient() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchCollectionFilter, setSearchCollectionFilter] = useState('')
   const [searching, setSearching] = useState(false)
+  const [stats, setStats] = useState<SharedStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [timeRange, setTimeRange] = useState<string>('')
 
   // Form state
   const [collectionForm, setCollectionForm] = useState({ name: '', description: '', visibility: 'private' })
@@ -87,6 +127,21 @@ export default function SharedKnowledgeClient() {
     }
   }, [])
 
+  const fetchStats = useCallback(async (since?: string) => {
+    setStatsLoading(true)
+    try {
+      const params = since ? `?since=${since}` : ''
+      const res = await fetch(`/api/shared-knowledge/stats${params}`)
+      if (res.ok) {
+        setStats(await res.json())
+      }
+    } catch {
+      // silent
+    } finally {
+      setStatsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetchCollections()
   }, [fetchCollections])
@@ -99,6 +154,12 @@ export default function SharedKnowledgeClient() {
       setSources([])
     }
   }, [selectedCollection, fetchSources])
+
+  useEffect(() => {
+    if (activeTab === 'quality') {
+      fetchStats(timeRange || undefined)
+    }
+  }, [activeTab, timeRange, fetchStats])
 
   // --- Collection CRUD ---
 
@@ -327,6 +388,16 @@ export default function SharedKnowledgeClient() {
           }`}
         >
           Search
+        </button>
+        <button
+          onClick={() => setActiveTab('quality')}
+          className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+            activeTab === 'quality'
+              ? 'text-brand-400 border-b-2 border-brand-500'
+              : 'text-mountain-400 hover:text-white'
+          }`}
+        >
+          Quality
         </button>
       </div>
 
@@ -652,6 +723,136 @@ export default function SharedKnowledgeClient() {
                   />
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quality Tab */}
+      {activeTab === 'quality' && (
+        <div>
+          {/* Time range filter */}
+          <div className="flex gap-2 mb-6">
+            {[
+              { label: '24h', value: new Date(Date.now() - 86400000).toISOString() },
+              { label: '7d', value: new Date(Date.now() - 7 * 86400000).toISOString() },
+              { label: '30d', value: new Date(Date.now() - 30 * 86400000).toISOString() },
+              { label: 'All Time', value: '' },
+            ].map(r => (
+              <button
+                key={r.label}
+                onClick={() => setTimeRange(r.value)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  timeRange === r.value
+                    ? 'bg-brand-600 text-white'
+                    : 'border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          {statsLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+            </div>
+          ) : !stats ? (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
+              <p className="text-mountain-400">No stats available</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 text-center">
+                  <p className="text-xs text-mountain-400 uppercase tracking-wider mb-1">Total Searches</p>
+                  <p className="text-2xl font-bold text-white">{Number(stats.search.total).toLocaleString()}</p>
+                </div>
+                <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 text-center">
+                  <p className="text-xs text-mountain-400 uppercase tracking-wider mb-1">Zero-Result %</p>
+                  <p className="text-2xl font-bold text-white">{(Number(stats.search.zero_result_rate) * 100).toFixed(1)}%</p>
+                </div>
+                <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 text-center">
+                  <p className="text-xs text-mountain-400 uppercase tracking-wider mb-1">Ingest Err %</p>
+                  <p className="text-2xl font-bold text-white">{(Number(stats.ingest.error_rate) * 100).toFixed(1)}%</p>
+                </div>
+                <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 text-center">
+                  <p className="text-xs text-mountain-400 uppercase tracking-wider mb-1">Total Chunks</p>
+                  <p className="text-2xl font-bold text-white">{Number(stats.corpus.total_chunks).toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Search Breakdown */}
+              <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+                <h3 className="text-sm font-semibold text-white mb-3">Search Breakdown</h3>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {stats.search.by_requester_type.map(rt => (
+                    <span key={rt.requester_type} className="px-3 py-1 text-xs font-medium rounded-md border border-navy-600 bg-navy-900 text-mountain-300">
+                      {Number(rt.total).toLocaleString()} {rt.requester_type} &middot; {(Number(rt.zero_result_rate) * 100).toFixed(1)}% zero
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-mountain-500">
+                  Avg latency: {stats.search.avg_duration_ms != null ? `${Number(stats.search.avg_duration_ms)}ms` : 'N/A'}
+                </p>
+              </div>
+
+              {/* Ingest Health */}
+              <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+                <h3 className="text-sm font-semibold text-white mb-3">Ingest Health</h3>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {[
+                    { label: 'completed', count: stats.ingest.completed, color: 'bg-green-900/40 text-green-400 border-green-700' },
+                    { label: 'failed', count: stats.ingest.failed, color: 'bg-red-900/40 text-red-400 border-red-700' },
+                    { label: 'running', count: stats.ingest.running, color: 'bg-blue-900/40 text-blue-400 border-blue-700' },
+                    { label: 'pending', count: stats.ingest.pending, color: 'bg-yellow-900/40 text-yellow-400 border-yellow-700' },
+                  ].map(s => (
+                    <span key={s.label} className={`px-3 py-1 text-xs font-medium rounded-md border ${s.color}`}>
+                      {Number(s.count).toLocaleString()} {s.label}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-mountain-500">
+                  Avg processing: {stats.ingest.avg_processing_ms != null ? `${Number(stats.ingest.avg_processing_ms)}ms` : 'N/A'}
+                </p>
+              </div>
+
+              {/* Sources */}
+              <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+                <h3 className="text-sm font-semibold text-white mb-3">Sources</h3>
+                <div className="mb-2">
+                  <p className="text-xs text-mountain-500 mb-1">By status</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(stats.sources.by_status).map(([status, count]) => (
+                      <span key={status} className="px-3 py-1 text-xs font-medium rounded-md border border-navy-600 bg-navy-900 text-mountain-300">
+                        {Number(count).toLocaleString()} {status}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-mountain-500 mb-1">By type</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(stats.sources.by_type).map(([type, count]) => (
+                      <span key={type} className="px-3 py-1 text-xs font-medium rounded-md border border-navy-600 bg-navy-900 text-mountain-300">
+                        {Number(count).toLocaleString()} {type}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Corpus */}
+              <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+                <h3 className="text-sm font-semibold text-white mb-3">Corpus</h3>
+                <p className="text-sm text-mountain-300">
+                  {Number(stats.corpus.total_collections).toLocaleString()} collections &middot;{' '}
+                  {Number(stats.corpus.total_sources).toLocaleString()} sources &middot;{' '}
+                  {Number(stats.corpus.total_chunks).toLocaleString()} chunks &middot;{' '}
+                  ~{Math.round(Number(stats.corpus.total_tokens) / 1000).toLocaleString()}k tokens
+                </p>
+              </div>
             </div>
           )}
         </div>
