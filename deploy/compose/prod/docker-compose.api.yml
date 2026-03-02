@@ -29,8 +29,10 @@ services:
       - CONTAINERS=1
       # Allow volume operations (create, remove for agentbox workspace/logs/data volumes)
       - VOLUMES=1
-      # POST required for container create/start/stop/remove
+      # POST required for container create/start/stop/remove and exec create/start
       - POST=1
+      # Allow exec into agentbox containers (used by events endpoint for tail -f)
+      - EXEC=1
       # Deny everything else
       - EVENTS=0
       - IMAGES=0
@@ -43,7 +45,6 @@ services:
       - COMMIT=0
       - CONFIGS=0
       - DISTRIBUTION=0
-      - EXEC=0
       - GRPC=0
       - PLUGINS=0
       - SECRETS=0
