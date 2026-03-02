@@ -5,6 +5,7 @@ import agentsRouter from './routes/agents';
 import knowledgeRouter from './routes/knowledge';
 import sharedKnowledgeRouter from './routes/shared-knowledge';
 import modelPoliciesRouter from './routes/model-policies';
+import toolPresetsRouter from './routes/tool-presets';
 import providerConnectionsRouter from './routes/provider-connections';
 import userModelsRouter from './routes/user-models';
 import profileRouter from './routes/profile';
@@ -49,6 +50,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Model policy management routes (admin-only, enforced in router)
   app.use('/model-policies', requireAuth, modelPoliciesRouter);
+
+  // Tool preset management routes (admin-only mutations, enforced in router)
+  app.use('/tool-presets', requireAuth, toolPresetsRouter);
 
   // Provider connections (user-scoped BYOK credentials)
   app.use('/provider-connections', requireAuth, providerConnectionsRouter);
