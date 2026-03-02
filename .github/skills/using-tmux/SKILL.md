@@ -125,6 +125,26 @@ echo "$OUTPUT"
 | Agent thinking | Spinner, `Thinking...`, progress indicator | **No** — agent hasn't finished | Wait for agent to return to its prompt |
 | Agent prompt waiting | Agent's input prompt visible (e.g. `claude>`) | Yes — for agent input | Send agent-directed input |
 
+### What to do next — the action decision
+
+After capturing, decide your next keystroke. **Paste does not equal send.** Text sitting in the input line has not been submitted until you press Enter — but pressing Enter blindly is the most common agent mistake.
+
+| You see in capture | Diagnosis | Correct action | Wrong action |
+|--------------------|-----------|----------------|--------------|
+| Your text visible on the input line, shell prompt present, no output yet | Prompt pasted but not submitted | Press `Enter` to submit | Assuming paste == send; doing nothing |
+| `[Y/n]`, `(y/N)`, `Continue?`, `approve?` | Approval/confirm prompt active | Decide deliberately: send `y`, `n`, or `C-c` to cancel | Blindly pressing `Enter` (accepts default you may not want) |
+| Output streaming, no prompt visible | Command or agent mid-task | **Wait.** Do not send anything. | Sending new input (queues or corrupts) |
+| Agent spinner, `Thinking...`, progress bar | Agent processing | **Wait.** Poll `capture-pane` until agent returns to its prompt. | Pressing `Enter` or sending text (interrupts agent) |
+| Text on input line but you're unsure if the pane is ready | Ambiguous state | **Capture again.** Do not act on stale or unclear state. | Guessing and pressing Enter |
+| Stale/unwanted text sitting in the input line | Queued input needs clearing | Send `C-u` (clear line) before sending new input | Pressing `Enter` (executes the stale text) |
+| Blocking prompt or hung process you need to abort | Need to cancel | Send `Escape` (for TUI prompts) or `C-c` (for shell/process) | Sending `C-c` to a TUI that interprets it as copy, or `Escape` to a shell |
+
+> **Key distinctions:**
+> - `C-u` clears the current input line without executing it — use when you see stale queued text.
+> - `Escape` dismisses TUI dialogs and prompts — use for agent approval UIs, editor prompts, or modal dialogs.
+> - `C-c` interrupts the running process — use for shell commands, streaming output, or hung processes. In some TUIs, `C-c` has a different meaning (copy), so check first.
+> - **When uncertain, capture again.** A second `capture-pane` costs nothing. A wrong keystroke can corrupt state.
+
 ### Verify process state programmatically
 
 ```bash
@@ -133,9 +153,9 @@ tmux -S "$SOCKET" list-panes -t "$TARGET" \
   -F '#{pane_current_command} #{pane_pid}'
 ```
 
-If `pane_current_command` is `bash`/`zsh`/`fish`, the shell is likely at a prompt. If it shows another process name (`node`, `python`, `vim`, `claude`), something is running.
+If `pane_current_command` is `bash`/`zsh`/`fish`, the shell is likely at a prompt. If it shows another process name (`node`, `python`, `vim`, `claude`), something is running — do not send shell commands.
 
-> **Rule: Never send to a pane you haven't captured in this turn.** Pane state changes between tool calls. Always capture, inspect, then send.
+> **Rule: Never send to a pane you haven't captured in this turn.** Pane state changes between tool calls. Always capture, inspect, decide, then send.
 
 ## Sending Input Reliably
 
