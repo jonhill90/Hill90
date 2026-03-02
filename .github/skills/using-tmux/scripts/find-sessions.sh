@@ -10,7 +10,7 @@ List tmux sessions on a socket (or scan all sockets in socket dir).
 Options:
   -L, --socket       tmux socket name (passes tmux -L)
   -S, --socket-path  tmux socket path (passes tmux -S)
-  -A, --all          scan all sockets under VIBES_TMUX_SOCKET_DIR
+  -A, --all          scan all sockets under TMUX_SOCKET_DIR
   -q, --query        case-insensitive substring filter
   -h, --help         show this help
 USAGE
@@ -20,7 +20,7 @@ socket_name=""
 socket_path=""
 query=""
 scan_all=false
-socket_dir="${VIBES_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/vibes-tmux-sockets}"
+socket_dir="${TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/tmux-agent-sockets}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
