@@ -299,4 +299,84 @@ describe('Tool Preset CRUD routes', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
   });
+
+  // T1: List skills returns instructions_md
+  it('GET /tool-presets returns skills with instructions_md field', async () => {
+    const presetWithInstructions = {
+      ...developerPreset,
+      instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.',
+    };
+    mockQuery.mockResolvedValueOnce({
+      rows: [presetWithInstructions],
+    });
+    const res = await request(app)
+      .get('/tool-presets')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body[0].instructions_md).toBe(
+      'You have full developer access with bash, git, make, curl, and jq available.'
+    );
+  });
+
+  // T2: Create skill with instructions_md
+  it('POST /tool-presets admin creates skill with instructions_md', async () => {
+    const created = {
+      ...adminCreatedPreset,
+      id: 'new-id',
+      instructions_md: 'Custom instructions for this skill.',
+    };
+    mockQuery.mockResolvedValueOnce({ rows: [created] });
+    const res = await request(app)
+      .post('/tool-presets')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'Custom Skill',
+        description: 'A custom skill',
+        tools_config: adminCreatedPreset.tools_config,
+        instructions_md: 'Custom instructions for this skill.',
+      });
+    expect(res.status).toBe(201);
+    // Verify instructions_md was included in the INSERT
+    const insertCall = mockQuery.mock.calls[0];
+    expect(insertCall[0]).toContain('instructions_md');
+    expect(insertCall[1]).toContain('Custom instructions for this skill.');
+  });
+
+  // T3: Update skill instructions_md
+  it('PUT /tool-presets/:id admin updates skill instructions_md', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [adminCreatedPreset] }) // existence check
+      .mockResolvedValueOnce({
+        rows: [{ ...adminCreatedPreset, instructions_md: 'Updated instructions.' }],
+      }); // update
+    const res = await request(app)
+      .put('/tool-presets/preset-custom')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ instructions_md: 'Updated instructions.' });
+    expect(res.status).toBe(200);
+    // Verify instructions_md was included in the UPDATE
+    const updateCall = mockQuery.mock.calls[1];
+    expect(updateCall[0]).toContain('instructions_md');
+  });
+
+  // T4: Create skill without instructions_md defaults empty
+  it('POST /tool-presets creates skill with empty instructions_md when omitted', async () => {
+    const created = {
+      ...adminCreatedPreset,
+      id: 'new-id',
+      instructions_md: '',
+    };
+    mockQuery.mockResolvedValueOnce({ rows: [created] });
+    const res = await request(app)
+      .post('/tool-presets')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'No Instructions Skill',
+        tools_config: adminCreatedPreset.tools_config,
+      });
+    expect(res.status).toBe(201);
+    // Verify empty string was passed for instructions_md
+    const insertCall = mockQuery.mock.calls[0];
+    expect(insertCall[1]).toContain('');
+  });
 });

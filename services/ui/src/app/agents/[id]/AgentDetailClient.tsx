@@ -356,7 +356,7 @@ export default function AgentDetailClient({
                   ? 'bg-brand-900/50 text-brand-400 border border-brand-700'
                   : 'bg-navy-900 text-mountain-400 border border-navy-700'
               }`}>
-                {currentPreset ? currentPreset.name : 'Custom'}
+                {currentPreset ? `Skill: ${currentPreset.name}` : 'Custom'}
               </span>
             </div>
             <div className="flex flex-wrap gap-2">

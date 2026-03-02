@@ -24,7 +24,7 @@ function isAdmin(req: Request): boolean {
 router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
-      `SELECT id, name, description, tools_config, is_platform, created_by, created_at, updated_at
+      `SELECT id, name, description, tools_config, instructions_md, is_platform, created_by, created_at, updated_at
        FROM tool_presets ORDER BY is_platform DESC, name ASC`
     );
     res.json(rows);
@@ -38,7 +38,7 @@ router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
 router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
-      `SELECT id, name, description, tools_config, is_platform, created_by, created_at, updated_at
+      `SELECT id, name, description, tools_config, instructions_md, is_platform, created_by, created_at, updated_at
        FROM tool_presets WHERE id = $1`,
       [req.params.id]
     );
@@ -56,7 +56,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
 // Create preset — admin only
 router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   try {
-    const { name, description, tools_config } = req.body;
+    const { name, description, tools_config, instructions_md } = req.body;
 
     if (!name) {
       res.status(400).json({ error: 'name is required' });
@@ -68,10 +68,10 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
     }
 
     const { rows } = await getPool().query(
-      `INSERT INTO tool_presets (name, description, tools_config, is_platform, created_by)
-       VALUES ($1, $2, $3, false, NULL)
+      `INSERT INTO tool_presets (name, description, tools_config, instructions_md, is_platform, created_by)
+       VALUES ($1, $2, $3, $4, false, NULL)
        RETURNING *`,
-      [name, description || '', JSON.stringify(tools_config)]
+      [name, description || '', JSON.stringify(tools_config), instructions_md || '']
     );
 
     res.status(201).json(rows[0]);
@@ -101,20 +101,22 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
       return;
     }
 
-    const { name, description, tools_config } = req.body;
+    const { name, description, tools_config, instructions_md } = req.body;
 
     const { rows } = await getPool().query(
       `UPDATE tool_presets SET
         name = COALESCE($1, name),
         description = COALESCE($2, description),
         tools_config = COALESCE($3, tools_config),
+        instructions_md = COALESCE($4, instructions_md),
         updated_at = NOW()
-       WHERE id = $4
+       WHERE id = $5
        RETURNING *`,
       [
         name || null,
         description ?? null,
         tools_config ? JSON.stringify(tools_config) : null,
+        instructions_md ?? null,
         req.params.id,
       ]
     );

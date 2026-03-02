@@ -35,6 +35,7 @@ const MOCK_PRESETS = [
       filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
       health: { enabled: true },
     },
+    instructions_md: 'You have no shell or filesystem access.',
     is_platform: true,
   },
   {
@@ -46,6 +47,7 @@ const MOCK_PRESETS = [
       filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
       health: { enabled: true },
     },
+    instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.',
     is_platform: true,
   },
 ]
@@ -71,9 +73,9 @@ function mockFetchDefaults() {
 /** Helper: wait for presets to load then select Custom mode */
 async function selectCustomMode() {
   await waitFor(() => {
-    expect(screen.getByRole('combobox', { name: /tool profile/i })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: /skill/i })).toBeInTheDocument()
   })
-  const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+  const profileSelect = screen.getByRole('combobox', { name: /skill/i })
   fireEvent.change(profileSelect, { target: { value: '' } })
 }
 
@@ -344,15 +346,15 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /tool profile/i })).toBeInTheDocument()
+      expect(screen.getByRole('combobox', { name: /skill/i })).toBeInTheDocument()
     })
 
     // The select should show "Select a profile..." prompt
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i }) as HTMLSelectElement
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i }) as HTMLSelectElement
     expect(profileSelect.value).toBe('__unselected__')
 
     // Prompt message should be visible
-    expect(screen.getByText(/choose a tool profile/i)).toBeInTheDocument()
+    expect(screen.getByText(/choose a skill/i)).toBeInTheDocument()
 
     // Tool checkboxes should NOT be visible (neither preset summary nor custom toggles)
     expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
@@ -369,7 +371,7 @@ describe('AgentFormClient', () => {
     expect(screen.getByText('Developer')).toBeInTheDocument()
 
     // "Custom" option should exist in the tool profile selector
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     expect(profileSelect).toBeInTheDocument()
     const customOption = screen.getByRole('option', { name: /custom/i })
     expect(customOption).toBeInTheDocument()
@@ -380,7 +382,7 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /tool profile/i })).toBeInTheDocument()
+      expect(screen.getByRole('combobox', { name: /skill/i })).toBeInTheDocument()
     })
 
     // Fill required fields
@@ -392,7 +394,7 @@ describe('AgentFormClient', () => {
     fireEvent.submit(form)
 
     await waitFor(() => {
-      expect(screen.getByText(/please select a tool profile/i)).toBeInTheDocument()
+      expect(screen.getByText(/please select a skill/i)).toBeInTheDocument()
     })
 
     // Should NOT have sent a POST request
@@ -411,13 +413,13 @@ describe('AgentFormClient', () => {
     })
 
     // Select the Developer preset
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
-    // Should show summary with enabled tools info
+    // Should show summary with enabled tools info (may match in both summary and instructions)
     await waitFor(() => {
-      expect(screen.getByText(/shell/i)).toBeInTheDocument()
-      expect(screen.getByText(/bash/i)).toBeInTheDocument()
+      expect(screen.getAllByText(/shell/i).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(/bash/i).length).toBeGreaterThan(0)
     })
 
     // Manual tool checkboxes (Shell access, Filesystem access) should NOT be visible
@@ -433,7 +435,7 @@ describe('AgentFormClient', () => {
     })
 
     // Select Developer preset first (from unselected)
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
     // Now switch to Custom
@@ -466,7 +468,7 @@ describe('AgentFormClient', () => {
     })
 
     // Select Developer preset
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
     // Switch to Custom
@@ -496,7 +498,7 @@ describe('AgentFormClient', () => {
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
     // Select Developer preset
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
     // Submit
@@ -563,7 +565,7 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient initial={initial} agentUuid="uuid-1" />)
 
     await waitFor(() => {
-      const profileSelect = screen.getByRole('combobox', { name: /tool profile/i }) as HTMLSelectElement
+      const profileSelect = screen.getByRole('combobox', { name: /skill/i }) as HTMLSelectElement
       expect(profileSelect.value).toBe('preset-dev')
     })
   })
@@ -577,7 +579,7 @@ describe('AgentFormClient', () => {
     fireEvent.click(screen.getByLabelText('Shell access'))
 
     // Now try to switch to Developer preset
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
     // confirm() should have been called
@@ -597,7 +599,7 @@ describe('AgentFormClient', () => {
     fireEvent.click(screen.getByLabelText('Shell access'))
 
     // Try to switch to preset — user cancels
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
     // Should still be in Custom mode
@@ -619,7 +621,7 @@ describe('AgentFormClient', () => {
     fireEvent.click(screen.getByLabelText('Shell access'))
 
     // Switch to Developer preset — user confirms
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
     // Should now be in preset mode
@@ -638,10 +640,37 @@ describe('AgentFormClient', () => {
     await selectCustomMode()
 
     // Don't make any changes — just switch to preset
-    const profileSelect = screen.getByRole('combobox', { name: /tool profile/i })
+    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
     // confirm() should NOT have been called
     expect(mockConfirm).not.toHaveBeenCalled()
+  })
+
+  // T12: Agent form dropdown says "Skill"
+  it('agent form shows Skill dropdown label', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /^skill$/i })).toBeInTheDocument()
+    })
+  })
+
+  // T13: Agent form shows instructions preview when skill selected
+  it('selecting skill shows instructions preview', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Select Developer skill
+    const skillSelect = screen.getByRole('combobox', { name: /skill/i })
+    fireEvent.change(skillSelect, { target: { value: 'preset-dev' } })
+
+    // Should show instructions preview
+    await waitFor(() => {
+      expect(screen.getByText(/full developer access with bash/i)).toBeInTheDocument()
+    })
   })
 })

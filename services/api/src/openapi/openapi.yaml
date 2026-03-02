@@ -243,6 +243,9 @@ components:
         tools_config:
           type: object
           description: JSONB tool configuration (shell, filesystem, health settings)
+        instructions_md:
+          type: string
+          description: Behavioral guidance merged into agent RULES.md at start time (fresh-at-start).
         is_platform:
           type: boolean
           description: Platform presets are immutable and undeletable.

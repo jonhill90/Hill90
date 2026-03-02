@@ -25,6 +25,7 @@ interface PresetOption {
   name: string
   description: string
   tools_config: ToolsConfig
+  instructions_md?: string
   is_platform: boolean
 }
 
@@ -128,7 +129,7 @@ export default function AgentFormClient({
 
   const validateForm = (): boolean => {
     if (toolPresetId === UNSELECTED) {
-      setValidationError('Please select a tool profile or choose Custom')
+      setValidationError('Please select a skill or choose Custom')
       return false
     }
     if (tools.shell.enabled && tools.shell.max_timeout < 1) {
@@ -259,22 +260,22 @@ export default function AgentFormClient({
         </div>
       </fieldset>
 
-      {/* Tool Profile */}
+      {/* Skill */}
       <fieldset disabled={disabled} className="space-y-4">
         <legend className="text-lg font-semibold text-white mb-4">Tools</legend>
 
         <div>
-          <label htmlFor="tool_profile" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            Tool Profile
+          <label htmlFor="skill" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
+            Skill
           </label>
           <select
-            id="tool_profile"
+            id="skill"
             value={toolPresetId}
             onChange={handleProfileChange}
             className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
           >
             {toolPresetId === UNSELECTED && (
-              <option value={UNSELECTED} disabled>Select a profile...</option>
+              <option value={UNSELECTED} disabled>Select a skill...</option>
             )}
             <option value="">Custom</option>
             {presets.map((p) => (
@@ -282,7 +283,7 @@ export default function AgentFormClient({
             ))}
           </select>
           <p className="text-xs text-mountain-500 mt-1">
-            Select a preset profile or choose Custom for manual configuration.
+            Select a skill or choose Custom for manual configuration.
           </p>
         </div>
 
@@ -290,7 +291,7 @@ export default function AgentFormClient({
           /* No selection yet — prompt user */
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
             <p className="text-sm text-mountain-400">
-              Choose a tool profile above to configure this agent&apos;s capabilities.
+              Choose a skill above to configure this agent&apos;s capabilities.
             </p>
           </div>
         ) : toolPresetId ? (
@@ -329,8 +330,14 @@ export default function AgentFormClient({
                       <span className="text-white">Health</span>
                     </div>
                   </div>
+                  {preset.instructions_md && (
+                    <div className="border-t border-navy-700 pt-3">
+                      <h4 className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-1">Instructions</h4>
+                      <p className="text-sm text-mountain-300 whitespace-pre-wrap">{preset.instructions_md}</p>
+                    </div>
+                  )}
                   <p className="text-xs text-mountain-500">
-                    Profile applied at assignment time. Switch to Custom to edit manually.
+                    Skill applied at assignment time. Switch to Custom to edit manually.
                   </p>
                 </>
               )

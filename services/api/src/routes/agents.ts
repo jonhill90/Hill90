@@ -345,8 +345,20 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
 
     const agent = rows[0];
 
+    // Fetch skill instructions at start time (fresh-at-start, not resolve-on-save)
+    let skillInstructions: string | undefined;
+    if (agent.tool_preset_id) {
+      const { rows: presetRows } = await getPool().query(
+        'SELECT instructions_md FROM tool_presets WHERE id = $1',
+        [agent.tool_preset_id]
+      );
+      if (presetRows.length > 0 && presetRows[0].instructions_md) {
+        skillInstructions = presetRows[0].instructions_md;
+      }
+    }
+
     // Write config files to disk
-    writeAgentFiles(agent);
+    writeAgentFiles(agent, skillInstructions);
 
     // Generate AKM token if configured
     let akmEnv: string[] = [];

@@ -16,7 +16,7 @@ interface AgentRow {
   rules_md: string;
 }
 
-export function writeAgentFiles(agent: AgentRow): string {
+export function writeAgentFiles(agent: AgentRow, skillInstructions?: string): string {
   const dir = path.join(CONFIG_BASE, agent.agent_id);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -44,7 +44,15 @@ export function writeAgentFiles(agent: AgentRow): string {
 
   // Write identity files
   fs.writeFileSync(path.join(dir, 'SOUL.md'), agent.soul_md, 'utf-8');
-  fs.writeFileSync(path.join(dir, 'RULES.md'), agent.rules_md, 'utf-8');
+
+  // Merge skill instructions into RULES.md (fresh-at-start, not resolve-on-save)
+  let rulesContent = agent.rules_md;
+  if (skillInstructions) {
+    rulesContent = rulesContent
+      ? `${rulesContent}\n\n---\n\n## Skill Instructions\n\n${skillInstructions}`
+      : `## Skill Instructions\n\n${skillInstructions}`;
+  }
+  fs.writeFileSync(path.join(dir, 'RULES.md'), rulesContent, 'utf-8');
 
   return dir;
 }
