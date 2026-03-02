@@ -57,6 +57,16 @@ const otherUserToken = makeToken('other-user', ['user']);
 
 const AGENT_UUID = '550e8400-e29b-41d4-a716-446655440000';
 
+/** Build a Docker multiplexed stream frame (8-byte header + payload).
+ *  Type 1 = stdout. This is what exec produces when Tty: false. */
+function dockerFrame(text: string): Buffer {
+  const payload = Buffer.from(text, 'utf-8');
+  const header = Buffer.alloc(8);
+  header[0] = 1; // stdout stream
+  header.writeUInt32BE(payload.length, 4);
+  return Buffer.concat([header, payload]);
+}
+
 describe('GET /agents/:id/events', () => {
   beforeEach(() => {
     mockQuery.mockReset();
@@ -97,13 +107,19 @@ describe('GET /agents/:id/events', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns SSE headers for follow=true', async () => {
+  it('returns SSE headers for follow=true with plain text stream', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
     });
 
-    // Mock execInContainer to return a readable stream that ends immediately
-    const fakeStream = new Readable({ read() { this.push(null); } });
+    // Simulate Tty: true output — plain UTF-8 text, no Docker frame headers
+    const event = JSON.stringify({ id: '1', type: 'command_start', tool: 'shell', input_summary: 'echo hi' });
+    const fakeStream = new Readable({
+      read() {
+        this.push(`${event}\n`);
+        this.push(null);
+      },
+    });
     mockExecInContainer.mockResolvedValueOnce(fakeStream);
 
     const res = await request(app)
@@ -113,13 +129,16 @@ describe('GET /agents/:id/events', () => {
 
     expect(res.headers['content-type']).toMatch(/text\/event-stream/);
     expect(res.headers['cache-control']).toBe('no-cache');
+    // The SSE body should contain the event as a parseable JSON data line
+    expect(res.text).toContain(`data: ${event}`);
   });
 
-  it('returns JSON array for one-shot mode', async () => {
+  it('returns JSON array for one-shot mode with plain text stream', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
     });
 
+    // Tty: true gives plain UTF-8 lines
     const event1 = JSON.stringify({ id: '1', type: 'command_start', tool: 'shell' });
     const event2 = JSON.stringify({ id: '2', type: 'command_complete', tool: 'shell' });
     const fakeStream = new Readable({
@@ -139,5 +158,104 @@ describe('GET /agents/:id/events', () => {
     expect(res.body).toHaveLength(2);
     expect(res.body[0].type).toBe('command_start');
     expect(res.body[1].type).toBe('command_complete');
+  });
+
+  it('Docker-framed data (Tty: false) would corrupt JSON parsing', async () => {
+    // This test proves WHY Tty: true is required.
+    // Docker multiplexed frames have 8-byte binary headers that would
+    // appear as garbage bytes in the UTF-8 text, causing JSON.parse to fail.
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
+    });
+
+    const event1 = JSON.stringify({ id: '1', type: 'command_start', tool: 'shell' });
+    const event2 = JSON.stringify({ id: '2', type: 'command_complete', tool: 'shell' });
+    // Simulate what Tty: false would produce: Docker frame headers around each line
+    const framedData = Buffer.concat([
+      dockerFrame(event1 + '\n'),
+      dockerFrame(event2 + '\n'),
+    ]);
+    const fakeStream = new Readable({
+      read() {
+        this.push(framedData);
+        this.push(null);
+      },
+    });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+
+    const res = await request(app)
+      .get(`/agents/${AGENT_UUID}/events?tail=50`)
+      .set('Authorization', `Bearer ${userToken}`);
+
+    // With framed data hitting the plain-text parser, the 8-byte headers
+    // corrupt the JSON lines. JSON.parse fails, events are filtered out as null.
+    // This demonstrates the route relies on clean text from Tty: true.
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(0); // All events corrupted — none parse
+  });
+
+  it('SSE follow on empty file (fresh agent, no events) sends end without error', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
+    });
+
+    // Fresh agent: events.jsonl exists but is empty. tail -f outputs nothing initially
+    // then waits. When the stream ends (e.g., agent stops), we get 'end'.
+    const fakeStream = new Readable({
+      read() {
+        // Empty file — tail outputs nothing, then ends
+        this.push(null);
+      },
+    });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+
+    const res = await request(app)
+      .get(`/agents/${AGENT_UUID}/events?follow=true&tail=50`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .buffer(true);
+
+    expect(res.headers['content-type']).toMatch(/text\/event-stream/);
+    // Should contain the end event, no error events
+    expect(res.text).toContain('event: end');
+    expect(res.text).not.toContain('event: error');
+  });
+
+  it('one-shot on empty file returns empty array', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
+    });
+
+    // Empty events file
+    const fakeStream = new Readable({
+      read() {
+        this.push(null);
+      },
+    });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+
+    const res = await request(app)
+      .get(`/agents/${AGENT_UUID}/events?tail=50`)
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
+  it('verifies exec is called with correct tail command', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'running', created_by: 'regular-user' }],
+    });
+
+    const fakeStream = new Readable({ read() { this.push(null); } });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+
+    await request(app)
+      .get(`/agents/${AGENT_UUID}/events?follow=true&tail=25`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .buffer(true);
+
+    expect(mockExecInContainer).toHaveBeenCalledWith('test-agent', [
+      'tail', '-f', '-n', '25', '/var/log/agentbox/events.jsonl',
+    ]);
   });
 });

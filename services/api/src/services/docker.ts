@@ -198,10 +198,14 @@ export async function execInContainer(
   const info = await container.inspect();
   assertManagedLabel(info.Config.Labels);
 
+  // Tty: true allocates a pseudo-TTY, giving plain UTF-8 text output
+  // without Docker's multiplexed stream framing (8-byte headers per frame).
+  // This is appropriate for read-only text commands like `tail`.
   const exec = await container.exec({
     Cmd: cmd,
     AttachStdout: true,
     AttachStderr: false,
+    Tty: true,
   });
 
   const stream = await exec.start({ hijack: true, stdin: false });

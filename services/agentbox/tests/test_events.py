@@ -117,3 +117,24 @@ class TestEventEmitter:
         assert log_path.exists()
         event = json.loads(log_path.read_text().strip())
         assert event["type"] == "health_check"
+
+    def test_init_creates_empty_file_for_tail(self, tmp_path):
+        """EventEmitter.__init__ must touch the log file so `tail -f` can
+        open it immediately on a freshly started agent with no events yet."""
+        log_path = tmp_path / "events.jsonl"
+        assert not log_path.exists()
+
+        EventEmitter(str(log_path))
+
+        assert log_path.exists()
+        assert log_path.read_text() == ""  # empty, not corrupted
+
+    def test_init_does_not_truncate_existing_file(self, tmp_path):
+        """If the file already has events (agent restart), init must not erase them."""
+        log_path = tmp_path / "events.jsonl"
+        existing_line = '{"id":"old","type":"command_complete"}\n'
+        log_path.write_text(existing_line)
+
+        EventEmitter(str(log_path))
+
+        assert log_path.read_text() == existing_line  # preserved

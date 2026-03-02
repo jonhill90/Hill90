@@ -20,6 +20,9 @@ class EventEmitter:
         self._log_path = log_path
         self._lock = threading.Lock()
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        # Touch file so `tail -f` can open it immediately on fresh agents
+        if not os.path.exists(log_path):
+            open(log_path, "a").close()
 
     def emit(
         self,
