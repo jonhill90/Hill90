@@ -400,11 +400,12 @@ async def record_retrieval(
     agent_owner: str | None = None,
     result_count: int,
     chunk_ids: list[str],
+    duration_ms: int | None = None,
 ) -> dict[str, Any]:
     row = await pool.fetchrow(
         """INSERT INTO shared_retrievals
-           (query, requester_type, requester_id, agent_owner, result_count, chunk_ids)
-           VALUES ($1, $2, $3, $4, $5, $6)
+           (query, requester_type, requester_id, agent_owner, result_count, chunk_ids, duration_ms)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            RETURNING *""",
         query,
         requester_type,
@@ -412,5 +413,120 @@ async def record_retrieval(
         agent_owner,
         result_count,
         [UUID(cid) for cid in chunk_ids],
+        duration_ms,
     )
     return _serialize(dict(row))
+
+
+# ---------------------------------------------------------------------------
+# Stats (aggregate-only — no raw query text, no requester IDs)
+# ---------------------------------------------------------------------------
+
+
+async def get_shared_stats(
+    pool: asyncpg.Pool,
+    *,
+    since: str | None = None,
+) -> dict[str, Any]:
+    """Return aggregate quality/ops metrics. No PII, no raw queries."""
+
+    # Search aggregates
+    search_row = await pool.fetchrow(
+        """SELECT COUNT(*) AS total,
+                  COUNT(*) FILTER (WHERE result_count = 0) AS zero_result_count,
+                  ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL))::int AS avg_duration_ms
+           FROM shared_retrievals
+           WHERE ($1::timestamptz IS NULL OR created_at >= $1)""",
+        since,
+    )
+    total = search_row["total"]
+    zero_result_count = search_row["zero_result_count"]
+    zero_result_rate = round(zero_result_count / total, 3) if total > 0 else 0.0
+
+    # By requester type (aggregate counts + zero-result breakdown, no IDs)
+    type_rows = await pool.fetch(
+        """SELECT requester_type,
+                  COUNT(*) AS total,
+                  COUNT(*) FILTER (WHERE result_count = 0) AS zero_result_count
+           FROM shared_retrievals
+           WHERE ($1::timestamptz IS NULL OR created_at >= $1)
+           GROUP BY requester_type""",
+        since,
+    )
+    by_requester_type = []
+    for r in type_rows:
+        t = r["total"]
+        zrc = r["zero_result_count"]
+        by_requester_type.append({
+            "requester_type": r["requester_type"],
+            "total": t,
+            "zero_result_count": zrc,
+            "zero_result_rate": round(zrc / t, 3) if t > 0 else 0.0,
+        })
+
+    # Ingest aggregates
+    ingest_row = await pool.fetchrow(
+        """SELECT COUNT(*) AS total_jobs,
+                  COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+                  COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+                  COUNT(*) FILTER (WHERE status = 'running') AS running,
+                  COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+                  ROUND(AVG(EXTRACT(EPOCH FROM (completed_at - started_at)) * 1000)
+                        FILTER (WHERE completed_at IS NOT NULL AND started_at IS NOT NULL))::int
+                    AS avg_processing_ms
+           FROM shared_ingest_jobs
+           WHERE ($1::timestamptz IS NULL OR created_at >= $1)""",
+        since,
+    )
+    total_jobs = ingest_row["total_jobs"]
+    failed = ingest_row["failed"]
+    ingest_error_rate = round(failed / total_jobs, 3) if total_jobs > 0 else 0.0
+
+    # Source breakdown (current state, not time-scoped)
+    status_rows = await pool.fetch(
+        "SELECT status, COUNT(*) AS count FROM shared_sources GROUP BY status"
+    )
+    by_status = {r["status"]: r["count"] for r in status_rows}
+
+    type_source_rows = await pool.fetch(
+        "SELECT source_type, COUNT(*) AS count FROM shared_sources GROUP BY source_type"
+    )
+    by_type = {r["source_type"]: r["count"] for r in type_source_rows}
+
+    # Corpus totals (current state)
+    corpus_row = await pool.fetchrow(
+        """SELECT (SELECT COUNT(*) FROM shared_collections) AS total_collections,
+                  (SELECT COUNT(*) FROM shared_sources) AS total_sources,
+                  (SELECT COUNT(*) FROM shared_chunks) AS total_chunks,
+                  (SELECT COALESCE(SUM(token_estimate), 0) FROM shared_chunks) AS total_tokens"""
+    )
+
+    return {
+        "search": {
+            "total": total,
+            "zero_result_count": zero_result_count,
+            "zero_result_rate": zero_result_rate,
+            "avg_duration_ms": search_row["avg_duration_ms"],
+            "by_requester_type": by_requester_type,
+        },
+        "ingest": {
+            "total_jobs": total_jobs,
+            "completed": ingest_row["completed"],
+            "failed": failed,
+            "running": ingest_row["running"],
+            "pending": ingest_row["pending"],
+            "error_rate": ingest_error_rate,
+            "avg_processing_ms": ingest_row["avg_processing_ms"],
+        },
+        "sources": {
+            "by_status": by_status,
+            "by_type": by_type,
+        },
+        "corpus": {
+            "total_collections": corpus_row["total_collections"],
+            "total_sources": corpus_row["total_sources"],
+            "total_chunks": corpus_row["total_chunks"],
+            "total_tokens": corpus_row["total_tokens"],
+        },
+        "since": since,
+    }

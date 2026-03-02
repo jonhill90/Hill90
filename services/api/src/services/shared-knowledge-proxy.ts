@@ -129,3 +129,11 @@ export async function searchShared(params: {
 }): Promise<ProxyResponse> {
   return proxyRequest('GET', '/internal/admin/shared/search', params as Record<string, string>);
 }
+
+// Stats
+
+export async function getStats(since?: string): Promise<ProxyResponse> {
+  const params: Record<string, string> = {};
+  if (since) params.since = since;
+  return proxyRequest('GET', '/internal/admin/shared/stats', params);
+}

@@ -6,6 +6,7 @@ user-level authorization before calling these endpoints.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import asyncpg
@@ -235,6 +236,7 @@ async def search_shared(
     if requester_type not in ("user", "agent"):
         raise HTTPException(status_code=422, detail="requester_type must be 'user' or 'agent'")
 
+    t0 = time.monotonic()
     results = await shared_store.search_chunks(
         pool,
         q,
@@ -242,6 +244,7 @@ async def search_shared(
         collection_id=collection_id,
         limit=limit,
     )
+    duration_ms = int((time.monotonic() - t0) * 1000)
 
     chunk_ids = [r["chunk_id"] for r in results]
     await shared_store.record_retrieval(
@@ -251,6 +254,7 @@ async def search_shared(
         requester_id=requester_id,
         result_count=len(results),
         chunk_ids=chunk_ids,
+        duration_ms=duration_ms,
     )
 
     return {
@@ -260,3 +264,18 @@ async def search_shared(
         "search_type": "fts",
         "score_type": "ts_rank",
     }
+
+
+# ---------------------------------------------------------------------------
+# Stats
+# ---------------------------------------------------------------------------
+
+
+@router.get("/stats")
+async def get_stats(
+    request: Request,
+    since: str | None = Query(None, description="ISO timestamp to scope time-based stats"),
+) -> dict[str, Any]:
+    _verify_service_token(request)
+    pool = request.app.state.pool
+    return await shared_store.get_shared_stats(pool, since=since)
