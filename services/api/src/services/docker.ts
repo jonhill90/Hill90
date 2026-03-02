@@ -1,4 +1,5 @@
 import Docker from 'dockerode';
+import { Readable, Transform } from 'stream';
 
 function createDockerClient(): Docker {
   const dockerHost = process.env.DOCKER_HOST;
@@ -180,7 +181,6 @@ export async function getContainerLogs(
   });
 
   // Buffer case: wrap in a readable stream
-  const { Readable } = require('stream');
   const stream = new Readable();
   stream.push(buf);
   stream.push(null);
@@ -212,25 +212,24 @@ export async function execInContainer(
   // Bytes 1-3: padding
   // Bytes 4-7: payload size (big-endian uint32)
   // We strip headers and emit only stdout payload.
-  const { Transform } = require('stream');
+  let remainder: Buffer | null = null;
   const demux = new Transform({
     transform(chunk: Buffer, _encoding: string, callback: Function) {
-      // Prepend any leftover bytes from the previous chunk
-      let buf: Buffer = this._remainder
-        ? Buffer.concat([this._remainder, chunk])
+      let buf: Buffer = remainder
+        ? Buffer.concat([remainder, chunk])
         : chunk;
-      this._remainder = null;
+      remainder = null;
 
       let offset = 0;
       while (offset < buf.length) {
         if (offset + 8 > buf.length) {
-          this._remainder = buf.slice(offset);
+          remainder = buf.slice(offset);
           break;
         }
         const payloadSize = buf.readUInt32BE(offset + 4);
         const frameEnd = offset + 8 + payloadSize;
         if (frameEnd > buf.length) {
-          this._remainder = buf.slice(offset);
+          remainder = buf.slice(offset);
           break;
         }
         const streamType = buf[offset];
