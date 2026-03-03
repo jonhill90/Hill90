@@ -93,6 +93,7 @@ make secrets-view KEY=SPECIFIC_KEY
 | `secret/ai/config` | ANTHROPIC_API_KEY, OPENAI_API_KEY | AI service |
 | `secret/auth/config` | KC_ADMIN_USERNAME, KC_ADMIN_PASSWORD, SMTP_PASSWORD | Auth (Keycloak) service |
 | `secret/ui/config` | AUTH_KEYCLOAK_ID, AUTH_KEYCLOAK_SECRET, AUTH_SECRET | UI service |
+| `secret/ops/verification` | TEST_USER_USERNAME, TEST_USER_PASSWORD | Human-operated supported-path verification |
 | `secret/minio/config` | MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | MinIO (duplicates from api/config) |
 | `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER | Traefik reverse proxy |
 | `secret/infra/dns-manager` | HOSTINGER_API_KEY | DNS manager |

@@ -338,6 +338,19 @@ cmd_seed() {
         "AUTH_KEYCLOAK_SECRET=$(get_secret AUTH_KEYCLOAK_SECRET)" \
         "AUTH_SECRET=$(get_secret AUTH_SECRET)"
 
+    # Seed ops/verification (if keys exist)
+    local test_user test_pass
+    test_user=$(get_secret TEST_USER_USERNAME)
+    test_pass=$(get_secret TEST_USER_PASSWORD)
+    if [ -n "$test_user" ] && [ -n "$test_pass" ]; then
+        echo "Seeding secret/ops/verification..."
+        bao_exec_env kv put secret/ops/verification \
+            "TEST_USER_USERNAME=${test_user}" \
+            "TEST_USER_PASSWORD=${test_pass}"
+    else
+        info "TEST_USER_USERNAME/TEST_USER_PASSWORD not found in SOPS — skipping ops/verification seed"
+    fi
+
     # Seed minio/config
     echo "Seeding secret/minio/config..."
     bao_exec_env kv put secret/minio/config \
