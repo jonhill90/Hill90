@@ -4,6 +4,8 @@ import { requireRole } from '../middleware/role';
 
 const router = Router();
 
+const VALID_SCOPES = ['container_local', 'host_docker', 'vps_system'] as const;
+
 function dbHealthCheck(_req: Request, res: Response, next: () => void) {
   if (!process.env.DATABASE_URL) {
     res.status(503).json({ error: 'Database not configured' });
@@ -24,7 +26,7 @@ function isAdmin(req: Request): boolean {
 router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
-      `SELECT id, name, description, tools_config, instructions_md, is_platform, created_by, created_at, updated_at
+      `SELECT id, name, description, tools_config, instructions_md, scope, is_platform, created_by, created_at, updated_at
        FROM tool_presets ORDER BY is_platform DESC, name ASC`
     );
     res.json(rows);
@@ -38,7 +40,7 @@ router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
 router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
-      `SELECT id, name, description, tools_config, instructions_md, is_platform, created_by, created_at, updated_at
+      `SELECT id, name, description, tools_config, instructions_md, scope, is_platform, created_by, created_at, updated_at
        FROM tool_presets WHERE id = $1`,
       [req.params.id]
     );
@@ -56,7 +58,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
 // Create preset — admin only
 router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   try {
-    const { name, description, tools_config, instructions_md } = req.body;
+    const { name, description, tools_config, instructions_md, scope } = req.body;
 
     if (!name) {
       res.status(400).json({ error: 'name is required' });
@@ -66,12 +68,16 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
       res.status(400).json({ error: 'tools_config is required and must be an object' });
       return;
     }
+    if (scope !== undefined && !VALID_SCOPES.includes(scope)) {
+      res.status(400).json({ error: `Invalid scope. Must be one of: ${VALID_SCOPES.join(', ')}` });
+      return;
+    }
 
     const { rows } = await getPool().query(
-      `INSERT INTO tool_presets (name, description, tools_config, instructions_md, is_platform, created_by)
-       VALUES ($1, $2, $3, $4, false, NULL)
+      `INSERT INTO tool_presets (name, description, tools_config, instructions_md, scope, is_platform, created_by)
+       VALUES ($1, $2, $3, $4, $5, false, NULL)
        RETURNING *`,
-      [name, description || '', JSON.stringify(tools_config), instructions_md || '']
+      [name, description || '', JSON.stringify(tools_config), instructions_md || '', scope || 'container_local']
     );
 
     res.status(201).json(rows[0]);
@@ -101,7 +107,12 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
       return;
     }
 
-    const { name, description, tools_config, instructions_md } = req.body;
+    const { name, description, tools_config, instructions_md, scope } = req.body;
+
+    if (scope !== undefined && !VALID_SCOPES.includes(scope)) {
+      res.status(400).json({ error: `Invalid scope. Must be one of: ${VALID_SCOPES.join(', ')}` });
+      return;
+    }
 
     const { rows } = await getPool().query(
       `UPDATE tool_presets SET
@@ -109,14 +120,16 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
         description = COALESCE($2, description),
         tools_config = COALESCE($3, tools_config),
         instructions_md = COALESCE($4, instructions_md),
+        scope = COALESCE($5, scope),
         updated_at = NOW()
-       WHERE id = $5
+       WHERE id = $6
        RETURNING *`,
       [
         name || null,
         description ?? null,
         tools_config ? JSON.stringify(tools_config) : null,
         instructions_md ?? null,
+        scope || null,
         req.params.id,
       ]
     );

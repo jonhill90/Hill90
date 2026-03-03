@@ -246,6 +246,11 @@ components:
         instructions_md:
           type: string
           description: Behavioral guidance merged into agent RULES.md at start time (fresh-at-start).
+        scope:
+          type: string
+          enum: [container_local, host_docker, vps_system]
+          default: container_local
+          description: Scope determines assignment authority. container_local — any user. host_docker/vps_system — admin only.
         is_platform:
           type: boolean
           description: Platform presets are immutable and undeletable.
@@ -2150,6 +2155,14 @@ paths:
                 tools_config:
                   type: object
                   description: Tool configuration (shell, filesystem, health settings)
+                instructions_md:
+                  type: string
+                  description: Behavioral guidance merged into agent RULES.md at start time.
+                scope:
+                  type: string
+                  enum: [container_local, host_docker, vps_system]
+                  default: container_local
+                  description: Scope determines assignment authority.
       responses:
         "201":
           description: Preset created
@@ -2212,6 +2225,11 @@ paths:
                   type: string
                 tools_config:
                   type: object
+                instructions_md:
+                  type: string
+                scope:
+                  type: string
+                  enum: [container_local, host_docker, vps_system]
       responses:
         "200":
           description: Preset updated
@@ -2251,3 +2269,103 @@ paths:
           description: Preset not found
         "409":
           description: Preset is assigned to agents
+
+  /agents/{id}/skills:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      summary: Assign skill to agent
+      description: |
+        Assigns a skill from the catalog to an agent. Agent must be stopped.
+        RBAC on scope: container_local — any user (own agents). host_docker/vps_system — admin only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - skill_id
+              properties:
+                skill_id:
+                  type: string
+                  format: uuid
+                  description: ID of the skill (tool preset) to assign
+      responses:
+        "201":
+          description: Skill assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id:
+                    type: string
+                    format: uuid
+                  skill_id:
+                    type: string
+                    format: uuid
+                  assigned_at:
+                    type: string
+                    format: date-time
+                  assigned_by:
+                    type: string
+        "400":
+          description: Missing skill_id
+        "401":
+          description: Not authenticated
+        "403":
+          description: Elevated scope requires admin role
+        "404":
+          description: Agent or skill not found
+        "409":
+          description: Agent is running or skill already assigned
+
+  /agents/{id}/skills/{skillId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: skillId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    delete:
+      summary: Remove skill from agent
+      description: |
+        Removes a skill assignment from an agent. Agent must be stopped.
+        RBAC on scope: container_local — any user (own agents). host_docker/vps_system — admin only.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Skill removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  removed:
+                    type: boolean
+        "401":
+          description: Not authenticated
+        "403":
+          description: Elevated scope requires admin role
+        "404":
+          description: Agent, skill, or assignment not found
+        "409":
+          description: Agent is running

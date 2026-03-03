@@ -359,6 +359,65 @@ describe('Tool Preset CRUD routes', () => {
     expect(updateCall[0]).toContain('instructions_md');
   });
 
+  // T11: GET /tool-presets includes scope field
+  it('GET /tool-presets includes scope in response', async () => {
+    const presetWithScope = { ...developerPreset, scope: 'container_local' };
+    mockQuery.mockResolvedValueOnce({ rows: [presetWithScope] });
+    const res = await request(app)
+      .get('/tool-presets')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body[0].scope).toBe('container_local');
+    // Verify scope is in the SELECT query
+    const selectCall = mockQuery.mock.calls[0];
+    expect(selectCall[0]).toContain('scope');
+  });
+
+  // T12: POST /tool-presets accepts scope
+  it('POST /tool-presets admin creates preset with scope', async () => {
+    const created = { ...adminCreatedPreset, id: 'new-id', scope: 'host_docker' };
+    mockQuery.mockResolvedValueOnce({ rows: [created] });
+    const res = await request(app)
+      .post('/tool-presets')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'Docker Operator',
+        description: 'Host docker access',
+        tools_config: adminCreatedPreset.tools_config,
+        scope: 'host_docker',
+      });
+    expect(res.status).toBe(201);
+    // Verify scope was included in the INSERT
+    const insertCall = mockQuery.mock.calls[0];
+    expect(insertCall[0]).toContain('scope');
+    expect(insertCall[1]).toContain('host_docker');
+  });
+
+  // T13: Invalid scope rejected
+  it('POST /tool-presets rejects invalid scope', async () => {
+    const res = await request(app)
+      .post('/tool-presets')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'Bad Scope',
+        tools_config: adminCreatedPreset.tools_config,
+        scope: 'invalid_scope',
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('scope');
+  });
+
+  // T13 continued: PUT rejects invalid scope
+  it('PUT /tool-presets/:id rejects invalid scope', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [adminCreatedPreset] }); // existence check
+    const res = await request(app)
+      .put('/tool-presets/preset-custom')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ scope: 'invalid_scope' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('scope');
+  });
+
   // T4: Create skill without instructions_md defaults empty
   it('POST /tool-presets creates skill with empty instructions_md when omitted', async () => {
     const created = {
