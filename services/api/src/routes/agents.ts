@@ -141,11 +141,15 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
     let validatedSkillId: string | null = null;
     if (skill_ids && skill_ids.length === 1) {
       const { rows: skillRows } = await getPool().query(
-        'SELECT id, tools_config FROM skills WHERE id = $1',
+        'SELECT id, tools_config, scope FROM skills WHERE id = $1',
         [skill_ids[0]]
       );
       if (skillRows.length === 0) {
         res.status(400).json({ error: 'Skill not found' });
+        return;
+      }
+      if (ELEVATED_SCOPES.includes(skillRows[0].scope) && !isAdmin(req)) {
+        res.status(403).json({ error: `Assigning ${skillRows[0].scope} skills requires admin role` });
         return;
       }
       resolvedToolsConfig = skillRows[0].tools_config;
@@ -306,11 +310,15 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     if (skill_ids !== undefined) {
       if (skill_ids.length === 1) {
         const { rows: skillRows } = await getPool().query(
-          'SELECT id, tools_config FROM skills WHERE id = $1',
+          'SELECT id, tools_config, scope FROM skills WHERE id = $1',
           [skill_ids[0]]
         );
         if (skillRows.length === 0) {
           res.status(400).json({ error: 'Skill not found' });
+          return;
+        }
+        if (ELEVATED_SCOPES.includes(skillRows[0].scope) && !isAdmin(req)) {
+          res.status(403).json({ error: `Assigning ${skillRows[0].scope} skills requires admin role` });
           return;
         }
         resolvedToolsConfig = JSON.stringify(skillRows[0].tools_config);

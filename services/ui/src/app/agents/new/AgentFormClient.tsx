@@ -20,13 +20,29 @@ const defaultTools: ToolsConfig = {
   health: { enabled: true },
 }
 
-interface PresetOption {
+interface SkillOption {
   id: string
   name: string
   description: string
+  scope: string
   tools_config: ToolsConfig
   instructions_md?: string
   is_platform: boolean
+}
+
+const ELEVATED_SCOPES = ['host_docker', 'vps_system']
+
+function scopeBadge(scope: string): { label: string; colorClasses: string } {
+  switch (scope) {
+    case 'container_local':
+      return { label: 'Container', colorClasses: 'bg-brand-900/50 text-brand-400 border border-brand-700' }
+    case 'host_docker':
+      return { label: 'Host · Docker', colorClasses: 'bg-amber-900/50 text-amber-400 border border-amber-700' }
+    case 'vps_system':
+      return { label: 'VPS · System', colorClasses: 'bg-red-900/50 text-red-400 border border-red-700' }
+    default:
+      return { label: scope, colorClasses: 'bg-navy-900 text-mountain-400 border border-navy-700' }
+  }
 }
 
 interface PolicyOption {
@@ -38,6 +54,7 @@ export default function AgentFormClient({
   initial,
   agentUuid,
   disabled,
+  isAdmin = false,
 }: {
   initial?: {
     agent_id: string
@@ -54,6 +71,7 @@ export default function AgentFormClient({
   }
   agentUuid?: string
   disabled?: boolean
+  isAdmin?: boolean
 }) {
   const router = useRouter()
   const isEdit = !!agentUuid
@@ -72,9 +90,9 @@ export default function AgentFormClient({
   const [rulesMd, setRulesMd] = useState(initial?.rules_md || '')
   const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
   const [policies, setPolicies] = useState<PolicyOption[]>([])
-  const [presets, setPresets] = useState<PresetOption[]>([])
+  const [skills, setSkills] = useState<SkillOption[]>([])
   // New agents: unselected prompt. Edit agents: skill ID or '' (Custom).
-  const [toolPresetId, setToolPresetId] = useState(
+  const [selectedSkillId, setToolPresetId] = useState(
     initial ? (initial.skills?.[0]?.id || '') : UNSELECTED
   )
   const toolsCustomDirty = useRef(false)
@@ -91,7 +109,7 @@ export default function AgentFormClient({
       .catch(() => {})
     fetch('/api/skills')
       .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setPresets(data))
+      .then((data) => setSkills(data))
       .catch(() => {})
   }, [])
 
@@ -101,22 +119,22 @@ export default function AgentFormClient({
     toolsCustomDirty.current = true
   }
 
-  const handleProfileChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleSkillChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newId = e.target.value
-    const switchingFromCustom = toolPresetId === ''
+    const switchingFromCustom = selectedSkillId === ''
 
     // Overwrite protection: if user has made manual changes in Custom mode
     if (switchingFromCustom && newId && newId !== UNSELECTED && toolsCustomDirty.current) {
-      if (!confirm('Switching to a preset will overwrite your custom tool configuration. Continue?')) {
+      if (!confirm('Switching to a skill will overwrite your custom tool configuration. Continue?')) {
         return
       }
     }
 
     if (newId && newId !== UNSELECTED) {
-      // Switching to a preset — copy its tools_config
-      const preset = presets.find((p) => p.id === newId)
-      if (preset) {
-        setTools(preset.tools_config)
+      // Switching to a skill — copy its tools_config
+      const skill = skills.find((p) => p.id === newId)
+      if (skill) {
+        setTools(skill.tools_config)
       }
       toolsCustomDirty.current = false
     } else if (newId === '') {
@@ -128,7 +146,7 @@ export default function AgentFormClient({
   }
 
   const validateForm = (): boolean => {
-    if (toolPresetId === UNSELECTED) {
+    if (selectedSkillId === UNSELECTED) {
       setValidationError('Please select a skill or choose Custom')
       return false
     }
@@ -158,7 +176,7 @@ export default function AgentFormClient({
       soul_md: soulMd,
       rules_md: rulesMd,
       model_policy_id: modelPolicyId || null,
-      skill_ids: toolPresetId ? [toolPresetId] : [],
+      skill_ids: selectedSkillId ? [selectedSkillId] : [],
     }
 
     try {
@@ -270,16 +288,16 @@ export default function AgentFormClient({
           </label>
           <select
             id="skill"
-            value={toolPresetId}
-            onChange={handleProfileChange}
+            value={selectedSkillId}
+            onChange={handleSkillChange}
             className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
           >
-            {toolPresetId === UNSELECTED && (
+            {selectedSkillId === UNSELECTED && (
               <option value={UNSELECTED} disabled>Select a skill...</option>
             )}
             <option value="">Custom</option>
-            {presets.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+            {(isAdmin ? skills : skills.filter(s => !ELEVATED_SCOPES.includes(s.scope))).map((p) => (
+              <option key={p.id} value={p.id}>{p.name} ({scopeBadge(p.scope).label})</option>
             ))}
           </select>
           <p className="text-xs text-mountain-500 mt-1">
@@ -287,24 +305,24 @@ export default function AgentFormClient({
           </p>
         </div>
 
-        {toolPresetId === UNSELECTED ? (
+        {selectedSkillId === UNSELECTED ? (
           /* No selection yet — prompt user */
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
             <p className="text-sm text-mountain-400">
               Choose a skill above to configure this agent&apos;s capabilities.
             </p>
           </div>
-        ) : toolPresetId ? (
+        ) : selectedSkillId ? (
           /* Preset selected — show read-only summary */
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
             {(() => {
-              const preset = presets.find((p) => p.id === toolPresetId)
-              if (!preset) return null
-              const tc = preset.tools_config
+              const selected = skills.find((p) => p.id === selectedSkillId)
+              if (!selected) return null
+              const tc = selected.tools_config
               return (
                 <>
-                  {preset.description && (
-                    <p className="text-sm text-mountain-300">{preset.description}</p>
+                  {selected.description && (
+                    <p className="text-sm text-mountain-300">{selected.description}</p>
                   )}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 text-sm">
@@ -330,10 +348,10 @@ export default function AgentFormClient({
                       <span className="text-white">Health</span>
                     </div>
                   </div>
-                  {preset.instructions_md && (
+                  {selected.instructions_md && (
                     <div className="border-t border-navy-700 pt-3">
                       <h4 className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-1">Instructions</h4>
-                      <p className="text-sm text-mountain-300 whitespace-pre-wrap">{preset.instructions_md}</p>
+                      <p className="text-sm text-mountain-300 whitespace-pre-wrap">{selected.instructions_md}</p>
                     </div>
                   )}
                   <p className="text-xs text-mountain-500">

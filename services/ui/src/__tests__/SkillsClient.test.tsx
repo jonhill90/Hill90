@@ -28,6 +28,7 @@ const MOCK_SKILLS = [
     id: 'preset-minimal',
     name: 'Minimal',
     description: 'Health monitoring only. No shell or filesystem access.',
+    scope: 'container_local',
     tools_config: {
       shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
       filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
@@ -42,6 +43,7 @@ const MOCK_SKILLS = [
     id: 'preset-dev',
     name: 'Developer',
     description: 'Full dev environment: bash, git, make, curl, jq. Read-write workspace and data.',
+    scope: 'host_docker',
     tools_config: {
       shell: { enabled: true, allowed_binaries: ['bash', 'git', 'make', 'curl', 'jq'], denied_patterns: ['rm -rf /', ':(){ :|:& };:'], max_timeout: 300 },
       filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
@@ -56,6 +58,7 @@ const MOCK_SKILLS = [
     id: 'preset-custom',
     name: 'CI Runner',
     description: 'Custom preset for CI pipelines.',
+    scope: 'vps_system',
     tools_config: {
       shell: { enabled: true, allowed_binaries: ['bash', 'git'], denied_patterns: [], max_timeout: 300 },
       filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
@@ -169,6 +172,22 @@ describe('SkillsClient', () => {
     // Instructions textarea should be pre-filled
     const instructionsTextarea = screen.getByPlaceholderText(/behavioral instructions/i) as HTMLTextAreaElement
     expect(instructionsTextarea.value).toBe('Run CI pipelines in isolated containers.')
+  })
+
+  // T14: Skills admin shows scope badge with correct labels
+  it('skill row shows scope badge with tier-specific label', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    // container_local → "Container"
+    expect(screen.getByText('Container')).toBeInTheDocument()
+    // host_docker → "Host · Docker"
+    expect(screen.getByText('Host · Docker')).toBeInTheDocument()
+    // vps_system → "VPS · System"
+    expect(screen.getByText('VPS · System')).toBeInTheDocument()
   })
 
   // T11: Nav says "Skills" with /harness/skills href

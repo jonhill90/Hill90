@@ -298,6 +298,115 @@ describe('Agent PUT skill_ids behavior', () => {
   });
 });
 
+// T15: Create agent with elevated skill_ids rejected for non-admin
+describe('Agent create/update scope RBAC', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('create with host_docker skill as non-admin returns 403', async () => {
+    // Skill lookup returns host_docker scope
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-docker', tools_config: developerSkillConfig, scope: 'host_docker' }],
+    });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+        skill_ids: ['skill-docker'],
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('host_docker');
+    expect(res.body.error).toContain('admin');
+  });
+
+  it('create with host_docker skill as admin succeeds', async () => {
+    // Skill lookup
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-docker', tools_config: developerSkillConfig, scope: 'host_docker' }],
+    });
+    // INSERT agent
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, id: 'uuid-admin' }],
+    });
+    // INSERT agent_skills
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-docker', name: 'Docker Access', scope: 'host_docker' }],
+    });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+        skill_ids: ['skill-docker'],
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.skills[0].scope).toBe('host_docker');
+  });
+
+  // T16: Update agent with elevated skill_ids rejected for non-admin
+  it('update with vps_system skill as non-admin returns 403', async () => {
+    // Ownership check returns agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // Skill lookup returns vps_system scope
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-vps', tools_config: developerSkillConfig, scope: 'vps_system' }],
+    });
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ skill_ids: ['skill-vps'] });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('vps_system');
+    expect(res.body.error).toContain('admin');
+  });
+
+  it('update with vps_system skill as admin succeeds', async () => {
+    // Ownership check (admin sees all — scopeToOwner returns no constraint for admin)
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // Skill lookup
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-vps', tools_config: developerSkillConfig, scope: 'vps_system' }],
+    });
+    // UPDATE agent
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, tools_config: developerSkillConfig }],
+    });
+    // DELETE agent_skills
+    mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+    // INSERT agent_skills
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-vps', name: 'VPS Access', scope: 'vps_system' }],
+    });
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ skill_ids: ['skill-vps'] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.skills[0].scope).toBe('vps_system');
+  });
+});
+
 // T10b: Agent start reads from agent_skills
 const { writeAgentFiles } = jest.requireMock('../services/agent-files') as { writeAgentFiles: jest.Mock };
 

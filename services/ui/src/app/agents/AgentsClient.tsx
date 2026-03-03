@@ -16,9 +16,23 @@ interface Agent {
   pids_limit: number
   tools_config: Record<string, any> | null
   model_policy_id: string | null
+  skills: Array<{ id: string; name: string; scope: string }>
   created_at: string
   updated_at: string
   created_by: string
+}
+
+function scopeBadge(scope: string): { label: string; colorClasses: string } {
+  switch (scope) {
+    case 'container_local':
+      return { label: 'Container', colorClasses: 'bg-brand-900/50 text-brand-400 border border-brand-700' }
+    case 'host_docker':
+      return { label: 'Host · Docker', colorClasses: 'bg-amber-900/50 text-amber-400 border border-amber-700' }
+    case 'vps_system':
+      return { label: 'VPS · System', colorClasses: 'bg-red-900/50 text-red-400 border border-red-700' }
+    default:
+      return { label: scope, colorClasses: 'bg-navy-900 text-mountain-400 border border-navy-700' }
+  }
 }
 
 interface ModelPolicy {
@@ -181,6 +195,20 @@ export default function AgentsClient({ session }: { session: Session }) {
                   {tc.health?.enabled && (
                     <span aria-label="Health endpoint" className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy-900 border border-navy-600" title="Health endpoint">
                       <Heart className="h-3.5 w-3.5 text-mountain-400" />
+                    </span>
+                  )}
+                </div>
+
+                {/* Skill Badge */}
+                <div className="mb-3">
+                  {agent.skills && agent.skills.length > 0 ? (
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-md ${scopeBadge(agent.skills[0].scope).colorClasses}`}>
+                      {agent.skills[0].name}
+                      <span className="opacity-75">· {scopeBadge(agent.skills[0].scope).label}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-navy-900 text-mountain-400 border border-navy-700">
+                      Custom
                     </span>
                   )}
                 </div>

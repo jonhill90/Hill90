@@ -36,6 +36,28 @@ interface ModelPolicy {
   created_by: string | null
 }
 
+interface SkillRecord {
+  id: string
+  name: string
+  scope: string
+  instructions_md?: string
+}
+
+const ELEVATED_SCOPES = ['host_docker', 'vps_system']
+
+function scopeBadge(scope: string): { label: string; colorClasses: string } {
+  switch (scope) {
+    case 'container_local':
+      return { label: 'Container', colorClasses: 'bg-brand-900/50 text-brand-400 border border-brand-700' }
+    case 'host_docker':
+      return { label: 'Host · Docker', colorClasses: 'bg-amber-900/50 text-amber-400 border border-amber-700' }
+    case 'vps_system':
+      return { label: 'VPS · System', colorClasses: 'bg-red-900/50 text-red-400 border border-red-700' }
+    default:
+      return { label: scope, colorClasses: 'bg-navy-900 text-mountain-400 border border-navy-700' }
+  }
+}
+
 type TabId = 'overview' | 'configuration' | 'model-access' | 'knowledge' | 'activity'
 
 export default function AgentDetailClient({
@@ -65,6 +87,11 @@ export default function AgentDetailClient({
   const [showLogs, setShowLogs] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
+
+  // Skills
+  const [allSkills, setAllSkills] = useState<SkillRecord[]>([])
+  const [showAssignPicker, setShowAssignPicker] = useState(false)
+  const [expandedSkillInstructions, setExpandedSkillInstructions] = useState<Set<string>>(new Set())
 
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'events' | 'logs'>('events')
@@ -97,10 +124,22 @@ export default function AgentDetailClient({
     }
   }, [])
 
+  const fetchAllSkills = useCallback(async () => {
+    try {
+      const res = await fetch('/api/skills')
+      if (res.ok) {
+        setAllSkills(await res.json())
+      }
+    } catch (err) {
+      console.error('Failed to fetch skills:', err)
+    }
+  }, [])
+
   useEffect(() => {
     fetchAgent()
     fetchPolicies()
-  }, [fetchAgent, fetchPolicies])
+    fetchAllSkills()
+  }, [fetchAgent, fetchPolicies, fetchAllSkills])
 
   // Poll status while running
   useEffect(() => {
@@ -210,8 +249,58 @@ export default function AgentDetailClient({
   if (!agent) return null
 
   const currentPolicy = policies.find((p) => p.id === agent.model_policy_id)
-  const currentSkill = agent.skills?.[0] || null
+  const agentSkills = agent.skills || []
   const tc = agent.tools_config || {}
+
+  const handleAssignSkill = async (skillId: string) => {
+    try {
+      const res = await fetch(`/api/agents/${agentId}/skills`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skill_id: skillId }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to assign skill')
+        return
+      }
+      setShowAssignPicker(false)
+      await fetchAgent()
+    } catch (err) {
+      console.error('Failed to assign skill:', err)
+    }
+  }
+
+  const handleRemoveSkill = async (skillId: string) => {
+    if (!confirm('Remove this skill from the agent?')) return
+    try {
+      const res = await fetch(`/api/agents/${agentId}/skills/${skillId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to remove skill')
+        return
+      }
+      await fetchAgent()
+    } catch (err) {
+      console.error('Failed to remove skill:', err)
+    }
+  }
+
+  const toggleSkillInstructions = (skillId: string) => {
+    setExpandedSkillInstructions(prev => {
+      const next = new Set(prev)
+      if (next.has(skillId)) next.delete(skillId)
+      else next.add(skillId)
+      return next
+    })
+  }
+
+  // For assign picker: admins see all skills, non-admins see only container_local
+  const assignableSkills = isAdmin
+    ? allSkills
+    : allSkills.filter(s => !ELEVATED_SCOPES.includes(s.scope))
 
   const tabs: { id: TabId; label: string; adminOnly?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
@@ -327,32 +416,101 @@ export default function AgentDetailClient({
             </div>
           )}
 
-          {/* Quick Tool Summary */}
+          {/* Skills Card */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-white">Tool Access</h2>
-              <span className={`px-2.5 py-1 text-xs rounded-md ${
-                currentSkill
-                  ? 'bg-brand-900/50 text-brand-400 border border-brand-700'
-                  : 'bg-navy-900 text-mountain-400 border border-navy-700'
-              }`}>
-                {currentSkill ? `Skill: ${currentSkill.name}` : 'Custom'}
-              </span>
+              <h2 className="text-lg font-semibold text-white">Skills</h2>
+              {agent.status !== 'running' && (
+                <button
+                  onClick={() => setShowAssignPicker(!showAssignPicker)}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+                >
+                  Assign Skill
+                </button>
+              )}
             </div>
+
+            {/* Assign picker */}
+            {showAssignPicker && (
+              <div className="mb-4 rounded-md border border-navy-600 bg-navy-900 p-3">
+                <p className="text-xs text-mountain-400 mb-2">Select a skill to assign:</p>
+                <div className="space-y-1">
+                  {assignableSkills.map(s => (
+                    <button
+                      key={s.id}
+                      onClick={() => handleAssignSkill(s.id)}
+                      className="w-full text-left px-3 py-2 text-sm rounded-md hover:bg-navy-800 text-white transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <span>{s.name}</span>
+                      <span className={`px-1.5 py-0.5 text-xs rounded-md ${scopeBadge(s.scope).colorClasses}`}>
+                        {scopeBadge(s.scope).label}
+                      </span>
+                    </button>
+                  ))}
+                  {assignableSkills.length === 0 && (
+                    <p className="text-xs text-mountain-500 py-2">No skills available</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {agentSkills.length > 0 ? (
+              <div className="space-y-3">
+                {agentSkills.map(skill => {
+                  const badge = scopeBadge(skill.scope)
+                  const canRemove = isAdmin || !ELEVATED_SCOPES.includes(skill.scope)
+                  const instructionsExpanded = expandedSkillInstructions.has(skill.id)
+                  return (
+                    <div key={skill.id} className="rounded-md border border-navy-700 bg-navy-900 p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-white">{skill.name}</span>
+                          <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
+                            {badge.label}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {skill.instructions_md && (
+                            <button
+                              onClick={() => toggleSkillInstructions(skill.id)}
+                              className="text-xs text-brand-400 hover:text-brand-300 transition-colors cursor-pointer"
+                            >
+                              {instructionsExpanded ? 'Hide Instructions' : 'Show Instructions'}
+                            </button>
+                          )}
+                          {canRemove && agent.status !== 'running' && (
+                            <button
+                              onClick={() => handleRemoveSkill(skill.id)}
+                              className="px-2 py-1 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {instructionsExpanded && skill.instructions_md && (
+                        <pre className="mt-2 text-sm text-mountain-300 whitespace-pre-wrap bg-navy-800 rounded-md p-3 max-h-64 overflow-y-auto">
+                          {skill.instructions_md}
+                        </pre>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-mountain-500">No skills assigned</p>
+            )}
+          </div>
+
+          {/* Quick Tool Summary */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">Tool Access</h2>
             <div className="flex flex-wrap gap-2">
               <ToolBadge label="Shell" enabled={tc.shell?.enabled} summary={tc.shell?.enabled ? `${tc.shell.allowed_binaries?.length || 0} binaries, ${tc.shell.denied_patterns?.length || 0} patterns` : undefined} />
               <ToolBadge label="Filesystem" enabled={tc.filesystem?.enabled} summary={tc.filesystem?.enabled ? (tc.filesystem.read_only ? 'Read-only' : 'Read-write') : undefined} />
               <ToolBadge label="Health" enabled={tc.health?.enabled} />
             </div>
           </div>
-
-          {/* Skill Instructions */}
-          {currentSkill?.instructions_md && (
-            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-              <h2 className="text-lg font-semibold text-white mb-2">Skill Instructions</h2>
-              <pre className="text-sm text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-64 overflow-y-auto">{currentSkill.instructions_md}</pre>
-            </div>
-          )}
 
           {/* Resource Grid */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
