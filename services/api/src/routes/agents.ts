@@ -692,6 +692,132 @@ router.get('/:id/logs', requireRole('admin'), async (req: Request, res: Response
   }
 });
 
+// ---------------------------------------------------------------------------
+// Skill assignment (user role, RBAC on scope)
+// ---------------------------------------------------------------------------
+
+const ELEVATED_SCOPES = ['host_docker', 'vps_system'];
+
+function isAdmin(req: Request): boolean {
+  const user = (req as any).user;
+  const roles: string[] = user?.realm_roles || [];
+  return roles.includes('admin');
+}
+
+// Assign skill to agent
+router.post('/:id/skills', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { skill_id } = req.body;
+
+    if (!skill_id) {
+      res.status(400).json({ error: 'skill_id is required' });
+      return;
+    }
+
+    // Check agent exists and user has access
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows: agentRows } = await getPool().query(
+      `SELECT id, status FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (agentRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    if (agentRows[0].status === 'running') {
+      res.status(409).json({ error: 'Cannot modify skills on a running agent. Stop it first.' });
+      return;
+    }
+
+    // Look up skill and check scope-based RBAC
+    const { rows: skillRows } = await getPool().query(
+      'SELECT id, scope FROM tool_presets WHERE id = $1',
+      [skill_id]
+    );
+    if (skillRows.length === 0) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+
+    const skillScope = skillRows[0].scope;
+    if (ELEVATED_SCOPES.includes(skillScope) && !isAdmin(req)) {
+      res.status(403).json({ error: `Assigning ${skillScope} skills requires admin role` });
+      return;
+    }
+
+    // Insert assignment
+    const { rows } = await getPool().query(
+      `INSERT INTO agent_skills (agent_id, skill_id, assigned_by)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [req.params.id, skill_id, user.sub]
+    );
+
+    res.status(201).json(rows[0]);
+  } catch (err: any) {
+    if (err.code === '23505') {
+      res.status(409).json({ error: 'Skill is already assigned to this agent' });
+      return;
+    }
+    console.error('[agents] Assign skill error:', err);
+    res.status(500).json({ error: 'Failed to assign skill' });
+  }
+});
+
+// Remove skill from agent
+router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    // Check agent exists and user has access
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows: agentRows } = await getPool().query(
+      `SELECT id, status FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (agentRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    if (agentRows[0].status === 'running') {
+      res.status(409).json({ error: 'Cannot modify skills on a running agent. Stop it first.' });
+      return;
+    }
+
+    // Look up skill to check scope-based RBAC
+    const { rows: skillRows } = await getPool().query(
+      'SELECT id, scope FROM tool_presets WHERE id = $1',
+      [req.params.skillId]
+    );
+    if (skillRows.length === 0) {
+      res.status(404).json({ error: 'Skill not found' });
+      return;
+    }
+
+    const skillScope = skillRows[0].scope;
+    if (ELEVATED_SCOPES.includes(skillScope) && !isAdmin(req)) {
+      res.status(403).json({ error: `Removing ${skillScope} skills requires admin role` });
+      return;
+    }
+
+    const { rowCount } = await getPool().query(
+      'DELETE FROM agent_skills WHERE agent_id = $1 AND skill_id = $2',
+      [req.params.id, req.params.skillId]
+    );
+
+    if (rowCount === 0) {
+      res.status(404).json({ error: 'Skill assignment not found' });
+      return;
+    }
+
+    res.json({ removed: true });
+  } catch (err) {
+    console.error('[agents] Remove skill error:', err);
+    res.status(500).json({ error: 'Failed to remove skill' });
+  }
+});
+
 function stripDockerHeader(buf: Buffer): string[] {
   const lines: string[] = [];
   let offset = 0;

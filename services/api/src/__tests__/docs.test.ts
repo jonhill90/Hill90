@@ -172,6 +172,8 @@ const EXPECTED_PATHS = [
   '/shared-knowledge/search',
   '/tool-presets',
   '/tool-presets/{id}',
+  '/agents/{id}/skills',
+  '/agents/{id}/skills/{skillId}',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token'];
