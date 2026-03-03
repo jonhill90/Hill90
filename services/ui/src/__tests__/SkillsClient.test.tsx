@@ -70,16 +70,16 @@ const MOCK_SKILLS = [
 
 function mockFetchDefaults(skills = MOCK_SKILLS) {
   mockFetch.mockImplementation((url: string, opts?: any) => {
-    if (url === '/api/tool-presets' && (!opts || !opts.method || opts.method === 'GET')) {
+    if (url === '/api/skills' && (!opts || !opts.method || opts.method === 'GET')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(skills) })
     }
-    if (url === '/api/tool-presets' && opts?.method === 'POST') {
+    if (url === '/api/skills' && opts?.method === 'POST') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'new-preset', ...JSON.parse(opts.body) }) })
     }
-    if (typeof url === 'string' && url.startsWith('/api/tool-presets/') && opts?.method === 'PUT') {
+    if (typeof url === 'string' && url.startsWith('/api/skills/') && opts?.method === 'PUT') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: url.split('/').pop(), ...JSON.parse(opts.body) }) })
     }
-    if (typeof url === 'string' && url.startsWith('/api/tool-presets/') && opts?.method === 'DELETE') {
+    if (typeof url === 'string' && url.startsWith('/api/skills/') && opts?.method === 'DELETE') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })

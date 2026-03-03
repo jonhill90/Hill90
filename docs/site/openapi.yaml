@@ -56,11 +56,20 @@ components:
           format: uuid
           nullable: true
           description: ID of the model policy controlling LLM access. Users can assign own or platform policies to own agents; admins can assign any.
-        tool_preset_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: ID of the tool preset applied at assignment time. Config is copied (resolve-on-save).
+        skills:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              scope:
+                type: string
+                enum: [container_local, host_docker, vps_system]
+          description: Skills assigned to this agent (max 1 in current phase).
         error_message:
           type: string
           nullable: true
@@ -230,7 +239,7 @@ components:
           nullable: true
           description: Owner (user sub). NULL for platform policies.
 
-    ToolPreset:
+    Skill:
       type: object
       properties:
         id:
@@ -253,11 +262,11 @@ components:
           description: Scope determines assignment authority. container_local — any user. host_docker/vps_system — admin only.
         is_platform:
           type: boolean
-          description: Platform presets are immutable and undeletable.
+          description: Platform skills are immutable and undeletable.
         created_by:
           type: string
           nullable: true
-          description: Always NULL in Phase 1 (admin-created shared resources).
+          description: Always NULL (admin-created shared resources).
         created_at:
           type: string
           format: date-time
@@ -629,11 +638,13 @@ paths:
                   format: uuid
                   nullable: true
                   description: ID of a model policy to assign at creation. Users can assign own or platform policies; admins can assign any.
-                tool_preset_id:
-                  type: string
-                  format: uuid
-                  nullable: true
-                  description: ID of a tool preset. Config is copied into agent at save time (resolve-on-save).
+                skill_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  maxItems: 1
+                  description: Skill IDs to assign (max 1). Config is copied into agent at save time (resolve-on-save).
       responses:
         "201":
           description: Agent created
@@ -711,11 +722,13 @@ paths:
                   format: uuid
                   nullable: true
                   description: Model policy ID. Users can assign own or platform policies; admins can assign any. Set to null to remove.
-                tool_preset_id:
-                  type: string
-                  format: uuid
-                  nullable: true
-                  description: Tool preset ID. Config is copied into agent at save time. Set to null to detach preset.
+                skill_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  maxItems: 1
+                  description: Skill IDs to assign (max 1). Config is copied into agent at save time. Empty array to detach skill.
       responses:
         "200":
           description: Agent updated
@@ -2113,29 +2126,29 @@ paths:
         "403":
           description: Requires user role
 
-  /tool-presets:
+  /skills:
     get:
-      summary: List tool presets
-      description: Returns all tool presets. All authenticated users see all presets.
+      summary: List skills
+      description: Returns all skills. All authenticated users see all skills.
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Preset list
+          description: Skill list
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/ToolPreset"
+                  $ref: "#/components/schemas/Skill"
         "401":
           description: Not authenticated
         "403":
           description: Requires user role
 
     post:
-      summary: Create tool preset
-      description: Creates a new tool preset. Admin only.
+      summary: Create skill
+      description: Creates a new skill. Admin only.
       security:
         - bearerAuth: []
       requestBody:
@@ -2165,11 +2178,11 @@ paths:
                   description: Scope determines assignment authority.
       responses:
         "201":
-          description: Preset created
+          description: Skill created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ToolPreset"
+                $ref: "#/components/schemas/Skill"
         "400":
           description: Invalid input
         "401":
@@ -2177,9 +2190,9 @@ paths:
         "403":
           description: Requires admin role
         "409":
-          description: Duplicate preset name
+          description: Duplicate skill name
 
-  /tool-presets/{id}:
+  /skills/{id}:
     parameters:
       - name: id
         in: path
@@ -2189,27 +2202,27 @@ paths:
           format: uuid
 
     get:
-      summary: Get tool preset
-      description: Returns a single tool preset. All authenticated users can read.
+      summary: Get skill
+      description: Returns a single skill. All authenticated users can read.
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Preset detail
+          description: Skill detail
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ToolPreset"
+                $ref: "#/components/schemas/Skill"
         "401":
           description: Not authenticated
         "403":
           description: Requires user role
         "404":
-          description: Preset not found
+          description: Skill not found
 
     put:
-      summary: Update tool preset
-      description: Updates a tool preset. Admin only. Platform presets are immutable (403).
+      summary: Update skill
+      description: Updates a skill. Admin only. Platform skills are immutable (403).
       security:
         - bearerAuth: []
       requestBody:
@@ -2232,28 +2245,28 @@ paths:
                   enum: [container_local, host_docker, vps_system]
       responses:
         "200":
-          description: Preset updated
+          description: Skill updated
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ToolPreset"
+                $ref: "#/components/schemas/Skill"
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role or platform preset is immutable
+          description: Requires admin role or platform skill is immutable
         "404":
-          description: Preset not found
+          description: Skill not found
         "409":
-          description: Duplicate preset name
+          description: Duplicate skill name
 
     delete:
-      summary: Delete tool preset
-      description: Deletes a tool preset. Admin only. Platform presets cannot be deleted. Presets assigned to agents cannot be deleted.
+      summary: Delete skill
+      description: Deletes a skill. Admin only. Platform skills cannot be deleted. Skills assigned to agents cannot be deleted.
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Preset deleted
+          description: Skill deleted
           content:
             application/json:
               schema:
@@ -2264,11 +2277,11 @@ paths:
         "401":
           description: Not authenticated
         "403":
-          description: Requires admin role or platform preset is undeletable
+          description: Requires admin role or platform skill is undeletable
         "404":
-          description: Preset not found
+          description: Skill not found
         "409":
-          description: Preset is assigned to agents
+          description: Skill is assigned to agents
 
   /agents/{id}/skills:
     parameters:
