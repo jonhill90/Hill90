@@ -44,6 +44,7 @@ All secrets are stored in vault KV v2 under `secret/`.
 | `secret/knowledge/config` | AKM_INTERNAL_SERVICE_TOKEN, AKM_SIGNING_PRIVATE_KEY, AKM_SIGNING_PUBLIC_KEY | api, knowledge |
 | `secret/auth/config` | KC_ADMIN_USERNAME, KC_ADMIN_PASSWORD, SMTP_PASSWORD | auth (Keycloak) |
 | `secret/ui/config` | AUTH_KEYCLOAK_ID, AUTH_KEYCLOAK_SECRET, AUTH_SECRET | ui |
+| `secret/ops/verification` | TEST_USER_USERNAME, TEST_USER_PASSWORD | human verification / QA flows |
 | `secret/minio/config` | MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | minio |
 | `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER | traefik |
 | `secret/infra/dns-manager` | HOSTINGER_API_KEY | dns-manager |
