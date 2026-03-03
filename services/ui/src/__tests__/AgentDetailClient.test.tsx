@@ -102,19 +102,46 @@ const USER_SESSION = {
   expires: '2026-12-31',
 }
 
+const MOCK_ALL_SKILLS = [
+  { id: 'preset-dev', name: 'Developer', scope: 'container_local', instructions_md: 'Dev instructions' },
+  { id: 'skill-docker', name: 'Docker Access', scope: 'host_docker', instructions_md: 'Docker instructions' },
+  { id: 'skill-vps', name: 'VPS Admin', scope: 'vps_system', instructions_md: 'VPS instructions' },
+]
+
+const MOCK_AGENT_WITH_ELEVATED_SKILL = {
+  ...MOCK_AGENT,
+  skills: [
+    {
+      id: 'skill-docker',
+      name: 'Docker Access',
+      scope: 'host_docker',
+      instructions_md: 'Docker instructions here.',
+    },
+  ],
+}
+
 function mockFetchDefaults(agentOverride?: typeof MOCK_AGENT) {
-  mockFetch.mockImplementation((url: string) => {
-    if (url === `/api/agents/uuid-1`) {
+  mockFetch.mockImplementation((url: string, opts?: any) => {
+    if (url === `/api/agents/uuid-1` && (!opts || !opts.method || opts.method === 'GET')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(agentOverride || MOCK_AGENT) })
     }
     if (url === '/api/model-policies') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
+    }
+    if (url === '/api/skills') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_ALL_SKILLS) })
     }
     if (typeof url === 'string' && url.includes('/api/usage')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USAGE) })
     }
     if (typeof url === 'string' && url.includes('/api/knowledge/entries')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_KNOWLEDGE_ENTRIES) })
+    }
+    if (typeof url === 'string' && url.includes('/skills') && opts?.method === 'POST') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    }
+    if (typeof url === 'string' && url.includes('/skills/') && opts?.method === 'DELETE') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
   })
@@ -296,8 +323,8 @@ describe('AgentDetailClient', () => {
     expect(screen.getByText('claude-sonnet-4-5-20250929')).toBeInTheDocument()
   })
 
-  // T22: Agent detail shows skill badge when assigned
-  it('shows skill name badge when skill is assigned', async () => {
+  // T1: Detail skills card renders each skill with name and scope badge
+  it('renders skills list with scope badges', async () => {
     mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
@@ -306,60 +333,139 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
+    // Skills card should show skill name and scope badge
     await waitFor(() => {
-      expect(screen.getByText('Skill: Developer')).toBeInTheDocument()
+      expect(screen.getByText('Developer')).toBeInTheDocument()
     })
+    // Multiple "Container" badges may appear (skills card + assign picker)
+    expect(screen.getAllByText('Container').length).toBeGreaterThan(0)
   })
 
-  // T23: Agent detail shows Custom when no skill
-  it('shows Custom when no skill assigned', async () => {
+  // T2: Detail skills card empty state
+  it('shows no skills assigned when empty', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Custom')).toBeInTheDocument()
+    expect(screen.getByText('No skills assigned')).toBeInTheDocument()
   })
 
-  // T14: Agent detail badge says "Skill: Developer" when skill assigned
-  it('agent detail shows skill badge with Skill label', async () => {
+  // T3: Detail assign skill calls POST
+  it('assign skill calls POST endpoint', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Click "Assign Skill" to open picker
+    fireEvent.click(screen.getByText('Assign Skill'))
+
+    // Select Developer skill from picker
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByText('Developer'))
+
+    // Should have called POST /api/agents/uuid-1/skills
+    await waitFor(() => {
+      const postCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/skills') && c[1]?.method === 'POST'
+      )
+      expect(postCalls.length).toBeGreaterThan(0)
+    })
+  })
+
+  // T4: Detail remove skill calls DELETE
+  it('remove skill calls DELETE endpoint', async () => {
     mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
-      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+      expect(screen.getByText('Developer')).toBeInTheDocument()
     })
 
+    // Click Remove button
+    fireEvent.click(screen.getByText('Remove'))
+
+    // Should have called DELETE
     await waitFor(() => {
-      expect(screen.getByText(/Skill:\s*Developer/i)).toBeInTheDocument()
+      const deleteCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/skills/') && c[1]?.method === 'DELETE'
+      )
+      expect(deleteCalls.length).toBeGreaterThan(0)
     })
   })
 
-  it('shows skill instructions when skill has instructions_md', async () => {
+  // T5: Remove hidden for non-admin on elevated skill
+  it('remove hidden for non-admin on host_docker skill', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_ELEVATED_SKILL as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={USER_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Docker Access')).toBeInTheDocument()
+    })
+
+    // Non-admin should NOT see Remove button for host_docker skill
+    expect(screen.queryByText('Remove')).not.toBeInTheDocument()
+  })
+
+  // T6: Remove shown for non-admin on container_local skill
+  it('remove shown for non-admin on container_local skill', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={USER_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Non-admin CAN see Remove button for container_local skill
+    expect(screen.getByText('Remove')).toBeInTheDocument()
+  })
+
+  // T7: Assign picker filters elevated scopes for non-admin
+  it('assign picker excludes elevated skills for non-admin', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={USER_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Click "Assign Skill" to open picker
+    fireEvent.click(screen.getByText('Assign Skill'))
+
+    // Should show container_local skill but NOT elevated ones
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Docker Access')).not.toBeInTheDocument()
+    expect(screen.queryByText('VPS Admin')).not.toBeInTheDocument()
+  })
+
+  // T8: Skill instructions toggle
+  it('skill instructions expand on click', async () => {
     mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
-      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+      expect(screen.getByText('Developer')).toBeInTheDocument()
     })
 
+    // Instructions should NOT be visible initially
+    expect(screen.queryByText(/Always write tests before implementation/)).not.toBeInTheDocument()
+
+    // Click "Show Instructions"
+    fireEvent.click(screen.getByText('Show Instructions'))
+
+    // Instructions should now be visible
     await waitFor(() => {
-      expect(screen.getByText('Skill Instructions')).toBeInTheDocument()
+      expect(screen.getByText(/Always write tests before implementation/)).toBeInTheDocument()
     })
-    expect(screen.getByText(/Always write tests before implementation/)).toBeInTheDocument()
-    expect(screen.getByText(/Follow TDD red-green-refactor/)).toBeInTheDocument()
-  })
-
-  it('does not show skill instructions section when no skill assigned', async () => {
-    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
-    })
-
-    expect(screen.queryByText('Skill Instructions')).not.toBeInTheDocument()
   })
 })

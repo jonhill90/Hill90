@@ -30,6 +30,7 @@ const MOCK_PRESETS = [
     id: 'preset-min',
     name: 'Minimal',
     description: 'Health monitoring only',
+    scope: 'container_local',
     tools_config: {
       shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
       filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
@@ -42,6 +43,7 @@ const MOCK_PRESETS = [
     id: 'preset-dev',
     name: 'Developer',
     description: 'Full dev environment',
+    scope: 'container_local',
     tools_config: {
       shell: { enabled: true, allowed_binaries: ['bash', 'git', 'make', 'curl', 'jq'], denied_patterns: ['rm -rf /', ':(){ :|:& };:'], max_timeout: 300 },
       filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
@@ -49,6 +51,19 @@ const MOCK_PRESETS = [
     },
     instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.',
     is_platform: true,
+  },
+  {
+    id: 'preset-docker',
+    name: 'Docker Access',
+    description: 'Docker socket access',
+    scope: 'host_docker',
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['bash', 'docker'], denied_patterns: [], max_timeout: 300 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
+      health: { enabled: true },
+    },
+    instructions_md: 'You have Docker socket access.',
+    is_platform: false,
   },
 ]
 
@@ -362,13 +377,13 @@ describe('AgentFormClient', () => {
 
   // T18: Preset dropdown renders options
   it('renders preset dropdown with preset options and Custom', async () => {
-    render(<AgentFormClient />)
+    render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
-      expect(screen.getByText('Minimal')).toBeInTheDocument()
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Developer')).toBeInTheDocument()
+    expect(screen.getByText(/Developer/)).toBeInTheDocument()
 
     // "Custom" option should exist in the tool profile selector
     const profileSelect = screen.getByRole('combobox', { name: /skill/i })
@@ -406,10 +421,10 @@ describe('AgentFormClient', () => {
 
   // T19: Selecting preset shows summary card
   it('selecting preset shows summary card with tool details', async () => {
-    render(<AgentFormClient />)
+    render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
-      expect(screen.getByText('Developer')).toBeInTheDocument()
+      expect(screen.getByText(/Developer/)).toBeInTheDocument()
     })
 
     // Select the Developer preset
@@ -428,10 +443,10 @@ describe('AgentFormClient', () => {
 
   // T20: Selecting Custom reveals manual config
   it('selecting Custom shows tool toggles', async () => {
-    render(<AgentFormClient />)
+    render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
-      expect(screen.getByText('Developer')).toBeInTheDocument()
+      expect(screen.getByText(/Developer/)).toBeInTheDocument()
     })
 
     // Select Developer preset first (from unselected)
@@ -461,10 +476,10 @@ describe('AgentFormClient', () => {
 
   // T21: Preset→Custom populates fields from preset
   it('switching from preset to Custom populates tool fields from preset', async () => {
-    render(<AgentFormClient />)
+    render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
-      expect(screen.getByText('Developer')).toBeInTheDocument()
+      expect(screen.getByText(/Developer/)).toBeInTheDocument()
     })
 
     // Select Developer preset
@@ -487,10 +502,10 @@ describe('AgentFormClient', () => {
 
   // Submit body includes skill_ids when skill selected
   it('submit body includes skill_ids when skill selected', async () => {
-    render(<AgentFormClient />)
+    render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
-      expect(screen.getByText('Developer')).toBeInTheDocument()
+      expect(screen.getByText(/Developer/)).toBeInTheDocument()
     })
 
     // Fill required fields
@@ -570,6 +585,57 @@ describe('AgentFormClient', () => {
     })
   })
 
+  // T11: Form dropdown shows scope badge
+  it('skill dropdown shows scope label', async () => {
+    render(<AgentFormClient isAdmin />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
+    })
+
+    // Scope labels should appear in dropdown options
+    const options = screen.getAllByRole('option')
+    const minimalOption = options.find(o => o.textContent?.includes('Minimal'))
+    expect(minimalOption?.textContent).toContain('Container')
+
+    const dockerOption = options.find(o => o.textContent?.includes('Docker Access'))
+    expect(dockerOption?.textContent).toContain('Host · Docker')
+  })
+
+  // T12: Form dropdown filters elevated scopes for non-admin
+  it('non-admin dropdown excludes elevated skills', async () => {
+    render(<AgentFormClient isAdmin={false} />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
+    })
+
+    // Non-admin should see Minimal and Developer (container_local) but NOT Docker Access (host_docker)
+    const options = screen.getAllByRole('option')
+    const optionTexts = options.map(o => o.textContent)
+    expect(optionTexts.some(t => t?.includes('Minimal'))).toBe(true)
+    expect(optionTexts.some(t => t?.includes('Developer'))).toBe(true)
+    expect(optionTexts.some(t => t?.includes('Docker Access'))).toBe(false)
+  })
+
+  // T13: Form instructions preview
+  it('instructions preview shown when skill selected', async () => {
+    render(<AgentFormClient isAdmin />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Developer/)).toBeInTheDocument()
+    })
+
+    // Select Developer skill
+    const skillSelect = screen.getByRole('combobox', { name: /skill/i })
+    fireEvent.change(skillSelect, { target: { value: 'preset-dev' } })
+
+    // Instructions should be visible in the summary card
+    await waitFor(() => {
+      expect(screen.getByText(/full developer access with bash/i)).toBeInTheDocument()
+    })
+  })
+
   // Overwrite protection: dirty custom → preset selection prompts confirmation
   it('dirty custom state prompts confirmation before switching to preset', async () => {
     render(<AgentFormClient />)
@@ -584,7 +650,7 @@ describe('AgentFormClient', () => {
 
     // confirm() should have been called
     expect(mockConfirm).toHaveBeenCalledWith(
-      expect.stringContaining('overwrite')
+      expect.stringMatching(/overwrite/i)
     )
   })
 
@@ -649,7 +715,7 @@ describe('AgentFormClient', () => {
 
   // T12: Agent form dropdown says "Skill"
   it('agent form shows Skill dropdown label', async () => {
-    render(<AgentFormClient />)
+    render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: /^skill$/i })).toBeInTheDocument()
@@ -658,10 +724,10 @@ describe('AgentFormClient', () => {
 
   // T13: Agent form shows instructions preview when skill selected
   it('selecting skill shows instructions preview', async () => {
-    render(<AgentFormClient />)
+    render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
-      expect(screen.getByText('Developer')).toBeInTheDocument()
+      expect(screen.getByText(/Developer/)).toBeInTheDocument()
     })
 
     // Select Developer skill
