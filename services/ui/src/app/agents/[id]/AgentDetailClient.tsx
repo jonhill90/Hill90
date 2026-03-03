@@ -41,6 +41,7 @@ interface ToolPreset {
   name: string
   description: string
   is_platform: boolean
+  instructions_md?: string
 }
 
 type TabId = 'overview' | 'configuration' | 'model-access' | 'knowledge' | 'activity'
@@ -365,6 +366,14 @@ export default function AgentDetailClient({
               <ToolBadge label="Health" enabled={tc.health?.enabled} />
             </div>
           </div>
+
+          {/* Skill Instructions */}
+          {currentPreset?.instructions_md && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <h2 className="text-lg font-semibold text-white mb-2">Skill Instructions</h2>
+              <pre className="text-sm text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-64 overflow-y-auto">{currentPreset.instructions_md}</pre>
+            </div>
+          )}
 
           {/* Resource Grid */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
