@@ -14,11 +14,25 @@ interface Skill {
   id: string
   name: string
   description: string
+  scope: string
   tools_config: ToolsConfig
   instructions_md: string
   is_platform: boolean
   created_at: string
   updated_at: string
+}
+
+function scopeBadge(scope: string): { label: string; colorClasses: string } {
+  switch (scope) {
+    case 'container_local':
+      return { label: 'Container', colorClasses: 'bg-brand-900/50 text-brand-400 border border-brand-700' }
+    case 'host_docker':
+      return { label: 'Host · Docker', colorClasses: 'bg-amber-900/50 text-amber-400 border border-amber-700' }
+    case 'vps_system':
+      return { label: 'VPS · System', colorClasses: 'bg-red-900/50 text-red-400 border border-red-700' }
+    default:
+      return { label: scope, colorClasses: 'bg-navy-900 text-mountain-400 border border-navy-700' }
+  }
 }
 
 export default function SkillsClient() {
@@ -369,6 +383,11 @@ export default function SkillsClient() {
                       {skill.is_platform && (
                         <span className="px-2 py-0.5 text-xs rounded-md bg-mountain-500/20 text-mountain-300 border border-mountain-500/30">
                           Platform
+                        </span>
+                      )}
+                      {skill.scope && (
+                        <span className={`px-2 py-0.5 text-xs rounded-md ${scopeBadge(skill.scope).colorClasses}`}>
+                          {scopeBadge(skill.scope).label}
                         </span>
                       )}
                       <div className="flex flex-wrap gap-1">

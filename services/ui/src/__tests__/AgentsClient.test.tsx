@@ -37,6 +37,7 @@ const MOCK_AGENTS = [
       health: { enabled: true },
     },
     model_policy_id: 'policy-1',
+    skills: [{ id: 'skill-dev', name: 'Developer', scope: 'container_local' }],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     created_by: 'admin',
@@ -56,6 +57,7 @@ const MOCK_AGENTS = [
       health: { enabled: true },
     },
     model_policy_id: null,
+    skills: [],
     created_at: '2026-02-01T00:00:00Z',
     updated_at: '2026-02-01T00:00:00Z',
     created_by: 'admin',
@@ -75,6 +77,7 @@ const MOCK_AGENTS = [
       health: { enabled: false },
     },
     model_policy_id: null,
+    skills: [],
     created_at: '2026-03-01T00:00:00Z',
     updated_at: '2026-03-01T00:00:00Z',
     created_by: 'admin',
@@ -224,6 +227,32 @@ describe('AgentsClient', () => {
     expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     expect(screen.queryByText('WriterBot')).not.toBeInTheDocument()
     expect(screen.queryByText('ErrorBot')).not.toBeInTheDocument()
+  })
+
+  // T9: Agent list card shows skill badge with scope
+  it('agent card shows skill name and scope', async () => {
+    render(<AgentsClient session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // ResearchBot has Developer skill with container_local scope
+    expect(screen.getByText('Developer')).toBeInTheDocument()
+    expect(screen.getByText(/Container/)).toBeInTheDocument()
+  })
+
+  // T10: Agent list card shows Custom when no skill
+  it('agent card shows Custom when no skill', async () => {
+    render(<AgentsClient session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('WriterBot')).toBeInTheDocument()
+    })
+
+    // WriterBot has no skills → should show "Custom" badge
+    const customBadges = screen.getAllByText('Custom')
+    expect(customBadges.length).toBeGreaterThan(0)
   })
 
   it('running agents appear before stopped agents', async () => {
