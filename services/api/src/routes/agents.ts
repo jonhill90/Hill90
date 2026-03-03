@@ -832,7 +832,7 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
 
     // Look up skill and check scope-based RBAC
     const { rows: skillRows } = await getPool().query(
-      'SELECT id, scope FROM skills WHERE id = $1',
+      'SELECT id, scope, tools_config FROM skills WHERE id = $1',
       [skill_id]
     );
     if (skillRows.length === 0) {
@@ -857,6 +857,12 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
        VALUES ($1, $2, $3)
        RETURNING *`,
       [req.params.id, skill_id, user.sub]
+    );
+
+    // Resolve-on-save: update agent's tools_config to match the assigned skill
+    await getPool().query(
+      'UPDATE agents SET tools_config = $1 WHERE id = $2',
+      [JSON.stringify(skillRows[0].tools_config), req.params.id]
     );
 
     res.status(201).json(rows[0]);
