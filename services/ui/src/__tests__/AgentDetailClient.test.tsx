@@ -70,6 +70,7 @@ const MOCK_PRESETS = [
     description: 'Full dev environment',
     tools_config: {},
     is_platform: true,
+    instructions_md: 'Always write tests before implementation.\nFollow TDD red-green-refactor.',
   },
 ]
 
@@ -344,5 +345,31 @@ describe('AgentDetailClient', () => {
     await waitFor(() => {
       expect(screen.getByText(/Skill:\s*Developer/i)).toBeInTheDocument()
     })
+  })
+
+  it('shows skill instructions when preset has instructions_md', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_PRESET as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Skill Instructions')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Always write tests before implementation/)).toBeInTheDocument()
+    expect(screen.getByText(/Follow TDD red-green-refactor/)).toBeInTheDocument()
+  })
+
+  it('does not show skill instructions section when no preset assigned', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Skill Instructions')).not.toBeInTheDocument()
   })
 })
