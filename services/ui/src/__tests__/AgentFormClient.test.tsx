@@ -57,7 +57,7 @@ function mockFetchDefaults() {
     if (url === '/api/model-policies') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
     }
-    if (url === '/api/tool-presets') {
+    if (url === '/api/skills') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_PRESETS) })
     }
     if (url === '/api/agents' && opts?.method === 'POST') {
@@ -485,8 +485,8 @@ describe('AgentFormClient', () => {
     expect(fsCheckbox.checked).toBe(true)
   })
 
-  // Submit body includes tool_preset_id when preset selected
-  it('submit body includes tool_preset_id when preset selected', async () => {
+  // Submit body includes skill_ids when skill selected
+  it('submit body includes skill_ids when skill selected', async () => {
     render(<AgentFormClient />)
 
     await waitFor(() => {
@@ -497,7 +497,7 @@ describe('AgentFormClient', () => {
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
-    // Select Developer preset
+    // Select Developer skill
     const profileSelect = screen.getByRole('combobox', { name: /skill/i })
     fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
 
@@ -514,11 +514,11 @@ describe('AgentFormClient', () => {
       (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
     )!
     const body = JSON.parse(postCall[1].body)
-    expect(body.tool_preset_id).toBe('preset-dev')
+    expect(body.skill_ids).toEqual(['preset-dev'])
   })
 
-  // Submit body sends tool_preset_id = null when Custom selected
-  it('submit body sends tool_preset_id null when Custom selected', async () => {
+  // Submit body sends skill_ids empty when Custom selected
+  it('submit body sends skill_ids empty when Custom selected', async () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
@@ -539,11 +539,11 @@ describe('AgentFormClient', () => {
       (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
     )!
     const body = JSON.parse(postCall[1].body)
-    expect(body.tool_preset_id).toBeNull()
+    expect(body.skill_ids).toEqual([])
   })
 
-  // Edit form pre-selects preset when initial has tool_preset_id
-  it('pre-selects preset when initial has tool_preset_id', async () => {
+  // Edit form pre-selects skill when initial has skills array
+  it('pre-selects skill when initial has skills array', async () => {
     const initial = {
       agent_id: 'existing',
       name: 'Existing Agent',
@@ -559,7 +559,7 @@ describe('AgentFormClient', () => {
       soul_md: '',
       rules_md: '',
       model_policy_id: null,
-      tool_preset_id: 'preset-dev',
+      skills: [{ id: 'preset-dev', name: 'Developer', scope: 'container_local' }],
     }
 
     render(<AgentFormClient initial={initial} agentUuid="uuid-1" />)

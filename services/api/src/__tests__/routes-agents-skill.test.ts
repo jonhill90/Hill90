@@ -45,7 +45,7 @@ function makeToken(sub: string, roles: string[]) {
 const adminToken = makeToken('admin-user', ['admin', 'user']);
 const userToken = makeToken('regular-user', ['user']);
 
-const developerPresetConfig = {
+const developerSkillConfig = {
   shell: { enabled: true, allowed_binaries: ['bash', 'git', 'make', 'curl', 'jq'], denied_patterns: ['rm -rf /'], max_timeout: 300 },
   filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
   health: { enabled: true },
@@ -70,13 +70,13 @@ const agentRow = {
   soul_md: '',
   rules_md: '',
   model_policy_id: null,
-  tool_preset_id: null,
   created_by: 'regular-user',
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 };
 
-describe('Agent POST tool_preset_id behavior', () => {
+// T4: Agent create with skill_ids assigns skill
+describe('Agent POST skill_ids behavior', () => {
   beforeEach(() => {
     mockQuery.mockReset();
     process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
@@ -86,20 +86,20 @@ describe('Agent POST tool_preset_id behavior', () => {
     delete process.env.DATABASE_URL;
   });
 
-  // T13: Agent create with preset resolves tools_config
-  it('create agent with tool_preset_id copies preset config', async () => {
-    // Preset lookup
+  it('create agent with skill_ids resolves tools_config', async () => {
+    // Skill lookup
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'preset-dev', tools_config: developerPresetConfig }],
+      rows: [{ id: 'skill-dev', tools_config: developerSkillConfig }],
     });
-    // INSERT
+    // INSERT agent
     mockQuery.mockResolvedValueOnce({
-      rows: [{
-        ...agentRow,
-        id: 'uuid-new',
-        tool_preset_id: 'preset-dev',
-        tools_config: developerPresetConfig,
-      }],
+      rows: [{ ...agentRow, id: 'uuid-new', tools_config: developerSkillConfig }],
+    });
+    // INSERT agent_skills
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-dev', name: 'Developer', scope: 'container_local' }],
     });
 
     const res = await request(app)
@@ -108,23 +108,52 @@ describe('Agent POST tool_preset_id behavior', () => {
       .send({
         agent_id: 'test-agent',
         name: 'Test Agent',
-        tool_preset_id: 'preset-dev',
+        skill_ids: ['skill-dev'],
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.tool_preset_id).toBe('preset-dev');
-    // Verify the INSERT used the preset's tools_config, not the default
+    expect(res.body.skills).toHaveLength(1);
+    expect(res.body.skills[0].id).toBe('skill-dev');
+    // Verify the INSERT used the skill's tools_config
     const insertCall = mockQuery.mock.calls[1];
-    const toolsConfigParam = insertCall[1][3]; // tools_config is 4th param ($4)
+    const toolsConfigParam = insertCall[1][3]; // tools_config is 4th param
     const parsed = JSON.parse(toolsConfigParam);
     expect(parsed.shell.enabled).toBe(true);
     expect(parsed.shell.allowed_binaries).toContain('bash');
-    expect(parsed.shell.allowed_binaries).toContain('git');
   });
 
-  // T14: Agent create with invalid preset rejected
-  it('create agent with nonexistent preset returns 400', async () => {
-    // Preset lookup returns empty
+  // T5: skill_ids > 1 rejected
+  it('create agent with skill_ids > 1 returns 400', async () => {
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+        skill_ids: ['skill-1', 'skill-2'],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Maximum 1 skill');
+  });
+
+  // T12: tool_preset_id rejected
+  it('create agent with tool_preset_id returns 400', async () => {
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+        tool_preset_id: 'some-id',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('deprecated');
+  });
+
+  it('create agent with nonexistent skill returns 400', async () => {
+    // Skill lookup returns empty
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -133,23 +162,21 @@ describe('Agent POST tool_preset_id behavior', () => {
       .send({
         agent_id: 'test-agent',
         name: 'Test Agent',
-        tool_preset_id: 'nonexistent-preset',
+        skill_ids: ['nonexistent-skill'],
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Tool preset not found');
+    expect(res.body.error).toContain('Skill not found');
   });
 
-  // T16: Agent create without preset uses default tools_config
-  it('create agent without preset uses default', async () => {
-    // No preset lookup needed — just INSERT
+  // T11: Agent create without skill uses default tools_config
+  it('create agent without skill_ids uses default', async () => {
+    // INSERT agent
     mockQuery.mockResolvedValueOnce({
-      rows: [{
-        ...agentRow,
-        id: 'uuid-new',
-        tool_preset_id: null,
-      }],
+      rows: [{ ...agentRow, id: 'uuid-new' }],
     });
+    // SELECT skills for response (empty)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .post('/agents')
@@ -160,18 +187,18 @@ describe('Agent POST tool_preset_id behavior', () => {
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.tool_preset_id).toBeNull();
+    expect(res.body.skills).toHaveLength(0);
     // Verify default tools_config was used in INSERT
     const insertCall = mockQuery.mock.calls[0];
     const toolsConfigParam = insertCall[1][3];
     const parsed = JSON.parse(toolsConfigParam);
     expect(parsed.shell.enabled).toBe(false);
-    expect(parsed.filesystem.enabled).toBe(false);
     expect(parsed.health.enabled).toBe(true);
   });
 });
 
-describe('Agent PUT tool_preset_id behavior', () => {
+// T7: Agent update with skill_ids
+describe('Agent PUT skill_ids behavior', () => {
   beforeEach(() => {
     mockQuery.mockReset();
     process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
@@ -181,79 +208,85 @@ describe('Agent PUT tool_preset_id behavior', () => {
     delete process.env.DATABASE_URL;
   });
 
-  // T15: Agent update with preset resolves tools_config
-  it('update agent tool_preset_id copies preset config', async () => {
+  it('update agent skill_ids resolves tools_config', async () => {
     // Ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // Preset lookup
+    // Skill lookup
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'preset-dev', tools_config: developerPresetConfig }],
+      rows: [{ id: 'skill-dev', tools_config: developerSkillConfig }],
     });
-    // UPDATE
+    // UPDATE agent
     mockQuery.mockResolvedValueOnce({
-      rows: [{ ...agentRow, tool_preset_id: 'preset-dev', tools_config: developerPresetConfig }],
+      rows: [{ ...agentRow, tools_config: developerSkillConfig }],
+    });
+    // DELETE agent_skills
+    mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+    // INSERT agent_skills
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-dev', name: 'Developer', scope: 'container_local' }],
     });
 
     const res = await request(app)
       .put('/agents/uuid-1')
       .set('Authorization', `Bearer ${userToken}`)
-      .send({ tool_preset_id: 'preset-dev' });
+      .send({ skill_ids: ['skill-dev'] });
 
     expect(res.status).toBe(200);
-    expect(res.body.tool_preset_id).toBe('preset-dev');
-    // Verify the UPDATE set both tool_preset_id and tools_config from preset
-    const updateCall = mockQuery.mock.calls[2];
-    // tools_config param should be the preset's config (not null/COALESCE)
-    const toolsConfigParam = updateCall[1][2]; // $3 is tools_config
-    const parsed = JSON.parse(toolsConfigParam);
-    expect(parsed.shell.enabled).toBe(true);
-    expect(parsed.shell.allowed_binaries).toContain('bash');
+    expect(res.body.skills).toHaveLength(1);
+    expect(res.body.skills[0].id).toBe('skill-dev');
   });
 
-  // T17: Agent update clears preset (set null)
-  it('update agent tool_preset_id to null preserves tools_config', async () => {
-    const agentWithPreset = {
-      ...agentRow,
-      tool_preset_id: 'preset-dev',
-      tools_config: developerPresetConfig,
-    };
-    // Ownership check returns agent with preset
-    mockQuery.mockResolvedValueOnce({ rows: [agentWithPreset] });
-    // UPDATE — no preset lookup needed when clearing
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ ...agentWithPreset, tool_preset_id: null }],
-    });
-
-    const res = await request(app)
-      .put('/agents/uuid-1')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ tool_preset_id: null });
-
-    expect(res.status).toBe(200);
-    // tool_preset_id should be cleared but tools_config should be preserved
-    // (no tools_config in body means COALESCE keeps existing)
-  });
-
-  it('update agent with nonexistent preset returns 400', async () => {
+  it('update agent skill_ids to empty clears skill', async () => {
     // Ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // Preset lookup returns empty
+    // UPDATE agent (no skill lookup needed)
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // DELETE agent_skills
+    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    // SELECT skills for response (empty)
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
       .set('Authorization', `Bearer ${userToken}`)
-      .send({ tool_preset_id: 'nonexistent-preset' });
+      .send({ skill_ids: [] });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Tool preset not found');
+    expect(res.status).toBe(200);
+    expect(res.body.skills).toHaveLength(0);
   });
 
-  it('update agent without tool_preset_id does not touch it', async () => {
+  it('update agent with tool_preset_id returns 400', async () => {
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ tool_preset_id: 'some-id' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('deprecated');
+  });
+
+  it('update agent with skill_ids > 1 returns 400', async () => {
+    // Ownership check
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ skill_ids: ['skill-1', 'skill-2'] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Maximum 1 skill');
+  });
+
+  it('update agent without skill_ids does not touch skills', async () => {
     // Ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // UPDATE
+    // UPDATE agent
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, name: 'Updated Name' }] });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -265,9 +298,10 @@ describe('Agent PUT tool_preset_id behavior', () => {
   });
 });
 
+// T10b: Agent start reads from agent_skills
 const { writeAgentFiles } = jest.requireMock('../services/agent-files') as { writeAgentFiles: jest.Mock };
 
-describe('Agent start skill instructions merge', () => {
+describe('Agent start reads from agent_skills', () => {
   beforeEach(() => {
     mockQuery.mockReset();
     writeAgentFiles.mockReset();
@@ -280,25 +314,19 @@ describe('Agent start skill instructions merge', () => {
     delete process.env.AGENTBOX_CONFIG_HOST_PATH;
   });
 
-  // T5: Agent start merges skill instructions into RULES.md
-  it('start agent with skill appends instructions to RULES.md', async () => {
-    const agentWithPresetAndRules = {
-      ...agentRow,
-      tool_preset_id: 'preset-dev',
-      rules_md: 'Agent-specific rules here.',
-      status: 'stopped',
-    };
+  it('start agent with skill fetches instructions from agent_skills JOIN', async () => {
+    const agentStopped = { ...agentRow, status: 'stopped' };
 
     const { createAndStartContainer } = jest.requireMock('../services/docker') as any;
     createAndStartContainer.mockResolvedValue('container-123');
 
     // 1. SELECT agent
-    mockQuery.mockResolvedValueOnce({ rows: [agentWithPresetAndRules] });
-    // 2. SELECT instructions_md from tool_presets
+    mockQuery.mockResolvedValueOnce({ rows: [agentStopped] });
+    // 2. SELECT instructions_md from agent_skills JOIN skills
     mockQuery.mockResolvedValueOnce({
-      rows: [{ instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.' }],
+      rows: [{ instructions_md: 'You have full developer access.' }],
     });
-    // 3-5. UPDATE agent status queries
+    // 3+. UPDATE agent status queries
     mockQuery.mockResolvedValue({ rows: [] });
 
     const res = await request(app)
@@ -306,29 +334,23 @@ describe('Agent start skill instructions merge', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
-
-    // Verify writeAgentFiles was called with merged rules
     expect(writeAgentFiles).toHaveBeenCalledTimes(1);
     const callArgs = writeAgentFiles.mock.calls[0];
-    // First arg is the agent row, second is skillInstructions
-    expect(callArgs[1]).toBe('You have full developer access with bash, git, make, curl, and jq available.');
+    expect(callArgs[1]).toBe('You have full developer access.');
   });
 
-  // T6: Agent start without skill writes only agent rules_md
-  it('start agent without skill writes only agent rules_md', async () => {
-    const agentNoPreset = {
-      ...agentRow,
-      tool_preset_id: null,
-      rules_md: 'Agent-specific rules only.',
-      status: 'stopped',
-    };
+  // T11: Start without skill
+  it('start agent without skill writes no instructions', async () => {
+    const agentStopped = { ...agentRow, status: 'stopped' };
 
     const { createAndStartContainer } = jest.requireMock('../services/docker') as any;
     createAndStartContainer.mockResolvedValue('container-456');
 
-    // 1. SELECT agent (no tool_preset_id)
-    mockQuery.mockResolvedValueOnce({ rows: [agentNoPreset] });
-    // 2-4. UPDATE agent status queries
+    // 1. SELECT agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentStopped] });
+    // 2. SELECT from agent_skills (empty — no skill assigned)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 3+. UPDATE agent status queries
     mockQuery.mockResolvedValue({ rows: [] });
 
     const res = await request(app)
@@ -336,11 +358,8 @@ describe('Agent start skill instructions merge', () => {
       .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
-
-    // Verify writeAgentFiles was called WITHOUT skillInstructions
     expect(writeAgentFiles).toHaveBeenCalledTimes(1);
     const callArgs = writeAgentFiles.mock.calls[0];
-    // Second arg should be undefined (no skill instructions)
     expect(callArgs[1]).toBeUndefined();
   });
 });

@@ -51,28 +51,24 @@ const MOCK_AGENT = {
   rules_md: 'Always cite sources.',
   container_id: null,
   model_policy_id: 'policy-1',
-  tool_preset_id: null,
+  skills: [],
   error_message: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-15T00:00:00Z',
   created_by: 'admin',
 }
 
-const MOCK_AGENT_WITH_PRESET = {
+const MOCK_AGENT_WITH_SKILL = {
   ...MOCK_AGENT,
-  tool_preset_id: 'preset-dev',
+  skills: [
+    {
+      id: 'preset-dev',
+      name: 'Developer',
+      scope: 'container_local',
+      instructions_md: 'Always write tests before implementation.\nFollow TDD red-green-refactor.',
+    },
+  ],
 }
-
-const MOCK_PRESETS = [
-  {
-    id: 'preset-dev',
-    name: 'Developer',
-    description: 'Full dev environment',
-    tools_config: {},
-    is_platform: true,
-    instructions_md: 'Always write tests before implementation.\nFollow TDD red-green-refactor.',
-  },
-]
 
 const MOCK_POLICIES = [
   {
@@ -113,9 +109,6 @@ function mockFetchDefaults(agentOverride?: typeof MOCK_AGENT) {
     }
     if (url === '/api/model-policies') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
-    }
-    if (url === '/api/tool-presets') {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_PRESETS) })
     }
     if (typeof url === 'string' && url.includes('/api/usage')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USAGE) })
@@ -303,9 +296,9 @@ describe('AgentDetailClient', () => {
     expect(screen.getByText('claude-sonnet-4-5-20250929')).toBeInTheDocument()
   })
 
-  // T22: Agent detail shows preset badge when assigned
-  it('shows preset name badge when tool_preset_id is set', async () => {
-    mockFetchDefaults(MOCK_AGENT_WITH_PRESET as any)
+  // T22: Agent detail shows skill badge when assigned
+  it('shows skill name badge when skill is assigned', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
@@ -313,27 +306,25 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // Should show the preset name in the Tool Access section (now prefixed with "Skill:")
     await waitFor(() => {
       expect(screen.getByText('Skill: Developer')).toBeInTheDocument()
     })
   })
 
-  // T23: Agent detail shows Custom when no preset
-  it('shows Custom when no preset assigned', async () => {
+  // T23: Agent detail shows Custom when no skill
+  it('shows Custom when no skill assigned', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // Should show "Custom" label in Tool Access since tool_preset_id is null
     expect(screen.getByText('Custom')).toBeInTheDocument()
   })
 
-  // T14: Agent detail badge says "Skill: Developer" when preset assigned
+  // T14: Agent detail badge says "Skill: Developer" when skill assigned
   it('agent detail shows skill badge with Skill label', async () => {
-    mockFetchDefaults(MOCK_AGENT_WITH_PRESET as any)
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
@@ -341,14 +332,13 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // Badge should say "Skill:" prefix
     await waitFor(() => {
       expect(screen.getByText(/Skill:\s*Developer/i)).toBeInTheDocument()
     })
   })
 
-  it('shows skill instructions when preset has instructions_md', async () => {
-    mockFetchDefaults(MOCK_AGENT_WITH_PRESET as any)
+  it('shows skill instructions when skill has instructions_md', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
@@ -363,7 +353,7 @@ describe('AgentDetailClient', () => {
     expect(screen.getByText(/Follow TDD red-green-refactor/)).toBeInTheDocument()
   })
 
-  it('does not show skill instructions section when no preset assigned', async () => {
+  it('does not show skill instructions section when no skill assigned', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {

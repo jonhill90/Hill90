@@ -109,9 +109,11 @@ describe('Agent CRUD routes', () => {
       name: 'Test Agent',
       description: 'A test agent',
     };
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'uuid-1', ...agentData, status: 'stopped', created_by: 'regular-user' }],
-    });
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{ id: 'uuid-1', ...agentData, status: 'stopped', created_by: 'regular-user' }],
+      })
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
 
     const res = await request(app)
       .post('/agents')
@@ -202,6 +204,7 @@ describe('Agent lifecycle routes', () => {
           soul_md: '', rules_md: '', description: '',
         }],
       })
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (no skill)
       .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)

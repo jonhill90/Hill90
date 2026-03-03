@@ -49,7 +49,7 @@ export default function SkillsClient() {
 
   const fetchSkills = useCallback(async () => {
     try {
-      const res = await fetch('/api/tool-presets')
+      const res = await fetch('/api/skills')
       if (res.ok) setSkills(await res.json())
     } catch (err) {
       console.error('Failed to fetch skills:', err)
@@ -118,8 +118,8 @@ export default function SkillsClient() {
 
     try {
       const url = editingId
-        ? `/api/tool-presets/${editingId}`
-        : '/api/tool-presets'
+        ? `/api/skills/${editingId}`
+        : '/api/skills'
       const res = await fetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,7 +142,7 @@ export default function SkillsClient() {
     if (!confirm(`Delete skill "${skill.name}"? Agents using this skill will keep their current tool configuration.`)) return
     setActionLoading(skill.id)
     try {
-      const res = await fetch(`/api/tool-presets/${skill.id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/skills/${skill.id}`, { method: 'DELETE' })
       if (res.ok) {
         await fetchSkills()
       } else {

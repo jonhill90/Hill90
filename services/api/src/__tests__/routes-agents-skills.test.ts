@@ -83,6 +83,7 @@ describe('Agent skill assignment endpoints', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup (user scope)
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
+      .mockResolvedValueOnce({ rowCount: 0 })            // delete existing
       .mockResolvedValueOnce({ rows: [assignmentRecord] }); // insert
 
     const res = await request(app)
@@ -95,20 +96,23 @@ describe('Agent skill assignment endpoints', () => {
     expect(res.body.skill_id).toBe(SKILL_CONTAINER);
   });
 
-  // T2: Duplicate assignment returns 409
-  it('POST /agents/:id/skills duplicate returns 409', async () => {
+  // T10: Replace semantics — assigning new skill replaces existing
+  it('POST /agents/:id/skills replaces existing skill (max 1)', async () => {
+    const newSkillId = '00000000-0000-0000-0000-000000000099';
+    const newAssignment = { ...assignmentRecord, skill_id: newSkillId };
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
-      .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
-      .mockRejectedValueOnce({ code: '23505' });         // PK conflict
+      .mockResolvedValueOnce({ rows: [{ id: newSkillId, scope: 'container_local' }] }) // skill lookup
+      .mockResolvedValueOnce({ rowCount: 1 })            // delete existing (had one)
+      .mockResolvedValueOnce({ rows: [newAssignment] }); // insert new
 
     const res = await request(app)
       .post(`/agents/${AGENT_ID}/skills`)
       .set('Authorization', `Bearer ${userToken}`)
-      .send({ skill_id: SKILL_CONTAINER });
+      .send({ skill_id: newSkillId });
 
-    expect(res.status).toBe(409);
-    expect(res.body.error).toContain('already assigned');
+    expect(res.status).toBe(201);
+    expect(res.body.skill_id).toBe(newSkillId);
   });
 
   // T4: User can assign container_local skill
@@ -116,6 +120,7 @@ describe('Agent skill assignment endpoints', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })
       .mockResolvedValueOnce({ rows: [containerSkill] })
+      .mockResolvedValueOnce({ rowCount: 0 })            // delete existing
       .mockResolvedValueOnce({ rows: [assignmentRecord] });
 
     const res = await request(app)
@@ -162,6 +167,7 @@ describe('Agent skill assignment endpoints', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })   // agent lookup (admin scope = 1=1)
       .mockResolvedValueOnce({ rows: [hostDockerSkill] }) // skill lookup
+      .mockResolvedValueOnce({ rowCount: 0 })             // delete existing
       .mockResolvedValueOnce({ rows: [adminAssignment] }); // insert
 
     const res = await request(app)

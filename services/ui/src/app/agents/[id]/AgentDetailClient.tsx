@@ -20,7 +20,7 @@ interface Agent {
   rules_md: string
   container_id: string | null
   model_policy_id: string | null
-  tool_preset_id: string | null
+  skills: Array<{ id: string; name: string; scope: string; instructions_md?: string }>
   error_message: string | null
   created_at: string
   updated_at: string
@@ -36,14 +36,6 @@ interface ModelPolicy {
   created_by: string | null
 }
 
-interface ToolPreset {
-  id: string
-  name: string
-  description: string
-  is_platform: boolean
-  instructions_md?: string
-}
-
 type TabId = 'overview' | 'configuration' | 'model-access' | 'knowledge' | 'activity'
 
 export default function AgentDetailClient({
@@ -56,7 +48,6 @@ export default function AgentDetailClient({
   const router = useRouter()
   const [agent, setAgent] = useState<Agent | null>(null)
   const [policies, setPolicies] = useState<ModelPolicy[]>([])
-  const [presets, setPresets] = useState<ToolPreset[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -106,22 +97,10 @@ export default function AgentDetailClient({
     }
   }, [])
 
-  const fetchPresets = useCallback(async () => {
-    try {
-      const res = await fetch('/api/tool-presets')
-      if (res.ok) {
-        setPresets(await res.json())
-      }
-    } catch (err) {
-      console.error('Failed to fetch presets:', err)
-    }
-  }, [])
-
   useEffect(() => {
     fetchAgent()
     fetchPolicies()
-    fetchPresets()
-  }, [fetchAgent, fetchPolicies, fetchPresets])
+  }, [fetchAgent, fetchPolicies])
 
   // Poll status while running
   useEffect(() => {
@@ -231,7 +210,7 @@ export default function AgentDetailClient({
   if (!agent) return null
 
   const currentPolicy = policies.find((p) => p.id === agent.model_policy_id)
-  const currentPreset = presets.find((p) => p.id === agent.tool_preset_id)
+  const currentSkill = agent.skills?.[0] || null
   const tc = agent.tools_config || {}
 
   const tabs: { id: TabId; label: string; adminOnly?: boolean }[] = [
@@ -353,11 +332,11 @@ export default function AgentDetailClient({
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-semibold text-white">Tool Access</h2>
               <span className={`px-2.5 py-1 text-xs rounded-md ${
-                currentPreset
+                currentSkill
                   ? 'bg-brand-900/50 text-brand-400 border border-brand-700'
                   : 'bg-navy-900 text-mountain-400 border border-navy-700'
               }`}>
-                {currentPreset ? `Skill: ${currentPreset.name}` : 'Custom'}
+                {currentSkill ? `Skill: ${currentSkill.name}` : 'Custom'}
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -368,10 +347,10 @@ export default function AgentDetailClient({
           </div>
 
           {/* Skill Instructions */}
-          {currentPreset?.instructions_md && (
+          {currentSkill?.instructions_md && (
             <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
               <h2 className="text-lg font-semibold text-white mb-2">Skill Instructions</h2>
-              <pre className="text-sm text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-64 overflow-y-auto">{currentPreset.instructions_md}</pre>
+              <pre className="text-sm text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-64 overflow-y-auto">{currentSkill.instructions_md}</pre>
             </div>
           )}
 

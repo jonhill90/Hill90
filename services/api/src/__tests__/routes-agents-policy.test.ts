@@ -72,6 +72,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'regular-user' }] });
     // UPDATE
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -89,6 +91,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'platform-policy', created_by: null }] });
     // UPDATE
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'platform-policy' }] });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -117,7 +121,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
       .mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'someone' }] }) // FK validation
-      .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] }); // UPDATE
+      .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] }) // UPDATE
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -149,7 +154,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     const agentWithPolicy = { ...agentRow, model_policy_id: 'policy-1' };
     mockQuery
       .mockResolvedValueOnce({ rows: [agentWithPolicy] }) // ownership check
-      .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: null }] }); // UPDATE
+      .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: null }] }) // UPDATE
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -166,7 +172,8 @@ describe('Agent PUT model_policy_id behavior', () => {
   it('does not touch model_policy_id when not in body', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
-      .mockResolvedValueOnce({ rows: [agentRow] }); // UPDATE
+      .mockResolvedValueOnce({ rows: [agentRow] }) // UPDATE
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -182,7 +189,8 @@ describe('Agent PUT model_policy_id behavior', () => {
   it('allows non-admin to update other fields without model_policy_id', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
-      .mockResolvedValueOnce({ rows: [{ ...agentRow, name: 'New Name' }] }); // UPDATE
+      .mockResolvedValueOnce({ rows: [{ ...agentRow, name: 'New Name' }] }) // UPDATE
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -217,6 +225,8 @@ describe('Agent POST model_policy_id behavior', () => {
         created_by: 'regular-user',
       }],
     });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .post('/agents')
@@ -253,6 +263,8 @@ describe('Agent POST model_policy_id behavior', () => {
         created_by: 'admin-user',
       }],
     });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .post('/agents')
@@ -287,6 +299,8 @@ describe('Agent POST model_policy_id behavior', () => {
         created_by: 'regular-user',
       }],
     });
+    // SELECT skills for response
+    mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .post('/agents')
