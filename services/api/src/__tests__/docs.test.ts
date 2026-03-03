@@ -170,13 +170,16 @@ const EXPECTED_PATHS = [
   '/shared-knowledge/sources',
   '/shared-knowledge/sources/{id}',
   '/shared-knowledge/search',
-  '/tool-presets',
-  '/tool-presets/{id}',
+  '/skills',
+  '/skills/{id}',
   '/agents/{id}/skills',
   '/agents/{id}/skills/{skillId}',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token'];
+
+// Compat alias paths — same handler as canonical /skills routes, not in OpenAPI spec
+const COMPAT_PATHS = ['/tool-presets', '/tool-presets/{id}'];
 
 /**
  * Introspect Express app._router.stack to extract all registered route paths.
@@ -244,7 +247,7 @@ describe('Spec contract enforcement', () => {
 
   it('every registered Express route maps to EXPECTED_PATHS or INFRA_PATHS', () => {
     const registered = getRegisteredRoutes(app);
-    const allKnown = [...EXPECTED_PATHS, ...INFRA_PATHS];
+    const allKnown = [...EXPECTED_PATHS, ...INFRA_PATHS, ...COMPAT_PATHS];
     for (const route of registered) {
       expect(allKnown).toContain(route);
     }

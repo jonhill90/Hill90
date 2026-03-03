@@ -4,7 +4,7 @@ import { proxyToApi } from '@/utils/api-proxy'
 async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params
   const pathStr = path.join('/')
-  return proxyToApi(req, `/tool-presets/${pathStr}`, { label: 'tool-presets-proxy' })
+  return proxyToApi(req, `/skills/${pathStr}`, { label: 'skills-proxy' })
 }
 
 export const GET = proxyRequest

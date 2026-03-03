@@ -55,10 +55,20 @@ router.use(dbHealthCheck);
 router.get('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const scope = scopeToOwner(req);
-    const paramOffset = scope.params.length;
     const { rows } = await getPool().query(
-      `SELECT id, agent_id, name, description, status, tools_config, cpus, mem_limit, pids_limit, model_policy_id, tool_preset_id, created_at, updated_at, created_by
-       FROM agents WHERE ${scope.where} ORDER BY created_at DESC`,
+      `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
+              a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id,
+              a.created_at, a.updated_at, a.created_by,
+              COALESCE(
+                json_agg(json_build_object('id', s.id, 'name', s.name, 'scope', s.scope))
+                FILTER (WHERE s.id IS NOT NULL), '[]'
+              ) AS skills
+       FROM agents a
+       LEFT JOIN agent_skills asks ON asks.agent_id = a.id
+       LEFT JOIN skills s ON s.id = asks.skill_id
+       WHERE ${scope.where.replace(/created_by/g, 'a.created_by')}
+       GROUP BY a.id
+       ORDER BY a.created_at DESC`,
       scope.params
     );
     res.json(rows);
@@ -72,7 +82,13 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
 router.post('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, tool_preset_id } = req.body;
+    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids } = req.body;
+
+    // Reject legacy field
+    if (req.body.tool_preset_id !== undefined) {
+      res.status(400).json({ error: 'tool_preset_id is deprecated. Use skill_ids instead.' });
+      return;
+    }
 
     if (!agent_id || !name) {
       res.status(400).json({ error: 'agent_id and name are required' });
@@ -83,6 +99,18 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
     if (!/^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/.test(agent_id) && !/^[a-z0-9]$/.test(agent_id)) {
       res.status(400).json({ error: 'agent_id must be a lowercase slug (a-z, 0-9, hyphens, 1-63 chars)' });
       return;
+    }
+
+    // Validate skill_ids (max 1 in Phase 2)
+    if (skill_ids !== undefined) {
+      if (!Array.isArray(skill_ids)) {
+        res.status(400).json({ error: 'skill_ids must be an array' });
+        return;
+      }
+      if (skill_ids.length > 1) {
+        res.status(400).json({ error: 'Maximum 1 skill per agent (multi-skill support coming in a future phase)' });
+        return;
+      }
     }
 
     // Validate model_policy_id ownership (same logic as PUT handler)
@@ -108,25 +136,25 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       validatedPolicyId = model_policy_id;
     }
 
-    // Resolve tool preset: if tool_preset_id provided, use preset's tools_config (resolve-on-save)
+    // Resolve skill: if skill_ids provided, use skill's tools_config (resolve-on-save)
     let resolvedToolsConfig = tools_config || { shell: { enabled: false }, filesystem: { enabled: false }, health: { enabled: true } };
-    let validatedPresetId: string | null = null;
-    if (tool_preset_id) {
-      const { rows: presetRows } = await getPool().query(
-        'SELECT id, tools_config FROM tool_presets WHERE id = $1',
-        [tool_preset_id]
+    let validatedSkillId: string | null = null;
+    if (skill_ids && skill_ids.length === 1) {
+      const { rows: skillRows } = await getPool().query(
+        'SELECT id, tools_config FROM skills WHERE id = $1',
+        [skill_ids[0]]
       );
-      if (presetRows.length === 0) {
-        res.status(400).json({ error: 'Tool preset not found' });
+      if (skillRows.length === 0) {
+        res.status(400).json({ error: 'Skill not found' });
         return;
       }
-      resolvedToolsConfig = presetRows[0].tools_config;
-      validatedPresetId = tool_preset_id;
+      resolvedToolsConfig = skillRows[0].tools_config;
+      validatedSkillId = skill_ids[0];
     }
 
     const { rows } = await getPool().query(
-      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, tool_preset_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         agent_id,
@@ -139,12 +167,30 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         soul_md || '',
         rules_md || '',
         validatedPolicyId,
-        validatedPresetId,
         user.sub,
       ]
     );
 
-    res.status(201).json(rows[0]);
+    const createdAgent = rows[0];
+
+    // Insert skill assignment into agent_skills
+    if (validatedSkillId) {
+      await getPool().query(
+        'INSERT INTO agent_skills (agent_id, skill_id, assigned_by) VALUES ($1, $2, $3)',
+        [createdAgent.id, validatedSkillId, user.sub]
+      );
+    }
+
+    // Fetch the skills array for response
+    const { rows: skillRows } = await getPool().query(
+      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [createdAgent.id]
+    );
+    createdAgent.skills = skillRows;
+
+    res.status(201).json(createdAgent);
   } catch (err: any) {
     if (err.code === '23505') {
       res.status(409).json({ error: 'An agent with this agent_id already exists' });
@@ -168,7 +214,19 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Agent not found' });
       return;
     }
-    res.json(rows[0]);
+
+    const agent = rows[0];
+
+    // Fetch skills for this agent
+    const { rows: skillRows } = await getPool().query(
+      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [agent.id]
+    );
+    agent.skills = skillRows;
+
+    res.json(agent);
   } catch (err) {
     console.error('[agents] Get error:', err);
     res.status(500).json({ error: 'Failed to get agent' });
@@ -180,6 +238,12 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const scope = scopeToOwner(req);
     const paramOffset = scope.params.length + 1;
+
+    // Reject legacy field
+    if (req.body.tool_preset_id !== undefined) {
+      res.status(400).json({ error: 'tool_preset_id is deprecated. Use skill_ids instead.' });
+      return;
+    }
 
     // Check agent exists and is owned
     const { rows: existing } = await getPool().query(
@@ -195,11 +259,23 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, tool_preset_id } = req.body;
+    const user = (req as any).user;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids } = req.body;
+
+    // Validate skill_ids (max 1 in Phase 2)
+    if (skill_ids !== undefined) {
+      if (!Array.isArray(skill_ids)) {
+        res.status(400).json({ error: 'skill_ids must be an array' });
+        return;
+      }
+      if (skill_ids.length > 1) {
+        res.status(400).json({ error: 'Maximum 1 skill per agent (multi-skill support coming in a future phase)' });
+        return;
+      }
+    }
 
     // model_policy_id assignment: admins can assign any, users can assign own or platform
     if (model_policy_id !== undefined) {
-      const user = (req as any).user;
       const roles: string[] = user.realm_roles || [];
       const admin = roles.includes('admin');
 
@@ -225,23 +301,25 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       }
     }
 
-    // Resolve tool preset: if tool_preset_id provided and non-null, look up and resolve
+    // Resolve skill: if skill_ids provided, look up and resolve tools_config
     let resolvedToolsConfig = tools_config ? JSON.stringify(tools_config) : null;
-    if (tool_preset_id !== undefined && tool_preset_id !== null) {
-      const { rows: presetRows } = await getPool().query(
-        'SELECT id, tools_config FROM tool_presets WHERE id = $1',
-        [tool_preset_id]
-      );
-      if (presetRows.length === 0) {
-        res.status(400).json({ error: 'Tool preset not found' });
-        return;
+    if (skill_ids !== undefined) {
+      if (skill_ids.length === 1) {
+        const { rows: skillRows } = await getPool().query(
+          'SELECT id, tools_config FROM skills WHERE id = $1',
+          [skill_ids[0]]
+        );
+        if (skillRows.length === 0) {
+          res.status(400).json({ error: 'Skill not found' });
+          return;
+        }
+        resolvedToolsConfig = JSON.stringify(skillRows[0].tools_config);
       }
-      resolvedToolsConfig = JSON.stringify(presetRows[0].tools_config);
+      // skill_ids.length === 0 means clear the skill — tools_config stays as-is or from body
     }
 
-    // Build SET clause: model_policy_id and tool_preset_id use explicit flags to allow clearing to NULL
+    // Build SET clause: model_policy_id uses explicit flag to allow clearing to NULL
     const modelPolicyProvided = model_policy_id !== undefined;
-    const toolPresetProvided = tool_preset_id !== undefined;
     const { rows } = await getPool().query(
       `UPDATE agents SET
         name = COALESCE($1, name),
@@ -253,9 +331,8 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         soul_md = COALESCE($7, soul_md),
         rules_md = COALESCE($8, rules_md),
         model_policy_id = CASE WHEN $9::boolean THEN $10::uuid ELSE model_policy_id END,
-        tool_preset_id = CASE WHEN $11::boolean THEN $12::uuid ELSE tool_preset_id END,
         updated_at = NOW()
-       WHERE id = $13
+       WHERE id = $11
        RETURNING *`,
       [
         name || null,
@@ -268,13 +345,35 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         rules_md ?? null,
         modelPolicyProvided,
         modelPolicyProvided ? (model_policy_id ?? null) : null,
-        toolPresetProvided,
-        toolPresetProvided ? (tool_preset_id ?? null) : null,
         req.params.id,
       ]
     );
 
-    res.json(rows[0]);
+    const updatedAgent = rows[0];
+
+    // Update agent_skills if skill_ids provided
+    if (skill_ids !== undefined) {
+      // Clear existing assignments
+      await getPool().query('DELETE FROM agent_skills WHERE agent_id = $1', [req.params.id]);
+      // Insert new assignment
+      if (skill_ids.length === 1) {
+        await getPool().query(
+          'INSERT INTO agent_skills (agent_id, skill_id, assigned_by) VALUES ($1, $2, $3)',
+          [req.params.id, skill_ids[0], user.sub]
+        );
+      }
+    }
+
+    // Fetch skills for response
+    const { rows: agentSkills } = await getPool().query(
+      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [req.params.id]
+    );
+    updatedAgent.skills = agentSkills;
+
+    res.json(updatedAgent);
   } catch (err) {
     console.error('[agents] Update error:', err);
     res.status(500).json({ error: 'Failed to update agent' });
@@ -347,14 +446,14 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
 
     // Fetch skill instructions at start time (fresh-at-start, not resolve-on-save)
     let skillInstructions: string | undefined;
-    if (agent.tool_preset_id) {
-      const { rows: presetRows } = await getPool().query(
-        'SELECT instructions_md FROM tool_presets WHERE id = $1',
-        [agent.tool_preset_id]
-      );
-      if (presetRows.length > 0 && presetRows[0].instructions_md) {
-        skillInstructions = presetRows[0].instructions_md;
-      }
+    const { rows: skillRows } = await getPool().query(
+      `SELECT s.instructions_md FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [agent.id]
+    );
+    if (skillRows.length > 0 && skillRows[0].instructions_md) {
+      skillInstructions = skillRows[0].instructions_md;
     }
 
     // Write config files to disk
@@ -733,7 +832,7 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
 
     // Look up skill and check scope-based RBAC
     const { rows: skillRows } = await getPool().query(
-      'SELECT id, scope FROM tool_presets WHERE id = $1',
+      'SELECT id, scope, tools_config FROM skills WHERE id = $1',
       [skill_id]
     );
     if (skillRows.length === 0) {
@@ -747,7 +846,12 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
       return;
     }
 
-    // Insert assignment
+    // Max 1 skill per agent: replace existing assignment (delete old, insert new)
+    await getPool().query(
+      'DELETE FROM agent_skills WHERE agent_id = $1',
+      [req.params.id]
+    );
+
     const { rows } = await getPool().query(
       `INSERT INTO agent_skills (agent_id, skill_id, assigned_by)
        VALUES ($1, $2, $3)
@@ -755,12 +859,14 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
       [req.params.id, skill_id, user.sub]
     );
 
+    // Resolve-on-save: update agent's tools_config to match the assigned skill
+    await getPool().query(
+      'UPDATE agents SET tools_config = $1 WHERE id = $2',
+      [JSON.stringify(skillRows[0].tools_config), req.params.id]
+    );
+
     res.status(201).json(rows[0]);
   } catch (err: any) {
-    if (err.code === '23505') {
-      res.status(409).json({ error: 'Skill is already assigned to this agent' });
-      return;
-    }
     console.error('[agents] Assign skill error:', err);
     res.status(500).json({ error: 'Failed to assign skill' });
   }
@@ -787,7 +893,7 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
 
     // Look up skill to check scope-based RBAC
     const { rows: skillRows } = await getPool().query(
-      'SELECT id, scope FROM tool_presets WHERE id = $1',
+      'SELECT id, scope FROM skills WHERE id = $1',
       [req.params.skillId]
     );
     if (skillRows.length === 0) {

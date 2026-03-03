@@ -50,7 +50,7 @@ export default function AgentFormClient({
     soul_md: string
     rules_md: string
     model_policy_id?: string | null
-    tool_preset_id?: string | null
+    skills?: Array<{ id: string; name: string; scope: string }>
   }
   agentUuid?: string
   disabled?: boolean
@@ -73,9 +73,9 @@ export default function AgentFormClient({
   const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
   const [policies, setPolicies] = useState<PolicyOption[]>([])
   const [presets, setPresets] = useState<PresetOption[]>([])
-  // New agents: unselected prompt. Edit agents: preset ID or '' (Custom).
+  // New agents: unselected prompt. Edit agents: skill ID or '' (Custom).
   const [toolPresetId, setToolPresetId] = useState(
-    initial ? (initial.tool_preset_id || '') : UNSELECTED
+    initial ? (initial.skills?.[0]?.id || '') : UNSELECTED
   )
   const toolsCustomDirty = useRef(false)
 
@@ -89,7 +89,7 @@ export default function AgentFormClient({
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setPolicies(data))
       .catch(() => {})
-    fetch('/api/tool-presets')
+    fetch('/api/skills')
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setPresets(data))
       .catch(() => {})
@@ -158,7 +158,7 @@ export default function AgentFormClient({
       soul_md: soulMd,
       rules_md: rulesMd,
       model_policy_id: modelPolicyId || null,
-      tool_preset_id: toolPresetId || null,
+      skill_ids: toolPresetId ? [toolPresetId] : [],
     }
 
     try {
