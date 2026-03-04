@@ -5,6 +5,11 @@ import { requireRole } from '../middleware/role';
 const router = Router();
 
 const VALID_SCOPES = ['container_local', 'host_docker', 'vps_system'] as const;
+const VALID_KINDS = ['skill', 'profile'] as const;
+
+function validateToolDependencies(deps: unknown): deps is string[] {
+  return Array.isArray(deps) && deps.every(d => typeof d === 'string');
+}
 
 function dbHealthCheck(_req: Request, res: Response, next: () => void) {
   if (!process.env.DATABASE_URL) {
@@ -23,12 +28,24 @@ function isAdmin(req: Request): boolean {
 }
 
 // List all skills — all authenticated users see all skills
-router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
+router.get('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
-    const { rows } = await getPool().query(
-      `SELECT id, name, description, tools_config, instructions_md, scope, is_platform, created_by, created_at, updated_at
-       FROM skills ORDER BY is_platform DESC, name ASC`
-    );
+    const kindFilter = req.query.kind as string | undefined;
+    if (kindFilter && !(VALID_KINDS as readonly string[]).includes(kindFilter)) {
+      res.status(400).json({ error: `Invalid kind filter. Must be one of: ${VALID_KINDS.join(', ')}` });
+      return;
+    }
+
+    let query = `SELECT id, name, description, tools_config, instructions_md, scope, kind, tool_dependencies, is_platform, created_by, created_at, updated_at
+       FROM skills`;
+    const params: string[] = [];
+    if (kindFilter) {
+      query += ` WHERE kind = $1`;
+      params.push(kindFilter);
+    }
+    query += ` ORDER BY is_platform DESC, name ASC`;
+
+    const { rows } = await getPool().query(query, params);
     res.json(rows);
   } catch (err) {
     console.error('[skills] List error:', err);
@@ -40,7 +57,7 @@ router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
 router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
-      `SELECT id, name, description, tools_config, instructions_md, scope, is_platform, created_by, created_at, updated_at
+      `SELECT id, name, description, tools_config, instructions_md, scope, kind, tool_dependencies, is_platform, created_by, created_at, updated_at
        FROM skills WHERE id = $1`,
       [req.params.id]
     );
@@ -58,7 +75,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
 // Create skill — admin only
 router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   try {
-    const { name, description, tools_config, instructions_md, scope } = req.body;
+    const { name, description, tools_config, instructions_md, scope, kind, tool_dependencies } = req.body;
 
     if (!name) {
       res.status(400).json({ error: 'name is required' });
@@ -73,11 +90,27 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
       return;
     }
 
+    const resolvedKind = kind || 'skill';
+    if (!(VALID_KINDS as readonly string[]).includes(resolvedKind)) {
+      res.status(400).json({ error: `Invalid kind. Must be one of: ${VALID_KINDS.join(', ')}` });
+      return;
+    }
+
+    const resolvedDeps = tool_dependencies ?? [];
+    if (!validateToolDependencies(resolvedDeps)) {
+      res.status(400).json({ error: 'tool_dependencies must be an array of strings' });
+      return;
+    }
+    if (resolvedKind === 'profile' && resolvedDeps.length > 0) {
+      res.status(400).json({ error: 'Profiles cannot have tool_dependencies' });
+      return;
+    }
+
     const { rows } = await getPool().query(
-      `INSERT INTO skills (name, description, tools_config, instructions_md, scope, is_platform, created_by)
-       VALUES ($1, $2, $3, $4, $5, false, NULL)
+      `INSERT INTO skills (name, description, tools_config, instructions_md, scope, kind, tool_dependencies, is_platform, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, false, NULL)
        RETURNING *`,
-      [name, description || '', JSON.stringify(tools_config), instructions_md || '', scope || 'container_local']
+      [name, description || '', JSON.stringify(tools_config), instructions_md || '', scope || 'container_local', resolvedKind, JSON.stringify(resolvedDeps)]
     );
 
     res.status(201).json(rows[0]);
@@ -95,7 +128,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
 router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { rows: existing } = await getPool().query(
-      'SELECT id, is_platform FROM skills WHERE id = $1',
+      'SELECT id, is_platform, tool_dependencies FROM skills WHERE id = $1',
       [req.params.id]
     );
     if (existing.length === 0) {
@@ -107,11 +140,31 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
       return;
     }
 
-    const { name, description, tools_config, instructions_md, scope } = req.body;
+    const { name, description, tools_config, instructions_md, scope, kind, tool_dependencies } = req.body;
 
     if (scope !== undefined && !VALID_SCOPES.includes(scope)) {
       res.status(400).json({ error: `Invalid scope. Must be one of: ${VALID_SCOPES.join(', ')}` });
       return;
+    }
+
+    if (kind !== undefined && !(VALID_KINDS as readonly string[]).includes(kind)) {
+      res.status(400).json({ error: `Invalid kind. Must be one of: ${VALID_KINDS.join(', ')}` });
+      return;
+    }
+
+    if (tool_dependencies !== undefined && !validateToolDependencies(tool_dependencies)) {
+      res.status(400).json({ error: 'tool_dependencies must be an array of strings' });
+      return;
+    }
+
+    // Cross-validation: if updating kind to 'profile', tool_dependencies must be empty
+    if (kind === 'profile') {
+      const effectiveDeps = tool_dependencies ?? existing[0].tool_dependencies ?? [];
+      const depsArray = Array.isArray(effectiveDeps) ? effectiveDeps : [];
+      if (depsArray.length > 0) {
+        res.status(400).json({ error: 'Profiles cannot have tool_dependencies' });
+        return;
+      }
     }
 
     const { rows } = await getPool().query(
@@ -121,8 +174,10 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
         tools_config = COALESCE($3, tools_config),
         instructions_md = COALESCE($4, instructions_md),
         scope = COALESCE($5, scope),
+        kind = COALESCE($6, kind),
+        tool_dependencies = COALESCE($7, tool_dependencies),
         updated_at = NOW()
-       WHERE id = $6
+       WHERE id = $8
        RETURNING *`,
       [
         name || null,
@@ -130,6 +185,8 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
         tools_config ? JSON.stringify(tools_config) : null,
         instructions_md ?? null,
         scope || null,
+        kind || null,
+        tool_dependencies ? JSON.stringify(tool_dependencies) : null,
         req.params.id,
       ]
     );
