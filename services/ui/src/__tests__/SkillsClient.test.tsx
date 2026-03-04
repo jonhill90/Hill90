@@ -163,16 +163,15 @@ describe('SkillsClient', () => {
     expect(screen.getByPlaceholderText(/behavioral instructions/i)).toBeInTheDocument()
   })
 
-  // T10: Edit form pre-fills instructions_md
-  it('edit form pre-fills instructions_md', async () => {
+  // T10: Edit form pre-fills instructions_md for seeded examples too
+  it('edit form pre-fills instructions_md for seeded skills', async () => {
     render(<SkillsClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+      expect(screen.getByText('Developer')).toBeInTheDocument()
     })
 
-    // Expand CI Runner (non-platform, has Edit button)
-    fireEvent.click(screen.getByText('CI Runner'))
+    fireEvent.click(screen.getByText('Developer'))
 
     await waitFor(() => {
       expect(screen.getByText('Edit')).toBeInTheDocument()
@@ -186,7 +185,7 @@ describe('SkillsClient', () => {
 
     // Instructions textarea should be pre-filled
     const instructionsTextarea = screen.getByPlaceholderText(/behavioral instructions/i) as HTMLTextAreaElement
-    expect(instructionsTextarea.value).toBe('Run CI pipelines in isolated containers.')
+    expect(instructionsTextarea.value).toBe('You have full developer access with bash, git, make, curl, and jq available. Use /workspace as your primary working directory.')
   })
 
   // T14: Skills admin shows scope badge with correct labels

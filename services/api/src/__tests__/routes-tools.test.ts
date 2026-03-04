@@ -129,15 +129,19 @@ describe('Tools CRUD routes', () => {
     expect(res.body.name).toBe('renamed');
   });
 
-  // T7: PUT /tools/:id rejects platform tool mutation
-  it('PUT /tools/:id rejects platform tool mutation', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'tool-1', is_platform: true }] });
+  // T7: PUT /tools/:id updates platform tool (examples remain editable)
+  it('PUT /tools/:id updates platform tool', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'tool-1' }] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'tool-1', name: 'bash-updated', description: 'Updated shell', install_method: 'builtin', install_ref: '', is_platform: true, created_at: '2026-01-01T00:00:00Z' }],
+      });
     const res = await request(app)
       .put('/tools/tool-1')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'renamed' });
-    expect(res.status).toBe(403);
-    expect(res.body.error).toContain('platform');
+      .send({ name: 'bash-updated', description: 'Updated shell' });
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('bash-updated');
   });
 
   // T8: DELETE /tools/:id deletes non-platform tool
