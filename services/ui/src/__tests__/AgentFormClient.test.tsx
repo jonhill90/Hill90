@@ -85,13 +85,12 @@ function mockFetchDefaults() {
   })
 }
 
-/** Helper: wait for presets to load then select Custom mode */
+/** Helper: switch to Custom mode via radio toggle */
 async function selectCustomMode() {
   await waitFor(() => {
-    expect(screen.getByRole('combobox', { name: /skill/i })).toBeInTheDocument()
+    expect(screen.getByLabelText('Custom')).toBeInTheDocument()
   })
-  const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-  fireEvent.change(profileSelect, { target: { value: '' } })
+  fireEvent.click(screen.getByLabelText('Custom'))
 }
 
 describe('AgentFormClient', () => {
@@ -126,7 +125,6 @@ describe('AgentFormClient', () => {
     })
 
     expect(screen.getByText('Restricted Policy')).toBeInTheDocument()
-    // "None" option should exist
     const selectEl = screen.getByRole('combobox', { name: /model policy/i })
     expect(selectEl).toBeInTheDocument()
     const noneOption = screen.getByRole('option', { name: 'None' })
@@ -137,11 +135,9 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    // Enable shell
     const shellCheckbox = screen.getByLabelText('Shell access')
     fireEvent.click(shellCheckbox)
 
-    // Click "Advanced settings" to expand
     const advancedLink = screen.getByText('Advanced settings', { selector: 'button' })
     fireEvent.click(advancedLink)
 
@@ -154,11 +150,9 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    // Enable filesystem
     const fsCheckbox = screen.getByLabelText('Filesystem access')
     fireEvent.click(fsCheckbox)
 
-    // Click "Advanced settings" for filesystem
     const advancedLinks = screen.getAllByText('Advanced settings', { selector: 'button' })
     fireEvent.click(advancedLinks[0])
 
@@ -174,15 +168,12 @@ describe('AgentFormClient', () => {
       expect(screen.getByText('Default Policy')).toBeInTheDocument()
     })
 
-    // Fill required fields
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
-    // Select a policy
     const policySelect = screen.getByRole('combobox', { name: /model policy/i })
     fireEvent.change(policySelect, { target: { value: 'policy-1' } })
 
-    // Submit
     fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
 
     await waitFor(() => {
@@ -202,14 +193,11 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    // Fill required fields
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
-    // Enable shell
     fireEvent.click(screen.getByLabelText('Shell access'))
 
-    // Submit
     fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
 
     await waitFor(() => {
@@ -232,23 +220,18 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    // Fill required fields
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
-    // Enable shell and open advanced
     fireEvent.click(screen.getByLabelText('Shell access'))
     fireEvent.click(screen.getByText('Advanced settings', { selector: 'button' }))
 
-    // Set invalid timeout
     const timeoutInput = screen.getByLabelText('Max Timeout (seconds)')
     fireEvent.change(timeoutInput, { target: { value: '0' } })
 
-    // Submit via form submit event to bypass native validation
     const form = screen.getByRole('button', { name: /create agent/i }).closest('form')!
     fireEvent.submit(form)
 
-    // Should show validation error, not send request
     await waitFor(() => {
       expect(screen.getByText(/timeout must be at least 1/i)).toBeInTheDocument()
     })
@@ -263,14 +246,11 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    // Enable filesystem and open advanced
     fireEvent.click(screen.getByLabelText('Filesystem access'))
     const advancedLinks = screen.getAllByText('Advanced settings', { selector: 'button' })
     fireEvent.click(advancedLinks[0])
 
-    // Try to add invalid path via TagInput
     const pathInputs = screen.getAllByPlaceholderText(/add/i)
-    // The first TagInput under filesystem advanced should be allowed_paths
     fireEvent.change(pathInputs[0], { target: { value: 'nope' } })
     fireEvent.keyDown(pathInputs[0], { key: 'Enter' })
 
@@ -301,14 +281,13 @@ describe('AgentFormClient', () => {
       expect(screen.getByText('Tools')).toBeInTheDocument()
     })
 
-    // Edit mode with no preset → Custom mode, tool toggles visible
+    // Edit mode with no skills → Custom mode, tool toggles visible
     const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
     expect(shellCheckbox.checked).toBe(true)
 
     const fsCheckbox = screen.getByLabelText('Filesystem access') as HTMLInputElement
     expect(fsCheckbox.checked).toBe(true)
 
-    // Policy selector should have policy-1 selected
     await waitFor(() => {
       const policySelect = screen.getByRole('combobox', { name: /model policy/i }) as HTMLSelectElement
       expect(policySelect.value).toBe('policy-1')
@@ -338,7 +317,6 @@ describe('AgentFormClient', () => {
       expect(screen.getByText('This agent is running. Stop it before making changes.')).toBeInTheDocument()
     })
 
-    // Submit button should be disabled
     const submitBtn = screen.getByRole('button', { name: /update agent/i })
     expect(submitBtn).toBeDisabled()
   })
@@ -356,107 +334,35 @@ describe('AgentFormClient', () => {
     expect(screen.getByText('11 characters')).toBeInTheDocument()
   })
 
-  // T18: New agent starts in unselected prompt state
-  it('new agent starts with unselected prompt, not Custom', async () => {
+  // U1: Form renders radio toggle and checkboxes (not dropdown) for skills
+  it('renders radio toggle for Custom/Skills mode', async () => {
     render(<AgentFormClient />)
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /skill/i })).toBeInTheDocument()
+      expect(screen.getByLabelText('Skills')).toBeInTheDocument()
     })
 
-    // The select should show "Select a profile..." prompt
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i }) as HTMLSelectElement
-    expect(profileSelect.value).toBe('__unselected__')
-
-    // Prompt message should be visible
-    expect(screen.getByText(/choose a skill/i)).toBeInTheDocument()
-
-    // Tool checkboxes should NOT be visible (neither preset summary nor custom toggles)
-    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Custom')).toBeInTheDocument()
+    // No dropdown (combobox) for skills
+    expect(screen.queryByRole('combobox', { name: /skill/i })).not.toBeInTheDocument()
   })
 
-  // T18: Preset dropdown renders options
-  it('renders preset dropdown with preset options and Custom', async () => {
-    render(<AgentFormClient isAdmin />)
+  // U2: Form Custom/Skills toggle switches mode
+  it('Custom/Skills toggle switches mode', async () => {
+    render(<AgentFormClient />)
 
+    await waitFor(() => {
+      expect(screen.getByLabelText('Skills')).toBeInTheDocument()
+    })
+
+    // Default: Skills mode — skill checkboxes visible
     await waitFor(() => {
       expect(screen.getByText(/Minimal/)).toBeInTheDocument()
     })
 
-    expect(screen.getByText(/Developer/)).toBeInTheDocument()
+    // Switch to Custom — manual tool editors visible
+    fireEvent.click(screen.getByLabelText('Custom'))
 
-    // "Custom" option should exist in the tool profile selector
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    expect(profileSelect).toBeInTheDocument()
-    const customOption = screen.getByRole('option', { name: /custom/i })
-    expect(customOption).toBeInTheDocument()
-  })
-
-  // T18: Submit blocked when still in unselected state
-  it('submit blocked when no profile selected', async () => {
-    render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /skill/i })).toBeInTheDocument()
-    })
-
-    // Fill required fields
-    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
-
-    // Submit without selecting a profile
-    const form = screen.getByRole('button', { name: /create agent/i }).closest('form')!
-    fireEvent.submit(form)
-
-    await waitFor(() => {
-      expect(screen.getByText(/please select a skill/i)).toBeInTheDocument()
-    })
-
-    // Should NOT have sent a POST request
-    const postCalls = mockFetch.mock.calls.filter(
-      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
-    )
-    expect(postCalls).toHaveLength(0)
-  })
-
-  // T19: Selecting preset shows summary card
-  it('selecting preset shows summary card with tool details', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Developer/)).toBeInTheDocument()
-    })
-
-    // Select the Developer preset
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // Should show summary with enabled tools info (may match in both summary and instructions)
-    await waitFor(() => {
-      expect(screen.getAllByText(/shell/i).length).toBeGreaterThan(0)
-      expect(screen.getAllByText(/bash/i).length).toBeGreaterThan(0)
-    })
-
-    // Manual tool checkboxes (Shell access, Filesystem access) should NOT be visible
-    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
-  })
-
-  // T20: Selecting Custom reveals manual config
-  it('selecting Custom shows tool toggles', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Developer/)).toBeInTheDocument()
-    })
-
-    // Select Developer preset first (from unselected)
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // Now switch to Custom
-    fireEvent.change(profileSelect, { target: { value: '' } })
-
-    // Manual tool checkboxes should be visible again
     await waitFor(() => {
       expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
     })
@@ -464,84 +370,14 @@ describe('AgentFormClient', () => {
     expect(screen.getByLabelText('Health endpoint')).toBeInTheDocument()
   })
 
-  // T20 continued: Selecting Custom from unselected also shows toggles
-  it('selecting Custom from unselected shows tool toggles', async () => {
+  // U3: Form Custom mode: manual tools editors shown, skill_ids: [] submitted
+  it('Custom mode submits skill_ids: [] with tools_config', async () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
-    expect(screen.getByLabelText('Filesystem access')).toBeInTheDocument()
-    expect(screen.getByLabelText('Health endpoint')).toBeInTheDocument()
-  })
-
-  // T21: Preset→Custom populates fields from preset
-  it('switching from preset to Custom populates tool fields from preset', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Developer/)).toBeInTheDocument()
-    })
-
-    // Select Developer preset
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // Switch to Custom
-    fireEvent.change(profileSelect, { target: { value: '' } })
-
-    // Shell should be enabled (from Developer preset)
-    await waitFor(() => {
-      const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
-      expect(shellCheckbox.checked).toBe(true)
-    })
-
-    // Filesystem should be enabled (from Developer preset)
-    const fsCheckbox = screen.getByLabelText('Filesystem access') as HTMLInputElement
-    expect(fsCheckbox.checked).toBe(true)
-  })
-
-  // Submit body includes skill_ids when skill selected
-  it('submit body includes skill_ids when skill selected', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Developer/)).toBeInTheDocument()
-    })
-
-    // Fill required fields
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
-    // Select Developer skill
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // Submit
-    fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
-        method: 'POST',
-      }))
-    })
-
-    const postCall = mockFetch.mock.calls.find(
-      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
-    )!
-    const body = JSON.parse(postCall[1].body)
-    expect(body.skill_ids).toEqual(['preset-dev'])
-  })
-
-  // Submit body sends skill_ids empty when Custom selected
-  it('submit body sends skill_ids empty when Custom selected', async () => {
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    // Fill required fields
-    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
-
-    // Submit
     fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
 
     await waitFor(() => {
@@ -555,10 +391,134 @@ describe('AgentFormClient', () => {
     )!
     const body = JSON.parse(postCall[1].body)
     expect(body.skill_ids).toEqual([])
+    expect(body.tools_config).toBeDefined()
   })
 
-  // Edit form pre-selects skill when initial has skills array
-  it('pre-selects skill when initial has skills array', async () => {
+  // U4: Form Skills mode: checkboxes shown, skill_ids submitted
+  it('Skills mode submits checked skill_ids', async () => {
+    render(<AgentFormClient isAdmin />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
+    })
+
+    // Fill required fields
+    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
+
+    // Check two skills using role query to match partial label text
+    const checkboxes = screen.getAllByRole('checkbox')
+    const minCheckbox = checkboxes.find(cb => cb.closest('label')?.textContent?.includes('Minimal'))!
+    const devCheckbox = checkboxes.find(cb => cb.closest('label')?.textContent?.includes('Developer'))!
+    fireEvent.click(minCheckbox)
+    fireEvent.click(devCheckbox)
+
+    fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
+        method: 'POST',
+      }))
+    })
+
+    const postCall = mockFetch.mock.calls.find(
+      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
+    )!
+    const body = JSON.parse(postCall[1].body)
+    expect(body.skill_ids).toHaveLength(2)
+    expect(body.skill_ids).toContain('preset-min')
+    expect(body.skill_ids).toContain('preset-dev')
+  })
+
+  // U5: Form non-admin: elevated skills not shown in checkboxes
+  it('non-admin checkboxes exclude elevated skills', async () => {
+    render(<AgentFormClient isAdmin={false} />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
+    })
+
+    // Non-admin should see Minimal and Developer (container_local) but NOT Docker Access (host_docker)
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes.some(cb => cb.closest('label')?.textContent?.includes('Minimal'))).toBe(true)
+    expect(checkboxes.some(cb => cb.closest('label')?.textContent?.includes('Developer'))).toBe(true)
+    expect(checkboxes.some(cb => cb.closest('label')?.textContent?.includes('Docker Access'))).toBe(false)
+  })
+
+  // U6: Overwrite warning when switching from Custom to Skills with dirty tools
+  it('dirty custom state prompts confirmation before switching to Skills', async () => {
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    // Make a manual change in Custom mode (enable shell = dirty)
+    fireEvent.click(screen.getByLabelText('Shell access'))
+
+    // Now try to switch back to Skills mode
+    fireEvent.click(screen.getByLabelText('Skills'))
+
+    // confirm() should have been called
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.stringMatching(/overwrite/i)
+    )
+  })
+
+  it('cancel on overwrite confirmation keeps Custom mode', async () => {
+    mockConfirm.mockReturnValue(false)
+
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    // Make a manual change (enable shell)
+    fireEvent.click(screen.getByLabelText('Shell access'))
+
+    // Try to switch to Skills — user cancels
+    fireEvent.click(screen.getByLabelText('Skills'))
+
+    // Should still be in Custom mode — tool toggles visible
+    expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
+    const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
+    expect(shellCheckbox.checked).toBe(true)
+  })
+
+  it('no confirmation when switching from unmodified Custom to Skills', async () => {
+    render(<AgentFormClient />)
+    await selectCustomMode()
+
+    // Don't make any changes — just switch back to Skills
+    fireEvent.click(screen.getByLabelText('Skills'))
+
+    // confirm() should NOT have been called
+    expect(mockConfirm).not.toHaveBeenCalled()
+  })
+
+  // Skills mode validation: requires at least one skill selected
+  it('submit blocked when no skills selected in Skills mode', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Skills')).toBeInTheDocument()
+    })
+
+    // Fill required fields
+    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
+
+    // Submit without selecting any skill
+    const form = screen.getByRole('button', { name: /create agent/i }).closest('form')!
+    fireEvent.submit(form)
+
+    await waitFor(() => {
+      expect(screen.getByText(/please select at least one skill/i)).toBeInTheDocument()
+    })
+
+    const postCalls = mockFetch.mock.calls.filter(
+      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
+    )
+    expect(postCalls).toHaveLength(0)
+  })
+
+  // Edit form pre-selects skills and starts in Skills mode
+  it('pre-selects skills when initial has skills array', async () => {
     const initial = {
       agent_id: 'existing',
       name: 'Existing Agent',
@@ -574,169 +534,36 @@ describe('AgentFormClient', () => {
       soul_md: '',
       rules_md: '',
       model_policy_id: null,
-      skills: [{ id: 'preset-dev', name: 'Developer', scope: 'container_local' }],
+      skills: [
+        { id: 'preset-dev', name: 'Developer', scope: 'container_local' },
+        { id: 'preset-min', name: 'Minimal', scope: 'container_local' },
+      ],
     }
 
     render(<AgentFormClient initial={initial} agentUuid="uuid-1" />)
 
     await waitFor(() => {
-      const profileSelect = screen.getByRole('combobox', { name: /skill/i }) as HTMLSelectElement
-      expect(profileSelect.value).toBe('preset-dev')
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
     })
+
+    // Both skills should be checked
+    const checkboxes = screen.getAllByRole('checkbox')
+    const minCheckbox = checkboxes.find(cb => cb.closest('label')?.textContent?.includes('Minimal'))! as HTMLInputElement
+    expect(minCheckbox.checked).toBe(true)
+
+    const devCheckbox = checkboxes.find(cb => cb.closest('label')?.textContent?.includes('Developer'))! as HTMLInputElement
+    expect(devCheckbox.checked).toBe(true)
   })
 
-  // T11: Form dropdown shows scope badge
-  it('skill dropdown shows scope label', async () => {
+  // Scope badges shown on skill checkboxes
+  it('skill checkboxes show scope badges', async () => {
     render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
       expect(screen.getByText(/Minimal/)).toBeInTheDocument()
     })
 
-    // Scope labels should appear in dropdown options
-    const options = screen.getAllByRole('option')
-    const minimalOption = options.find(o => o.textContent?.includes('Minimal'))
-    expect(minimalOption?.textContent).toContain('Container')
-
-    const dockerOption = options.find(o => o.textContent?.includes('Docker Access'))
-    expect(dockerOption?.textContent).toContain('Host · Docker')
-  })
-
-  // T12: Form dropdown filters elevated scopes for non-admin
-  it('non-admin dropdown excludes elevated skills', async () => {
-    render(<AgentFormClient isAdmin={false} />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
-    })
-
-    // Non-admin should see Minimal and Developer (container_local) but NOT Docker Access (host_docker)
-    const options = screen.getAllByRole('option')
-    const optionTexts = options.map(o => o.textContent)
-    expect(optionTexts.some(t => t?.includes('Minimal'))).toBe(true)
-    expect(optionTexts.some(t => t?.includes('Developer'))).toBe(true)
-    expect(optionTexts.some(t => t?.includes('Docker Access'))).toBe(false)
-  })
-
-  // T13: Form instructions preview
-  it('instructions preview shown when skill selected', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Developer/)).toBeInTheDocument()
-    })
-
-    // Select Developer skill
-    const skillSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(skillSelect, { target: { value: 'preset-dev' } })
-
-    // Instructions should be visible in the summary card
-    await waitFor(() => {
-      expect(screen.getByText(/full developer access with bash/i)).toBeInTheDocument()
-    })
-  })
-
-  // Overwrite protection: dirty custom → preset selection prompts confirmation
-  it('dirty custom state prompts confirmation before switching to preset', async () => {
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    // Make a manual change in Custom mode (enable shell = dirty)
-    fireEvent.click(screen.getByLabelText('Shell access'))
-
-    // Now try to switch to Developer preset
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // confirm() should have been called
-    expect(mockConfirm).toHaveBeenCalledWith(
-      expect.stringMatching(/overwrite/i)
-    )
-  })
-
-  // Overwrite protection: cancel keeps custom state intact
-  it('cancel on overwrite confirmation keeps custom state', async () => {
-    mockConfirm.mockReturnValue(false)
-
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    // Make a manual change (enable shell)
-    fireEvent.click(screen.getByLabelText('Shell access'))
-
-    // Try to switch to preset — user cancels
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // Should still be in Custom mode
-    expect((profileSelect as HTMLSelectElement).value).toBe('')
-
-    // Shell should still be checked (custom state preserved)
-    const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
-    expect(shellCheckbox.checked).toBe(true)
-  })
-
-  // Overwrite protection: confirm applies the preset
-  it('confirm on overwrite applies preset config', async () => {
-    mockConfirm.mockReturnValue(true)
-
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    // Make a manual change (enable shell only, filesystem stays disabled)
-    fireEvent.click(screen.getByLabelText('Shell access'))
-
-    // Switch to Developer preset — user confirms
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // Should now be in preset mode
-    expect((profileSelect as HTMLSelectElement).value).toBe('preset-dev')
-
-    // Manual tool checkboxes should NOT be visible (preset summary shown instead)
-    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
-
-    // Preset summary should show Developer description
-    expect(screen.getByText('Full dev environment')).toBeInTheDocument()
-  })
-
-  // No confirmation when switching from clean Custom (no changes) to preset
-  it('no confirmation when switching from unmodified Custom to preset', async () => {
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    // Don't make any changes — just switch to preset
-    const profileSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(profileSelect, { target: { value: 'preset-dev' } })
-
-    // confirm() should NOT have been called
-    expect(mockConfirm).not.toHaveBeenCalled()
-  })
-
-  // T12: Agent form dropdown says "Skill"
-  it('agent form shows Skill dropdown label', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /^skill$/i })).toBeInTheDocument()
-    })
-  })
-
-  // T13: Agent form shows instructions preview when skill selected
-  it('selecting skill shows instructions preview', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Developer/)).toBeInTheDocument()
-    })
-
-    // Select Developer skill
-    const skillSelect = screen.getByRole('combobox', { name: /skill/i })
-    fireEvent.change(skillSelect, { target: { value: 'preset-dev' } })
-
-    // Should show instructions preview
-    await waitFor(() => {
-      expect(screen.getByText(/full developer access with bash/i)).toBeInTheDocument()
-    })
+    // Should show scope labels in checkbox list (multiple skills may have Container scope)
+    expect(screen.getAllByText('Container').length).toBeGreaterThan(0)
   })
 })
