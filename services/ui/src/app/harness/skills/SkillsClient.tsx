@@ -252,7 +252,7 @@ export default function SkillsClient() {
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
-                  placeholder="Profile name"
+                  placeholder="Skill name"
                 />
               </div>
               <div>
@@ -549,8 +549,8 @@ export default function SkillsClient() {
                       </div>
                     </dl>
 
-                    {/* Actions -- admin only, non-platform only */}
-                    {isAdmin && !skill.is_platform && (
+                    {/* Actions -- admin only; seeded examples remain editable */}
+                    {isAdmin && (
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleEdit(skill)}
@@ -558,13 +558,15 @@ export default function SkillsClient() {
                         >
                           Edit
                         </button>
-                        <button
-                          onClick={() => handleDelete(skill)}
-                          disabled={actionLoading === skill.id}
-                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          Delete
-                        </button>
+                        {!skill.is_platform && (
+                          <button
+                            onClick={() => handleDelete(skill)}
+                            disabled={actionLoading === skill.id}
+                            className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

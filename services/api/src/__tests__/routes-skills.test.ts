@@ -225,14 +225,18 @@ describe('Skill CRUD routes', () => {
     expect(res.status).toBe(403);
   });
 
-  it('PUT /skills/:id rejects update of platform skill', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [developerSkill] });
+  it('PUT /skills/:id admin updates platform skill', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [developerSkill] })
+      .mockResolvedValueOnce({ rows: [{ ...developerSkill, name: 'Renamed Developer' }] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .put('/skills/skill-dev')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ name: 'Renamed Developer' });
-    expect(res.status).toBe(403);
-    expect(res.body.error).toContain('platform');
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('Renamed Developer');
   });
 
   it('PUT /skills/:id admin updates non-platform skill', async () => {
