@@ -88,19 +88,15 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   }
 });
 
-// Update tool — admin only, platform tools immutable
+// Update tool — admin only
 router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { rows: existing } = await getPool().query(
-      'SELECT id, is_platform FROM tools WHERE id = $1',
+      'SELECT id FROM tools WHERE id = $1',
       [req.params.id]
     );
     if (existing.length === 0) {
       res.status(404).json({ error: 'Tool not found' });
-      return;
-    }
-    if (existing[0].is_platform) {
-      res.status(403).json({ error: 'Cannot modify a platform tool' });
       return;
     }
 

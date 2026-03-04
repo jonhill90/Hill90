@@ -36,6 +36,7 @@ export const NAV_ITEMS: NavItem[] = [
       { type: 'link', id: 'models', label: 'Models', href: '/harness/models', icon: Cpu },
       { type: 'link', id: 'policies', label: 'Policies', href: '/harness/policies', icon: Shield },
       { type: 'link', id: 'skills', label: 'Skills', href: '/harness/skills', icon: Wrench },
+      { type: 'link', id: 'tools', label: 'Tools', href: '/harness/tools', icon: Settings, adminOnly: true },
       { type: 'link', id: 'usage', label: 'Usage', href: '/harness/usage', icon: BarChart3 },
       { type: 'link', id: 'knowledge', label: 'Knowledge', href: '/harness/knowledge', icon: BookOpen },
       { type: 'link', id: 'shared-knowledge', label: 'Shared Knowledge', href: '/harness/shared-knowledge', icon: Library },
