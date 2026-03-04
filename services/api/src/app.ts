@@ -6,6 +6,7 @@ import knowledgeRouter from './routes/knowledge';
 import sharedKnowledgeRouter from './routes/shared-knowledge';
 import modelPoliciesRouter from './routes/model-policies';
 import skillsRouter from './routes/skills';
+import toolsRouter from './routes/tools';
 import providerConnectionsRouter from './routes/provider-connections';
 import userModelsRouter from './routes/user-models';
 import profileRouter from './routes/profile';
@@ -54,6 +55,9 @@ export function createApp(opts: AppOptions = {}): Application {
   // Skill management routes (admin-only mutations, enforced in router)
   app.use('/skills', requireAuth, skillsRouter);
   app.use('/tool-presets', requireAuth, skillsRouter); // compat alias
+
+  // Tools catalog routes (admin-only mutations, enforced in router)
+  app.use('/tools', requireAuth, toolsRouter);
 
   // Provider connections (user-scoped BYOK credentials)
   app.use('/provider-connections', requireAuth, providerConnectionsRouter);

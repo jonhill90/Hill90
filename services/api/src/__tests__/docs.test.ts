@@ -172,6 +172,8 @@ const EXPECTED_PATHS = [
   '/shared-knowledge/search',
   '/skills',
   '/skills/{id}',
+  '/tools',
+  '/tools/{id}',
   '/agents/{id}/skills',
   '/agents/{id}/skills/{skillId}',
 ];

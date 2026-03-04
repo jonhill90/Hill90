@@ -36,8 +36,7 @@ const MOCK_SKILLS = [
     },
     instructions_md: 'You have no shell or filesystem access. You can only monitor your own resource usage via the health endpoint.',
     is_platform: true,
-    kind: 'profile' as const,
-    tool_dependencies: [],
+    tools: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   },
@@ -53,8 +52,7 @@ const MOCK_SKILLS = [
     },
     instructions_md: 'You have full developer access with bash, git, make, curl, and jq available. Use /workspace as your primary working directory.',
     is_platform: true,
-    kind: 'profile' as const,
-    tool_dependencies: [],
+    tools: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   },
@@ -70,17 +68,28 @@ const MOCK_SKILLS = [
     },
     instructions_md: 'Run CI pipelines in isolated containers.',
     is_platform: false,
-    kind: 'skill' as const,
-    tool_dependencies: ['gh', 'git'],
+    tools: [
+      { id: 'tool-gh', name: 'gh', description: 'GitHub CLI', install_method: 'binary' },
+      { id: 'tool-git', name: 'git', description: 'VCS', install_method: 'builtin' },
+    ],
     created_at: '2026-02-15T00:00:00Z',
     updated_at: '2026-02-15T00:00:00Z',
   },
+]
+
+const MOCK_TOOLS = [
+  { id: 'tool-bash', name: 'bash', description: 'Shell', install_method: 'builtin', install_ref: '', is_platform: true },
+  { id: 'tool-git', name: 'git', description: 'VCS', install_method: 'builtin', install_ref: '', is_platform: true },
+  { id: 'tool-gh', name: 'gh', description: 'GitHub CLI', install_method: 'binary', install_ref: '', is_platform: true },
 ]
 
 function mockFetchDefaults(skills = MOCK_SKILLS) {
   mockFetch.mockImplementation((url: string, opts?: any) => {
     if (url === '/api/skills' && (!opts || !opts.method || opts.method === 'GET')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(skills) })
+    }
+    if (url === '/api/tools' && (!opts || !opts.method || opts.method === 'GET')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_TOOLS) })
     }
     if (url === '/api/skills' && opts?.method === 'POST') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'new-preset', ...JSON.parse(opts.body) }) })
@@ -116,8 +125,8 @@ describe('SkillsClient', () => {
     await waitFor(() => {
       expect(screen.getByText('Skills')).toBeInTheDocument()
     })
-    // Should show separate profiles/skills counts
-    expect(screen.getByText('2 profiles, 1 skill')).toBeInTheDocument()
+    // Should show single count for all skills
+    expect(screen.getByText('3 skills')).toBeInTheDocument()
   })
 
   // T8: Skills page shows instructions preview in expanded view
@@ -188,46 +197,63 @@ describe('SkillsClient', () => {
       expect(screen.getByText('Minimal')).toBeInTheDocument()
     })
 
-    // container_local → "Container"
+    // container_local -> "Container"
     expect(screen.getByText('Container')).toBeInTheDocument()
-    // host_docker → "Host · Docker"
+    // host_docker -> "Host . Docker"
     expect(screen.getByText('Host · Docker')).toBeInTheDocument()
-    // vps_system → "VPS · System"
+    // vps_system -> "VPS . System"
     expect(screen.getByText('VPS · System')).toBeInTheDocument()
   })
 
-  // U1: Harness shows separate Profiles and Skills sections
-  it('Harness shows separate Profiles and Skills sections', async () => {
-    render(<SkillsClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('Profiles (sandbox presets)')).toBeInTheDocument()
-      expect(screen.getByText('Skills (capabilities)')).toBeInTheDocument()
-    })
-  })
-
-  // U2: Skill with tool_dependencies shows Requires badges
-  it('Skill with tool_dependencies shows Requires badges', async () => {
-    render(<SkillsClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('CI Runner')).toBeInTheDocument()
-    })
-
-    expect(screen.getByText('Requires: gh, git')).toBeInTheDocument()
-  })
-
-  // U3: Profile shows no Requires badges for empty tool_dependencies
-  it('Profile shows no Requires badges for empty tool_dependencies', async () => {
+  // U1: No separate Profiles/Skills sections — single flat list
+  it('shows all skills in a single list without Profiles/Skills headings', async () => {
     render(<SkillsClient />)
 
     await waitFor(() => {
       expect(screen.getByText('Minimal')).toBeInTheDocument()
     })
 
-    // Minimal is a profile with empty tool_dependencies — should not show "Requires"
-    const minimalCard = screen.getByText('Minimal').closest('[class*="rounded-lg"]')!
-    expect(minimalCard.textContent).not.toContain('Requires')
+    // Should NOT have separate section headings
+    expect(screen.queryByText('Profiles (sandbox presets)')).not.toBeInTheDocument()
+    expect(screen.queryByText('Skills (capabilities)')).not.toBeInTheDocument()
+
+    // All three skills should be visible in a single list
+    expect(screen.getByText('Developer')).toBeInTheDocument()
+    expect(screen.getByText('CI Runner')).toBeInTheDocument()
+  })
+
+  // U2: Skill with tools shows Tools badges
+  it('Skill with tools shows Tools badges', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Tools: gh, git')).toBeInTheDocument()
+  })
+
+  // U3: Create form has tool checkboxes
+  it('SkillsClient create form has tool checkboxes', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Skill'))
+
+    await waitFor(() => {
+      expect(screen.getByText('New Skill')).toBeInTheDocument()
+    })
+
+    // Tool checkboxes should appear
+    await waitFor(() => {
+      expect(screen.getByText('Required Tools')).toBeInTheDocument()
+    })
+    expect(screen.getByLabelText('bash')).toBeInTheDocument()
+    expect(screen.getByLabelText('git')).toBeInTheDocument()
+    expect(screen.getByLabelText('gh')).toBeInTheDocument()
   })
 
   // T11: Nav says "Skills" with /harness/skills href

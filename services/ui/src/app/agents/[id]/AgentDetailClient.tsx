@@ -20,7 +20,8 @@ interface Agent {
   rules_md: string
   container_id: string | null
   model_policy_id: string | null
-  skills: Array<{ id: string; name: string; scope: string; kind?: string; tool_dependencies?: string[]; instructions_md?: string }>
+  sandbox_profile?: string | null
+  skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
   error_message: string | null
   created_at: string
   updated_at: string
@@ -40,8 +41,7 @@ interface SkillRecord {
   id: string
   name: string
   scope: string
-  kind?: string
-  tool_dependencies?: string[]
+  tools?: Array<{ id: string; name: string }>
   instructions_md?: string
 }
 
@@ -406,6 +406,18 @@ export default function AgentDetailClient({
                 <dd className="text-white mt-1">{new Date(agent.updated_at).toLocaleString()}</dd>
               </div>
             </dl>
+            {agent.sandbox_profile && (
+              <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm mt-4">
+                <div>
+                  <dt className="text-mountain-400">Sandbox Profile</dt>
+                  <dd className="text-white mt-1">
+                    <span className="px-2 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600">
+                      {agent.sandbox_profile}
+                    </span>
+                  </dd>
+                </div>
+              </dl>
+            )}
             {agent.error_message && (
               <div className="mt-3 rounded-md border border-red-700 bg-red-900/30 p-3 text-sm text-red-400">
                 {agent.error_message}
@@ -473,16 +485,9 @@ export default function AgentDetailClient({
                           <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
                             {badge.label}
                           </span>
-                          <span className={`px-1.5 py-0.5 text-xs rounded-md ${
-                            skill.kind === 'profile'
-                              ? 'bg-navy-800 text-blue-400 border border-navy-600'
-                              : 'bg-brand-900/50 text-brand-400 border border-brand-700'
-                          }`}>
-                            {skill.kind === 'profile' ? 'Profile' : 'Skill'}
-                          </span>
-                          {skill.tool_dependencies && skill.tool_dependencies.length > 0 && (
+                          {skill.tools && skill.tools.length > 0 && (
                             <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
-                              Requires: {skill.tool_dependencies.join(', ')}
+                              Tools: {skill.tools.map(t => t.name).join(', ')}
                             </span>
                           )}
                         </div>

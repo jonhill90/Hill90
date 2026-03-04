@@ -25,8 +25,7 @@ interface SkillOption {
   tools_config: ToolsConfig
   instructions_md?: string
   is_platform: boolean
-  kind?: 'skill' | 'profile'
-  tool_dependencies?: string[]
+  tools?: Array<{ id: string; name: string }>
 }
 
 const ELEVATED_SCOPES = ['host_docker', 'vps_system']
@@ -67,6 +66,7 @@ export default function AgentFormClient({
     rules_md: string
     model_policy_id?: string | null
     skills?: Array<{ id: string; name: string; scope: string }>
+    sandbox_profile?: string | null
   }
   agentUuid?: string
   disabled?: boolean
@@ -90,6 +90,7 @@ export default function AgentFormClient({
   const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
   const [policies, setPolicies] = useState<PolicyOption[]>([])
   const [skills, setSkills] = useState<SkillOption[]>([])
+  const [sandboxProfile, setSandboxProfile] = useState(initial?.sandbox_profile || '')
   // Mode: 'custom' = manual tools_config; 'skills' = checkbox multi-select
   const hasInitialSkills = (initial?.skills?.length ?? 0) > 0
   const [mode, setMode] = useState<'custom' | 'skills'>(
@@ -182,6 +183,7 @@ export default function AgentFormClient({
       rules_md: rulesMd,
       model_policy_id: modelPolicyId || null,
       skill_ids: mode === 'skills' ? [...selectedSkillIds] : [],
+      sandbox_profile: sandboxProfile || null,
     }
 
     try {
@@ -287,6 +289,23 @@ export default function AgentFormClient({
       <fieldset disabled={disabled} className="space-y-4">
         <legend className="text-lg font-semibold text-white mb-4">Tools</legend>
 
+        {/* Sandbox Profile */}
+        <div className="mb-4">
+          <label htmlFor="sandbox_profile" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">Sandbox Profile</label>
+          <select
+            id="sandbox_profile"
+            value={sandboxProfile}
+            onChange={(e) => setSandboxProfile(e.target.value)}
+            className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
+          >
+            <option value="">None (custom / skill-only)</option>
+            <option value="minimal">Minimal</option>
+            <option value="developer">Developer</option>
+            <option value="research">Research</option>
+            <option value="operator">Operator</option>
+          </select>
+        </div>
+
         {/* Mode radio toggle */}
         <div className="flex items-center gap-4" role="radiogroup" aria-label="Tools mode">
           <label className="flex items-center gap-2 cursor-pointer">
@@ -321,63 +340,30 @@ export default function AgentFormClient({
             </p>
             {(() => {
               const visibleSkills = isAdmin ? skills : skills.filter(s => !ELEVATED_SCOPES.includes(s.scope))
-              const profiles = visibleSkills.filter(s => s.kind === 'profile')
-              const skillItems = visibleSkills.filter(s => s.kind !== 'profile')
               return (
-                <div className="space-y-4">
-                  {profiles.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-2">Profiles (sandbox presets)</p>
-                      <div className="space-y-2">
-                        {profiles.map((skill) => {
-                          const badge = scopeBadge(skill.scope)
-                          return (
-                            <label key={skill.id} className="flex items-center gap-3 cursor-pointer py-1">
-                              <input
-                                type="checkbox"
-                                checked={selectedSkillIds.has(skill.id)}
-                                onChange={() => handleSkillToggle(skill.id)}
-                                className="rounded border-navy-600"
-                              />
-                              <span className="text-sm text-white">{skill.name}</span>
-                              <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
-                                {badge.label}
-                              </span>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {skillItems.length > 0 && (
-                    <div>
-                      <p className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-2">Skills (capabilities)</p>
-                      <div className="space-y-2">
-                        {skillItems.map((skill) => {
-                          const badge = scopeBadge(skill.scope)
-                          return (
-                            <label key={skill.id} className="flex items-center gap-3 cursor-pointer py-1">
-                              <input
-                                type="checkbox"
-                                checked={selectedSkillIds.has(skill.id)}
-                                onChange={() => handleSkillToggle(skill.id)}
-                                className="rounded border-navy-600"
-                              />
-                              <span className="text-sm text-white">{skill.name}</span>
-                              <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
-                                {badge.label}
-                              </span>
-                              {skill.tool_dependencies && skill.tool_dependencies.length > 0 && (
-                                <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
-                                  {skill.tool_dependencies.join(', ')}
-                                </span>
-                              )}
-                            </label>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
+                <div className="space-y-2">
+                  {visibleSkills.map((skill) => {
+                    const badge = scopeBadge(skill.scope)
+                    return (
+                      <label key={skill.id} className="flex items-center gap-3 cursor-pointer py-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedSkillIds.has(skill.id)}
+                          onChange={() => handleSkillToggle(skill.id)}
+                          className="rounded border-navy-600"
+                        />
+                        <span className="text-sm text-white">{skill.name}</span>
+                        <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
+                          {badge.label}
+                        </span>
+                        {skill.tools && skill.tools.length > 0 && (
+                          <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
+                            {skill.tools.map(t => t.name).join(', ')}
+                          </span>
+                        )}
+                      </label>
+                    )
+                  })}
                   {visibleSkills.length === 0 && (
                     <p className="text-xs text-mountain-500">No skills available</p>
                   )}

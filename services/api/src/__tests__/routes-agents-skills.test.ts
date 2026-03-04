@@ -98,6 +98,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup (user scope)
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
       .mockResolvedValueOnce({ rows: [assignmentRecord] }) // INSERT (additive)
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] }) // SELECT all skills for merge
       .mockResolvedValueOnce({ rowCount: 1 });            // UPDATE agents.tools_config
 
@@ -141,6 +142,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
       .mockResolvedValueOnce({ rows: [assignmentRecord] }) // INSERT
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({                            // SELECT all skills for merge (2 skills now)
         rows: [
           { tools_config: devToolsConfig },
@@ -157,7 +159,7 @@ describe('Agent skill assignment endpoints', () => {
     expect(res.status).toBe(201);
 
     // Verify the UPDATE used a merged config
-    const updateCall = mockQuery.mock.calls[4];
+    const updateCall = mockQuery.mock.calls[5];
     expect(updateCall[0]).toContain('UPDATE agents');
     const mergedConfig = JSON.parse(updateCall[1][0]);
     // OR: shell enabled because devToolsConfig has shell.enabled=true
@@ -172,6 +174,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })
       .mockResolvedValueOnce({ rows: [containerSkill] })
       .mockResolvedValueOnce({ rows: [assignmentRecord] }) // INSERT
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] }) // SELECT all skills
       .mockResolvedValueOnce({ rowCount: 1 });            // UPDATE agents.tools_config
 
@@ -220,6 +223,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })   // agent lookup (admin scope = 1=1)
       .mockResolvedValueOnce({ rows: [hostDockerSkill] }) // skill lookup
       .mockResolvedValueOnce({ rows: [adminAssignment] }) // INSERT
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] }) // SELECT all skills
       .mockResolvedValueOnce({ rowCount: 1 });            // UPDATE agents.tools_config
 
@@ -292,6 +296,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
       .mockResolvedValueOnce({ rowCount: 1 })            // DELETE
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({ rows: [{ tools_config: minToolsConfig }] }) // remaining skills
       .mockResolvedValueOnce({ rowCount: 1 });           // UPDATE agents.tools_config
 
@@ -303,7 +308,7 @@ describe('Agent skill assignment endpoints', () => {
     expect(res.body.removed).toBe(true);
 
     // Verify UPDATE agents was called with remaining skill's config
-    const updateCall = mockQuery.mock.calls[4];
+    const updateCall = mockQuery.mock.calls[5];
     expect(updateCall[0]).toContain('UPDATE agents');
     const updatedConfig = JSON.parse(updateCall[1][0]);
     expect(updatedConfig.shell.enabled).toBe(false);
@@ -316,6 +321,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
       .mockResolvedValueOnce({ rowCount: 1 })            // DELETE
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({ rows: [] })               // no remaining skills
       .mockResolvedValueOnce({ rowCount: 1 });           // UPDATE agents.tools_config
 
@@ -326,7 +332,7 @@ describe('Agent skill assignment endpoints', () => {
     expect(res.status).toBe(200);
 
     // Verify UPDATE used default config (shell/fs disabled, health enabled)
-    const updateCall = mockQuery.mock.calls[4];
+    const updateCall = mockQuery.mock.calls[5];
     expect(updateCall[0]).toContain('UPDATE agents');
     const defaultConfig = JSON.parse(updateCall[1][0]);
     expect(defaultConfig.shell.enabled).toBe(false);
@@ -354,6 +360,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })
       .mockResolvedValueOnce({ rows: [containerSkill] })
       .mockResolvedValueOnce({ rowCount: 1 })             // DELETE
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({ rows: [] })                 // remaining skills (empty)
       .mockResolvedValueOnce({ rowCount: 1 });             // UPDATE agents.tools_config
 
@@ -398,6 +405,7 @@ describe('Agent skill assignment endpoints', () => {
       .mockResolvedValueOnce({ rows: [stoppedAgent] })
       .mockResolvedValueOnce({ rows: [vpsSystemSkill] })
       .mockResolvedValueOnce({ rowCount: 1 })             // DELETE
+      .mockResolvedValueOnce({ rows: [{ sandbox_profile: null }] }) // SELECT sandbox_profile
       .mockResolvedValueOnce({ rows: [] })                 // remaining skills (empty)
       .mockResolvedValueOnce({ rowCount: 1 });             // UPDATE agents.tools_config
 

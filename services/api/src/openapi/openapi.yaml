@@ -56,6 +56,11 @@ components:
           format: uuid
           nullable: true
           description: ID of the model policy controlling LLM access. Users can assign own or platform policies to own agents; admins can assign any.
+        sandbox_profile:
+          type: string
+          nullable: true
+          enum: [minimal, developer, research, operator]
+          description: Sandbox profile providing base tool configuration
         skills:
           type: array
           items:
@@ -69,7 +74,22 @@ components:
               scope:
                 type: string
                 enum: [container_local, host_docker, vps_system]
-          description: Skills assigned to this agent (max 1 in current phase).
+              tools:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    install_method:
+                      type: string
+                      enum: [builtin, apt, binary]
+          description: Skills assigned to this agent.
         error_message:
           type: string
           nullable: true
@@ -260,22 +280,21 @@ components:
           enum: [container_local, host_docker, vps_system]
           default: container_local
           description: Scope determines assignment authority. container_local — any user. host_docker/vps_system — admin only.
-        kind:
-          type: string
-          enum: [skill, profile]
-          default: skill
-          description: >-
-            Concept type. 'skill' = capability declaration with tool requirements
-            and behavioral guidance. 'profile' = sandbox environment preset.
-        tool_dependencies:
+        tools:
           type: array
           items:
-            type: string
-          default: []
-          description: >-
-            Binary names this skill requires (e.g., ["gh", "git"]).
-            Declarative — not enforced at runtime.
-            Must be empty for kind=profile.
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+              description:
+                type: string
+              install_method:
+                type: string
+                enum: [builtin, apt, binary]
         is_platform:
           type: boolean
           description: Platform skills are immutable and undeletable.
@@ -289,6 +308,41 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    Tool:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        install_method:
+          type: string
+          enum: [builtin, apt, binary]
+        install_ref:
+          type: string
+        is_platform:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ToolCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        install_method:
+          type: string
+          enum: [builtin, apt, binary]
+        install_ref:
+          type: string
 
     UsageSummary:
       type: object
@@ -654,6 +708,11 @@ paths:
                   format: uuid
                   nullable: true
                   description: ID of a model policy to assign at creation. Users can assign own or platform policies; admins can assign any.
+                sandbox_profile:
+                  type: string
+                  nullable: true
+                  enum: [minimal, developer, research, operator]
+                  description: Sandbox profile providing base tool configuration
                 skill_ids:
                   type: array
                   items:
@@ -737,6 +796,11 @@ paths:
                   format: uuid
                   nullable: true
                   description: Model policy ID. Users can assign own or platform policies; admins can assign any. Set to null to remove.
+                sandbox_profile:
+                  type: string
+                  nullable: true
+                  enum: [minimal, developer, research, operator]
+                  description: Sandbox profile providing base tool configuration
                 skill_ids:
                   type: array
                   items:
@@ -2190,6 +2254,12 @@ paths:
                   enum: [container_local, host_docker, vps_system]
                   default: container_local
                   description: Scope determines assignment authority.
+                tool_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Tool IDs to associate with this skill
       responses:
         "201":
           description: Skill created
@@ -2257,6 +2327,12 @@ paths:
                 scope:
                   type: string
                   enum: [container_local, host_docker, vps_system]
+                tool_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Tool IDs to associate with this skill
       responses:
         "200":
           description: Skill updated
@@ -2296,6 +2372,130 @@ paths:
           description: Skill not found
         "409":
           description: Skill is assigned to agents
+
+  /tools:
+    get:
+      summary: List tools
+      description: Returns all tools in the catalog.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tool list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tool"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+    post:
+      summary: Create tool
+      description: Creates a new tool. Admin only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolCreate"
+      responses:
+        "201":
+          description: Tool created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tool"
+        "400":
+          description: Invalid input
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "409":
+          description: Duplicate tool name
+
+  /tools/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get tool
+      description: Returns a single tool. All authenticated users can read.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tool detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tool"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Tool not found
+
+    put:
+      summary: Update tool
+      description: Updates a tool. Admin only. Platform tools are immutable (403).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ToolCreate"
+      responses:
+        "200":
+          description: Tool updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tool"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role or platform tool is immutable
+        "404":
+          description: Tool not found
+
+    delete:
+      summary: Delete tool
+      description: Deletes a tool. Admin only. Platform tools cannot be deleted. Tools referenced by skills cannot be deleted.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Tool deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role or platform tool is undeletable
+        "404":
+          description: Tool not found
+        "409":
+          description: Tool is referenced by a skill
 
   /agents/{id}/skills:
     parameters:

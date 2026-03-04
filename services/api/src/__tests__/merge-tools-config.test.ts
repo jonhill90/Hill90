@@ -249,4 +249,46 @@ describe('mergeToolsConfigs', () => {
     expect(result.filesystem.allowed_paths.sort()).toEqual(['/data', '/workspace']);
     expect(result.filesystem.denied_paths.sort()).toEqual(['/etc/shadow', '/root']);
   });
+
+  // T24: Profile base + skill overlay merge
+  it('mergeToolsConfigs with profile base + skill overlay', () => {
+    // Import SANDBOX_PROFILES lazily to verify it works with mergeToolsConfigs
+    const { SANDBOX_PROFILES } = require('../services/sandbox-profiles');
+    const developerProfile: ToolsConfig = SANDBOX_PROFILES.developer;
+
+    const skillConfig: ToolsConfig = {
+      shell: { enabled: true, allowed_binaries: ['python3'], denied_patterns: ['eval'], max_timeout: 600 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/opt/data'], denied_paths: [] },
+      health: { enabled: true },
+    };
+
+    const result = mergeToolsConfigs([developerProfile, skillConfig]);
+
+    // shell.enabled: OR → true (both true)
+    expect(result.shell.enabled).toBe(true);
+    // shell.allowed_binaries: UNION of developer + skill
+    expect(result.shell.allowed_binaries).toContain('bash');
+    expect(result.shell.allowed_binaries).toContain('git');
+    expect(result.shell.allowed_binaries).toContain('make');
+    expect(result.shell.allowed_binaries).toContain('python3');
+    // shell.denied_patterns: UNION
+    expect(result.shell.denied_patterns).toContain('rm -rf /');
+    expect(result.shell.denied_patterns).toContain('eval');
+    // shell.max_timeout: MAX(300, 600) = 600
+    expect(result.shell.max_timeout).toBe(600);
+    // filesystem.enabled: OR → true
+    expect(result.filesystem.enabled).toBe(true);
+    // filesystem.read_only: AND → false (both false)
+    expect(result.filesystem.read_only).toBe(false);
+    // filesystem.allowed_paths: UNION
+    expect(result.filesystem.allowed_paths).toContain('/workspace');
+    expect(result.filesystem.allowed_paths).toContain('/data');
+    expect(result.filesystem.allowed_paths).toContain('/opt/data');
+    // filesystem.denied_paths: UNION
+    expect(result.filesystem.denied_paths).toContain('/etc/shadow');
+    expect(result.filesystem.denied_paths).toContain('/etc/passwd');
+    expect(result.filesystem.denied_paths).toContain('/root');
+    // health.enabled: OR → true
+    expect(result.health.enabled).toBe(true);
+  });
 });

@@ -106,6 +106,8 @@ describe('Skill CRUD routes', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [developerSkill, minimalSkill, adminCreatedSkill],
     });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/skills')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -117,6 +119,8 @@ describe('Skill CRUD routes', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [developerSkill, minimalSkill],
     });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/skills')
       .set('Authorization', `Bearer ${userToken}`);
@@ -169,6 +173,8 @@ describe('Skill CRUD routes', () => {
   it('POST /skills admin creates skill', async () => {
     const newSkill = { ...adminCreatedSkill, id: 'new-id' };
     mockQuery.mockResolvedValueOnce({ rows: [newSkill] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .post('/skills')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -194,6 +200,8 @@ describe('Skill CRUD routes', () => {
 
   it('GET /skills/:id returns skill', async () => {
     mockQuery.mockResolvedValueOnce({ rows: [developerSkill] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/skills/skill-dev')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -231,6 +239,8 @@ describe('Skill CRUD routes', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [adminCreatedSkill] })
       .mockResolvedValueOnce({ rows: [{ ...adminCreatedSkill, name: 'Renamed' }] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .put('/skills/skill-custom')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -293,6 +303,8 @@ describe('Skill CRUD routes', () => {
       instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.',
     };
     mockQuery.mockResolvedValueOnce({ rows: [skillWithInstructions] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/skills')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -309,6 +321,8 @@ describe('Skill CRUD routes', () => {
       instructions_md: 'Custom instructions for this skill.',
     };
     mockQuery.mockResolvedValueOnce({ rows: [created] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .post('/skills')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -330,6 +344,8 @@ describe('Skill CRUD routes', () => {
       .mockResolvedValueOnce({
         rows: [{ ...adminCreatedSkill, instructions_md: 'Updated instructions.' }],
       });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .put('/skills/skill-custom')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -343,6 +359,8 @@ describe('Skill CRUD routes', () => {
   it('GET /skills includes scope in response', async () => {
     const skillWithScope = { ...developerSkill, scope: 'container_local' };
     mockQuery.mockResolvedValueOnce({ rows: [skillWithScope] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/skills')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -355,6 +373,8 @@ describe('Skill CRUD routes', () => {
   it('POST /skills admin creates skill with scope', async () => {
     const created = { ...adminCreatedSkill, id: 'new-id', scope: 'host_docker' };
     mockQuery.mockResolvedValueOnce({ rows: [created] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .post('/skills')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -400,6 +420,8 @@ describe('Skill CRUD routes', () => {
       instructions_md: '',
     };
     mockQuery.mockResolvedValueOnce({ rows: [created] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .post('/skills')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -417,6 +439,8 @@ describe('Skill CRUD routes', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [developerSkill, minimalSkill],
     });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .get('/tool-presets')
       .set('Authorization', `Bearer ${adminToken}`);
@@ -428,6 +452,8 @@ describe('Skill CRUD routes', () => {
   it('POST /tool-presets compat alias creates skill', async () => {
     const newSkill = { ...adminCreatedSkill, id: 'new-id' };
     mockQuery.mockResolvedValueOnce({ rows: [newSkill] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .post('/tool-presets')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -442,193 +468,126 @@ describe('Skill CRUD routes', () => {
     expect(insertCall[0]).toContain('INSERT INTO skills');
   });
 
-  // kind and tool_dependencies
-  describe('kind and tool_dependencies', () => {
-    // T1: GET /skills returns kind and tool_dependencies
-    it('GET /skills returns kind and tool_dependencies', async () => {
-      const skillWithKind = { ...developerSkill, kind: 'profile', tool_dependencies: [] };
-      const skillWithDeps = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: ['gh', 'git'] };
-      mockQuery.mockResolvedValueOnce({ rows: [skillWithKind, skillWithDeps] });
+  // tools array on skills
+  describe('tools array on skills', () => {
+    // T11: GET /skills does NOT return kind or tool_dependencies
+    it('GET /skills does NOT return kind or tool_dependencies', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [developerSkill] });
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      await request(app)
+        .get('/skills')
+        .set('Authorization', `Bearer ${adminToken}`);
+      const selectCall = mockQuery.mock.calls[0][0];
+      expect(selectCall).not.toContain('kind');
+      expect(selectCall).not.toContain('tool_dependencies');
+    });
+
+    // T12: GET /skills returns tools array per skill
+    it('GET /skills returns tools array per skill', async () => {
+      mockQuery.mockResolvedValueOnce({ rows: [developerSkill] });
+      // fetchToolsForSkills returns tools for skill-dev
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ skill_id: 'skill-dev', id: 'tool-1', name: 'bash', description: 'shell', install_method: 'builtin' }],
+      });
       const res = await request(app)
         .get('/skills')
         .set('Authorization', `Bearer ${adminToken}`);
       expect(res.status).toBe(200);
-      expect(res.body[0].kind).toBe('profile');
-      expect(res.body[0].tool_dependencies).toEqual([]);
-      expect(res.body[1].kind).toBe('skill');
-      expect(res.body[1].tool_dependencies).toEqual(['gh', 'git']);
+      expect(res.body[0].tools).toHaveLength(1);
+      expect(res.body[0].tools[0].name).toBe('bash');
     });
 
-    // T2: GET /skills?kind=profile returns only profiles
-    it('GET /skills?kind=profile returns only profiles', async () => {
-      const profileSkill = { ...developerSkill, kind: 'profile', tool_dependencies: [] };
-      mockQuery.mockResolvedValueOnce({ rows: [profileSkill] });
-      const res = await request(app)
-        .get('/skills?kind=profile')
-        .set('Authorization', `Bearer ${adminToken}`);
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveLength(1);
-      expect(res.body[0].kind).toBe('profile');
-      const selectCall = mockQuery.mock.calls[0];
-      expect(selectCall[0]).toContain('WHERE kind = $1');
-      expect(selectCall[1]).toContain('profile');
-    });
-
-    // T3: GET /skills?kind=skill returns only skills
-    it('GET /skills?kind=skill returns only skills', async () => {
-      const skillOnly = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: [] };
-      mockQuery.mockResolvedValueOnce({ rows: [skillOnly] });
-      const res = await request(app)
-        .get('/skills?kind=skill')
-        .set('Authorization', `Bearer ${adminToken}`);
-      expect(res.status).toBe(200);
-      expect(res.body).toHaveLength(1);
-      expect(res.body[0].kind).toBe('skill');
-      const selectCall = mockQuery.mock.calls[0];
-      expect(selectCall[0]).toContain('WHERE kind = $1');
-      expect(selectCall[1]).toContain('skill');
-    });
-
-    // T4: POST /skills defaults kind to 'skill'
-    it('POST /skills defaults kind to skill', async () => {
-      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'skill', tool_dependencies: [] };
+    // T13: POST /skills with tool_ids creates skill_tools rows
+    it('POST /skills with tool_ids creates skill_tools rows', async () => {
+      const created = { ...adminCreatedSkill, id: 'skill-new' };
+      // 1. INSERT skill
       mockQuery.mockResolvedValueOnce({ rows: [created] });
+      // 2. setSkillTools: validate tool_ids exist
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'tool-1' }] });
+      // 3. setSkillTools: DELETE existing skill_tools
+      mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+      // 4. setSkillTools: INSERT skill_tools
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+      // 5. fetchToolsForSkills
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ skill_id: 'skill-new', id: 'tool-1', name: 'bash', description: 'shell', install_method: 'builtin' }],
+      });
+
       const res = await request(app)
         .post('/skills')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          name: 'Default Kind Skill',
+          name: 'New Skill',
           tools_config: adminCreatedSkill.tools_config,
+          tool_ids: ['tool-1'],
         });
       expect(res.status).toBe(201);
-      const insertCall = mockQuery.mock.calls[0];
-      expect(insertCall[0]).toContain('INSERT INTO skills');
-      expect(insertCall[1]).toContain('skill');
+      expect(res.body.tools).toHaveLength(1);
+      expect(res.body.tools[0].id).toBe('tool-1');
     });
 
-    // T5: POST /skills creates profile with kind=profile
-    it('POST /skills creates profile with kind=profile', async () => {
-      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'profile', tool_dependencies: [] };
+    // T14: POST /skills with invalid tool_ids returns 400
+    it('POST /skills with invalid tool_ids returns 400', async () => {
+      const created = { ...adminCreatedSkill, id: 'skill-new' };
+      // 1. INSERT skill
       mockQuery.mockResolvedValueOnce({ rows: [created] });
-      const res = await request(app)
-        .post('/skills')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          name: 'My Profile',
-          tools_config: adminCreatedSkill.tools_config,
-          kind: 'profile',
-        });
-      expect(res.status).toBe(201);
-      const insertCall = mockQuery.mock.calls[0];
-      expect(insertCall[1]).toContain('profile');
-    });
+      // 2. setSkillTools: validate tool_ids — returns empty (not found)
+      mockQuery.mockResolvedValueOnce({ rows: [] });
 
-    // T6: POST /skills creates skill with tool_dependencies
-    it('POST /skills creates skill with tool_dependencies', async () => {
-      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'skill', tool_dependencies: ['gh', 'git'] };
-      mockQuery.mockResolvedValueOnce({ rows: [created] });
       const res = await request(app)
         .post('/skills')
         .set('Authorization', `Bearer ${adminToken}`)
         .send({
-          name: 'Deps Skill',
+          name: 'Bad Tools',
           tools_config: adminCreatedSkill.tools_config,
-          tool_dependencies: ['gh', 'git'],
-        });
-      expect(res.status).toBe(201);
-      const insertCall = mockQuery.mock.calls[0];
-      expect(insertCall[0]).toContain('tool_dependencies');
-      expect(insertCall[1]).toContain(JSON.stringify(['gh', 'git']));
-    });
-
-    // T7: POST /skills defaults tool_dependencies to []
-    it('POST /skills defaults tool_dependencies to empty array', async () => {
-      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'skill', tool_dependencies: [] };
-      mockQuery.mockResolvedValueOnce({ rows: [created] });
-      const res = await request(app)
-        .post('/skills')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          name: 'No Deps Skill',
-          tools_config: adminCreatedSkill.tools_config,
-        });
-      expect(res.status).toBe(201);
-      const insertCall = mockQuery.mock.calls[0];
-      expect(insertCall[1]).toContain('[]');
-    });
-
-    // T8: POST /skills rejects profile with non-empty tool_dependencies
-    it('POST /skills rejects profile with non-empty tool_dependencies', async () => {
-      const res = await request(app)
-        .post('/skills')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          name: 'Bad Profile',
-          tools_config: adminCreatedSkill.tools_config,
-          kind: 'profile',
-          tool_dependencies: ['gh'],
+          tool_ids: ['nonexistent'],
         });
       expect(res.status).toBe(400);
-      expect(res.body.error).toContain('Profiles cannot have tool_dependencies');
+      expect(res.body.error).toContain('Tool(s) not found');
     });
 
-    // T9: POST /skills rejects invalid kind
-    it('POST /skills rejects invalid kind', async () => {
-      const res = await request(app)
-        .post('/skills')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          name: 'Bad Kind',
-          tools_config: adminCreatedSkill.tools_config,
-          kind: 'banana',
-        });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('kind');
-    });
+    // T15: PUT /skills/:id with tool_ids replaces skill_tools
+    it('PUT /skills/:id with tool_ids replaces skill_tools', async () => {
+      // 1. SELECT existing (non-platform)
+      mockQuery.mockResolvedValueOnce({ rows: [adminCreatedSkill] });
+      // 2. UPDATE skill
+      mockQuery.mockResolvedValueOnce({ rows: [{ ...adminCreatedSkill, name: 'Updated' }] });
+      // 3. setSkillTools: validate tool_ids
+      mockQuery.mockResolvedValueOnce({ rows: [{ id: 'tool-1' }] });
+      // 4. setSkillTools: DELETE existing
+      mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+      // 5. setSkillTools: INSERT
+      mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+      // 6. fetchToolsForSkills
+      mockQuery.mockResolvedValueOnce({
+        rows: [{ skill_id: 'skill-custom', id: 'tool-1', name: 'bash', description: 'shell', install_method: 'builtin' }],
+      });
 
-    // T10: POST /skills rejects non-array tool_dependencies
-    it('POST /skills rejects non-array tool_dependencies', async () => {
-      const res = await request(app)
-        .post('/skills')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          name: 'Bad Deps',
-          tools_config: adminCreatedSkill.tools_config,
-          tool_dependencies: 'not-an-array',
-        });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('tool_dependencies');
-    });
-
-    // T11: POST /skills rejects non-string array entries
-    it('POST /skills rejects non-string array entries in tool_dependencies', async () => {
-      const res = await request(app)
-        .post('/skills')
-        .set('Authorization', `Bearer ${adminToken}`)
-        .send({
-          name: 'Bad Entries',
-          tools_config: adminCreatedSkill.tools_config,
-          tool_dependencies: [123],
-        });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain('tool_dependencies');
-    });
-
-    // T12: PUT /skills/:id updates kind and tool_dependencies
-    it('PUT /skills/:id updates kind and tool_dependencies', async () => {
-      const existingSkill = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: [] };
-      const updatedSkill = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: ['gh', 'git'] };
-      mockQuery
-        .mockResolvedValueOnce({ rows: [existingSkill] })
-        .mockResolvedValueOnce({ rows: [updatedSkill] });
       const res = await request(app)
         .put('/skills/skill-custom')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ kind: 'skill', tool_dependencies: ['gh', 'git'] });
+        .send({ name: 'Updated', tool_ids: ['tool-1'] });
       expect(res.status).toBe(200);
-      const updateCall = mockQuery.mock.calls[1];
-      expect(updateCall[0]).toContain('kind');
-      expect(updateCall[0]).toContain('tool_dependencies');
+      expect(res.body.tools).toHaveLength(1);
+    });
+
+    // T17: POST /skills no longer accepts kind parameter
+    it('POST /skills no longer accepts kind parameter', async () => {
+      const created = { ...adminCreatedSkill, id: 'new-id' };
+      mockQuery.mockResolvedValueOnce({ rows: [created] });
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Test',
+          tools_config: adminCreatedSkill.tools_config,
+          kind: 'profile',
+        });
+      const insertSql = mockQuery.mock.calls[0][0];
+      expect(insertSql).not.toContain('kind');
     });
   });
 });
