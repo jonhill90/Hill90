@@ -625,3 +625,141 @@ describe('Agent start reads from agent_skills', () => {
     expect(callArgs[1]).toBeUndefined();
   });
 });
+
+// sandbox_profile tests
+describe('Agent sandbox_profile behavior', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  // T18: POST /agents with sandbox_profile sets base config
+  it('POST /agents with sandbox_profile sets base config', async () => {
+    // 1. INSERT agent (no skill lookup since no skill_ids)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, id: 'uuid-profile', sandbox_profile: 'developer' }],
+    });
+    // 2. SELECT skills for response (empty)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+        sandbox_profile: 'developer',
+      });
+
+    expect(res.status).toBe(201);
+    // Verify the INSERT used the developer profile's tools_config
+    const insertCall = mockQuery.mock.calls[0];
+    const toolsConfigParam = insertCall[1][3]; // tools_config is 4th param
+    const parsed = JSON.parse(toolsConfigParam);
+    expect(parsed.shell.enabled).toBe(true);
+    expect(parsed.shell.allowed_binaries).toContain('bash');
+    expect(parsed.shell.allowed_binaries).toContain('git');
+    expect(parsed.filesystem.enabled).toBe(true);
+  });
+
+  // T19: POST /agents with sandbox_profile + skill_ids merges
+  it('POST /agents with sandbox_profile + skill_ids merges', async () => {
+    const skillConfig = {
+      shell: { enabled: true, allowed_binaries: ['python3'], denied_patterns: [], max_timeout: 600 },
+      filesystem: { enabled: false, read_only: false, allowed_paths: [], denied_paths: [] },
+      health: { enabled: true },
+    };
+    // 1. Skill batch lookup
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-py', tools_config: skillConfig, scope: 'container_local' }],
+    });
+    // 2. INSERT agent
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, id: 'uuid-merged', sandbox_profile: 'developer' }],
+    });
+    // 3. INSERT agent_skills
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 4. SELECT skills for response
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-py', name: 'Python', scope: 'container_local' }],
+    });
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+        sandbox_profile: 'developer',
+        skill_ids: ['skill-py'],
+      });
+
+    expect(res.status).toBe(201);
+    // Verify merged: developer profile + skill config
+    const insertCall = mockQuery.mock.calls[1]; // INSERT is 2nd call
+    const parsed = JSON.parse(insertCall[1][3]);
+    expect(parsed.shell.enabled).toBe(true);
+    // UNION of developer binaries + skill's python3
+    expect(parsed.shell.allowed_binaries).toContain('bash');
+    expect(parsed.shell.allowed_binaries).toContain('python3');
+    // MAX timeout: developer=300, skill=600
+    expect(parsed.shell.max_timeout).toBe(600);
+  });
+
+  // T20: POST /agents rejects invalid sandbox_profile
+  it('POST /agents rejects invalid sandbox_profile', async () => {
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+        sandbox_profile: 'nonexistent',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('sandbox_profile');
+  });
+
+  // T22: GET /agents returns sandbox_profile
+  it('GET /agents returns sandbox_profile in query', async () => {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, sandbox_profile: 'developer', skills: [] }],
+    });
+
+    const res = await request(app)
+      .get('/agents')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const selectCall = mockQuery.mock.calls[0][0];
+    expect(selectCall).toContain('sandbox_profile');
+  });
+
+  // T23: Agent skill sub-objects have no kind or tool_dependencies
+  it('Agent skill response SQL does not contain kind or tool_dependencies', async () => {
+    // 1. INSERT agent (no skills)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, id: 'uuid-new' }],
+    });
+    // 2. SELECT skills for response
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_id: 'test-agent',
+        name: 'Test Agent',
+      });
+
+    // The SELECT skills query should not reference kind or tool_dependencies
+    const skillSelectCall = mockQuery.mock.calls[1][0];
+    expect(skillSelectCall).not.toContain('kind');
+    expect(skillSelectCall).not.toContain('tool_dependencies');
+  });
+});
