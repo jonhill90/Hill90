@@ -49,6 +49,7 @@ const AGENT_ID = '00000000-0000-0000-0000-000000000001';
 const SKILL_CONTAINER = '00000000-0000-0000-0000-000000000010';
 const SKILL_HOST_DOCKER = '00000000-0000-0000-0000-000000000020';
 const SKILL_VPS_SYSTEM = '00000000-0000-0000-0000-000000000030';
+const SKILL_CONTAINER_2 = '00000000-0000-0000-0000-000000000040';
 
 const stoppedAgent = { id: AGENT_ID, status: 'stopped' };
 const runningAgent = { id: AGENT_ID, status: 'running' };
@@ -58,7 +59,15 @@ const devToolsConfig = {
   filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow'] },
   health: { enabled: true },
 };
+
+const minToolsConfig = {
+  shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
+  filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+  health: { enabled: true },
+};
+
 const containerSkill = { id: SKILL_CONTAINER, scope: 'container_local', tools_config: devToolsConfig };
+const containerSkill2 = { id: SKILL_CONTAINER_2, scope: 'container_local', tools_config: minToolsConfig };
 const hostDockerSkill = { id: SKILL_HOST_DOCKER, scope: 'host_docker', tools_config: devToolsConfig };
 const vpsSystemSkill = { id: SKILL_VPS_SYSTEM, scope: 'vps_system', tools_config: devToolsConfig };
 
@@ -80,17 +89,17 @@ describe('Agent skill assignment endpoints', () => {
   });
 
   // -----------------------------------------------------------------------
-  // POST /agents/:id/skills
+  // POST /agents/:id/skills — additive semantics
   // -----------------------------------------------------------------------
 
-  // T1: Assign skill to agent
-  it('POST /agents/:id/skills assigns skill to agent', async () => {
+  // R1: Assign skill to agent (additive, no DELETE all)
+  it('POST /agents/:id/skills assigns skill additively', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup (user scope)
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
-      .mockResolvedValueOnce({ rowCount: 0 })            // delete existing
-      .mockResolvedValueOnce({ rows: [assignmentRecord] }) // insert
-      .mockResolvedValueOnce({ rowCount: 1 });            // update agents.tools_config
+      .mockResolvedValueOnce({ rows: [assignmentRecord] }) // INSERT (additive)
+      .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] }) // SELECT all skills for merge
+      .mockResolvedValueOnce({ rowCount: 1 });            // UPDATE agents.tools_config
 
     const res = await request(app)
       .post(`/agents/${AGENT_ID}/skills`)
@@ -100,37 +109,45 @@ describe('Agent skill assignment endpoints', () => {
     expect(res.status).toBe(201);
     expect(res.body.agent_id).toBe(AGENT_ID);
     expect(res.body.skill_id).toBe(SKILL_CONTAINER);
+
+    // Verify no DELETE FROM agent_skills was called
+    for (const call of mockQuery.mock.calls) {
+      expect(call[0]).not.toContain('DELETE FROM agent_skills');
+    }
   });
 
-  // T10: Replace semantics — assigning new skill replaces existing
-  it('POST /agents/:id/skills replaces existing skill (max 1)', async () => {
-    const newSkillId = '00000000-0000-0000-0000-000000000099';
-    const newToolsConfig = { shell: { enabled: false }, filesystem: { enabled: false }, health: { enabled: true } };
-    const newAssignment = { ...assignmentRecord, skill_id: newSkillId };
+  // R2: POST duplicate skill returns 409
+  it('POST /agents/:id/skills duplicate returns 409', async () => {
+    const pkError = new Error('duplicate key value violates unique constraint') as any;
+    pkError.code = '23505';
+
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
-      .mockResolvedValueOnce({ rows: [{ id: newSkillId, scope: 'container_local', tools_config: newToolsConfig }] }) // skill lookup
-      .mockResolvedValueOnce({ rowCount: 1 })            // delete existing (had one)
-      .mockResolvedValueOnce({ rows: [newAssignment] })  // insert new
-      .mockResolvedValueOnce({ rowCount: 1 });           // update agents.tools_config
+      .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
+      .mockRejectedValueOnce(pkError);                    // INSERT fails with PK violation
 
     const res = await request(app)
       .post(`/agents/${AGENT_ID}/skills`)
       .set('Authorization', `Bearer ${userToken}`)
-      .send({ skill_id: newSkillId });
+      .send({ skill_id: SKILL_CONTAINER });
 
-    expect(res.status).toBe(201);
-    expect(res.body.skill_id).toBe(newSkillId);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('already assigned');
   });
 
-  // T10b: POST /agents/:id/skills resolves tools_config on assign
-  it('POST /agents/:id/skills resolves tools_config into agent (resolve-on-save)', async () => {
+  // R3: POST merges tools_config from ALL skills for agent
+  it('POST /agents/:id/skills merges tools_config from all skills', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
-      .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup (includes tools_config)
-      .mockResolvedValueOnce({ rowCount: 0 })            // delete existing
-      .mockResolvedValueOnce({ rows: [assignmentRecord] }) // insert
-      .mockResolvedValueOnce({ rowCount: 1 });            // update agents.tools_config
+      .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
+      .mockResolvedValueOnce({ rows: [assignmentRecord] }) // INSERT
+      .mockResolvedValueOnce({                            // SELECT all skills for merge (2 skills now)
+        rows: [
+          { tools_config: devToolsConfig },
+          { tools_config: minToolsConfig },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 1 });            // UPDATE agents.tools_config
 
     const res = await request(app)
       .post(`/agents/${AGENT_ID}/skills`)
@@ -139,13 +156,14 @@ describe('Agent skill assignment endpoints', () => {
 
     expect(res.status).toBe(201);
 
-    // Verify the UPDATE agents query was called with the skill's tools_config
-    expect(mockQuery).toHaveBeenCalledTimes(5);
+    // Verify the UPDATE used a merged config
     const updateCall = mockQuery.mock.calls[4];
     expect(updateCall[0]).toContain('UPDATE agents');
-    expect(updateCall[0]).toContain('tools_config');
-    expect(updateCall[1][0]).toBe(JSON.stringify(devToolsConfig));
-    expect(updateCall[1][1]).toBe(AGENT_ID);
+    const mergedConfig = JSON.parse(updateCall[1][0]);
+    // OR: shell enabled because devToolsConfig has shell.enabled=true
+    expect(mergedConfig.shell.enabled).toBe(true);
+    // UNION allowed_paths: ['/workspace'] from both (deduped)
+    expect(mergedConfig.filesystem.allowed_paths).toContain('/workspace');
   });
 
   // T4: User can assign container_local skill
@@ -153,9 +171,9 @@ describe('Agent skill assignment endpoints', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })
       .mockResolvedValueOnce({ rows: [containerSkill] })
-      .mockResolvedValueOnce({ rowCount: 0 })            // delete existing
-      .mockResolvedValueOnce({ rows: [assignmentRecord] })
-      .mockResolvedValueOnce({ rowCount: 1 });            // update agents.tools_config
+      .mockResolvedValueOnce({ rows: [assignmentRecord] }) // INSERT
+      .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] }) // SELECT all skills
+      .mockResolvedValueOnce({ rowCount: 1 });            // UPDATE agents.tools_config
 
     const res = await request(app)
       .post(`/agents/${AGENT_ID}/skills`)
@@ -201,9 +219,9 @@ describe('Agent skill assignment endpoints', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })   // agent lookup (admin scope = 1=1)
       .mockResolvedValueOnce({ rows: [hostDockerSkill] }) // skill lookup
-      .mockResolvedValueOnce({ rowCount: 0 })             // delete existing
-      .mockResolvedValueOnce({ rows: [adminAssignment] }) // insert
-      .mockResolvedValueOnce({ rowCount: 1 });            // update agents.tools_config
+      .mockResolvedValueOnce({ rows: [adminAssignment] }) // INSERT
+      .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] }) // SELECT all skills
+      .mockResolvedValueOnce({ rowCount: 1 });            // UPDATE agents.tools_config
 
     const res = await request(app)
       .post(`/agents/${AGENT_ID}/skills`)
@@ -265,15 +283,17 @@ describe('Agent skill assignment endpoints', () => {
   });
 
   // -----------------------------------------------------------------------
-  // DELETE /agents/:id/skills/:skillId
+  // DELETE /agents/:id/skills/:skillId — recomputes tools_config
   // -----------------------------------------------------------------------
 
-  // T3: Remove assignment
-  it('DELETE /agents/:id/skills/:skillId removes assignment', async () => {
+  // R4: DELETE recomputes tools_config from remaining skills
+  it('DELETE /agents/:id/skills/:skillId recomputes tools_config from remaining', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
-      .mockResolvedValueOnce({ rowCount: 1 });           // delete
+      .mockResolvedValueOnce({ rowCount: 1 })            // DELETE
+      .mockResolvedValueOnce({ rows: [{ tools_config: minToolsConfig }] }) // remaining skills
+      .mockResolvedValueOnce({ rowCount: 1 });           // UPDATE agents.tools_config
 
     const res = await request(app)
       .delete(`/agents/${AGENT_ID}/skills/${SKILL_CONTAINER}`)
@@ -281,28 +301,37 @@ describe('Agent skill assignment endpoints', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.removed).toBe(true);
+
+    // Verify UPDATE agents was called with remaining skill's config
+    const updateCall = mockQuery.mock.calls[4];
+    expect(updateCall[0]).toContain('UPDATE agents');
+    const updatedConfig = JSON.parse(updateCall[1][0]);
+    expect(updatedConfig.shell.enabled).toBe(false);
+    expect(updatedConfig.health.enabled).toBe(true);
   });
 
-  // T10c: DELETE preserves tools_config — no UPDATE agents query
-  it('DELETE /agents/:id/skills/:skillId preserves tools_config (no mutation)', async () => {
+  // R5: DELETE last skill resets to no-skills default
+  it('DELETE /agents/:id/skills/:skillId last skill resets to default', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })  // agent lookup
       .mockResolvedValueOnce({ rows: [containerSkill] }) // skill lookup
-      .mockResolvedValueOnce({ rowCount: 1 });           // delete
+      .mockResolvedValueOnce({ rowCount: 1 })            // DELETE
+      .mockResolvedValueOnce({ rows: [] })               // no remaining skills
+      .mockResolvedValueOnce({ rowCount: 1 });           // UPDATE agents.tools_config
 
     const res = await request(app)
       .delete(`/agents/${AGENT_ID}/skills/${SKILL_CONTAINER}`)
       .set('Authorization', `Bearer ${userToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.removed).toBe(true);
 
-    // Verify exactly 3 queries — no UPDATE agents for tools_config
-    expect(mockQuery).toHaveBeenCalledTimes(3);
-    // None of the 3 queries should be an UPDATE agents
-    for (const call of mockQuery.mock.calls) {
-      expect(call[0]).not.toContain('UPDATE agents');
-    }
+    // Verify UPDATE used default config (shell/fs disabled, health enabled)
+    const updateCall = mockQuery.mock.calls[4];
+    expect(updateCall[0]).toContain('UPDATE agents');
+    const defaultConfig = JSON.parse(updateCall[1][0]);
+    expect(defaultConfig.shell.enabled).toBe(false);
+    expect(defaultConfig.filesystem.enabled).toBe(false);
+    expect(defaultConfig.health.enabled).toBe(true);
   });
 
   // T9: Non-admin cannot remove host_docker skill
@@ -319,12 +348,14 @@ describe('Agent skill assignment endpoints', () => {
     expect(res.body.error).toContain('host_docker');
   });
 
-  // T10: Non-admin can remove container_local skill
+  // Non-admin can remove container_local skill
   it('DELETE /agents/:id/skills/:skillId user remove container_local OK', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })
       .mockResolvedValueOnce({ rows: [containerSkill] })
-      .mockResolvedValueOnce({ rowCount: 1 });
+      .mockResolvedValueOnce({ rowCount: 1 })             // DELETE
+      .mockResolvedValueOnce({ rows: [] })                 // remaining skills (empty)
+      .mockResolvedValueOnce({ rowCount: 1 });             // UPDATE agents.tools_config
 
     const res = await request(app)
       .delete(`/agents/${AGENT_ID}/skills/${SKILL_CONTAINER}`)
@@ -366,7 +397,9 @@ describe('Agent skill assignment endpoints', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [stoppedAgent] })
       .mockResolvedValueOnce({ rows: [vpsSystemSkill] })
-      .mockResolvedValueOnce({ rowCount: 1 });
+      .mockResolvedValueOnce({ rowCount: 1 })             // DELETE
+      .mockResolvedValueOnce({ rows: [] })                 // remaining skills (empty)
+      .mockResolvedValueOnce({ rowCount: 1 });             // UPDATE agents.tools_config
 
     const res = await request(app)
       .delete(`/agents/${AGENT_ID}/skills/${SKILL_VPS_SYSTEM}`)

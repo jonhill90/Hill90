@@ -199,13 +199,22 @@ export default function AgentsClient({ session }: { session: Session }) {
                   )}
                 </div>
 
-                {/* Skill Badge */}
-                <div className="mb-3">
+                {/* Skill Badges */}
+                <div className="mb-3 flex flex-wrap gap-1">
                   {agent.skills && agent.skills.length > 0 ? (
-                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-md ${scopeBadge(agent.skills[0].scope).colorClasses}`}>
-                      {agent.skills[0].name}
-                      <span className="opacity-75">· {scopeBadge(agent.skills[0].scope).label}</span>
-                    </span>
+                    <>
+                      {agent.skills.slice(0, 3).map((skill: { id: string; name: string; scope: string }) => (
+                        <span key={skill.id} className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-md ${scopeBadge(skill.scope).colorClasses}`}>
+                          {skill.name}
+                          <span className="opacity-75">· {scopeBadge(skill.scope).label}</span>
+                        </span>
+                      ))}
+                      {agent.skills.length > 3 && (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-navy-900 text-mountain-400 border border-navy-700">
+                          +{agent.skills.length - 3} more
+                        </span>
+                      )}
+                    </>
                   ) : (
                     <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-navy-900 text-mountain-400 border border-navy-700">
                       Custom

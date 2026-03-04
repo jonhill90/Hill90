@@ -108,6 +108,24 @@ const MOCK_ALL_SKILLS = [
   { id: 'skill-vps', name: 'VPS Admin', scope: 'vps_system', instructions_md: 'VPS instructions' },
 ]
 
+const MOCK_AGENT_WITH_MULTI_SKILLS = {
+  ...MOCK_AGENT,
+  skills: [
+    {
+      id: 'preset-dev',
+      name: 'Developer',
+      scope: 'container_local',
+      instructions_md: 'Dev instructions.',
+    },
+    {
+      id: 'skill-docker',
+      name: 'Docker Access',
+      scope: 'host_docker',
+      instructions_md: 'Docker instructions here.',
+    },
+  ],
+}
+
 const MOCK_AGENT_WITH_ELEVATED_SKILL = {
   ...MOCK_AGENT,
   skills: [
@@ -445,6 +463,50 @@ describe('AgentDetailClient', () => {
     })
     expect(screen.queryByText('Docker Access')).not.toBeInTheDocument()
     expect(screen.queryByText('VPS Admin')).not.toBeInTheDocument()
+  })
+
+  // U7: Assign picker excludes already-assigned skills
+  it('assign picker excludes already-assigned skills', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Click "Assign Skill" to open picker
+    fireEvent.click(screen.getByText('Assign Skill'))
+
+    // Developer is already assigned — should NOT appear in picker
+    // But Docker Access and VPS Admin should appear (admin sees all)
+    await waitFor(() => {
+      expect(screen.getByText('Docker Access')).toBeInTheDocument()
+    })
+    expect(screen.getByText('VPS Admin')).toBeInTheDocument()
+
+    // The picker should have items for Docker Access and VPS Admin but not Developer
+    // Developer already appears in the skills list above, so we verify the picker
+    // doesn't have a second clickable button for Developer
+    const pickerButtons = screen.getAllByRole('button').filter(
+      btn => btn.textContent?.includes('Developer') && btn.closest('[class*="navy-900"]')
+    )
+    // The picker is inside a navy-900 div — should not have Developer there
+    expect(pickerButtons).toHaveLength(0)
+  })
+
+  // U8: Detail shows multiple skill cards
+  it('shows multiple skill cards', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_MULTI_SKILLS as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Both skills should appear
+    expect(screen.getByText('Docker Access')).toBeInTheDocument()
   })
 
   // T8: Skill instructions toggle

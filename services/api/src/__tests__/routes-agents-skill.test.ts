@@ -45,9 +45,15 @@ function makeToken(sub: string, roles: string[]) {
 const adminToken = makeToken('admin-user', ['admin', 'user']);
 const userToken = makeToken('regular-user', ['user']);
 
-const developerSkillConfig = {
+const devToolsConfig = {
   shell: { enabled: true, allowed_binaries: ['bash', 'git', 'make', 'curl', 'jq'], denied_patterns: ['rm -rf /'], max_timeout: 300 },
   filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+  health: { enabled: true },
+};
+
+const minToolsConfig = {
+  shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 120 },
+  filesystem: { enabled: true, read_only: true, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow'] },
   health: { enabled: true },
 };
 
@@ -87,17 +93,17 @@ describe('Agent POST skill_ids behavior', () => {
   });
 
   it('create agent with skill_ids resolves tools_config', async () => {
-    // Skill lookup
+    // 1. Skill batch lookup (WHERE id = ANY($1::uuid[]))
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'skill-dev', tools_config: developerSkillConfig }],
+      rows: [{ id: 'skill-dev', tools_config: devToolsConfig, scope: 'container_local' }],
     });
-    // INSERT agent
+    // 2. INSERT agent
     mockQuery.mockResolvedValueOnce({
-      rows: [{ ...agentRow, id: 'uuid-new', tools_config: developerSkillConfig }],
+      rows: [{ ...agentRow, id: 'uuid-new', tools_config: devToolsConfig }],
     });
-    // INSERT agent_skills
+    // 3. INSERT agent_skills (1 skill)
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    // SELECT skills for response
+    // 4. SELECT skills for response
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'skill-dev', name: 'Developer', scope: 'container_local' }],
     });
@@ -122,8 +128,31 @@ describe('Agent POST skill_ids behavior', () => {
     expect(parsed.shell.allowed_binaries).toContain('bash');
   });
 
-  // T5: skill_ids > 1 rejected
-  it('create agent with skill_ids > 1 returns 400', async () => {
+  // R6: Create agent with 2 skills — merged tools_config
+  it('create agent with 2 skills merges tools_config', async () => {
+    // 1. Skill batch lookup returns 2 skills
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { id: 'skill-1', tools_config: devToolsConfig, scope: 'container_local' },
+        { id: 'skill-2', tools_config: minToolsConfig, scope: 'container_local' },
+      ],
+    });
+    // 2. INSERT agent
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, id: 'uuid-multi' }],
+    });
+    // 3. INSERT agent_skills (skill-1)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 4. INSERT agent_skills (skill-2)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 5. SELECT skills for response
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { id: 'skill-1', name: 'Developer', scope: 'container_local' },
+        { id: 'skill-2', name: 'Reader', scope: 'container_local' },
+      ],
+    });
+
     const res = await request(app)
       .post('/agents')
       .set('Authorization', `Bearer ${userToken}`)
@@ -133,8 +162,16 @@ describe('Agent POST skill_ids behavior', () => {
         skill_ids: ['skill-1', 'skill-2'],
       });
 
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Maximum 1 skill');
+    expect(res.status).toBe(201);
+    expect(res.body.skills).toHaveLength(2);
+
+    // Verify merged tools_config: shell.enabled OR → true, filesystem.read_only AND → false
+    const insertCall = mockQuery.mock.calls[1];
+    const parsed = JSON.parse(insertCall[1][3]);
+    expect(parsed.shell.enabled).toBe(true); // OR: true || false
+    expect(parsed.filesystem.enabled).toBe(true); // OR: true || true
+    expect(parsed.filesystem.read_only).toBe(false); // AND: false && true → false
+    expect(parsed.shell.max_timeout).toBe(300); // MAX(300, 120)
   });
 
   // T12: tool_preset_id rejected
@@ -153,7 +190,7 @@ describe('Agent POST skill_ids behavior', () => {
   });
 
   it('create agent with nonexistent skill returns 400', async () => {
-    // Skill lookup returns empty
+    // Skill batch lookup returns fewer than requested
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -166,16 +203,16 @@ describe('Agent POST skill_ids behavior', () => {
       });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Skill not found');
+    expect(res.body.error).toContain('not found');
   });
 
   // T11: Agent create without skill uses default tools_config
   it('create agent without skill_ids uses default', async () => {
-    // INSERT agent
+    // 1. INSERT agent
     mockQuery.mockResolvedValueOnce({
       rows: [{ ...agentRow, id: 'uuid-new' }],
     });
-    // SELECT skills for response (empty)
+    // 2. SELECT skills for response (empty)
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -209,21 +246,23 @@ describe('Agent PUT skill_ids behavior', () => {
   });
 
   it('update agent skill_ids resolves tools_config', async () => {
-    // Ownership check returns agent
+    // 1. Ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // Skill lookup
+    // 2. Skill batch lookup
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'skill-dev', tools_config: developerSkillConfig }],
+      rows: [{ id: 'skill-dev', tools_config: devToolsConfig, scope: 'container_local' }],
     });
-    // UPDATE agent
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ ...agentRow, tools_config: developerSkillConfig }],
-    });
-    // DELETE agent_skills
-    mockQuery.mockResolvedValueOnce({ rowCount: 0 });
-    // INSERT agent_skills
+    // 3. Current agent_skills for elevated-removal check (user is non-admin)
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    // SELECT skills for response
+    // 4. UPDATE agent
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, tools_config: devToolsConfig }],
+    });
+    // 5. DELETE agent_skills
+    mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+    // 6. INSERT agent_skills
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 7. SELECT skills for response
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'skill-dev', name: 'Developer', scope: 'container_local' }],
     });
@@ -238,14 +277,17 @@ describe('Agent PUT skill_ids behavior', () => {
     expect(res.body.skills[0].id).toBe('skill-dev');
   });
 
+  // R9: PUT agents empty skill_ids clears skills (Custom mode)
   it('update agent skill_ids to empty clears skill', async () => {
-    // Ownership check returns agent
+    // 1. Ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // UPDATE agent (no skill lookup needed)
+    // 2. Current agent_skills for elevated-removal check (user is non-admin)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 3. UPDATE agent (no skill lookup since skill_ids is empty)
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // DELETE agent_skills
+    // 4. DELETE agent_skills
     mockQuery.mockResolvedValueOnce({ rowCount: 1 });
-    // SELECT skills for response (empty)
+    // 5. SELECT skills for response (empty)
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -267,25 +309,12 @@ describe('Agent PUT skill_ids behavior', () => {
     expect(res.body.error).toContain('deprecated');
   });
 
-  it('update agent with skill_ids > 1 returns 400', async () => {
-    // Ownership check
-    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-
-    const res = await request(app)
-      .put('/agents/uuid-1')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ skill_ids: ['skill-1', 'skill-2'] });
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('Maximum 1 skill');
-  });
-
   it('update agent without skill_ids does not touch skills', async () => {
-    // Ownership check returns agent
+    // 1. Ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // UPDATE agent
+    // 2. UPDATE agent (no skill lookup since skill_ids not provided)
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, name: 'Updated Name' }] });
-    // SELECT skills for response
+    // 3. SELECT skills for response
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -310,9 +339,9 @@ describe('Agent create/update scope RBAC', () => {
   });
 
   it('create with host_docker skill as non-admin returns 403', async () => {
-    // Skill lookup returns host_docker scope
+    // Skill batch lookup returns host_docker scope
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'skill-docker', tools_config: developerSkillConfig, scope: 'host_docker' }],
+      rows: [{ id: 'skill-docker', tools_config: devToolsConfig, scope: 'host_docker' }],
     });
 
     const res = await request(app)
@@ -330,17 +359,17 @@ describe('Agent create/update scope RBAC', () => {
   });
 
   it('create with host_docker skill as admin succeeds', async () => {
-    // Skill lookup
+    // 1. Skill batch lookup
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'skill-docker', tools_config: developerSkillConfig, scope: 'host_docker' }],
+      rows: [{ id: 'skill-docker', tools_config: devToolsConfig, scope: 'host_docker' }],
     });
-    // INSERT agent
+    // 2. INSERT agent
     mockQuery.mockResolvedValueOnce({
       rows: [{ ...agentRow, id: 'uuid-admin' }],
     });
-    // INSERT agent_skills
+    // 3. INSERT agent_skills
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    // SELECT skills for response
+    // 4. SELECT skills for response
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'skill-docker', name: 'Docker Access', scope: 'host_docker' }],
     });
@@ -360,11 +389,11 @@ describe('Agent create/update scope RBAC', () => {
 
   // T16: Update agent with elevated skill_ids rejected for non-admin
   it('update with vps_system skill as non-admin returns 403', async () => {
-    // Ownership check returns agent
+    // 1. Ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // Skill lookup returns vps_system scope
+    // 2. Skill batch lookup returns vps_system scope
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'skill-vps', tools_config: developerSkillConfig, scope: 'vps_system' }],
+      rows: [{ id: 'skill-vps', tools_config: devToolsConfig, scope: 'vps_system' }],
     });
 
     const res = await request(app)
@@ -378,21 +407,21 @@ describe('Agent create/update scope RBAC', () => {
   });
 
   it('update with vps_system skill as admin succeeds', async () => {
-    // Ownership check (admin sees all — scopeToOwner returns no constraint for admin)
+    // 1. Ownership check (admin sees all)
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
-    // Skill lookup
+    // 2. Skill batch lookup
     mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'skill-vps', tools_config: developerSkillConfig, scope: 'vps_system' }],
+      rows: [{ id: 'skill-vps', tools_config: devToolsConfig, scope: 'vps_system' }],
     });
-    // UPDATE agent
+    // 3. UPDATE agent (admin skips elevated-removal check)
     mockQuery.mockResolvedValueOnce({
-      rows: [{ ...agentRow, tools_config: developerSkillConfig }],
+      rows: [{ ...agentRow, tools_config: devToolsConfig }],
     });
-    // DELETE agent_skills
+    // 4. DELETE agent_skills
     mockQuery.mockResolvedValueOnce({ rowCount: 0 });
-    // INSERT agent_skills
+    // 5. INSERT agent_skills
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    // SELECT skills for response
+    // 6. SELECT skills for response
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'skill-vps', name: 'VPS Access', scope: 'vps_system' }],
     });
@@ -405,9 +434,66 @@ describe('Agent create/update scope RBAC', () => {
     expect(res.status).toBe(200);
     expect(res.body.skills[0].scope).toBe('vps_system');
   });
+
+  // R7: PUT removing elevated skill as non-admin → 403
+  it('update removing elevated skill as non-admin returns 403', async () => {
+    // 1. Ownership check returns agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // 2. Skill batch lookup for new skill_ids (container_local only)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-basic', tools_config: minToolsConfig, scope: 'container_local' }],
+    });
+    // 3. Current agent_skills — has an elevated skill being removed
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { skill_id: 'skill-basic', scope: 'container_local' },
+        { skill_id: 'skill-docker', scope: 'host_docker' },
+      ],
+    });
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ skill_ids: ['skill-basic'] }); // implicitly removes skill-docker
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('host_docker');
+    expect(res.body.error).toContain('admin');
+  });
+
+  // R8: PUT removing elevated skill as admin → 200
+  it('update removing elevated skill as admin succeeds', async () => {
+    // 1. Ownership check (admin sees all)
+    mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
+    // 2. Skill batch lookup for new skill_ids
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-basic', tools_config: minToolsConfig, scope: 'container_local' }],
+    });
+    // 3. UPDATE agent (admin skips elevated-removal check)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ ...agentRow, tools_config: minToolsConfig }],
+    });
+    // 4. DELETE agent_skills
+    mockQuery.mockResolvedValueOnce({ rowCount: 2 });
+    // 5. INSERT agent_skills (1 skill)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // 6. SELECT skills for response
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'skill-basic', name: 'Basic', scope: 'container_local' }],
+    });
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ skill_ids: ['skill-basic'] }); // implicitly removes elevated skill
+
+    expect(res.status).toBe(200);
+    expect(res.body.skills).toHaveLength(1);
+    expect(res.body.skills[0].id).toBe('skill-basic');
+  });
 });
 
-// T10b: Agent start reads from agent_skills
+// Agent start with skills
 const { writeAgentFiles } = jest.requireMock('../services/agent-files') as { writeAgentFiles: jest.Mock };
 
 describe('Agent start reads from agent_skills', () => {
@@ -431,9 +517,9 @@ describe('Agent start reads from agent_skills', () => {
 
     // 1. SELECT agent
     mockQuery.mockResolvedValueOnce({ rows: [agentStopped] });
-    // 2. SELECT instructions_md from agent_skills JOIN skills
+    // 2. SELECT skill instructions from agent_skills JOIN skills (single skill)
     mockQuery.mockResolvedValueOnce({
-      rows: [{ instructions_md: 'You have full developer access.' }],
+      rows: [{ name: 'Developer', instructions_md: 'You have full developer access.' }],
     });
     // 3+. UPDATE agent status queries
     mockQuery.mockResolvedValue({ rows: [] });
@@ -445,7 +531,74 @@ describe('Agent start reads from agent_skills', () => {
     expect(res.status).toBe(200);
     expect(writeAgentFiles).toHaveBeenCalledTimes(1);
     const callArgs = writeAgentFiles.mock.calls[0];
-    expect(callArgs[1]).toBe('You have full developer access.');
+    // Single skill: composed with ## Skill: header
+    expect(callArgs[1]).toBe('## Skill: Developer\n\nYou have full developer access.');
+  });
+
+  // R10: Start agent with multiple skills composes instructions
+  it('start agent with 2 skills composes instructions with headers', async () => {
+    const agentStopped = { ...agentRow, status: 'stopped' };
+
+    const { createAndStartContainer } = jest.requireMock('../services/docker') as any;
+    createAndStartContainer.mockResolvedValue('container-multi');
+
+    // 1. SELECT agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentStopped] });
+    // 2. SELECT skill instructions (2 skills, ordered by assigned_at ASC)
+    mockQuery.mockResolvedValueOnce({
+      rows: [
+        { name: 'Developer', instructions_md: 'You have shell access.' },
+        { name: 'Data Reader', instructions_md: 'You can read /data.' },
+      ],
+    });
+    // 3+. UPDATE agent status queries
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(writeAgentFiles).toHaveBeenCalledTimes(1);
+    const callArgs = writeAgentFiles.mock.calls[0];
+    const expected = [
+      '## Skill: Developer',
+      '',
+      'You have shell access.',
+      '',
+      '---',
+      '',
+      '## Skill: Data Reader',
+      '',
+      'You can read /data.',
+    ].join('\n');
+    expect(callArgs[1]).toBe(expected);
+  });
+
+  // Start with skill that has no instructions
+  it('start agent with skill having no instructions writes undefined', async () => {
+    const agentStopped = { ...agentRow, status: 'stopped' };
+
+    const { createAndStartContainer } = jest.requireMock('../services/docker') as any;
+    createAndStartContainer.mockResolvedValue('container-no-instr');
+
+    // 1. SELECT agent
+    mockQuery.mockResolvedValueOnce({ rows: [agentStopped] });
+    // 2. SELECT skill instructions (skill with null instructions_md)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ name: 'Silent', instructions_md: null }],
+    });
+    // 3+. UPDATE agent status queries
+    mockQuery.mockResolvedValue({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(writeAgentFiles).toHaveBeenCalledTimes(1);
+    const callArgs = writeAgentFiles.mock.calls[0];
+    expect(callArgs[1]).toBeUndefined();
   });
 
   // T11: Start without skill
