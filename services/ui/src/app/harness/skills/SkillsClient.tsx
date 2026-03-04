@@ -18,6 +18,8 @@ interface Skill {
   tools_config: ToolsConfig
   instructions_md: string
   is_platform: boolean
+  kind: 'skill' | 'profile'
+  tool_dependencies: string[]
   created_at: string
   updated_at: string
 }
@@ -49,6 +51,8 @@ export default function SkillsClient() {
     name: '',
     description: '',
     instructions_md: '',
+    kind: 'skill' as 'skill' | 'profile',
+    tool_dependencies: '',
     shellEnabled: false,
     filesystemEnabled: false,
     readOnly: false,
@@ -81,6 +85,8 @@ export default function SkillsClient() {
       name: '',
       description: '',
       instructions_md: '',
+      kind: 'skill',
+      tool_dependencies: '',
       shellEnabled: false,
       filesystemEnabled: false,
       readOnly: false,
@@ -125,6 +131,12 @@ export default function SkillsClient() {
       name: formData.name.trim(),
       tools_config,
       instructions_md: formData.instructions_md,
+    }
+    body.kind = formData.kind
+    if (formData.kind === 'skill' && formData.tool_dependencies.trim()) {
+      body.tool_dependencies = formData.tool_dependencies.split(',').map(s => s.trim()).filter(Boolean)
+    } else {
+      body.tool_dependencies = []
     }
     if (formData.description.trim()) {
       body.description = formData.description.trim()
@@ -176,6 +188,8 @@ export default function SkillsClient() {
       name: skill.name,
       description: skill.description || '',
       instructions_md: skill.instructions_md || '',
+      kind: skill.kind || 'skill',
+      tool_dependencies: skill.tool_dependencies?.join(', ') || '',
       shellEnabled: tc.shell.enabled,
       filesystemEnabled: tc.filesystem.enabled,
       readOnly: tc.filesystem.read_only,
@@ -199,13 +213,16 @@ export default function SkillsClient() {
     )
   }
 
+  const profiles = skills.filter(s => s.kind === 'profile')
+  const skillItems = skills.filter(s => s.kind === 'skill')
+
   return (
     <>
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold">Skills</h1>
           <p className="text-sm text-mountain-400 mt-1">
-            {skills.length} skill{skills.length !== 1 ? 's' : ''}
+            {profiles.length} profile{profiles.length !== 1 ? 's' : ''}, {skillItems.length} skill{skillItems.length !== 1 ? 's' : ''}
           </p>
         </div>
         {isAdmin && (
@@ -249,6 +266,39 @@ export default function SkillsClient() {
                 />
               </div>
             </div>
+
+            {/* Kind selector */}
+            <div>
+              <label className="block text-sm text-mountain-400 mb-1">Kind</label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                  <input type="radio" name="kind" value="skill" checked={formData.kind === 'skill'}
+                    onChange={() => setFormData({ ...formData, kind: 'skill' })} />
+                  Skill
+                </label>
+                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                  <input type="radio" name="kind" value="profile" checked={formData.kind === 'profile'}
+                    onChange={() => setFormData({ ...formData, kind: 'profile' })} />
+                  Profile
+                </label>
+              </div>
+            </div>
+
+            {/* Tool dependencies (skill only) */}
+            {formData.kind === 'skill' && (
+              <div>
+                <label className="block text-sm text-mountain-400 mb-1">
+                  Tool Dependencies <span className="text-mountain-500">(optional, comma-separated)</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.tool_dependencies}
+                  onChange={(e) => setFormData({ ...formData, tool_dependencies: e.target.value })}
+                  className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                  placeholder="gh, git, curl"
+                />
+              </div>
+            )}
 
             {/* Instructions */}
             <div>
@@ -349,17 +399,13 @@ export default function SkillsClient() {
         </div>
       )}
 
-      {/* Skills list */}
-      {skills.length === 0 ? (
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
-          <p className="text-mountain-400 mb-4">No skills yet</p>
-          <p className="text-sm text-mountain-500">
-            Create a skill to define reusable tool configurations and instructions for agents.
-          </p>
-        </div>
+      {/* Profiles section */}
+      <h2 className="text-lg font-semibold text-white mb-3">Profiles (sandbox presets)</h2>
+      {profiles.length === 0 ? (
+        <p className="text-sm text-mountain-500 mb-6">No profiles yet</p>
       ) : (
-        <div className="space-y-3">
-          {skills.map((skill) => {
+        <div className="space-y-3 mb-6">
+          {profiles.map((skill) => {
             const isExpanded = expandedId === skill.id
             const tc = skill.tools_config
 
@@ -502,7 +548,187 @@ export default function SkillsClient() {
                       </div>
                     </dl>
 
-                    {/* Actions — admin only, non-platform only */}
+                    {/* Actions -- admin only, non-platform only */}
+                    {isAdmin && !skill.is_platform && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleEdit(skill)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(skill)}
+                          disabled={actionLoading === skill.id}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Skills section */}
+      <h2 className="text-lg font-semibold text-white mb-3">Skills (capabilities)</h2>
+      {skillItems.length === 0 ? (
+        <p className="text-sm text-mountain-500 mb-6">No skills yet</p>
+      ) : (
+        <div className="space-y-3">
+          {skillItems.map((skill) => {
+            const isExpanded = expandedId === skill.id
+            const tc = skill.tools_config
+
+            return (
+              <div
+                key={skill.id}
+                className="rounded-lg border border-navy-700 bg-navy-900 overflow-hidden"
+              >
+                {/* Summary row */}
+                <div
+                  className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-navy-800 transition-colors"
+                  onClick={() => setExpandedId(isExpanded ? null : skill.id)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isExpanded}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setExpandedId(isExpanded ? null : skill.id) }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="font-medium text-white">{skill.name}</span>
+                      {skill.is_platform && (
+                        <span className="px-2 py-0.5 text-xs rounded-md bg-mountain-500/20 text-mountain-300 border border-mountain-500/30">
+                          Platform
+                        </span>
+                      )}
+                      {skill.scope && (
+                        <span className={`px-2 py-0.5 text-xs rounded-md ${scopeBadge(skill.scope).colorClasses}`}>
+                          {scopeBadge(skill.scope).label}
+                        </span>
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {tc.shell.enabled && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
+                            <Terminal className="w-3 h-3" /> Shell
+                          </span>
+                        )}
+                        {tc.filesystem.enabled && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
+                            <FolderOpen className="w-3 h-3" /> Filesystem
+                            {tc.filesystem.read_only && <span className="text-mountain-400">(ro)</span>}
+                          </span>
+                        )}
+                        {tc.health.enabled && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
+                            <Heart className="w-3 h-3" /> Health
+                          </span>
+                        )}
+                        {skill.tool_dependencies?.length > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
+                            Requires: {skill.tool_dependencies.join(', ')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {skill.description && (
+                      <p className="text-xs text-mountain-400 mt-1 truncate">{skill.description}</p>
+                    )}
+                  </div>
+                  <div className="shrink-0">
+                    <svg
+                      className={`w-4 h-4 text-mountain-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Expanded detail */}
+                {isExpanded && (
+                  <div className="border-t border-navy-700 px-4 py-4 bg-navy-800/50">
+                    {skill.description && (
+                      <p className="text-sm text-mountain-300 mb-4">{skill.description}</p>
+                    )}
+
+                    {/* Instructions preview */}
+                    {skill.instructions_md && (
+                      <div className="mb-4">
+                        <h3 className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-2">Instructions</h3>
+                        <div className="rounded-md border border-navy-700 bg-navy-900 p-3">
+                          <p className="text-sm text-mountain-300 whitespace-pre-wrap">{skill.instructions_md}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm mb-4">
+                      {/* Shell config */}
+                      <div>
+                        <dt className="text-mountain-400 mb-1">Shell</dt>
+                        <dd className="text-white">
+                          {tc.shell.enabled ? (
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap gap-1">
+                                {tc.shell.allowed_binaries.map((b) => (
+                                  <span key={b} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700">
+                                    {b}
+                                  </span>
+                                ))}
+                              </div>
+                              {tc.shell.denied_patterns.length > 0 && (
+                                <div className="text-xs text-mountain-400">
+                                  Denied: {tc.shell.denied_patterns.map((p) => (
+                                    <span key={p} className="px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-700/50 mr-1">
+                                      {p}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="text-xs text-mountain-500">Timeout: {tc.shell.max_timeout}s</div>
+                            </div>
+                          ) : (
+                            <span className="text-mountain-500">Disabled</span>
+                          )}
+                        </dd>
+                      </div>
+
+                      {/* Filesystem config */}
+                      <div>
+                        <dt className="text-mountain-400 mb-1">Filesystem</dt>
+                        <dd className="text-white">
+                          {tc.filesystem.enabled ? (
+                            <div className="space-y-1">
+                              <div className="text-xs">
+                                {tc.filesystem.read_only ? 'Read-only' : 'Read-write'}
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {tc.filesystem.allowed_paths.map((p) => (
+                                  <span key={p} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700">
+                                    {p}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-mountain-500">Disabled</span>
+                          )}
+                        </dd>
+                      </div>
+
+                      <div>
+                        <dt className="text-mountain-400">Created</dt>
+                        <dd className="text-white mt-1">{new Date(skill.created_at).toLocaleString()}</dd>
+                      </div>
+                    </dl>
+
+                    {/* Actions -- admin only, non-platform only */}
                     {isAdmin && !skill.is_platform && (
                       <div className="flex items-center gap-2">
                         <button

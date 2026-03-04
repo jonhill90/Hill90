@@ -36,6 +36,8 @@ const MOCK_SKILLS = [
     },
     instructions_md: 'You have no shell or filesystem access. You can only monitor your own resource usage via the health endpoint.',
     is_platform: true,
+    kind: 'profile' as const,
+    tool_dependencies: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   },
@@ -51,6 +53,8 @@ const MOCK_SKILLS = [
     },
     instructions_md: 'You have full developer access with bash, git, make, curl, and jq available. Use /workspace as your primary working directory.',
     is_platform: true,
+    kind: 'profile' as const,
+    tool_dependencies: [],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
   },
@@ -66,6 +70,8 @@ const MOCK_SKILLS = [
     },
     instructions_md: 'Run CI pipelines in isolated containers.',
     is_platform: false,
+    kind: 'skill' as const,
+    tool_dependencies: ['gh', 'git'],
     created_at: '2026-02-15T00:00:00Z',
     updated_at: '2026-02-15T00:00:00Z',
   },
@@ -110,8 +116,8 @@ describe('SkillsClient', () => {
     await waitFor(() => {
       expect(screen.getByText('Skills')).toBeInTheDocument()
     })
-    // Should show skills count, not "profiles" count
-    expect(screen.getByText('3 skills')).toBeInTheDocument()
+    // Should show separate profiles/skills counts
+    expect(screen.getByText('2 profiles, 1 skill')).toBeInTheDocument()
   })
 
   // T8: Skills page shows instructions preview in expanded view
@@ -188,6 +194,40 @@ describe('SkillsClient', () => {
     expect(screen.getByText('Host · Docker')).toBeInTheDocument()
     // vps_system → "VPS · System"
     expect(screen.getByText('VPS · System')).toBeInTheDocument()
+  })
+
+  // U1: Harness shows separate Profiles and Skills sections
+  it('Harness shows separate Profiles and Skills sections', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Profiles (sandbox presets)')).toBeInTheDocument()
+      expect(screen.getByText('Skills (capabilities)')).toBeInTheDocument()
+    })
+  })
+
+  // U2: Skill with tool_dependencies shows Requires badges
+  it('Skill with tool_dependencies shows Requires badges', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('Requires: gh, git')).toBeInTheDocument()
+  })
+
+  // U3: Profile shows no Requires badges for empty tool_dependencies
+  it('Profile shows no Requires badges for empty tool_dependencies', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    // Minimal is a profile with empty tool_dependencies — should not show "Requires"
+    const minimalCard = screen.getByText('Minimal').closest('[class*="rounded-lg"]')!
+    expect(minimalCard.textContent).not.toContain('Requires')
   })
 
   // T11: Nav says "Skills" with /harness/skills href

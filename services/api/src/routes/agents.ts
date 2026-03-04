@@ -61,7 +61,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
               a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id,
               a.created_at, a.updated_at, a.created_by,
               COALESCE(
-                json_agg(json_build_object('id', s.id, 'name', s.name, 'scope', s.scope))
+                json_agg(json_build_object('id', s.id, 'name', s.name, 'scope', s.scope, 'kind', s.kind, 'tool_dependencies', s.tool_dependencies))
                 FILTER (WHERE s.id IS NOT NULL), '[]'
               ) AS skills
        FROM agents a
@@ -185,7 +185,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
 
     // Fetch the skills array for response
     const { rows: skillRows } = await getPool().query(
-      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+      `SELECT s.id, s.name, s.scope, s.kind, s.tool_dependencies FROM agent_skills asks
        JOIN skills s ON s.id = asks.skill_id
        WHERE asks.agent_id = $1`,
       [createdAgent.id]
@@ -221,7 +221,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
 
     // Fetch skills for this agent
     const { rows: skillRows } = await getPool().query(
-      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+      `SELECT s.id, s.name, s.scope, s.kind, s.tool_dependencies FROM agent_skills asks
        JOIN skills s ON s.id = asks.skill_id
        WHERE asks.agent_id = $1`,
       [agent.id]
@@ -385,7 +385,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
 
     // Fetch skills for response
     const { rows: agentSkills } = await getPool().query(
-      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+      `SELECT s.id, s.name, s.scope, s.kind, s.tool_dependencies FROM agent_skills asks
        JOIN skills s ON s.id = asks.skill_id
        WHERE asks.agent_id = $1`,
       [req.params.id]

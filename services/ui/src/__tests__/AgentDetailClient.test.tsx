@@ -65,6 +65,8 @@ const MOCK_AGENT_WITH_SKILL = {
       id: 'preset-dev',
       name: 'Developer',
       scope: 'container_local',
+      kind: 'skill',
+      tool_dependencies: ['gh', 'git'],
       instructions_md: 'Always write tests before implementation.\nFollow TDD red-green-refactor.',
     },
   ],
@@ -103,9 +105,9 @@ const USER_SESSION = {
 }
 
 const MOCK_ALL_SKILLS = [
-  { id: 'preset-dev', name: 'Developer', scope: 'container_local', instructions_md: 'Dev instructions' },
-  { id: 'skill-docker', name: 'Docker Access', scope: 'host_docker', instructions_md: 'Docker instructions' },
-  { id: 'skill-vps', name: 'VPS Admin', scope: 'vps_system', instructions_md: 'VPS instructions' },
+  { id: 'preset-dev', name: 'Developer', scope: 'container_local', kind: 'skill', tool_dependencies: ['gh', 'git'], instructions_md: 'Dev instructions' },
+  { id: 'skill-docker', name: 'Docker Access', scope: 'host_docker', kind: 'profile', tool_dependencies: [], instructions_md: 'Docker instructions' },
+  { id: 'skill-vps', name: 'VPS Admin', scope: 'vps_system', kind: 'skill', tool_dependencies: [], instructions_md: 'VPS instructions' },
 ]
 
 const MOCK_AGENT_WITH_MULTI_SKILLS = {
@@ -115,12 +117,16 @@ const MOCK_AGENT_WITH_MULTI_SKILLS = {
       id: 'preset-dev',
       name: 'Developer',
       scope: 'container_local',
+      kind: 'skill',
+      tool_dependencies: ['gh', 'git'],
       instructions_md: 'Dev instructions.',
     },
     {
       id: 'skill-docker',
       name: 'Docker Access',
       scope: 'host_docker',
+      kind: 'profile',
+      tool_dependencies: [],
       instructions_md: 'Docker instructions here.',
     },
   ],
@@ -133,6 +139,8 @@ const MOCK_AGENT_WITH_ELEVATED_SKILL = {
       id: 'skill-docker',
       name: 'Docker Access',
       scope: 'host_docker',
+      kind: 'profile',
+      tool_dependencies: [],
       instructions_md: 'Docker instructions here.',
     },
   ],
@@ -529,5 +537,33 @@ describe('AgentDetailClient', () => {
     await waitFor(() => {
       expect(screen.getByText(/Always write tests before implementation/)).toBeInTheDocument()
     })
+  })
+
+  // U5: Detail shows kind badge on cards
+  it('shows kind badge on skill cards', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Should show "Skill" kind badge
+    expect(screen.getByText('Skill')).toBeInTheDocument()
+  })
+
+  // U6: Detail shows tool_dependencies on skill cards
+  it('shows tool_dependencies as Requires badges on skill cards', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    // Should show tool dependencies
+    expect(screen.getByText('Requires: gh, git')).toBeInTheDocument()
   })
 })

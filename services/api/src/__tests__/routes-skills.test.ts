@@ -441,4 +441,194 @@ describe('Skill CRUD routes', () => {
     const insertCall = mockQuery.mock.calls[0];
     expect(insertCall[0]).toContain('INSERT INTO skills');
   });
+
+  // kind and tool_dependencies
+  describe('kind and tool_dependencies', () => {
+    // T1: GET /skills returns kind and tool_dependencies
+    it('GET /skills returns kind and tool_dependencies', async () => {
+      const skillWithKind = { ...developerSkill, kind: 'profile', tool_dependencies: [] };
+      const skillWithDeps = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: ['gh', 'git'] };
+      mockQuery.mockResolvedValueOnce({ rows: [skillWithKind, skillWithDeps] });
+      const res = await request(app)
+        .get('/skills')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body[0].kind).toBe('profile');
+      expect(res.body[0].tool_dependencies).toEqual([]);
+      expect(res.body[1].kind).toBe('skill');
+      expect(res.body[1].tool_dependencies).toEqual(['gh', 'git']);
+    });
+
+    // T2: GET /skills?kind=profile returns only profiles
+    it('GET /skills?kind=profile returns only profiles', async () => {
+      const profileSkill = { ...developerSkill, kind: 'profile', tool_dependencies: [] };
+      mockQuery.mockResolvedValueOnce({ rows: [profileSkill] });
+      const res = await request(app)
+        .get('/skills?kind=profile')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].kind).toBe('profile');
+      const selectCall = mockQuery.mock.calls[0];
+      expect(selectCall[0]).toContain('WHERE kind = $1');
+      expect(selectCall[1]).toContain('profile');
+    });
+
+    // T3: GET /skills?kind=skill returns only skills
+    it('GET /skills?kind=skill returns only skills', async () => {
+      const skillOnly = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: [] };
+      mockQuery.mockResolvedValueOnce({ rows: [skillOnly] });
+      const res = await request(app)
+        .get('/skills?kind=skill')
+        .set('Authorization', `Bearer ${adminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].kind).toBe('skill');
+      const selectCall = mockQuery.mock.calls[0];
+      expect(selectCall[0]).toContain('WHERE kind = $1');
+      expect(selectCall[1]).toContain('skill');
+    });
+
+    // T4: POST /skills defaults kind to 'skill'
+    it('POST /skills defaults kind to skill', async () => {
+      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'skill', tool_dependencies: [] };
+      mockQuery.mockResolvedValueOnce({ rows: [created] });
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Default Kind Skill',
+          tools_config: adminCreatedSkill.tools_config,
+        });
+      expect(res.status).toBe(201);
+      const insertCall = mockQuery.mock.calls[0];
+      expect(insertCall[0]).toContain('INSERT INTO skills');
+      expect(insertCall[1]).toContain('skill');
+    });
+
+    // T5: POST /skills creates profile with kind=profile
+    it('POST /skills creates profile with kind=profile', async () => {
+      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'profile', tool_dependencies: [] };
+      mockQuery.mockResolvedValueOnce({ rows: [created] });
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'My Profile',
+          tools_config: adminCreatedSkill.tools_config,
+          kind: 'profile',
+        });
+      expect(res.status).toBe(201);
+      const insertCall = mockQuery.mock.calls[0];
+      expect(insertCall[1]).toContain('profile');
+    });
+
+    // T6: POST /skills creates skill with tool_dependencies
+    it('POST /skills creates skill with tool_dependencies', async () => {
+      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'skill', tool_dependencies: ['gh', 'git'] };
+      mockQuery.mockResolvedValueOnce({ rows: [created] });
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Deps Skill',
+          tools_config: adminCreatedSkill.tools_config,
+          tool_dependencies: ['gh', 'git'],
+        });
+      expect(res.status).toBe(201);
+      const insertCall = mockQuery.mock.calls[0];
+      expect(insertCall[0]).toContain('tool_dependencies');
+      expect(insertCall[1]).toContain(JSON.stringify(['gh', 'git']));
+    });
+
+    // T7: POST /skills defaults tool_dependencies to []
+    it('POST /skills defaults tool_dependencies to empty array', async () => {
+      const created = { ...adminCreatedSkill, id: 'new-id', kind: 'skill', tool_dependencies: [] };
+      mockQuery.mockResolvedValueOnce({ rows: [created] });
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'No Deps Skill',
+          tools_config: adminCreatedSkill.tools_config,
+        });
+      expect(res.status).toBe(201);
+      const insertCall = mockQuery.mock.calls[0];
+      expect(insertCall[1]).toContain('[]');
+    });
+
+    // T8: POST /skills rejects profile with non-empty tool_dependencies
+    it('POST /skills rejects profile with non-empty tool_dependencies', async () => {
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Bad Profile',
+          tools_config: adminCreatedSkill.tools_config,
+          kind: 'profile',
+          tool_dependencies: ['gh'],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Profiles cannot have tool_dependencies');
+    });
+
+    // T9: POST /skills rejects invalid kind
+    it('POST /skills rejects invalid kind', async () => {
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Bad Kind',
+          tools_config: adminCreatedSkill.tools_config,
+          kind: 'banana',
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('kind');
+    });
+
+    // T10: POST /skills rejects non-array tool_dependencies
+    it('POST /skills rejects non-array tool_dependencies', async () => {
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Bad Deps',
+          tools_config: adminCreatedSkill.tools_config,
+          tool_dependencies: 'not-an-array',
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('tool_dependencies');
+    });
+
+    // T11: POST /skills rejects non-string array entries
+    it('POST /skills rejects non-string array entries in tool_dependencies', async () => {
+      const res = await request(app)
+        .post('/skills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          name: 'Bad Entries',
+          tools_config: adminCreatedSkill.tools_config,
+          tool_dependencies: [123],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('tool_dependencies');
+    });
+
+    // T12: PUT /skills/:id updates kind and tool_dependencies
+    it('PUT /skills/:id updates kind and tool_dependencies', async () => {
+      const existingSkill = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: [] };
+      const updatedSkill = { ...adminCreatedSkill, kind: 'skill', tool_dependencies: ['gh', 'git'] };
+      mockQuery
+        .mockResolvedValueOnce({ rows: [existingSkill] })
+        .mockResolvedValueOnce({ rows: [updatedSkill] });
+      const res = await request(app)
+        .put('/skills/skill-custom')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ kind: 'skill', tool_dependencies: ['gh', 'git'] });
+      expect(res.status).toBe(200);
+      const updateCall = mockQuery.mock.calls[1];
+      expect(updateCall[0]).toContain('kind');
+      expect(updateCall[0]).toContain('tool_dependencies');
+    });
+  });
 });

@@ -38,6 +38,8 @@ const MOCK_PRESETS = [
     },
     instructions_md: 'You have no shell or filesystem access.',
     is_platform: true,
+    kind: 'profile',
+    tool_dependencies: [],
   },
   {
     id: 'preset-dev',
@@ -51,6 +53,8 @@ const MOCK_PRESETS = [
     },
     instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.',
     is_platform: true,
+    kind: 'profile',
+    tool_dependencies: [],
   },
   {
     id: 'preset-docker',
@@ -64,6 +68,8 @@ const MOCK_PRESETS = [
     },
     instructions_md: 'You have Docker socket access.',
     is_platform: false,
+    kind: 'skill',
+    tool_dependencies: ['docker'],
   },
 ]
 
@@ -565,5 +571,18 @@ describe('AgentFormClient', () => {
 
     // Should show scope labels in checkbox list (multiple skills may have Container scope)
     expect(screen.getAllByText('Container').length).toBeGreaterThan(0)
+  })
+
+  // U4: Form Skills mode shows profiles and skills groups
+  it('Skills mode shows separate profiles and skills group headings', async () => {
+    render(<AgentFormClient isAdmin />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
+    })
+
+    // Both group headings should be present
+    expect(screen.getByText('Profiles (sandbox presets)')).toBeInTheDocument()
+    expect(screen.getByText('Skills (capabilities)')).toBeInTheDocument()
   })
 })

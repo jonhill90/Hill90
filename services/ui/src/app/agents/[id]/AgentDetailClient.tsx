@@ -20,7 +20,7 @@ interface Agent {
   rules_md: string
   container_id: string | null
   model_policy_id: string | null
-  skills: Array<{ id: string; name: string; scope: string; instructions_md?: string }>
+  skills: Array<{ id: string; name: string; scope: string; kind?: string; tool_dependencies?: string[]; instructions_md?: string }>
   error_message: string | null
   created_at: string
   updated_at: string
@@ -40,6 +40,8 @@ interface SkillRecord {
   id: string
   name: string
   scope: string
+  kind?: string
+  tool_dependencies?: string[]
   instructions_md?: string
 }
 
@@ -466,11 +468,23 @@ export default function AgentDetailClient({
                   return (
                     <div key={skill.id} className="rounded-md border border-navy-700 bg-navy-900 p-3">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-medium text-white">{skill.name}</span>
                           <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
                             {badge.label}
                           </span>
+                          <span className={`px-1.5 py-0.5 text-xs rounded-md ${
+                            skill.kind === 'profile'
+                              ? 'bg-navy-800 text-blue-400 border border-navy-600'
+                              : 'bg-brand-900/50 text-brand-400 border border-brand-700'
+                          }`}>
+                            {skill.kind === 'profile' ? 'Profile' : 'Skill'}
+                          </span>
+                          {skill.tool_dependencies && skill.tool_dependencies.length > 0 && (
+                            <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
+                              Requires: {skill.tool_dependencies.join(', ')}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           {skill.instructions_md && (
