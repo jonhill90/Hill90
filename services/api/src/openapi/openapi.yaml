@@ -260,6 +260,22 @@ components:
           enum: [container_local, host_docker, vps_system]
           default: container_local
           description: Scope determines assignment authority. container_local — any user. host_docker/vps_system — admin only.
+        kind:
+          type: string
+          enum: [skill, profile]
+          default: skill
+          description: >-
+            Concept type. 'skill' = capability declaration with tool requirements
+            and behavioral guidance. 'profile' = sandbox environment preset.
+        tool_dependencies:
+          type: array
+          items:
+            type: string
+          default: []
+          description: >-
+            Binary names this skill requires (e.g., ["gh", "git"]).
+            Declarative — not enforced at runtime.
+            Must be empty for kind=profile.
         is_platform:
           type: boolean
           description: Platform skills are immutable and undeletable.
