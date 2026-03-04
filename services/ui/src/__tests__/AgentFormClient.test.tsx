@@ -38,8 +38,7 @@ const MOCK_PRESETS = [
     },
     instructions_md: 'You have no shell or filesystem access.',
     is_platform: true,
-    kind: 'profile',
-    tool_dependencies: [],
+    tools: [],
   },
   {
     id: 'preset-dev',
@@ -53,8 +52,7 @@ const MOCK_PRESETS = [
     },
     instructions_md: 'You have full developer access with bash, git, make, curl, and jq available.',
     is_platform: true,
-    kind: 'profile',
-    tool_dependencies: [],
+    tools: [],
   },
   {
     id: 'preset-docker',
@@ -68,8 +66,7 @@ const MOCK_PRESETS = [
     },
     instructions_md: 'You have Docker socket access.',
     is_platform: false,
-    kind: 'skill',
-    tool_dependencies: ['docker'],
+    tools: [{ id: 'tool-docker', name: 'docker' }],
   },
 ]
 
@@ -287,7 +284,7 @@ describe('AgentFormClient', () => {
       expect(screen.getByText('Tools')).toBeInTheDocument()
     })
 
-    // Edit mode with no skills → Custom mode, tool toggles visible
+    // Edit mode with no skills -> Custom mode, tool toggles visible
     const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
     expect(shellCheckbox.checked).toBe(true)
 
@@ -361,12 +358,12 @@ describe('AgentFormClient', () => {
       expect(screen.getByLabelText('Skills')).toBeInTheDocument()
     })
 
-    // Default: Skills mode — skill checkboxes visible
+    // Default: Skills mode -- skill checkboxes visible
     await waitFor(() => {
-      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
+      expect(screen.getAllByText(/Minimal/).length).toBeGreaterThan(0)
     })
 
-    // Switch to Custom — manual tool editors visible
+    // Switch to Custom -- manual tool editors visible
     fireEvent.click(screen.getByLabelText('Custom'))
 
     await waitFor(() => {
@@ -400,7 +397,63 @@ describe('AgentFormClient', () => {
     expect(body.tools_config).toBeDefined()
   })
 
-  // U4: Form Skills mode: checkboxes shown, skill_ids submitted
+  // U4: Shows sandbox profile dropdown
+  it('Shows sandbox profile dropdown', async () => {
+    render(<AgentFormClient />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Skills')).toBeInTheDocument()
+    })
+
+    // Should have sandbox profile select
+    const profileSelect = screen.getByLabelText('Sandbox Profile')
+    expect(profileSelect).toBeInTheDocument()
+
+    // Verify options
+    const options = profileSelect.querySelectorAll('option')
+    const optionTexts = Array.from(options).map(o => o.textContent)
+    expect(optionTexts).toContain('None (custom / skill-only)')
+    expect(optionTexts).toContain('Minimal')
+    expect(optionTexts).toContain('Developer')
+    expect(optionTexts).toContain('Research')
+    expect(optionTexts).toContain('Operator')
+  })
+
+  // Submit body includes sandbox_profile when selected
+  it('submit body includes sandbox_profile when selected', async () => {
+    render(<AgentFormClient isAdmin />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
+
+    // Select sandbox profile
+    fireEvent.change(screen.getByLabelText('Sandbox Profile'), { target: { value: 'developer' } })
+
+    // Check a skill
+    const checkboxes = screen.getAllByRole('checkbox')
+    const minCheckbox = checkboxes.find(cb => cb.closest('label')?.textContent?.includes('Minimal'))!
+    fireEvent.click(minCheckbox)
+
+    fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
+        method: 'POST',
+      }))
+    })
+
+    const postCall = mockFetch.mock.calls.find(
+      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
+    )!
+    const body = JSON.parse(postCall[1].body)
+    expect(body.sandbox_profile).toBe('developer')
+  })
+
+  // U4 (old): Form Skills mode: checkboxes shown, skill_ids submitted
   it('Skills mode submits checked skill_ids', async () => {
     render(<AgentFormClient isAdmin />)
 
@@ -477,10 +530,10 @@ describe('AgentFormClient', () => {
     // Make a manual change (enable shell)
     fireEvent.click(screen.getByLabelText('Shell access'))
 
-    // Try to switch to Skills — user cancels
+    // Try to switch to Skills -- user cancels
     fireEvent.click(screen.getByLabelText('Skills'))
 
-    // Should still be in Custom mode — tool toggles visible
+    // Should still be in Custom mode -- tool toggles visible
     expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
     const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
     expect(shellCheckbox.checked).toBe(true)
@@ -490,7 +543,7 @@ describe('AgentFormClient', () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    // Don't make any changes — just switch back to Skills
+    // Don't make any changes -- just switch back to Skills
     fireEvent.click(screen.getByLabelText('Skills'))
 
     // confirm() should NOT have been called
@@ -573,16 +626,15 @@ describe('AgentFormClient', () => {
     expect(screen.getAllByText('Container').length).toBeGreaterThan(0)
   })
 
-  // U4: Form Skills mode shows profiles and skills groups
-  it('Skills mode shows separate profiles and skills group headings', async () => {
+  // U4 (original): Form Skills mode shows no separate profiles/skills groups
+  it('Skills mode shows no separate profiles and skills group headings', async () => {
     render(<AgentFormClient isAdmin />)
 
     await waitFor(() => {
       expect(screen.getByText(/Minimal/)).toBeInTheDocument()
     })
 
-    // Both group headings should be present
-    expect(screen.getByText('Profiles (sandbox presets)')).toBeInTheDocument()
-    expect(screen.getByText('Skills (capabilities)')).toBeInTheDocument()
+    // Should NOT have separate group headings
+    expect(screen.queryByText('Profiles (sandbox presets)')).not.toBeInTheDocument()
   })
 })

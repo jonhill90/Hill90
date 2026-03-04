@@ -60,13 +60,13 @@ const MOCK_AGENT = {
 
 const MOCK_AGENT_WITH_SKILL = {
   ...MOCK_AGENT,
+  sandbox_profile: 'developer',
   skills: [
     {
       id: 'preset-dev',
       name: 'Developer',
       scope: 'container_local',
-      kind: 'skill',
-      tool_dependencies: ['gh', 'git'],
+      tools: [{ id: 'tool-gh', name: 'gh' }, { id: 'tool-git', name: 'git' }],
       instructions_md: 'Always write tests before implementation.\nFollow TDD red-green-refactor.',
     },
   ],
@@ -105,9 +105,9 @@ const USER_SESSION = {
 }
 
 const MOCK_ALL_SKILLS = [
-  { id: 'preset-dev', name: 'Developer', scope: 'container_local', kind: 'skill', tool_dependencies: ['gh', 'git'], instructions_md: 'Dev instructions' },
-  { id: 'skill-docker', name: 'Docker Access', scope: 'host_docker', kind: 'profile', tool_dependencies: [], instructions_md: 'Docker instructions' },
-  { id: 'skill-vps', name: 'VPS Admin', scope: 'vps_system', kind: 'skill', tool_dependencies: [], instructions_md: 'VPS instructions' },
+  { id: 'preset-dev', name: 'Developer', scope: 'container_local', tools: [{ id: 'tool-gh', name: 'gh' }, { id: 'tool-git', name: 'git' }], instructions_md: 'Dev instructions' },
+  { id: 'skill-docker', name: 'Docker Access', scope: 'host_docker', tools: [], instructions_md: 'Docker instructions' },
+  { id: 'skill-vps', name: 'VPS Admin', scope: 'vps_system', tools: [], instructions_md: 'VPS instructions' },
 ]
 
 const MOCK_AGENT_WITH_MULTI_SKILLS = {
@@ -117,16 +117,14 @@ const MOCK_AGENT_WITH_MULTI_SKILLS = {
       id: 'preset-dev',
       name: 'Developer',
       scope: 'container_local',
-      kind: 'skill',
-      tool_dependencies: ['gh', 'git'],
+      tools: [{ id: 'tool-gh', name: 'gh' }, { id: 'tool-git', name: 'git' }],
       instructions_md: 'Dev instructions.',
     },
     {
       id: 'skill-docker',
       name: 'Docker Access',
       scope: 'host_docker',
-      kind: 'profile',
-      tool_dependencies: [],
+      tools: [],
       instructions_md: 'Docker instructions here.',
     },
   ],
@@ -139,8 +137,7 @@ const MOCK_AGENT_WITH_ELEVATED_SKILL = {
       id: 'skill-docker',
       name: 'Docker Access',
       scope: 'host_docker',
-      kind: 'profile',
-      tool_dependencies: [],
+      tools: [],
       instructions_md: 'Docker instructions here.',
     },
   ],
@@ -486,7 +483,7 @@ describe('AgentDetailClient', () => {
     // Click "Assign Skill" to open picker
     fireEvent.click(screen.getByText('Assign Skill'))
 
-    // Developer is already assigned — should NOT appear in picker
+    // Developer is already assigned -- should NOT appear in picker
     // But Docker Access and VPS Admin should appear (admin sees all)
     await waitFor(() => {
       expect(screen.getByText('Docker Access')).toBeInTheDocument()
@@ -499,7 +496,7 @@ describe('AgentDetailClient', () => {
     const pickerButtons = screen.getAllByRole('button').filter(
       btn => btn.textContent?.includes('Developer') && btn.closest('[class*="navy-900"]')
     )
-    // The picker is inside a navy-900 div — should not have Developer there
+    // The picker is inside a navy-900 div -- should not have Developer there
     expect(pickerButtons).toHaveLength(0)
   })
 
@@ -539,8 +536,8 @@ describe('AgentDetailClient', () => {
     })
   })
 
-  // U5: Detail shows kind badge on cards
-  it('shows kind badge on skill cards', async () => {
+  // U5: Detail shows NO kind badge — shows tools instead
+  it('shows no kind badge on skill cards, shows tools instead', async () => {
     mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
@@ -549,12 +546,17 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('Developer')).toBeInTheDocument()
     })
 
-    // Should show "Skill" kind badge
-    expect(screen.getByText('Skill')).toBeInTheDocument()
+    // Should NOT show "Skill" or "Profile" kind badges
+    const skillCard = screen.getByText('Developer').closest('[class*="rounded-md"]')!
+    expect(skillCard.textContent).not.toMatch(/\bSkill\b/)
+    expect(skillCard.textContent).not.toContain('Profile')
+
+    // Should show tools
+    expect(screen.getByText('Tools: gh, git')).toBeInTheDocument()
   })
 
-  // U6: Detail shows tool_dependencies on skill cards
-  it('shows tool_dependencies as Requires badges on skill cards', async () => {
+  // U6: Detail shows tools on skill cards
+  it('shows tools as badges on skill cards', async () => {
     mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
 
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
@@ -563,7 +565,22 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('Developer')).toBeInTheDocument()
     })
 
-    // Should show tool dependencies
-    expect(screen.getByText('Requires: gh, git')).toBeInTheDocument()
+    // Should show tool names
+    expect(screen.getByText('Tools: gh, git')).toBeInTheDocument()
+  })
+
+  // U6 new: Shows sandbox_profile badge in overview
+  it('shows sandbox_profile badge in overview', async () => {
+    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Should show sandbox profile label and value
+    expect(screen.getByText('Sandbox Profile')).toBeInTheDocument()
+    expect(screen.getByText('developer')).toBeInTheDocument()
   })
 })
