@@ -82,6 +82,29 @@ const MOCK_AGENTS = [
     updated_at: '2026-03-01T00:00:00Z',
     created_by: 'admin',
   },
+  {
+    id: 'agent-4',
+    agent_id: 'multi-skill-bot',
+    name: 'MultiSkillBot',
+    description: 'Has multiple skills',
+    status: 'stopped',
+    cpus: '2.0',
+    mem_limit: '2g',
+    pids_limit: 200,
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['bash', 'git'], denied_patterns: [], max_timeout: 300 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
+      health: { enabled: true },
+    },
+    model_policy_id: null,
+    skills: [
+      { id: 'skill-dev', name: 'Developer', scope: 'container_local' },
+      { id: 'skill-reader', name: 'Data Reader', scope: 'container_local' },
+    ],
+    created_at: '2026-03-02T00:00:00Z',
+    updated_at: '2026-03-02T00:00:00Z',
+    created_by: 'admin',
+  },
 ]
 
 const MOCK_POLICIES = [
@@ -122,7 +145,7 @@ describe('AgentsClient', () => {
     // Status badges + filter buttons both show these texts
     expect(screen.getAllByText('Running').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Stopped').length).toBeGreaterThan(0)
-    expect(screen.getByText('3 agents')).toBeInTheDocument()
+    expect(screen.getByText('4 agents')).toBeInTheDocument()
   })
 
   it('shows policy name badge on agents with assigned policy', async () => {
@@ -237,9 +260,10 @@ describe('AgentsClient', () => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // ResearchBot has Developer skill with container_local scope
-    expect(screen.getByText('Developer')).toBeInTheDocument()
-    expect(screen.getByText(/Container/)).toBeInTheDocument()
+    // ResearchBot has Developer skill with container_local scope (MultiSkillBot also has it)
+    expect(screen.getAllByText('Developer').length).toBeGreaterThan(0)
+    // Scope badge "Container" appears on multiple agent cards
+    expect(screen.getAllByText(/Container/).length).toBeGreaterThan(0)
   })
 
   // T10: Agent list card shows Custom when no skill
@@ -253,6 +277,18 @@ describe('AgentsClient', () => {
     // WriterBot has no skills → should show "Custom" badge
     const customBadges = screen.getAllByText('Custom')
     expect(customBadges.length).toBeGreaterThan(0)
+  })
+
+  // U9: Agent list shows multiple skill badges
+  it('agent card shows multiple skill badges', async () => {
+    render(<AgentsClient session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('MultiSkillBot')).toBeInTheDocument()
+    })
+
+    // MultiSkillBot has Developer and Data Reader skills
+    expect(screen.getByText('Data Reader')).toBeInTheDocument()
   })
 
   it('running agents appear before stopped agents', async () => {

@@ -3,6 +3,7 @@ import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
 import { scopeToOwner } from '../helpers/scope';
 import { writeAgentFiles, removeAgentFiles } from '../services/agent-files';
+import { mergeToolsConfigs, DEFAULT_TOOLS_CONFIG } from '../services/merge-tools-config';
 import {
   createAndStartContainer,
   stopAndRemoveContainer,
@@ -101,14 +102,10 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
-    // Validate skill_ids (max 1 in Phase 2)
+    // Validate skill_ids
     if (skill_ids !== undefined) {
       if (!Array.isArray(skill_ids)) {
         res.status(400).json({ error: 'skill_ids must be an array' });
-        return;
-      }
-      if (skill_ids.length > 1) {
-        res.status(400).json({ error: 'Maximum 1 skill per agent (multi-skill support coming in a future phase)' });
         return;
       }
     }
@@ -136,24 +133,25 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       validatedPolicyId = model_policy_id;
     }
 
-    // Resolve skill: if skill_ids provided, use skill's tools_config (resolve-on-save)
-    let resolvedToolsConfig = tools_config || { shell: { enabled: false }, filesystem: { enabled: false }, health: { enabled: true } };
-    let validatedSkillId: string | null = null;
-    if (skill_ids && skill_ids.length === 1) {
+    // Resolve skills: if skill_ids provided, batch-lookup and merge tools_configs
+    let resolvedToolsConfig = tools_config || DEFAULT_TOOLS_CONFIG;
+    let validatedSkillIds: string[] = [];
+    if (skill_ids && skill_ids.length > 0) {
       const { rows: skillRows } = await getPool().query(
-        'SELECT id, tools_config, scope FROM skills WHERE id = $1',
-        [skill_ids[0]]
+        'SELECT id, tools_config, scope FROM skills WHERE id = ANY($1::uuid[])',
+        [skill_ids]
       );
-      if (skillRows.length === 0) {
-        res.status(400).json({ error: 'Skill not found' });
+      if (skillRows.length !== skill_ids.length) {
+        res.status(400).json({ error: 'One or more skills not found' });
         return;
       }
-      if (ELEVATED_SCOPES.includes(skillRows[0].scope) && !isAdmin(req)) {
-        res.status(403).json({ error: `Assigning ${skillRows[0].scope} skills requires admin role` });
+      if (skillRows.some((s: any) => ELEVATED_SCOPES.includes(s.scope)) && !isAdmin(req)) {
+        const elevatedScope = skillRows.find((s: any) => ELEVATED_SCOPES.includes(s.scope))!.scope;
+        res.status(403).json({ error: `Assigning ${elevatedScope} skills requires admin role` });
         return;
       }
-      resolvedToolsConfig = skillRows[0].tools_config;
-      validatedSkillId = skill_ids[0];
+      resolvedToolsConfig = mergeToolsConfigs(skillRows.map((r: any) => r.tools_config));
+      validatedSkillIds = skill_ids;
     }
 
     const { rows } = await getPool().query(
@@ -177,11 +175,11 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
 
     const createdAgent = rows[0];
 
-    // Insert skill assignment into agent_skills
-    if (validatedSkillId) {
+    // Insert skill assignments into agent_skills
+    for (const skillId of validatedSkillIds) {
       await getPool().query(
         'INSERT INTO agent_skills (agent_id, skill_id, assigned_by) VALUES ($1, $2, $3)',
-        [createdAgent.id, validatedSkillId, user.sub]
+        [createdAgent.id, skillId, user.sub]
       );
     }
 
@@ -266,14 +264,10 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const user = (req as any).user;
     const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids } = req.body;
 
-    // Validate skill_ids (max 1 in Phase 2)
+    // Validate skill_ids
     if (skill_ids !== undefined) {
       if (!Array.isArray(skill_ids)) {
         res.status(400).json({ error: 'skill_ids must be an array' });
-        return;
-      }
-      if (skill_ids.length > 1) {
-        res.status(400).json({ error: 'Maximum 1 skill per agent (multi-skill support coming in a future phase)' });
         return;
       }
     }
@@ -305,25 +299,42 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       }
     }
 
-    // Resolve skill: if skill_ids provided, look up and resolve tools_config
+    // Resolve skills: if skill_ids provided, batch-lookup and merge tools_configs
     let resolvedToolsConfig = tools_config ? JSON.stringify(tools_config) : null;
     if (skill_ids !== undefined) {
-      if (skill_ids.length === 1) {
+      if (skill_ids.length > 0) {
         const { rows: skillRows } = await getPool().query(
-          'SELECT id, tools_config, scope FROM skills WHERE id = $1',
-          [skill_ids[0]]
+          'SELECT id, tools_config, scope FROM skills WHERE id = ANY($1::uuid[])',
+          [skill_ids]
         );
-        if (skillRows.length === 0) {
-          res.status(400).json({ error: 'Skill not found' });
+        if (skillRows.length !== skill_ids.length) {
+          res.status(400).json({ error: 'One or more skills not found' });
           return;
         }
-        if (ELEVATED_SCOPES.includes(skillRows[0].scope) && !isAdmin(req)) {
-          res.status(403).json({ error: `Assigning ${skillRows[0].scope} skills requires admin role` });
+        if (skillRows.some((s: any) => ELEVATED_SCOPES.includes(s.scope)) && !isAdmin(req)) {
+          const elevatedScope = skillRows.find((s: any) => ELEVATED_SCOPES.includes(s.scope))!.scope;
+          res.status(403).json({ error: `Assigning ${elevatedScope} skills requires admin role` });
           return;
         }
-        resolvedToolsConfig = JSON.stringify(skillRows[0].tools_config);
+        resolvedToolsConfig = JSON.stringify(mergeToolsConfigs(skillRows.map((r: any) => r.tools_config)));
       }
-      // skill_ids.length === 0 means clear the skill — tools_config stays as-is or from body
+
+      // Check for implicit elevated-skill removal (non-admin removing elevated skills via PUT)
+      if (!isAdmin(req)) {
+        const { rows: currentSkills } = await getPool().query(
+          `SELECT asks.skill_id, s.scope FROM agent_skills asks
+           JOIN skills s ON s.id = asks.skill_id
+           WHERE asks.agent_id = $1`,
+          [req.params.id]
+        );
+        const removedIds = currentSkills
+          .filter((cs: any) => !skill_ids.includes(cs.skill_id))
+          .filter((cs: any) => ELEVATED_SCOPES.includes(cs.scope));
+        if (removedIds.length > 0) {
+          res.status(403).json({ error: `Cannot remove ${removedIds[0].scope} skills without admin role` });
+          return;
+        }
+      }
     }
 
     // Build SET clause: model_policy_id uses explicit flag to allow clearing to NULL
@@ -363,11 +374,11 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     if (skill_ids !== undefined) {
       // Clear existing assignments
       await getPool().query('DELETE FROM agent_skills WHERE agent_id = $1', [req.params.id]);
-      // Insert new assignment
-      if (skill_ids.length === 1) {
+      // Insert new assignments
+      for (const skillId of skill_ids) {
         await getPool().query(
           'INSERT INTO agent_skills (agent_id, skill_id, assigned_by) VALUES ($1, $2, $3)',
-          [req.params.id, skill_ids[0], user.sub]
+          [req.params.id, skillId, user.sub]
         );
       }
     }
@@ -453,15 +464,20 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     const agent = rows[0];
 
     // Fetch skill instructions at start time (fresh-at-start, not resolve-on-save)
+    // Multi-skill: compose all skill instructions with per-skill headers, ordered by assigned_at
     let skillInstructions: string | undefined;
     const { rows: skillRows } = await getPool().query(
-      `SELECT s.instructions_md FROM agent_skills asks
+      `SELECT s.name, s.instructions_md FROM agent_skills asks
        JOIN skills s ON s.id = asks.skill_id
-       WHERE asks.agent_id = $1`,
+       WHERE asks.agent_id = $1
+       ORDER BY asks.assigned_at ASC`,
       [agent.id]
     );
-    if (skillRows.length > 0 && skillRows[0].instructions_md) {
-      skillInstructions = skillRows[0].instructions_md;
+    const instructionParts = skillRows
+      .filter((r: any) => r.instructions_md)
+      .map((r: any) => `## Skill: ${r.name}\n\n${r.instructions_md}`);
+    if (instructionParts.length > 0) {
+      skillInstructions = instructionParts.join('\n\n---\n\n');
     }
 
     // Write config files to disk
@@ -854,26 +870,38 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
       return;
     }
 
-    // Max 1 skill per agent: replace existing assignment (delete old, insert new)
-    await getPool().query(
-      'DELETE FROM agent_skills WHERE agent_id = $1',
+    // Additive: INSERT only, catch PK violation as 409
+    let assignmentRow;
+    try {
+      const { rows } = await getPool().query(
+        `INSERT INTO agent_skills (agent_id, skill_id, assigned_by)
+         VALUES ($1, $2, $3)
+         RETURNING *`,
+        [req.params.id, skill_id, user.sub]
+      );
+      assignmentRow = rows[0];
+    } catch (insertErr: any) {
+      if (insertErr.code === '23505') {
+        res.status(409).json({ error: 'Skill already assigned to this agent' });
+        return;
+      }
+      throw insertErr;
+    }
+
+    // Resolve-on-save: merge tools_config from ALL skills for this agent
+    const { rows: allSkillConfigs } = await getPool().query(
+      `SELECT s.tools_config FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
       [req.params.id]
     );
-
-    const { rows } = await getPool().query(
-      `INSERT INTO agent_skills (agent_id, skill_id, assigned_by)
-       VALUES ($1, $2, $3)
-       RETURNING *`,
-      [req.params.id, skill_id, user.sub]
-    );
-
-    // Resolve-on-save: update agent's tools_config to match the assigned skill
+    const mergedConfig = mergeToolsConfigs(allSkillConfigs.map((r: any) => r.tools_config));
     await getPool().query(
       'UPDATE agents SET tools_config = $1 WHERE id = $2',
-      [JSON.stringify(skillRows[0].tools_config), req.params.id]
+      [JSON.stringify(mergedConfig), req.params.id]
     );
 
-    res.status(201).json(rows[0]);
+    res.status(201).json(assignmentRow);
   } catch (err: any) {
     console.error('[agents] Assign skill error:', err);
     res.status(500).json({ error: 'Failed to assign skill' });
@@ -924,6 +952,21 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
       res.status(404).json({ error: 'Skill assignment not found' });
       return;
     }
+
+    // Recompute tools_config from remaining skills
+    const { rows: remainingConfigs } = await getPool().query(
+      `SELECT s.tools_config FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [req.params.id]
+    );
+    const mergedConfig = remainingConfigs.length > 0
+      ? mergeToolsConfigs(remainingConfigs.map((r: any) => r.tools_config))
+      : DEFAULT_TOOLS_CONFIG;
+    await getPool().query(
+      'UPDATE agents SET tools_config = $1 WHERE id = $2',
+      [JSON.stringify(mergedConfig), req.params.id]
+    );
 
     res.json({ removed: true });
   } catch (err) {

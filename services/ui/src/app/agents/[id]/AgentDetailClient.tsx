@@ -298,9 +298,12 @@ export default function AgentDetailClient({
   }
 
   // For assign picker: admins see all skills, non-admins see only container_local
-  const assignableSkills = isAdmin
+  // Exclude already-assigned skills (additive semantics)
+  const assignedIds = new Set(agentSkills.map(s => s.id))
+  const assignableSkills = (isAdmin
     ? allSkills
     : allSkills.filter(s => !ELEVATED_SCOPES.includes(s.scope))
+  ).filter(s => !assignedIds.has(s.id))
 
   const tabs: { id: TabId; label: string; adminOnly?: boolean }[] = [
     { id: 'overview', label: 'Overview' },

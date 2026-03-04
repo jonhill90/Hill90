@@ -11,9 +11,6 @@ interface ToolsConfig {
   health: { enabled: boolean }
 }
 
-// Sentinel value — new agents start here, forcing the user to choose
-const UNSELECTED = '__unselected__'
-
 const defaultTools: ToolsConfig = {
   shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
   filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
@@ -91,9 +88,13 @@ export default function AgentFormClient({
   const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
   const [policies, setPolicies] = useState<PolicyOption[]>([])
   const [skills, setSkills] = useState<SkillOption[]>([])
-  // New agents: unselected prompt. Edit agents: skill ID or '' (Custom).
-  const [selectedSkillId, setToolPresetId] = useState(
-    initial ? (initial.skills?.[0]?.id || '') : UNSELECTED
+  // Mode: 'custom' = manual tools_config; 'skills' = checkbox multi-select
+  const hasInitialSkills = (initial?.skills?.length ?? 0) > 0
+  const [mode, setMode] = useState<'custom' | 'skills'>(
+    initial ? (hasInitialSkills ? 'skills' : 'custom') : 'skills'
+  )
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
+    new Set(initial?.skills?.map(s => s.id) || [])
   )
   const toolsCustomDirty = useRef(false)
 
@@ -119,38 +120,40 @@ export default function AgentFormClient({
     toolsCustomDirty.current = true
   }
 
-  const handleSkillChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newId = e.target.value
-    const switchingFromCustom = selectedSkillId === ''
+  const handleModeChange = (newMode: 'custom' | 'skills') => {
+    if (newMode === mode) return
 
-    // Overwrite protection: if user has made manual changes in Custom mode
-    if (switchingFromCustom && newId && newId !== UNSELECTED && toolsCustomDirty.current) {
-      if (!confirm('Switching to a skill will overwrite your custom tool configuration. Continue?')) {
+    if (newMode === 'skills' && toolsCustomDirty.current) {
+      if (!confirm('Switching to Skills mode will overwrite your custom tool configuration. Continue?')) {
         return
       }
     }
 
-    if (newId && newId !== UNSELECTED) {
-      // Switching to a skill — copy its tools_config
-      const skill = skills.find((p) => p.id === newId)
-      if (skill) {
-        setTools(skill.tools_config)
-      }
+    if (newMode === 'custom') {
+      setSelectedSkillIds(new Set())
       toolsCustomDirty.current = false
-    } else if (newId === '') {
-      // Switching to Custom — inherited config is the new baseline
+    } else {
       toolsCustomDirty.current = false
     }
 
-    setToolPresetId(newId)
+    setMode(newMode)
+  }
+
+  const handleSkillToggle = (skillId: string) => {
+    setSelectedSkillIds(prev => {
+      const next = new Set(prev)
+      if (next.has(skillId)) next.delete(skillId)
+      else next.add(skillId)
+      return next
+    })
   }
 
   const validateForm = (): boolean => {
-    if (selectedSkillId === UNSELECTED) {
-      setValidationError('Please select a skill or choose Custom')
+    if (mode === 'skills' && selectedSkillIds.size === 0) {
+      setValidationError('Please select at least one skill or switch to Custom mode')
       return false
     }
-    if (tools.shell.enabled && tools.shell.max_timeout < 1) {
+    if (mode === 'custom' && tools.shell.enabled && tools.shell.max_timeout < 1) {
       setValidationError('Timeout must be at least 1 second')
       return false
     }
@@ -169,14 +172,14 @@ export default function AgentFormClient({
       agent_id: agentId,
       name,
       description,
-      tools_config: tools,
+      tools_config: mode === 'custom' ? tools : undefined,
       cpus,
       mem_limit: memLimit,
       pids_limit: pidsLimit,
       soul_md: soulMd,
       rules_md: rulesMd,
       model_policy_id: modelPolicyId || null,
-      skill_ids: selectedSkillId ? [selectedSkillId] : [],
+      skill_ids: mode === 'skills' ? [...selectedSkillIds] : [],
     }
 
     try {
@@ -278,88 +281,71 @@ export default function AgentFormClient({
         </div>
       </fieldset>
 
-      {/* Skill */}
+      {/* Tools — Custom/Skills mode toggle */}
       <fieldset disabled={disabled} className="space-y-4">
         <legend className="text-lg font-semibold text-white mb-4">Tools</legend>
 
-        <div>
-          <label htmlFor="skill" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            Skill
+        {/* Mode radio toggle */}
+        <div className="flex items-center gap-4" role="radiogroup" aria-label="Tools mode">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="tools-mode"
+              value="skills"
+              checked={mode === 'skills'}
+              onChange={() => handleModeChange('skills')}
+              className="text-brand-500"
+            />
+            <span className="text-sm text-white">Skills</span>
           </label>
-          <select
-            id="skill"
-            value={selectedSkillId}
-            onChange={handleSkillChange}
-            className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
-          >
-            {selectedSkillId === UNSELECTED && (
-              <option value={UNSELECTED} disabled>Select a skill...</option>
-            )}
-            <option value="">Custom</option>
-            {(isAdmin ? skills : skills.filter(s => !ELEVATED_SCOPES.includes(s.scope))).map((p) => (
-              <option key={p.id} value={p.id}>{p.name} ({scopeBadge(p.scope).label})</option>
-            ))}
-          </select>
-          <p className="text-xs text-mountain-500 mt-1">
-            Select a skill or choose Custom for manual configuration.
-          </p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="tools-mode"
+              value="custom"
+              checked={mode === 'custom'}
+              onChange={() => handleModeChange('custom')}
+              className="text-brand-500"
+            />
+            <span className="text-sm text-white">Custom</span>
+          </label>
         </div>
 
-        {selectedSkillId === UNSELECTED ? (
-          /* No selection yet — prompt user */
-          <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
-            <p className="text-sm text-mountain-400">
-              Choose a skill above to configure this agent&apos;s capabilities.
-            </p>
-          </div>
-        ) : selectedSkillId ? (
-          /* Preset selected — show read-only summary */
+        {mode === 'skills' ? (
+          /* Skills mode — checkbox multi-select */
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
-            {(() => {
-              const selected = skills.find((p) => p.id === selectedSkillId)
-              if (!selected) return null
-              const tc = selected.tools_config
-              return (
-                <>
-                  {selected.description && (
-                    <p className="text-sm text-mountain-300">{selected.description}</p>
-                  )}
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={`h-2 w-2 rounded-full ${tc.shell.enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
-                      <span className="text-white">Shell</span>
-                      {tc.shell.enabled && (
-                        <span className="text-mountain-400">
-                          — {tc.shell.allowed_binaries.join(', ') || 'all binaries'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={`h-2 w-2 rounded-full ${tc.filesystem.enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
-                      <span className="text-white">Filesystem</span>
-                      {tc.filesystem.enabled && (
-                        <span className="text-mountain-400">
-                          — {tc.filesystem.read_only ? 'Read-only' : 'Read-write'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className={`h-2 w-2 rounded-full ${tc.health.enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
-                      <span className="text-white">Health</span>
-                    </div>
-                  </div>
-                  {selected.instructions_md && (
-                    <div className="border-t border-navy-700 pt-3">
-                      <h4 className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-1">Instructions</h4>
-                      <p className="text-sm text-mountain-300 whitespace-pre-wrap">{selected.instructions_md}</p>
-                    </div>
-                  )}
-                  <p className="text-xs text-mountain-500">
-                    Skill applied at assignment time. Switch to Custom to edit manually.
-                  </p>
-                </>
-              )
-            })()}
+            <p className="text-xs text-mountain-400 mb-2">
+              Select one or more skills. Tool configurations are merged from all selected skills.
+            </p>
+            <div className="space-y-2">
+              {(isAdmin ? skills : skills.filter(s => !ELEVATED_SCOPES.includes(s.scope))).map((skill) => {
+                const badge = scopeBadge(skill.scope)
+                return (
+                  <label key={skill.id} className="flex items-center gap-3 cursor-pointer py-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedSkillIds.has(skill.id)}
+                      onChange={() => handleSkillToggle(skill.id)}
+                      className="rounded border-navy-600"
+                    />
+                    <span className="text-sm text-white">{skill.name}</span>
+                    <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
+                      {badge.label}
+                    </span>
+                  </label>
+                )
+              })}
+              {skills.length === 0 && (
+                <p className="text-xs text-mountain-500">No skills available</p>
+              )}
+            </div>
+            {selectedSkillIds.size > 0 && (
+              <div className="border-t border-navy-700 pt-3">
+                <p className="text-xs text-mountain-500">
+                  {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? 's' : ''} selected. Tools config will be merged at save time.
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           /* Custom mode — show manual tool toggles */

@@ -643,8 +643,7 @@ paths:
                   items:
                     type: string
                     format: uuid
-                  maxItems: 1
-                  description: Skill IDs to assign (max 1). Config is copied into agent at save time (resolve-on-save).
+                  description: Skill IDs to assign. Config is merged from all skills at save time (resolve-on-save).
       responses:
         "201":
           description: Agent created
@@ -727,8 +726,7 @@ paths:
                   items:
                     type: string
                     format: uuid
-                  maxItems: 1
-                  description: Skill IDs to assign (max 1). Config is copied into agent at save time. Empty array to detach skill.
+                  description: Skill IDs to assign. Empty array to detach all skills (Custom mode). Config is merged from all skills at save time.
       responses:
         "200":
           description: Agent updated
