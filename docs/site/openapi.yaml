@@ -56,11 +56,6 @@ components:
           format: uuid
           nullable: true
           description: ID of the model policy controlling LLM access. Users can assign own or platform policies to own agents; admins can assign any.
-        sandbox_profile:
-          type: string
-          nullable: true
-          enum: [minimal, developer, research, operator]
-          description: Sandbox profile providing base tool configuration
         skills:
           type: array
           items:
@@ -708,11 +703,6 @@ paths:
                   format: uuid
                   nullable: true
                   description: ID of a model policy to assign at creation. Users can assign own or platform policies; admins can assign any.
-                sandbox_profile:
-                  type: string
-                  nullable: true
-                  enum: [minimal, developer, research, operator]
-                  description: Sandbox profile providing base tool configuration
                 skill_ids:
                   type: array
                   items:
@@ -796,11 +786,6 @@ paths:
                   format: uuid
                   nullable: true
                   description: Model policy ID. Users can assign own or platform policies; admins can assign any. Set to null to remove.
-                sandbox_profile:
-                  type: string
-                  nullable: true
-                  enum: [minimal, developer, research, operator]
-                  description: Sandbox profile providing base tool configuration
                 skill_ids:
                   type: array
                   items:

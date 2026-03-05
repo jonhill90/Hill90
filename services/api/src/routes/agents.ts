@@ -4,7 +4,6 @@ import { requireRole } from '../middleware/role';
 import { scopeToOwner } from '../helpers/scope';
 import { writeAgentFiles, removeAgentFiles } from '../services/agent-files';
 import { mergeToolsConfigs, DEFAULT_TOOLS_CONFIG } from '../services/merge-tools-config';
-import { getSandboxProfileConfig, VALID_SANDBOX_PROFILES } from '../services/sandbox-profiles';
 import { ensureRequiredToolsInstalled } from '../services/tool-installer';
 import {
   createAndStartContainer,
@@ -60,7 +59,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const scope = scopeToOwner(req);
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
-              a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id, a.sandbox_profile,
+              a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id,
               a.created_at, a.updated_at, a.created_by,
               COALESCE(
                 json_agg(json_build_object('id', s.id, 'name', s.name, 'scope', s.scope))
@@ -85,7 +84,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
 router.post('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids, sandbox_profile } = req.body;
+    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids } = req.body;
 
     // Reject legacy field
     if (req.body.tool_preset_id !== undefined) {
@@ -95,12 +94,6 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
 
     if (!agent_id || !name) {
       res.status(400).json({ error: 'agent_id and name are required' });
-      return;
-    }
-
-    // Validate sandbox_profile
-    if (sandbox_profile !== undefined && sandbox_profile !== null && !VALID_SANDBOX_PROFILES.includes(sandbox_profile)) {
-      res.status(400).json({ error: `Invalid sandbox_profile. Must be one of: ${VALID_SANDBOX_PROFILES.join(', ')}` });
       return;
     }
 
@@ -141,9 +134,8 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       validatedPolicyId = model_policy_id;
     }
 
-    // Resolve tools_config: profile base + skill overlay
-    const profileConfig = sandbox_profile ? getSandboxProfileConfig(sandbox_profile) : undefined;
-    let resolvedToolsConfig = tools_config || profileConfig || DEFAULT_TOOLS_CONFIG;
+    // Resolve tools_config from explicit payload or assigned skills
+    let resolvedToolsConfig = tools_config || DEFAULT_TOOLS_CONFIG;
     let validatedSkillIds: string[] = [];
     if (skill_ids && skill_ids.length > 0) {
       const { rows: skillRows } = await getPool().query(
@@ -160,15 +152,16 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         return;
       }
       const configs = skillRows.map((r: any) => r.tools_config);
-      if (profileConfig) configs.unshift(profileConfig);
       resolvedToolsConfig = mergeToolsConfigs(configs);
       validatedSkillIds = skill_ids;
     }
 
     const { rows } = await getPool().query(
-      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, sandbox_profile, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING *`,
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, agent_id, name, description, status, tools_config,
+                 cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
+                 model_policy_id, error_message, created_at, updated_at, created_by`,
       [
         agent_id,
         name,
@@ -180,7 +173,6 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         soul_md || '',
         rules_md || '',
         validatedPolicyId,
-        sandbox_profile || null,
         user.sub,
       ]
     );
@@ -221,7 +213,10 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const scope = scopeToOwner(req);
     const paramOffset = scope.params.length + 1;
     const { rows } = await getPool().query(
-      `SELECT * FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      `SELECT id, agent_id, name, description, status, tools_config,
+              cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
+              model_policy_id, error_message, created_at, updated_at, created_by
+       FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
       [...scope.params, req.params.id]
     );
     if (rows.length === 0) {
@@ -274,13 +269,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const user = (req as any).user;
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids, sandbox_profile } = req.body;
-
-    // Validate sandbox_profile
-    if (sandbox_profile !== undefined && sandbox_profile !== null && !VALID_SANDBOX_PROFILES.includes(sandbox_profile)) {
-      res.status(400).json({ error: `Invalid sandbox_profile. Must be one of: ${VALID_SANDBOX_PROFILES.join(', ')}` });
-      return;
-    }
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids } = req.body;
 
     // Validate skill_ids
     if (skill_ids !== undefined) {
@@ -317,10 +306,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       }
     }
 
-    // Resolve tools_config: profile base + skill overlay
-    // Determine profile: explicit in body > existing on agent
-    const effectiveProfile = sandbox_profile !== undefined ? sandbox_profile : existing[0].sandbox_profile;
-    const updateProfileConfig = effectiveProfile ? getSandboxProfileConfig(effectiveProfile) : undefined;
+    // Resolve tools_config from explicit payload or assigned skills
     let resolvedToolsConfig = tools_config ? JSON.stringify(tools_config) : null;
     if (skill_ids !== undefined) {
       if (skill_ids.length > 0) {
@@ -338,11 +324,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
           return;
         }
         const configs = skillRows.map((r: any) => r.tools_config);
-        if (updateProfileConfig) configs.unshift(updateProfileConfig);
         resolvedToolsConfig = JSON.stringify(mergeToolsConfigs(configs));
-      } else if (updateProfileConfig) {
-        // skill_ids is empty array but profile exists — use profile config
-        resolvedToolsConfig = JSON.stringify(updateProfileConfig);
       }
 
       // Check for implicit elevated-skill removal (non-admin removing elevated skills via PUT)
@@ -363,9 +345,8 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       }
     }
 
-    // Build SET clause: model_policy_id and sandbox_profile use explicit flag to allow clearing to NULL
+    // Build SET clause: model_policy_id uses explicit flag to allow clearing to NULL
     const modelPolicyProvided = model_policy_id !== undefined;
-    const sandboxProfileProvided = sandbox_profile !== undefined;
     const { rows } = await getPool().query(
       `UPDATE agents SET
         name = COALESCE($1, name),
@@ -377,10 +358,11 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         soul_md = COALESCE($7, soul_md),
         rules_md = COALESCE($8, rules_md),
         model_policy_id = CASE WHEN $9::boolean THEN $10::uuid ELSE model_policy_id END,
-        sandbox_profile = CASE WHEN $11::boolean THEN $12 ELSE sandbox_profile END,
         updated_at = NOW()
-       WHERE id = $13
-       RETURNING *`,
+       WHERE id = $11
+       RETURNING id, agent_id, name, description, status, tools_config,
+                 cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
+                 model_policy_id, error_message, created_at, updated_at, created_by`,
       [
         name || null,
         description ?? null,
@@ -392,8 +374,6 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         rules_md ?? null,
         modelPolicyProvided,
         modelPolicyProvided ? (model_policy_id ?? null) : null,
-        sandboxProfileProvided,
-        sandboxProfileProvided ? (sandbox_profile ?? null) : null,
         req.params.id,
       ]
     );
@@ -931,12 +911,7 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
       throw insertErr;
     }
 
-    // Resolve-on-save: merge tools_config from profile base + ALL skills for this agent
-    const { rows: agentForProfile } = await getPool().query(
-      'SELECT sandbox_profile FROM agents WHERE id = $1', [req.params.id]
-    );
-    const assignProfileConfig = agentForProfile[0]?.sandbox_profile
-      ? getSandboxProfileConfig(agentForProfile[0].sandbox_profile) : undefined;
+    // Resolve-on-save: merge tools_config from all skills for this agent
     const { rows: allSkillConfigs } = await getPool().query(
       `SELECT s.tools_config FROM agent_skills asks
        JOIN skills s ON s.id = asks.skill_id
@@ -944,7 +919,6 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
       [req.params.id]
     );
     const allConfigs = allSkillConfigs.map((r: any) => r.tools_config);
-    if (assignProfileConfig) allConfigs.unshift(assignProfileConfig);
     const mergedConfig = mergeToolsConfigs(allConfigs);
     await getPool().query(
       'UPDATE agents SET tools_config = $1 WHERE id = $2',
@@ -1003,12 +977,7 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
       return;
     }
 
-    // Recompute tools_config from profile base + remaining skills
-    const { rows: agentForRemove } = await getPool().query(
-      'SELECT sandbox_profile FROM agents WHERE id = $1', [req.params.id]
-    );
-    const removeProfileConfig = agentForRemove[0]?.sandbox_profile
-      ? getSandboxProfileConfig(agentForRemove[0].sandbox_profile) : undefined;
+    // Recompute tools_config from remaining skills
     const { rows: remainingConfigs } = await getPool().query(
       `SELECT s.tools_config FROM agent_skills asks
        JOIN skills s ON s.id = asks.skill_id
@@ -1016,7 +985,6 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
       [req.params.id]
     );
     const removeConfigs = remainingConfigs.map((r: any) => r.tools_config);
-    if (removeProfileConfig) removeConfigs.unshift(removeProfileConfig);
     const removeMerged = removeConfigs.length > 0
       ? mergeToolsConfigs(removeConfigs)
       : DEFAULT_TOOLS_CONFIG;
