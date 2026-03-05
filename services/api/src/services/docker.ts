@@ -85,6 +85,7 @@ export async function createAndStartContainer(opts: CreateAgentContainerOpts): P
     Env: [
       `AGENT_ID=${opts.agentId}`,
       `AGENT_CONFIG=/etc/agentbox/agent.yml`,
+      'PATH=/data/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       ...(opts.env || []),
     ],
     Labels: {
@@ -243,6 +244,66 @@ export async function execInContainer(
   });
   rawStream.pipe(demux);
   return demux;
+}
+
+export async function execInContainerWithExit(
+  agentId: string,
+  cmd: string[],
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  const containerName = `${CONTAINER_PREFIX}${agentId}`;
+  assertAgentboxName(containerName);
+
+  const container = docker.getContainer(containerName);
+  const info = await container.inspect();
+  assertManagedLabel(info.Config.Labels);
+
+  const exec = await container.exec({
+    Cmd: cmd,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: false,
+  });
+
+  const rawStream = await exec.start({ hijack: true, stdin: false });
+
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  let remainder: Buffer | null = null;
+
+  await new Promise<void>((resolve, reject) => {
+    rawStream.on('data', (chunk: Buffer) => {
+      let buf: Buffer = remainder ? Buffer.concat([remainder, chunk]) : chunk;
+      remainder = null;
+      let offset = 0;
+      while (offset < buf.length) {
+        if (offset + 8 > buf.length) {
+          remainder = buf.slice(offset);
+          break;
+        }
+        const payloadSize = buf.readUInt32BE(offset + 4);
+        const frameEnd = offset + 8 + payloadSize;
+        if (frameEnd > buf.length) {
+          remainder = buf.slice(offset);
+          break;
+        }
+        const streamType = buf[offset];
+        const payload = buf.slice(offset + 8, frameEnd);
+        if (streamType === 1) stdoutChunks.push(payload);
+        else if (streamType === 2) stderrChunks.push(payload);
+        offset = frameEnd;
+      }
+    });
+    rawStream.on('error', reject);
+    rawStream.on('end', () => resolve());
+    rawStream.on('close', () => resolve());
+  });
+
+  const inspect = await exec.inspect();
+  return {
+    exitCode: inspect.ExitCode ?? 1,
+    stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+    stderr: Buffer.concat(stderrChunks).toString('utf8'),
+  };
 }
 
 export async function removeAgentVolumes(agentId: string): Promise<void> {
