@@ -250,23 +250,25 @@ describe('mergeToolsConfigs', () => {
     expect(result.filesystem.denied_paths.sort()).toEqual(['/etc/shadow', '/root']);
   });
 
-  // T24: Profile base + skill overlay merge
-  it('mergeToolsConfigs with profile base + skill overlay', () => {
-    // Import SANDBOX_PROFILES lazily to verify it works with mergeToolsConfigs
-    const { SANDBOX_PROFILES } = require('../services/sandbox-profiles');
-    const developerProfile: ToolsConfig = SANDBOX_PROFILES.developer;
+  // T24: Merge behavior with base + overlay configs
+  it('mergeToolsConfigs with base + overlay', () => {
+    const baseConfig: ToolsConfig = {
+      shell: { enabled: true, allowed_binaries: ['bash', 'git', 'make'], denied_patterns: ['rm -rf /'], max_timeout: 300 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+      health: { enabled: true },
+    };
 
-    const skillConfig: ToolsConfig = {
+    const overlayConfig: ToolsConfig = {
       shell: { enabled: true, allowed_binaries: ['python3'], denied_patterns: ['eval'], max_timeout: 600 },
       filesystem: { enabled: true, read_only: false, allowed_paths: ['/opt/data'], denied_paths: [] },
       health: { enabled: true },
     };
 
-    const result = mergeToolsConfigs([developerProfile, skillConfig]);
+    const result = mergeToolsConfigs([baseConfig, overlayConfig]);
 
-    // shell.enabled: OR → true (both true)
+    // shell.enabled: OR → true
     expect(result.shell.enabled).toBe(true);
-    // shell.allowed_binaries: UNION of developer + skill
+    // shell.allowed_binaries: UNION of base + overlay
     expect(result.shell.allowed_binaries).toContain('bash');
     expect(result.shell.allowed_binaries).toContain('git');
     expect(result.shell.allowed_binaries).toContain('make');
@@ -274,7 +276,7 @@ describe('mergeToolsConfigs', () => {
     // shell.denied_patterns: UNION
     expect(result.shell.denied_patterns).toContain('rm -rf /');
     expect(result.shell.denied_patterns).toContain('eval');
-    // shell.max_timeout: MAX(300, 600) = 600
+    // shell.max_timeout: MAX(300, 600)
     expect(result.shell.max_timeout).toBe(600);
     // filesystem.enabled: OR → true
     expect(result.filesystem.enabled).toBe(true);

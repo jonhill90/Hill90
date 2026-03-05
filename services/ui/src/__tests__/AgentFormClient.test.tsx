@@ -397,62 +397,6 @@ describe('AgentFormClient', () => {
     expect(body.tools_config).toBeDefined()
   })
 
-  // U4: Shows sandbox profile dropdown
-  it('Shows sandbox profile dropdown', async () => {
-    render(<AgentFormClient />)
-
-    await waitFor(() => {
-      expect(screen.getByLabelText('Skills')).toBeInTheDocument()
-    })
-
-    // Should have sandbox profile select
-    const profileSelect = screen.getByLabelText('Sandbox Profile')
-    expect(profileSelect).toBeInTheDocument()
-
-    // Verify options
-    const options = profileSelect.querySelectorAll('option')
-    const optionTexts = Array.from(options).map(o => o.textContent)
-    expect(optionTexts).toContain('None (custom / skill-only)')
-    expect(optionTexts).toContain('Minimal')
-    expect(optionTexts).toContain('Developer')
-    expect(optionTexts).toContain('Research')
-    expect(optionTexts).toContain('Operator')
-  })
-
-  // Submit body includes sandbox_profile when selected
-  it('submit body includes sandbox_profile when selected', async () => {
-    render(<AgentFormClient isAdmin />)
-
-    await waitFor(() => {
-      expect(screen.getByText(/Minimal/)).toBeInTheDocument()
-    })
-
-    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
-
-    // Select sandbox profile
-    fireEvent.change(screen.getByLabelText('Sandbox Profile'), { target: { value: 'developer' } })
-
-    // Check a skill
-    const checkboxes = screen.getAllByRole('checkbox')
-    const minCheckbox = checkboxes.find(cb => cb.closest('label')?.textContent?.includes('Minimal'))!
-    fireEvent.click(minCheckbox)
-
-    fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
-        method: 'POST',
-      }))
-    })
-
-    const postCall = mockFetch.mock.calls.find(
-      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
-    )!
-    const body = JSON.parse(postCall[1].body)
-    expect(body.sandbox_profile).toBe('developer')
-  })
-
   // U4 (old): Form Skills mode: checkboxes shown, skill_ids submitted
   it('Skills mode submits checked skill_ids', async () => {
     render(<AgentFormClient isAdmin />)

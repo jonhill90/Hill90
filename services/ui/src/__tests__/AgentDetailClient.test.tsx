@@ -60,7 +60,6 @@ const MOCK_AGENT = {
 
 const MOCK_AGENT_WITH_SKILL = {
   ...MOCK_AGENT,
-  sandbox_profile: 'developer',
   skills: [
     {
       id: 'preset-dev',
@@ -569,18 +568,4 @@ describe('AgentDetailClient', () => {
     expect(screen.getByText('Tools: gh, git')).toBeInTheDocument()
   })
 
-  // U6 new: Shows sandbox_profile badge in overview
-  it('shows sandbox_profile badge in overview', async () => {
-    mockFetchDefaults(MOCK_AGENT_WITH_SKILL as any)
-
-    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
-
-    await waitFor(() => {
-      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
-    })
-
-    // Should show sandbox profile label and value
-    expect(screen.getByText('Sandbox Profile')).toBeInTheDocument()
-    expect(screen.getByText('developer')).toBeInTheDocument()
-  })
 })
