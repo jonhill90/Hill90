@@ -66,7 +66,6 @@ export default function AgentFormClient({
     rules_md: string
     model_policy_id?: string | null
     skills?: Array<{ id: string; name: string; scope: string }>
-    sandbox_profile?: string | null
   }
   agentUuid?: string
   disabled?: boolean
@@ -90,7 +89,6 @@ export default function AgentFormClient({
   const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
   const [policies, setPolicies] = useState<PolicyOption[]>([])
   const [skills, setSkills] = useState<SkillOption[]>([])
-  const [sandboxProfile, setSandboxProfile] = useState(initial?.sandbox_profile || '')
   // Mode: 'custom' = manual tools_config; 'skills' = checkbox multi-select
   const hasInitialSkills = (initial?.skills?.length ?? 0) > 0
   const [mode, setMode] = useState<'custom' | 'skills'>(
@@ -183,7 +181,6 @@ export default function AgentFormClient({
       rules_md: rulesMd,
       model_policy_id: modelPolicyId || null,
       skill_ids: mode === 'skills' ? [...selectedSkillIds] : [],
-      sandbox_profile: sandboxProfile || null,
     }
 
     try {
@@ -288,23 +285,6 @@ export default function AgentFormClient({
       {/* Tools — Custom/Skills mode toggle */}
       <fieldset disabled={disabled} className="space-y-4">
         <legend className="text-lg font-semibold text-white mb-4">Tools</legend>
-
-        {/* Sandbox Profile */}
-        <div className="mb-4">
-          <label htmlFor="sandbox_profile" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">Sandbox Profile</label>
-          <select
-            id="sandbox_profile"
-            value={sandboxProfile}
-            onChange={(e) => setSandboxProfile(e.target.value)}
-            className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
-          >
-            <option value="">None (custom / skill-only)</option>
-            <option value="minimal">Minimal</option>
-            <option value="developer">Developer</option>
-            <option value="research">Research</option>
-            <option value="operator">Operator</option>
-          </select>
-        </div>
 
         {/* Mode radio toggle */}
         <div className="flex items-center gap-4" role="radiogroup" aria-label="Tools mode">
