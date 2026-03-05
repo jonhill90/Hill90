@@ -14,14 +14,17 @@ const TEST_ISSUER = 'https://auth.hill90.com/realms/hill90';
 
 // Mock pg pool
 const mockQuery = jest.fn();
+const mockCreateAndStartContainer = jest.fn().mockResolvedValue('container-id-123');
+const mockStopAndRemoveContainer = jest.fn().mockResolvedValue(undefined);
+const mockEnsureRequiredToolsInstalled = jest.fn().mockResolvedValue(undefined);
 jest.mock('../db/pool', () => ({
   getPool: () => ({ query: mockQuery }),
 }));
 
 // Mock docker service
 jest.mock('../services/docker', () => ({
-  createAndStartContainer: jest.fn().mockResolvedValue('container-id-123'),
-  stopAndRemoveContainer: jest.fn().mockResolvedValue(undefined),
+  createAndStartContainer: (...args: any[]) => mockCreateAndStartContainer(...args),
+  stopAndRemoveContainer: (...args: any[]) => mockStopAndRemoveContainer(...args),
   inspectContainer: jest.fn().mockResolvedValue({ status: 'running', containerId: 'abc', health: 'healthy' }),
   getContainerLogs: jest.fn(),
   removeAgentVolumes: jest.fn().mockResolvedValue(undefined),
@@ -32,6 +35,9 @@ jest.mock('../services/docker', () => ({
 jest.mock('../services/agent-files', () => ({
   writeAgentFiles: jest.fn().mockReturnValue('/data/agentbox/test-agent'),
   removeAgentFiles: jest.fn(),
+}));
+jest.mock('../services/tool-installer', () => ({
+  ensureRequiredToolsInstalled: (...args: any[]) => mockEnsureRequiredToolsInstalled(...args),
 }));
 
 const app = createApp({
@@ -171,6 +177,12 @@ describe('Agent CRUD routes', () => {
 describe('Agent lifecycle routes', () => {
   beforeEach(() => {
     mockQuery.mockReset();
+    mockCreateAndStartContainer.mockReset();
+    mockCreateAndStartContainer.mockResolvedValue('container-id-123');
+    mockStopAndRemoveContainer.mockReset();
+    mockStopAndRemoveContainer.mockResolvedValue(undefined);
+    mockEnsureRequiredToolsInstalled.mockReset();
+    mockEnsureRequiredToolsInstalled.mockResolvedValue(undefined);
     process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
     process.env.AGENTBOX_CONFIG_HOST_PATH = '/opt/hill90/agentbox-configs';
   });
@@ -213,6 +225,30 @@ describe('Agent lifecycle routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('running');
     expect(res.body.container_id).toBe('container-id-123');
+  });
+
+  it('POST /agents/:id/start cleans up and marks error when tool install fails', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (no skill instructions)
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE status=error in catch block
+    mockEnsureRequiredToolsInstalled.mockRejectedValueOnce(new Error('gh install failed'));
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Failed to start agent');
+    expect(res.body.detail).toContain('Tool installation failed');
+    expect(mockStopAndRemoveContainer).toHaveBeenCalledWith('test-agent');
+    expect(mockEnsureRequiredToolsInstalled).toHaveBeenCalledWith('uuid-1', 'test-agent');
   });
 
   it('POST /agents/:id/stop requires admin role', async () => {

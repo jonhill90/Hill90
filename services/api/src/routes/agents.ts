@@ -5,6 +5,7 @@ import { scopeToOwner } from '../helpers/scope';
 import { writeAgentFiles, removeAgentFiles } from '../services/agent-files';
 import { mergeToolsConfigs, DEFAULT_TOOLS_CONFIG } from '../services/merge-tools-config';
 import { getSandboxProfileConfig, VALID_SANDBOX_PROFILES } from '../services/sandbox-profiles';
+import { ensureRequiredToolsInstalled } from '../services/tool-installer';
 import {
   createAndStartContainer,
   stopAndRemoveContainer,
@@ -551,6 +552,19 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       pidsLimit: agent.pids_limit,
       env: [...akmEnv, ...modelRouterEnv],
     });
+
+    // Phase 6B: ensure required tools are installed for assigned skills.
+    // Installation writes persistent status to agent_tool_installs.
+    try {
+      await ensureRequiredToolsInstalled(agent.id, agent.agent_id);
+    } catch (installErr: any) {
+      try {
+        await stopAndRemoveContainer(agent.agent_id);
+      } catch (cleanupErr) {
+        console.error('[agents] Cleanup failed after tool install error:', cleanupErr);
+      }
+      throw new Error(`Tool installation failed: ${installErr?.message || installErr}`);
+    }
 
     // Store AKM JTI + exp for revocation on stop
     if (akmJti) {

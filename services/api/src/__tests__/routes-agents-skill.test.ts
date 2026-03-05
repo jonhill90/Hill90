@@ -28,6 +28,9 @@ jest.mock('../services/agent-files', () => ({
   writeAgentFiles: jest.fn(),
   removeAgentFiles: jest.fn(),
 }));
+jest.mock('../services/tool-installer', () => ({
+  ensureRequiredToolsInstalled: jest.fn().mockResolvedValue(undefined),
+}));
 
 const app = createApp({
   issuer: TEST_ISSUER,
