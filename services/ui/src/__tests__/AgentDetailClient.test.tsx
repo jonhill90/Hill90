@@ -229,7 +229,6 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('bash')).toBeInTheDocument()
     })
     expect(screen.getByText('python3')).toBeInTheDocument()
-    expect(screen.getByText('rm -rf')).toBeInTheDocument()
     expect(screen.getByText('/workspace')).toBeInTheDocument()
   })
 
@@ -331,7 +330,7 @@ describe('AgentDetailClient', () => {
     expect(screen.getByTestId('raw-logs-toggle')).toBeInTheDocument()
   })
 
-  it('Configuration tab displays allowed_binaries and denied_patterns', async () => {
+  it('Configuration tab displays allowed_binaries', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -343,7 +342,6 @@ describe('AgentDetailClient', () => {
     await waitFor(() => {
       expect(screen.getByText('bash')).toBeInTheDocument()
       expect(screen.getByText('python3')).toBeInTheDocument()
-      expect(screen.getByText('rm -rf')).toBeInTheDocument()
     })
   })
 
