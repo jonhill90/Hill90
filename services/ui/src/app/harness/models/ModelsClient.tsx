@@ -121,7 +121,7 @@ export default function ModelsClient() {
   }
 
   const handleDelete = async (model: UserModel) => {
-    if (!confirm(`Delete model "${model.name}"? Policies referencing this model will need to be updated.`)) return
+    if (!confirm(`Delete model "${model.name}"? Agents and internal model access config referencing this model will need updates.`)) return
     setActionLoading(model.id)
     try {
       const res = await fetch(`/api/user-models/${model.id}`, { method: 'DELETE' })
