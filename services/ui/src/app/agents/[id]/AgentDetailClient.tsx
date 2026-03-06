@@ -44,6 +44,16 @@ interface SkillRecord {
   instructions_md?: string
 }
 
+interface ToolInstallStatus {
+  tool_id: string
+  tool_name: string
+  tool_description: string
+  status: 'pending' | 'installed' | 'failed'
+  install_message: string
+  installed_at: string | null
+  updated_at: string
+}
+
 const ELEVATED_SCOPES = ['host_docker', 'vps_system']
 
 function scopeBadge(scope: string): { label: string; colorClasses: string } {
@@ -93,6 +103,8 @@ export default function AgentDetailClient({
   const [allSkills, setAllSkills] = useState<SkillRecord[]>([])
   const [showAssignPicker, setShowAssignPicker] = useState(false)
   const [expandedSkillInstructions, setExpandedSkillInstructions] = useState<Set<string>>(new Set())
+  const [toolInstalls, setToolInstalls] = useState<ToolInstallStatus[]>([])
+  const [toolInstallsLoading, setToolInstallsLoading] = useState(false)
 
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'events' | 'logs'>('events')
@@ -136,11 +148,26 @@ export default function AgentDetailClient({
     }
   }, [])
 
+  const fetchToolInstalls = useCallback(async () => {
+    setToolInstallsLoading(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/tool-installs`)
+      if (res.ok) {
+        setToolInstalls(await res.json())
+      }
+    } catch (err) {
+      console.error('Failed to fetch tool installs:', err)
+    } finally {
+      setToolInstallsLoading(false)
+    }
+  }, [agentId])
+
   useEffect(() => {
     fetchAgent()
     fetchPolicies()
     fetchAllSkills()
-  }, [fetchAgent, fetchPolicies, fetchAllSkills])
+    fetchToolInstalls()
+  }, [fetchAgent, fetchPolicies, fetchAllSkills, fetchToolInstalls])
 
   // Poll status while running
   useEffect(() => {
@@ -202,6 +229,7 @@ export default function AgentDetailClient({
         alert(data.error || `Failed to ${action} agent`)
       }
       await fetchAgent()
+      await fetchToolInstalls()
     } catch (err) {
       console.error(`Failed to ${action}:`, err)
     } finally {
@@ -267,6 +295,7 @@ export default function AgentDetailClient({
       }
       setShowAssignPicker(false)
       await fetchAgent()
+      await fetchToolInstalls()
     } catch (err) {
       console.error('Failed to assign skill:', err)
     }
@@ -284,6 +313,7 @@ export default function AgentDetailClient({
         return
       }
       await fetchAgent()
+      await fetchToolInstalls()
     } catch (err) {
       console.error('Failed to remove skill:', err)
     }
@@ -508,6 +538,38 @@ export default function AgentDetailClient({
               </div>
             ) : (
               <p className="text-sm text-mountain-500">No skills assigned</p>
+            )}
+          </div>
+
+          {/* Tool Install Status */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">Tool Install Status</h2>
+            {toolInstallsLoading ? (
+              <p className="text-sm text-mountain-400">Loading…</p>
+            ) : toolInstalls.length === 0 ? (
+              <p className="text-sm text-mountain-500">No tool installs recorded for this agent yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {toolInstalls.map((row) => (
+                  <div key={row.tool_id} className="rounded-md border border-navy-700 bg-navy-900 px-3 py-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-white">{row.tool_name}</span>
+                      <span className={`px-2 py-0.5 text-xs rounded-md border ${
+                        row.status === 'installed'
+                          ? 'bg-brand-900/50 text-brand-400 border-brand-700'
+                          : row.status === 'failed'
+                            ? 'bg-red-900/40 text-red-400 border-red-700'
+                            : 'bg-amber-900/40 text-amber-400 border-amber-700'
+                      }`}>
+                        {row.status}
+                      </span>
+                    </div>
+                    {row.install_message && (
+                      <p className="text-xs text-mountain-500 mt-1">{row.install_message}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
