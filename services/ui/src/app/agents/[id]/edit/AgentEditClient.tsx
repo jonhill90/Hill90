@@ -49,7 +49,7 @@ export default function AgentEditClient({ agentId, isAdmin = false }: { agentId:
         pids_limit: agent.pids_limit,
         soul_md: agent.soul_md,
         rules_md: agent.rules_md,
-        model_policy_id: agent.model_policy_id,
+        models: agent.models,
         skills: agent.skills,
       }}
       agentUuid={agent.id}

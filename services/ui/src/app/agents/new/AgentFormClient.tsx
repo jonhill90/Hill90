@@ -44,7 +44,6 @@ function scopeBadge(scope: string): { label: string; colorClasses: string } {
 }
 
 interface PolicyOption {
-  id: string
   name: string
 }
 
@@ -64,7 +63,7 @@ export default function AgentFormClient({
     pids_limit: number
     soul_md: string
     rules_md: string
-    model_policy_id?: string | null
+    models?: string[]
     skills?: Array<{ id: string; name: string; scope: string }>
   }
   agentUuid?: string
@@ -86,8 +85,8 @@ export default function AgentFormClient({
   const [pidsLimit, setPidsLimit] = useState(initial?.pids_limit || 200)
   const [soulMd, setSoulMd] = useState(initial?.soul_md || '')
   const [rulesMd, setRulesMd] = useState(initial?.rules_md || '')
-  const [modelPolicyId, setModelPolicyId] = useState(initial?.model_policy_id || '')
-  const [policies, setPolicies] = useState<PolicyOption[]>([])
+  const [availableModels, setAvailableModels] = useState<PolicyOption[]>([])
+  const [selectedModels, setSelectedModels] = useState<string[]>(initial?.models || [])
   const [skills, setSkills] = useState<SkillOption[]>([])
   // Mode: 'custom' = manual tools_config; 'skills' = checkbox multi-select
   const hasInitialSkills = (initial?.skills?.length ?? 0) > 0
@@ -105,9 +104,20 @@ export default function AgentFormClient({
   const [rulesPreview, setRulesPreview] = useState(false)
 
   useEffect(() => {
-    fetch('/api/model-policies')
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => setPolicies(data))
+    Promise.all([
+      fetch('/api/model-policies').then((res) => (res.ok ? res.json() : [])),
+      fetch('/api/user-models').then((res) => (res.ok ? res.json() : [])),
+    ])
+      .then(([policiesData, userModelsData]) => {
+        const names = new Set<string>()
+        for (const p of policiesData as Array<{ allowed_models?: string[] }>) {
+          for (const n of p.allowed_models || []) names.add(n)
+        }
+        for (const m of userModelsData as Array<{ name?: string }>) {
+          if (m.name) names.add(m.name)
+        }
+        setAvailableModels([...names].sort().map((name) => ({ name })))
+      })
       .catch(() => {})
     fetch('/api/skills')
       .then((res) => (res.ok ? res.json() : []))
@@ -179,7 +189,7 @@ export default function AgentFormClient({
       pids_limit: pidsLimit,
       soul_md: soulMd,
       rules_md: rulesMd,
-      model_policy_id: modelPolicyId || null,
+      model_names: selectedModels,
       skill_ids: mode === 'skills' ? [...selectedSkillIds] : [],
     }
 
@@ -467,27 +477,39 @@ export default function AgentFormClient({
         )}
       </fieldset>
 
-      {/* Model Policy */}
+      {/* Models */}
       <fieldset disabled={disabled} className="space-y-4">
-        <legend className="text-lg font-semibold text-white mb-4">Model Policy</legend>
+        <legend className="text-lg font-semibold text-white mb-4">Models</legend>
 
         <div>
-          <label htmlFor="model_policy_id" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            Model Policy
+          <label className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
+            Assign Models
           </label>
-          <select
-            id="model_policy_id"
-            value={modelPolicyId}
-            onChange={(e) => setModelPolicyId(e.target.value)}
-            className="rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none disabled:opacity-50"
-          >
-            <option value="">None</option>
-            {policies.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <div className="max-h-48 overflow-y-auto rounded-lg border border-navy-700 bg-navy-800 p-3 space-y-2">
+            {availableModels.length === 0 ? (
+              <p className="text-xs text-mountain-500">No models available yet</p>
+            ) : (
+              availableModels.map((m) => (
+                <label key={m.name} className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedModels.includes(m.name)}
+                    onChange={() => {
+                      setSelectedModels((prev) => (
+                        prev.includes(m.name)
+                          ? prev.filter((v) => v !== m.name)
+                          : [...prev, m.name]
+                      ))
+                    }}
+                    className="rounded border-navy-600"
+                  />
+                  {m.name}
+                </label>
+              ))
+            )}
+          </div>
           <p className="text-xs text-mountain-500 mt-1">
-            Controls which LLM models this agent can access.
+            Select one or more models this agent can access.
           </p>
         </div>
       </fieldset>

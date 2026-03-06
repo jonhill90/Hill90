@@ -21,8 +21,11 @@ vi.stubGlobal('confirm', mockConfirm)
 import AgentFormClient from '@/app/agents/new/AgentFormClient'
 
 const MOCK_POLICIES = [
-  { id: 'policy-1', name: 'Default Policy' },
-  { id: 'policy-2', name: 'Restricted Policy' },
+  { id: 'policy-1', name: 'Default Policy', allowed_models: ['gpt-4o-mini'] },
+  { id: 'policy-2', name: 'Restricted Policy', allowed_models: ['claude-sonnet'] },
+]
+const MOCK_USER_MODELS = [
+  { id: 'um-1', name: 'my-custom-model' },
 ]
 
 const MOCK_PRESETS = [
@@ -75,6 +78,9 @@ function mockFetchDefaults() {
     if (url === '/api/model-policies') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
     }
+    if (url === '/api/user-models') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USER_MODELS) })
+    }
     if (url === '/api/skills') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_PRESETS) })
     }
@@ -107,7 +113,7 @@ describe('AgentFormClient', () => {
     cleanup()
   })
 
-  it('renders basic info, tools, model policy, resources, identity sections', async () => {
+  it('renders basic info, tools, models, resources, identity sections', async () => {
     render(<AgentFormClient />)
 
     await waitFor(() => {
@@ -115,23 +121,21 @@ describe('AgentFormClient', () => {
     })
 
     expect(screen.getByText('Tools')).toBeInTheDocument()
-    expect(screen.getAllByText('Model Policy').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Models').length).toBeGreaterThan(0)
     expect(screen.getByText('Resources')).toBeInTheDocument()
     expect(screen.getByText('Identity')).toBeInTheDocument()
   })
 
-  it('fetches policies and renders selector with None option', async () => {
+  it('fetches model sources and renders model checklist', async () => {
     render(<AgentFormClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Default Policy')).toBeInTheDocument()
+      expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Restricted Policy')).toBeInTheDocument()
-    const selectEl = screen.getByRole('combobox', { name: /model policy/i })
-    expect(selectEl).toBeInTheDocument()
-    const noneOption = screen.getByRole('option', { name: 'None' })
-    expect(noneOption).toBeInTheDocument()
+    expect(screen.getByText('claude-sonnet')).toBeInTheDocument()
+    expect(screen.getByText('my-custom-model')).toBeInTheDocument()
+    expect(screen.getByText('Assign Models')).toBeInTheDocument()
   })
 
   it('shows shell advanced fields when shell enabled', async () => {
@@ -161,19 +165,19 @@ describe('AgentFormClient', () => {
     expect(screen.getByText('Allowed Paths')).toBeInTheDocument()
   })
 
-  it('submit body includes model_policy_id', async () => {
+  it('submit body includes model_names', async () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
     await waitFor(() => {
-      expect(screen.getByText('Default Policy')).toBeInTheDocument()
+      expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
     })
 
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
 
-    const policySelect = screen.getByRole('combobox', { name: /model policy/i })
-    fireEvent.change(policySelect, { target: { value: 'policy-1' } })
+    fireEvent.click(screen.getByLabelText('gpt-4o-mini'))
+    fireEvent.click(screen.getByLabelText('my-custom-model'))
 
     fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
 
@@ -187,7 +191,7 @@ describe('AgentFormClient', () => {
       (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
     )!
     const body = JSON.parse(postCall[1].body)
-    expect(body.model_policy_id).toBe('policy-1')
+    expect(body.model_names).toEqual(['gpt-4o-mini', 'my-custom-model'])
   })
 
   it('submit body includes advanced tools_config fields', async () => {
@@ -273,7 +277,7 @@ describe('AgentFormClient', () => {
       pids_limit: 300,
       soul_md: 'soul text',
       rules_md: 'rules text',
-      model_policy_id: 'policy-1',
+      models: ['gpt-4o-mini'],
     }
 
     render(<AgentFormClient initial={initial} agentUuid="uuid-1" />)
@@ -289,10 +293,8 @@ describe('AgentFormClient', () => {
     const fsCheckbox = screen.getByLabelText('Filesystem access') as HTMLInputElement
     expect(fsCheckbox.checked).toBe(true)
 
-    await waitFor(() => {
-      const policySelect = screen.getByRole('combobox', { name: /model policy/i }) as HTMLSelectElement
-      expect(policySelect.value).toBe('policy-1')
-    })
+    const modelCheckbox = screen.getByLabelText('gpt-4o-mini') as HTMLInputElement
+    expect(modelCheckbox.checked).toBe(true)
   })
 
   it('disables all inputs when disabled prop is true', async () => {
@@ -534,7 +536,7 @@ describe('AgentFormClient', () => {
       pids_limit: 200,
       soul_md: '',
       rules_md: '',
-      model_policy_id: null,
+      models: [],
       skills: [
         { id: 'preset-dev', name: 'Developer', scope: 'container_local' },
         { id: 'preset-min', name: 'Minimal', scope: 'container_local' },
