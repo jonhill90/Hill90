@@ -109,6 +109,18 @@ const MOCK_ALL_SKILLS = [
   { id: 'skill-vps', name: 'VPS Admin', scope: 'vps_system', tools: [], instructions_md: 'VPS instructions' },
 ]
 
+const MOCK_TOOL_INSTALLS = [
+  {
+    tool_id: 'tool-gh',
+    tool_name: 'gh',
+    tool_description: 'GitHub CLI',
+    status: 'installed',
+    install_message: 'installed',
+    installed_at: '2026-03-01T00:00:00Z',
+    updated_at: '2026-03-01T00:00:00Z',
+  },
+]
+
 const MOCK_AGENT_WITH_MULTI_SKILLS = {
   ...MOCK_AGENT,
   skills: [
@@ -153,6 +165,9 @@ function mockFetchDefaults(agentOverride?: typeof MOCK_AGENT) {
     if (url === '/api/skills') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_ALL_SKILLS) })
     }
+    if (typeof url === 'string' && url.includes('/api/agents/uuid-1/tool-installs')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_TOOL_INSTALLS) })
+    }
     if (typeof url === 'string' && url.includes('/api/usage')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USAGE) })
     }
@@ -194,6 +209,9 @@ describe('AgentDetailClient', () => {
     expect(screen.getByText('Shell')).toBeInTheDocument()
     expect(screen.getByText('Filesystem')).toBeInTheDocument()
     expect(screen.getByText('Health')).toBeInTheDocument()
+    expect(screen.getByText('Tool Install Status')).toBeInTheDocument()
+    expect(screen.getByText('gh')).toBeInTheDocument()
+    expect(screen.getAllByText('installed').length).toBeGreaterThan(0)
   })
 
   it('clicking Configuration tab shows tool details', async () => {
