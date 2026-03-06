@@ -12,7 +12,7 @@ interface ServiceHealth {
 
 interface HarnessOverview {
   agents: { total: number; running: number; stopped: number; error: number }
-  policies: number
+  models: number
   usage: { requests: number; tokens: number; cost: number }
 }
 
@@ -51,14 +51,14 @@ export default function DashboardClient({ session }: { session: Session }) {
 
   const fetchHarness = useCallback(async () => {
     try {
-      const [agentsRes, policiesRes, usageRes] = await Promise.all([
+      const [agentsRes, modelsRes, usageRes] = await Promise.all([
         fetch('/api/agents'),
-        fetch('/api/model-policies'),
+        fetch('/api/user-models'),
         fetch(`/api/usage?from=${sevenDaysAgo()}`),
       ])
 
       const agents = agentsRes.ok ? await agentsRes.json() : []
-      const policies = policiesRes.ok ? await policiesRes.json() : []
+      const models = modelsRes.ok ? await modelsRes.json() : []
       const usage = usageRes.ok ? await usageRes.json() : null
 
       const agentCounts = { total: 0, running: 0, stopped: 0, error: 0 }
@@ -71,7 +71,7 @@ export default function DashboardClient({ session }: { session: Session }) {
 
       setHarness({
         agents: agentCounts,
-        policies: policies.length,
+        models: models.length,
         usage: {
           requests: Number(usage?.total_requests ?? 0),
           tokens: Number(usage?.total_tokens ?? 0),
@@ -139,8 +139,8 @@ export default function DashboardClient({ session }: { session: Session }) {
               </dd>
             </div>
             <div>
-              <dt className="text-mountain-400">Policies</dt>
-              <dd className="text-2xl font-bold text-white mt-1">{harness.policies}</dd>
+              <dt className="text-mountain-400">Models</dt>
+              <dd className="text-2xl font-bold text-white mt-1">{harness.models}</dd>
             </div>
             <div>
               <dt className="text-mountain-400">Requests (7d)</dt>
@@ -194,4 +194,3 @@ export default function DashboardClient({ session }: { session: Session }) {
     </>
   )
 }
-
