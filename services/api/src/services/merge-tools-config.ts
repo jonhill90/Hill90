@@ -25,11 +25,10 @@ export interface ToolsConfig {
 // No-skills default: matches routes/agents.ts:140 and agentbox config.py Pydantic defaults.
 // Shell disabled, filesystem disabled, health enabled.
 // Sub-field defaults from agentbox Pydantic: allowed_binaries=[], denied_patterns=[],
-// max_timeout=300, read_only=false, allowed_paths=['/workspace'],
-// denied_paths=['/etc/shadow','/etc/passwd','/root'].
+// max_timeout=300, read_only=false, allowed_paths=['/workspace'], denied_paths=[].
 export const DEFAULT_TOOLS_CONFIG: ToolsConfig = {
   shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
-  filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+  filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
   health: { enabled: true },
 };
 

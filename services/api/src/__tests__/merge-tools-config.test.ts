@@ -11,7 +11,7 @@ describe('mergeToolsConfigs', () => {
     expect(result.shell.max_timeout).toBe(300);
     expect(result.filesystem.read_only).toBe(false);
     expect(result.filesystem.allowed_paths).toEqual(['/workspace']);
-    expect(result.filesystem.denied_paths).toEqual(['/etc/shadow', '/etc/passwd', '/root']);
+    expect(result.filesystem.denied_paths).toEqual([]);
   });
 
   // M2: Single config returns itself

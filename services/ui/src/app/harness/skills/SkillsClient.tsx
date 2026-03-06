@@ -66,9 +66,7 @@ export default function SkillsClient() {
     readOnly: false,
     healthEnabled: true,
     allowed_binaries: '' ,
-    denied_patterns: '',
     allowed_paths: '/workspace',
-    denied_paths: '/etc/shadow, /etc/passwd, /root',
     max_timeout: '300',
   })
   const [formError, setFormError] = useState('')
@@ -102,9 +100,7 @@ export default function SkillsClient() {
       readOnly: false,
       healthEnabled: true,
       allowed_binaries: '',
-      denied_patterns: '',
       allowed_paths: '/workspace',
-      denied_paths: '/etc/shadow, /etc/passwd, /root',
       max_timeout: '300',
     })
     setSelectedToolIds([])
@@ -126,14 +122,14 @@ export default function SkillsClient() {
       shell: {
         enabled: formData.shellEnabled,
         allowed_binaries: formData.allowed_binaries ? formData.allowed_binaries.split(',').map((s) => s.trim()).filter(Boolean) : [],
-        denied_patterns: formData.denied_patterns ? formData.denied_patterns.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        denied_patterns: [],
         max_timeout: parseInt(formData.max_timeout, 10) || 300,
       },
       filesystem: {
         enabled: formData.filesystemEnabled,
         read_only: formData.readOnly,
         allowed_paths: formData.allowed_paths ? formData.allowed_paths.split(',').map((s) => s.trim()).filter(Boolean) : [],
-        denied_paths: formData.denied_paths ? formData.denied_paths.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        denied_paths: [],
       },
       health: { enabled: formData.healthEnabled },
     }
@@ -199,9 +195,7 @@ export default function SkillsClient() {
       readOnly: tc.filesystem.read_only,
       healthEnabled: tc.health.enabled,
       allowed_binaries: tc.shell.allowed_binaries.join(', '),
-      denied_patterns: tc.shell.denied_patterns.join(', '),
       allowed_paths: tc.filesystem.allowed_paths.join(', '),
-      denied_paths: tc.filesystem.denied_paths.join(', '),
       max_timeout: tc.shell.max_timeout.toString(),
     })
     setSelectedToolIds(skill.tools?.map(t => t.id) || [])
@@ -503,15 +497,6 @@ export default function SkillsClient() {
                                   </span>
                                 ))}
                               </div>
-                              {tc.shell.denied_patterns.length > 0 && (
-                                <div className="text-xs text-mountain-400">
-                                  Denied: {tc.shell.denied_patterns.map((p) => (
-                                    <span key={p} className="px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-700/50 mr-1">
-                                      {p}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
                               <div className="text-xs text-mountain-500">Timeout: {tc.shell.max_timeout}s</div>
                             </div>
                           ) : (
