@@ -15,7 +15,7 @@ interface Agent {
   mem_limit: string
   pids_limit: number
   tools_config: Record<string, any> | null
-  model_policy_id: string | null
+  models: string[]
   skills: Array<{ id: string; name: string; scope: string }>
   created_at: string
   updated_at: string
@@ -35,37 +35,22 @@ function scopeBadge(scope: string): { label: string; colorClasses: string } {
   }
 }
 
-interface ModelPolicy {
-  id: string
-  name: string
-}
-
 type StatusFilter = 'all' | 'running' | 'stopped' | 'error'
 
 const STATUS_ORDER: Record<string, number> = { running: 0, error: 1, stopped: 2 }
 
 export default function AgentsClient({ session }: { session: Session }) {
   const [agents, setAgents] = useState<Agent[]>([])
-  const [policies, setPolicies] = useState<ModelPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const isAdmin = session.user?.roles?.includes('admin')
 
-  const policyName = useCallback((id: string | null) => {
-    if (!id) return null
-    return policies.find((p) => p.id === id)?.name ?? null
-  }, [policies])
-
   const fetchData = useCallback(async () => {
     try {
-      const [agentsRes, policiesRes] = await Promise.all([
-        fetch('/api/agents'),
-        fetch('/api/model-policies'),
-      ])
+      const agentsRes = await fetch('/api/agents')
       if (agentsRes.ok) setAgents(await agentsRes.json())
-      if (policiesRes.ok) setPolicies(await policiesRes.json())
     } catch (err) {
       console.error('Failed to fetch agents:', err)
     } finally {
@@ -159,7 +144,6 @@ export default function AgentsClient({ session }: { session: Session }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredAgents.map((agent) => {
-            const policy = policyName(agent.model_policy_id)
             const tc = agent.tools_config || {}
             return (
               <div
@@ -228,11 +212,20 @@ export default function AgentsClient({ session }: { session: Session }) {
                   <span>{agent.pids_limit} PIDs</span>
                 </div>
 
-                {policy && (
+                {agent.models && agent.models.length > 0 && (
                   <div className="mb-3">
-                    <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-brand-900/30 text-brand-400 border border-brand-800">
-                      {policy}
-                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {agent.models.slice(0, 2).map((m) => (
+                        <span key={m} className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-brand-900/30 text-brand-400 border border-brand-800">
+                          {m}
+                        </span>
+                      ))}
+                      {agent.models.length > 2 && (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-navy-900 text-mountain-400 border border-navy-700">
+                          +{agent.models.length - 2}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
 

@@ -49,6 +49,75 @@ function dbHealthCheck(_req: Request, res: Response, next: () => void) {
 
 router.use(dbHealthCheck);
 
+function isAutoAgentModelsPolicy(description: string | null): boolean {
+  return (description || '').startsWith('[auto-agent-models]');
+}
+
+async function validateModelNames(modelNames: string[], userSub: string, admin: boolean): Promise<string | null> {
+  if (admin) return null;
+  for (const modelName of modelNames) {
+    const { rows: userRows } = await getPool().query(
+      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2`,
+      [modelName, userSub]
+    );
+    if (userRows.length > 0) continue;
+
+    const { rows: platformRows } = await getPool().query(
+      `SELECT name FROM model_catalog WHERE name = $1 AND is_active = true`,
+      [modelName]
+    );
+    if (platformRows.length > 0) continue;
+
+    return `Model '${modelName}' not found`;
+  }
+  return null;
+}
+
+async function upsertAutoAgentModelsPolicy(
+  agentDbId: string,
+  agentSlug: string,
+  ownerSub: string,
+  updatedBy: string,
+  modelNames: string[]
+): Promise<string> {
+  const name = `agent-models-${agentDbId}`;
+  const description = `[auto-agent-models] ${agentSlug}`;
+  const existing = await getPool().query(
+    `SELECT id FROM model_policies WHERE name = $1 AND created_by = $2`,
+    [name, ownerSub]
+  );
+  if (existing.rows.length > 0) {
+    await getPool().query(
+      `UPDATE model_policies
+       SET description = $1,
+           allowed_models = $2,
+           model_aliases = $3,
+           updated_by = $4,
+           updated_at = NOW()
+       WHERE id = $5`,
+      [description, JSON.stringify(modelNames), JSON.stringify({}), updatedBy, existing.rows[0].id]
+    );
+    return existing.rows[0].id;
+  }
+
+  const inserted = await getPool().query(
+    `INSERT INTO model_policies (name, description, allowed_models, model_aliases, updated_by, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id`,
+    [name, description, JSON.stringify(modelNames), JSON.stringify({}), updatedBy, ownerSub]
+  );
+  return inserted.rows[0].id;
+}
+
+async function resolveAgentModels(policyId: string | null): Promise<string[]> {
+  if (!policyId) return [];
+  const { rows } = await getPool().query(
+    `SELECT allowed_models FROM model_policies WHERE id = $1`,
+    [policyId]
+  );
+  return rows[0]?.allowed_models || [];
+}
+
 // ---------------------------------------------------------------------------
 // CRUD (user role)
 // ---------------------------------------------------------------------------
@@ -60,12 +129,14 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id,
+              COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               a.created_at, a.updated_at, a.created_by,
               COALESCE(
                 json_agg(json_build_object('id', s.id, 'name', s.name, 'scope', s.scope))
                 FILTER (WHERE s.id IS NOT NULL), '[]'
               ) AS skills
        FROM agents a
+       LEFT JOIN model_policies mp ON mp.id = a.model_policy_id
        LEFT JOIN agent_skills asks ON asks.agent_id = a.id
        LEFT JOIN skills s ON s.id = asks.skill_id
        WHERE ${scope.where.replace(/created_by/g, 'a.created_by')}
@@ -84,7 +155,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
 router.post('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids } = req.body;
+    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids } = req.body;
 
     // Reject legacy field
     if (req.body.tool_preset_id !== undefined) {
@@ -110,8 +181,16 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         return;
       }
     }
+    if (model_names !== undefined && !Array.isArray(model_names)) {
+      res.status(400).json({ error: 'model_names must be an array' });
+      return;
+    }
+    if (model_names !== undefined && model_policy_id !== undefined) {
+      res.status(400).json({ error: 'Use either model_names or model_policy_id, not both' });
+      return;
+    }
 
-    // Validate model_policy_id ownership (same logic as PUT handler)
+    // Validate model_policy_id ownership (legacy/internal path)
     let validatedPolicyId: string | null = null;
     if (model_policy_id) {
       const { rows: policyRows } = await getPool().query(
@@ -132,6 +211,21 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         }
       }
       validatedPolicyId = model_policy_id;
+    }
+
+    // Direct model assignment (preferred user-facing path)
+    let normalizedModelNames: string[] | undefined = undefined;
+    if (model_names !== undefined) {
+      normalizedModelNames = [...new Set((model_names as string[]).filter(Boolean))];
+      const roles: string[] = user.realm_roles || [];
+      const admin = roles.includes('admin');
+      const modelError = await validateModelNames(normalizedModelNames, user.sub, admin);
+      if (modelError) {
+        res.status(400).json({ error: modelError });
+        return;
+      }
+      // Policy id is derived after insert via auto policy upsert.
+      validatedPolicyId = null;
     }
 
     // Resolve tools_config from explicit payload or assigned skills
@@ -179,6 +273,28 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
 
     const createdAgent = rows[0];
 
+    if (normalizedModelNames !== undefined) {
+      if (normalizedModelNames.length > 0) {
+        const autoPolicyId = await upsertAutoAgentModelsPolicy(
+          createdAgent.id,
+          createdAgent.agent_id,
+          user.sub,
+          user.sub,
+          normalizedModelNames
+        );
+        await getPool().query(
+          `UPDATE agents SET model_policy_id = $1, updated_at = NOW() WHERE id = $2`,
+          [autoPolicyId, createdAgent.id]
+        );
+        createdAgent.model_policy_id = autoPolicyId;
+        createdAgent.models = normalizedModelNames;
+      } else {
+        createdAgent.models = [];
+      }
+    } else {
+      createdAgent.models = await resolveAgentModels(createdAgent.model_policy_id);
+    }
+
     // Insert skill assignments into agent_skills
     for (const skillId of validatedSkillIds) {
       await getPool().query(
@@ -213,10 +329,13 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const scope = scopeToOwner(req);
     const paramOffset = scope.params.length + 1;
     const { rows } = await getPool().query(
-      `SELECT id, agent_id, name, description, status, tools_config,
+      `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-              model_policy_id, error_message, created_at, updated_at, created_by
-       FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+              model_policy_id, COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
+              error_message, created_at, updated_at, created_by
+       FROM agents a
+       LEFT JOIN model_policies mp ON mp.id = a.model_policy_id
+       WHERE a.id = $${paramOffset} AND ${scope.where.replace(/created_by/g, 'a.created_by')}`,
       [...scope.params, req.params.id]
     );
     if (rows.length === 0) {
@@ -269,7 +388,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const user = (req as any).user;
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, skill_ids } = req.body;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids } = req.body;
 
     // Validate skill_ids
     if (skill_ids !== undefined) {
@@ -277,6 +396,14 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         res.status(400).json({ error: 'skill_ids must be an array' });
         return;
       }
+    }
+    if (model_names !== undefined && !Array.isArray(model_names)) {
+      res.status(400).json({ error: 'model_names must be an array' });
+      return;
+    }
+    if (model_names !== undefined && model_policy_id !== undefined) {
+      res.status(400).json({ error: 'Use either model_names or model_policy_id, not both' });
+      return;
     }
 
     // model_policy_id assignment: admins can assign any, users can assign own or platform
@@ -302,6 +429,51 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
             res.status(403).json({ error: "Cannot assign another user's policy" });
             return;
           }
+        }
+      }
+    }
+
+    const userRoles: string[] = user.realm_roles || [];
+    const admin = userRoles.includes('admin');
+    let resolvedModelPolicyId: string | null | undefined = undefined;
+    if (model_names !== undefined) {
+      const normalizedModelNames = [...new Set((model_names as string[]).filter(Boolean))];
+      const modelError = await validateModelNames(normalizedModelNames, existing[0].created_by, admin);
+      if (modelError) {
+        res.status(400).json({ error: modelError });
+        return;
+      }
+
+      if (normalizedModelNames.length === 0) {
+        resolvedModelPolicyId = null;
+      } else {
+        let reusePolicyId: string | null = null;
+        if (existing[0].model_policy_id) {
+          const { rows: policyRows } = await getPool().query(
+            `SELECT id, description FROM model_policies WHERE id = $1`,
+            [existing[0].model_policy_id]
+          );
+          if (policyRows.length > 0 && isAutoAgentModelsPolicy(policyRows[0].description)) {
+            reusePolicyId = policyRows[0].id;
+          }
+        }
+
+        if (reusePolicyId) {
+          await getPool().query(
+            `UPDATE model_policies
+             SET allowed_models = $1, model_aliases = $2, updated_by = $3, updated_at = NOW()
+             WHERE id = $4`,
+            [JSON.stringify(normalizedModelNames), JSON.stringify({}), user.sub, reusePolicyId]
+          );
+          resolvedModelPolicyId = reusePolicyId;
+        } else {
+          resolvedModelPolicyId = await upsertAutoAgentModelsPolicy(
+            existing[0].id,
+            existing[0].agent_id,
+            existing[0].created_by,
+            user.sub,
+            normalizedModelNames
+          );
         }
       }
     }
@@ -346,7 +518,8 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     // Build SET clause: model_policy_id uses explicit flag to allow clearing to NULL
-    const modelPolicyProvided = model_policy_id !== undefined;
+    const modelPolicyProvided = model_policy_id !== undefined || model_names !== undefined;
+    const effectiveModelPolicyId = model_names !== undefined ? resolvedModelPolicyId : model_policy_id;
     const { rows } = await getPool().query(
       `UPDATE agents SET
         name = COALESCE($1, name),
@@ -373,7 +546,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         soul_md ?? null,
         rules_md ?? null,
         modelPolicyProvided,
-        modelPolicyProvided ? (model_policy_id ?? null) : null,
+        modelPolicyProvided ? (effectiveModelPolicyId ?? null) : null,
         req.params.id,
       ]
     );
@@ -401,6 +574,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       [req.params.id]
     );
     updatedAgent.skills = agentSkills;
+    updatedAgent.models = await resolveAgentModels(updatedAgent.model_policy_id);
 
     res.json(updatedAgent);
   } catch (err) {

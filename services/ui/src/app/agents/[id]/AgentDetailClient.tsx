@@ -20,20 +20,12 @@ interface Agent {
   rules_md: string
   container_id: string | null
   model_policy_id: string | null
+  models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
   error_message: string | null
   created_at: string
   updated_at: string
   created_by: string
-}
-
-interface ModelPolicy {
-  id: string
-  name: string
-  allowed_models: string[]
-  max_requests_per_minute: number | null
-  max_tokens_per_day: number | null
-  created_by: string | null
 }
 
 interface SkillRecord {
@@ -80,7 +72,6 @@ export default function AgentDetailClient({
 }) {
   const router = useRouter()
   const [agent, setAgent] = useState<Agent | null>(null)
-  const [policies, setPolicies] = useState<ModelPolicy[]>([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -126,17 +117,6 @@ export default function AgentDetailClient({
     }
   }, [agentId, router])
 
-  const fetchPolicies = useCallback(async () => {
-    try {
-      const res = await fetch('/api/model-policies')
-      if (res.ok) {
-        setPolicies(await res.json())
-      }
-    } catch (err) {
-      console.error('Failed to fetch policies:', err)
-    }
-  }, [])
-
   const fetchAllSkills = useCallback(async () => {
     try {
       const res = await fetch('/api/skills')
@@ -164,10 +144,9 @@ export default function AgentDetailClient({
 
   useEffect(() => {
     fetchAgent()
-    fetchPolicies()
     fetchAllSkills()
     fetchToolInstalls()
-  }, [fetchAgent, fetchPolicies, fetchAllSkills, fetchToolInstalls])
+  }, [fetchAgent, fetchAllSkills, fetchToolInstalls])
 
   // Poll status while running
   useEffect(() => {
@@ -277,7 +256,7 @@ export default function AgentDetailClient({
 
   if (!agent) return null
 
-  const currentPolicy = policies.find((p) => p.id === agent.model_policy_id)
+  const modelNames = agent.models || []
   const agentSkills = agent.skills || []
   const tc = agent.tools_config || {}
 
@@ -602,14 +581,20 @@ export default function AgentDetailClient({
             </dl>
           </div>
 
-          {/* Policy Summary */}
-          {currentPolicy && (
+          {/* Models Summary */}
+          {modelNames.length > 0 && (
             <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-              <h2 className="text-lg font-semibold text-white mb-2">Model Policy</h2>
-              <p className="text-sm text-mountain-300">
-                {currentPolicy.name} — {currentPolicy.allowed_models.length} model{currentPolicy.allowed_models.length !== 1 ? 's' : ''}
-                {currentPolicy.max_requests_per_minute ? `, ${currentPolicy.max_requests_per_minute} req/min` : ''}
-              </p>
+              <h2 className="text-lg font-semibold text-white mb-2">Models</h2>
+              <div className="flex flex-wrap gap-1">
+                {modelNames.map((model) => (
+                  <span
+                    key={model}
+                    className="px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700"
+                  >
+                    {model}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
@@ -726,37 +711,15 @@ export default function AgentDetailClient({
 
       {activeTab === 'model-access' && (
         <div className="space-y-6">
-          {/* Policy Detail */}
+          {/* Model Access */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-            <h2 className="text-lg font-semibold text-white mb-3">Model Policy</h2>
-            {currentPolicy ? (
+            <h2 className="text-lg font-semibold text-white mb-3">Models</h2>
+            {modelNames.length > 0 ? (
               <div className="space-y-3">
-                <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <dt className="text-mountain-400">Policy</dt>
-                    <dd className="text-white mt-1">{currentPolicy.name}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-mountain-400">Rate Limit</dt>
-                    <dd className="text-white mt-1">
-                      {currentPolicy.max_requests_per_minute
-                        ? `${currentPolicy.max_requests_per_minute} req/min`
-                        : 'Unlimited'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-mountain-400">Token Budget</dt>
-                    <dd className="text-white mt-1">
-                      {currentPolicy.max_tokens_per_day
-                        ? `${Number(currentPolicy.max_tokens_per_day).toLocaleString()} tokens/day`
-                        : 'Unlimited'}
-                    </dd>
-                  </div>
-                </dl>
                 <div>
-                  <dt className="text-mountain-400 text-sm">Allowed Models</dt>
+                  <dt className="text-mountain-400 text-sm">Assigned Models</dt>
                   <dd className="mt-1 flex flex-wrap gap-1">
-                    {currentPolicy.allowed_models.map((m) => (
+                    {modelNames.map((m) => (
                       <span
                         key={m}
                         className="px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700"
@@ -768,7 +731,7 @@ export default function AgentDetailClient({
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-mountain-500">No model policy assigned</p>
+              <p className="text-sm text-mountain-500">No models assigned</p>
             )}
           </div>
 

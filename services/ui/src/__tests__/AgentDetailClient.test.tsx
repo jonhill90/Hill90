@@ -51,6 +51,7 @@ const MOCK_AGENT = {
   rules_md: 'Always cite sources.',
   container_id: null,
   model_policy_id: 'policy-1',
+  models: ['gpt-4o-mini', 'claude-sonnet-4-5-20250929'],
   skills: [],
   error_message: null,
   created_at: '2026-01-01T00:00:00Z',
@@ -70,17 +71,6 @@ const MOCK_AGENT_WITH_SKILL = {
     },
   ],
 }
-
-const MOCK_POLICIES = [
-  {
-    id: 'policy-1',
-    name: 'Default Policy',
-    allowed_models: ['gpt-4o-mini', 'claude-sonnet-4-5-20250929'],
-    max_requests_per_minute: 60,
-    max_tokens_per_day: 100000,
-    created_by: null,
-  },
-]
 
 const MOCK_USAGE = {
   total_requests: 150,
@@ -158,9 +148,6 @@ function mockFetchDefaults(agentOverride?: typeof MOCK_AGENT) {
   mockFetch.mockImplementation((url: string, opts?: any) => {
     if (url === `/api/agents/uuid-1` && (!opts || !opts.method || opts.method === 'GET')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(agentOverride || MOCK_AGENT) })
-    }
-    if (url === '/api/model-policies') {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
     }
     if (url === '/api/skills') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_ALL_SKILLS) })
@@ -345,7 +332,7 @@ describe('AgentDetailClient', () => {
     })
   })
 
-  it('Model Access tab shows allowed models and limits', async () => {
+  it('Model Access tab shows assigned models', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -355,7 +342,7 @@ describe('AgentDetailClient', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Model Access' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Default Policy')).toBeInTheDocument()
+      expect(screen.getByText('Assigned Models')).toBeInTheDocument()
     })
     expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
     expect(screen.getByText('claude-sonnet-4-5-20250929')).toBeInTheDocument()

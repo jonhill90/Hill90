@@ -55,7 +55,12 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: ID of the model policy controlling LLM access. Users can assign own or platform policies to own agents; admins can assign any.
+          description: Internal policy reference used by backend model-router plumbing.
+        models:
+          type: array
+          items:
+            type: string
+          description: User-facing model names assigned to this agent.
         skills:
           type: array
           items:
@@ -725,7 +730,12 @@ paths:
                   type: string
                   format: uuid
                   nullable: true
-                  description: ID of a model policy to assign at creation. Users can assign own or platform policies; admins can assign any.
+                  description: Internal-only override. Prefer model_names for user-facing model assignment.
+                model_names:
+                  type: array
+                  items:
+                    type: string
+                  description: User-facing model names to assign directly to this agent (one or many).
                 skill_ids:
                   type: array
                   items:
@@ -808,7 +818,12 @@ paths:
                   type: string
                   format: uuid
                   nullable: true
-                  description: Model policy ID. Users can assign own or platform policies; admins can assign any. Set to null to remove.
+                  description: Internal-only override. Prefer model_names for user-facing model assignment.
+                model_names:
+                  type: array
+                  items:
+                    type: string
+                  description: User-facing model names to assign directly to this agent (one or many).
                 skill_ids:
                   type: array
                   items:
