@@ -109,36 +109,20 @@ curl -X POST https://api.hill90.com/user-models \
   }'
 ```
 
-## 6. Create a Model Policy
+## 6. Assign Models to Your Agent
 
-Define which models the agent can access, with optional rate limits:
-
-```bash
-curl -X POST https://api.hill90.com/model-policies \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "standard-access",
-    "allowed_models": ["my-gpt4o"],
-    "max_requests_per_minute": 10,
-    "max_tokens_per_day": 100000
-  }'
-```
-
-## 7. Assign the Policy to Your Agent
-
-Update the agent to use the model policy:
+Update the agent with direct model assignment:
 
 ```bash
 curl -X PUT https://api.hill90.com/agents/550e8400-e29b-41d4-a716-446655440000 \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "model_policy_id": "POLICY_UUID_FROM_STEP_6"
+    "model_names": ["my-gpt4o"]
   }'
 ```
 
-## 8. Start the Agent
+## 7. Start the Agent
 
 Start the agent container (requires admin role):
 
@@ -154,9 +138,9 @@ curl -X POST https://api.hill90.com/agents/550e8400-e29b-41d4-a716-446655440000/
 }
 ```
 
-The agent is now running in a sandboxed container with access to LLM inference (via the model policy) and persistent knowledge storage.
+The agent is now running in a sandboxed container with access to LLM inference (via assigned models) and persistent knowledge storage.
 
-## 9. Browse Agent Knowledge
+## 8. Browse Agent Knowledge
 
 After the agent runs, browse what it has learned:
 
@@ -174,7 +158,7 @@ curl -H "Authorization: Bearer $TOKEN" \
   "https://api.hill90.com/knowledge/search?q=research+findings"
 ```
 
-## 10. Query Usage
+## 9. Query Usage
 
 Check how much the agent has consumed:
 

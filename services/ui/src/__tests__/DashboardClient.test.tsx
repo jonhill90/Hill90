@@ -30,9 +30,9 @@ const MOCK_AGENTS = [
   { id: 'a4', status: 'error' },
 ]
 
-const MOCK_POLICIES = [
-  { id: 'p1', name: 'Default Policy' },
-  { id: 'p2', name: 'Restricted Policy' },
+const MOCK_MODELS = [
+  { id: 'm1', name: 'gpt-4o-mini' },
+  { id: 'm2', name: 'claude-sonnet' },
 ]
 
 const MOCK_USAGE = {
@@ -49,8 +49,8 @@ function mockFetchDefaults() {
     if (url === '/api/agents') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENTS) })
     }
-    if (url === '/api/model-policies') {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
+    if (url === '/api/user-models') {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODELS) })
     }
     if (typeof url === 'string' && url.startsWith('/api/usage')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USAGE) })
@@ -91,14 +91,14 @@ describe('DashboardClient', () => {
     expect(screen.getByText(/2 stopped/)).toBeInTheDocument()
   })
 
-  it('renders harness overview with policy count', async () => {
+  it('renders harness overview with model count', async () => {
     render(<DashboardClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('Harness Overview')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Policies')).toBeInTheDocument()
+    expect(screen.getByText('Models')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
   })
 
@@ -135,7 +135,7 @@ describe('DashboardClient', () => {
       if (url === '/api/agents') {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
       }
-      if (url === '/api/model-policies') {
+      if (url === '/api/user-models') {
         return Promise.resolve({ ok: false, json: () => Promise.resolve({}) })
       }
       if (typeof url === 'string' && url.startsWith('/api/usage')) {
