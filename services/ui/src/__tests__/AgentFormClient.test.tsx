@@ -145,7 +145,6 @@ describe('AgentFormClient', () => {
     fireEvent.click(advancedLink)
 
     expect(screen.getByText('Allowed Binaries')).toBeInTheDocument()
-    expect(screen.getByText('Denied Patterns')).toBeInTheDocument()
     expect(screen.getByLabelText('Max Timeout (seconds)')).toBeInTheDocument()
   })
 
@@ -160,7 +159,6 @@ describe('AgentFormClient', () => {
     fireEvent.click(advancedLinks[0])
 
     expect(screen.getByText('Allowed Paths')).toBeInTheDocument()
-    expect(screen.getByText('Denied Paths')).toBeInTheDocument()
   })
 
   it('submit body includes model_policy_id', async () => {

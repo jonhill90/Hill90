@@ -577,7 +577,7 @@ export default function AgentDetailClient({
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
             <h2 className="text-lg font-semibold text-white mb-3">Tool Access</h2>
             <div className="flex flex-wrap gap-2">
-              <ToolBadge label="Shell" enabled={tc.shell?.enabled} summary={tc.shell?.enabled ? `${tc.shell.allowed_binaries?.length || 0} binaries, ${tc.shell.denied_patterns?.length || 0} patterns` : undefined} />
+              <ToolBadge label="Shell" enabled={tc.shell?.enabled} summary={tc.shell?.enabled ? `${tc.shell.allowed_binaries?.length || 0} binaries` : undefined} />
               <ToolBadge label="Filesystem" enabled={tc.filesystem?.enabled} summary={tc.filesystem?.enabled ? (tc.filesystem.read_only ? 'Read-only' : 'Read-write') : undefined} />
               <ToolBadge label="Health" enabled={tc.health?.enabled} />
             </div>
@@ -650,14 +650,6 @@ export default function AgentDetailClient({
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-mountain-400 mb-1">Denied Patterns</dt>
-                      <dd className="flex flex-wrap gap-1">
-                        {(tc.shell.denied_patterns || []).length > 0
-                          ? tc.shell.denied_patterns.map((p: string) => <Badge key={p} variant="red">{p}</Badge>)
-                          : <span className="text-mountain-500 text-xs">None</span>}
-                      </dd>
-                    </div>
-                    <div>
                       <dt className="text-mountain-400 mb-1">Max Timeout</dt>
                       <dd className="text-white">{tc.shell.max_timeout || 300}s</dd>
                     </div>
@@ -677,14 +669,6 @@ export default function AgentDetailClient({
                       <dt className="text-mountain-400 mb-1">Allowed Paths</dt>
                       <dd className="flex flex-wrap gap-1">
                         {(tc.filesystem.allowed_paths || []).map((p: string) => <Badge key={p}>{p}</Badge>)}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-mountain-400 mb-1">Denied Paths</dt>
-                      <dd className="flex flex-wrap gap-1">
-                        {(tc.filesystem.denied_paths || []).length > 0
-                          ? tc.filesystem.denied_paths.map((p: string) => <Badge key={p} variant="red">{p}</Badge>)
-                          : <span className="text-mountain-500 text-xs">None</span>}
                       </dd>
                     </div>
                   </dl>

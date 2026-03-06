@@ -13,7 +13,7 @@ interface ToolsConfig {
 
 const defaultTools: ToolsConfig = {
   shell: { enabled: false, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
-  filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: ['/etc/shadow', '/etc/passwd', '/root'] },
+  filesystem: { enabled: false, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
   health: { enabled: true },
 }
 
@@ -390,13 +390,6 @@ export default function AgentFormClient({
                       placeholder="Add binary (e.g. bash)..."
                       disabled={disabled}
                     />
-                    <TagInput
-                      label="Denied Patterns"
-                      value={tools.shell.denied_patterns}
-                      onChange={(v) => updateToolsCustom({ ...tools, shell: { ...tools.shell, denied_patterns: v } })}
-                      placeholder="Add pattern (e.g. rm -rf)..."
-                      disabled={disabled}
-                    />
                     <div>
                       <label htmlFor="max_timeout" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
                         Max Timeout (seconds)
@@ -453,14 +446,6 @@ export default function AgentFormClient({
                       onChange={(v) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, allowed_paths: v } })}
                       validate={pathValidate}
                       placeholder="Add path (e.g. /workspace)..."
-                      disabled={disabled}
-                    />
-                    <TagInput
-                      label="Denied Paths"
-                      value={tools.filesystem.denied_paths}
-                      onChange={(v) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, denied_paths: v } })}
-                      validate={pathValidate}
-                      placeholder="Add path (e.g. /etc/shadow)..."
                       disabled={disabled}
                     />
                   </div>
