@@ -189,7 +189,7 @@ export default function UsageClient() {
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
           <p className="text-mountain-400 mb-4">No usage data yet</p>
           <p className="text-sm text-mountain-500">
-            Start an agent with a model policy to begin tracking usage.
+            Assign one or more models to an agent and run it to begin tracking usage.
           </p>
         </div>
       ) : (
