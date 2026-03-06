@@ -36,7 +36,7 @@ const MOCK_AGENTS = [
       filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
       health: { enabled: true },
     },
-    model_policy_id: 'policy-1',
+    models: ['gpt-4o-mini', 'claude-sonnet'],
     skills: [{ id: 'skill-dev', name: 'Developer', scope: 'container_local' }],
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
@@ -56,7 +56,7 @@ const MOCK_AGENTS = [
       filesystem: { enabled: false, read_only: false, allowed_paths: [], denied_paths: [] },
       health: { enabled: true },
     },
-    model_policy_id: null,
+    models: [],
     skills: [],
     created_at: '2026-02-01T00:00:00Z',
     updated_at: '2026-02-01T00:00:00Z',
@@ -76,7 +76,7 @@ const MOCK_AGENTS = [
       filesystem: { enabled: false, read_only: false, allowed_paths: [], denied_paths: [] },
       health: { enabled: false },
     },
-    model_policy_id: null,
+    models: [],
     skills: [],
     created_at: '2026-03-01T00:00:00Z',
     updated_at: '2026-03-01T00:00:00Z',
@@ -96,7 +96,7 @@ const MOCK_AGENTS = [
       filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace'], denied_paths: [] },
       health: { enabled: true },
     },
-    model_policy_id: null,
+    models: [],
     skills: [
       { id: 'skill-dev', name: 'Developer', scope: 'container_local' },
       { id: 'skill-reader', name: 'Data Reader', scope: 'container_local' },
@@ -107,18 +107,10 @@ const MOCK_AGENTS = [
   },
 ]
 
-const MOCK_POLICIES = [
-  { id: 'policy-1', name: 'Default Policy' },
-  { id: 'policy-2', name: 'Restricted Policy' },
-]
-
 function mockFetchDefaults() {
   mockFetch.mockImplementation((url: string) => {
     if (url === '/api/agents') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENTS) })
-    }
-    if (url === '/api/model-policies') {
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
   })
@@ -148,25 +140,25 @@ describe('AgentsClient', () => {
     expect(screen.getByText('4 agents')).toBeInTheDocument()
   })
 
-  it('shows policy name badge on agents with assigned policy', async () => {
+  it('shows model badges on agents with assigned models', async () => {
     render(<AgentsClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Default Policy')).toBeInTheDocument()
+    expect(screen.getByText('gpt-4o-mini')).toBeInTheDocument()
   })
 
-  it('does not show policy badge on agents without policy', async () => {
+  it('does not show model badges on agents without assigned models', async () => {
     render(<AgentsClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('WriterBot')).toBeInTheDocument()
     })
 
-    const policyBadges = screen.queryAllByText('Restricted Policy')
-    expect(policyBadges.length).toBe(0)
+    const modelBadges = screen.queryAllByText('gpt-4o-mini')
+    expect(modelBadges.length).toBe(1)
   })
 
   it('shows resource info on agent cards', async () => {
@@ -183,9 +175,6 @@ describe('AgentsClient', () => {
   it('shows empty state when no agents', async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url === '/api/agents') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
-      }
-      if (url === '/api/model-policies') {
         return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
@@ -209,7 +198,7 @@ describe('AgentsClient', () => {
     expect(screen.getAllByText('Start').length).toBeGreaterThan(0)
   })
 
-  it('fetches both agents and policies on mount', async () => {
+  it('fetches agents on mount', async () => {
     render(<AgentsClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
@@ -217,7 +206,6 @@ describe('AgentsClient', () => {
     })
 
     expect(mockFetch).toHaveBeenCalledWith('/api/agents')
-    expect(mockFetch).toHaveBeenCalledWith('/api/model-policies')
   })
 
   it('renders tool capability badges from tools_config', async () => {

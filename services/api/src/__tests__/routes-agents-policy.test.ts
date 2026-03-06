@@ -74,6 +74,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] });
     // SELECT skills for response
     mockQuery.mockResolvedValueOnce({ rows: [] });
+    // Resolve models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -93,6 +95,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'platform-policy' }] });
     // SELECT skills for response
     mockQuery.mockResolvedValueOnce({ rows: [] });
+    // Resolve models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -122,7 +126,8 @@ describe('Agent PUT model_policy_id behavior', () => {
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
       .mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'someone' }] }) // FK validation
       .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] }) // UPDATE
-      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
+      .mockResolvedValueOnce({ rows: [] }) // SELECT skills for response
+      .mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] }); // Resolve models
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -173,7 +178,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
       .mockResolvedValueOnce({ rows: [agentRow] }) // UPDATE
-      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
+      .mockResolvedValueOnce({ rows: [] }) // SELECT skills for response
+      .mockResolvedValueOnce({ rows: [] }); // Resolve models
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -190,7 +196,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
       .mockResolvedValueOnce({ rows: [{ ...agentRow, name: 'New Name' }] }) // UPDATE
-      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
+      .mockResolvedValueOnce({ rows: [] }) // SELECT skills for response
+      .mockResolvedValueOnce({ rows: [] }); // Resolve models
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -227,6 +234,8 @@ describe('Agent POST model_policy_id behavior', () => {
     });
     // SELECT skills for response
     mockQuery.mockResolvedValueOnce({ rows: [] });
+    // Resolve models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
 
     const res = await request(app)
       .post('/agents')
@@ -265,6 +274,8 @@ describe('Agent POST model_policy_id behavior', () => {
     });
     // SELECT skills for response
     mockQuery.mockResolvedValueOnce({ rows: [] });
+    // Resolve models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
 
     const res = await request(app)
       .post('/agents')
