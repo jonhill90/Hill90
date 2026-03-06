@@ -664,6 +664,36 @@ router.get('/:id/status', requireRole('user'), async (req: Request, res: Respons
   }
 });
 
+// Get per-agent tool installation statuses
+router.get('/:id/tool-installs', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows: agentRows } = await getPool().query(
+      `SELECT id FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (agentRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const { rows } = await getPool().query(
+      `SELECT ati.tool_id, t.name AS tool_name, t.description AS tool_description,
+              ati.status, ati.install_message, ati.installed_at, ati.updated_at
+       FROM agent_tool_installs ati
+       JOIN tools t ON t.id = ati.tool_id
+       WHERE ati.agent_id = $1
+       ORDER BY t.name ASC`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[agents] Tool install status error:', err);
+    res.status(500).json({ error: 'Failed to get tool install status' });
+  }
+});
+
 // Get agent events (structured activity timeline)
 router.get('/:id/events', requireRole('user'), async (req: Request, res: Response) => {
   try {

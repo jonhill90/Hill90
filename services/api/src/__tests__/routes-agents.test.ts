@@ -271,6 +271,42 @@ describe('Agent lifecycle routes', () => {
     expect(call[0]).toContain('created_by = $');
   });
 
+  it('GET /agents/:id/tool-installs returns install statuses for owned agent', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'uuid-1' }] }) // ownership check
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            tool_id: 'tool-gh',
+            tool_name: 'gh',
+            tool_description: 'GitHub CLI',
+            status: 'installed',
+            install_message: 'installed',
+            installed_at: '2026-03-01T00:00:00Z',
+            updated_at: '2026-03-01T00:00:00Z',
+          },
+        ],
+      });
+
+    const res = await request(app)
+      .get('/agents/uuid-1/tool-installs')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].tool_name).toBe('gh');
+  });
+
+  it('GET /agents/:id/tool-installs returns 404 for unowned agent', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .get('/agents/uuid-1/tool-installs')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(404);
+  });
+
   it('GET /agents/:id/logs requires admin role', async () => {
     const res = await request(app)
       .get('/agents/some-id/logs')
