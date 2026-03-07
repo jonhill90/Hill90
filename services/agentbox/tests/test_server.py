@@ -57,3 +57,12 @@ class TestServerComposition:
         """WORK_TOKEN should be read from environment."""
         source = SERVER_PATH.read_text()
         assert 'os.environ.get("WORK_TOKEN")' in source
+
+    def test_no_false_mcp_independence_claims(self):
+        """Server should not claim endpoints are 'MCP-independent' in implementation.
+
+        Endpoints currently use FastMCP custom_route. The docstring and comments
+        must acknowledge this (architect review finding #3).
+        """
+        source = SERVER_PATH.read_text()
+        assert "MCP-independent" not in source

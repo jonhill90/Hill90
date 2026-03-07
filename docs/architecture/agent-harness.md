@@ -65,9 +65,9 @@ These tools are exposed via MCP. Shell and filesystem logic is also available as
 | `write_file` | Writes content to files within allowed paths | Yes (filesystem) |
 | `list_directory` | Lists directory contents with metadata | Yes (filesystem) |
 
-### Runtime Endpoints (HTTP, not MCP)
+### Runtime Endpoints
 
-These endpoints are served directly by Starlette routes on the same port (8054). They are independent of MCP and will survive Phase 3 MCP removal.
+These endpoints are plain HTTP handlers (Starlette) currently mounted via FastMCP `custom_route`. They are intended to survive Phase 3 MCP removal.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|

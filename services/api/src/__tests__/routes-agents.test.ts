@@ -229,6 +229,31 @@ describe('Agent lifecycle routes', () => {
     expect(res.body.container_id).toBe('container-id-123');
   });
 
+  it('POST /agents/:id/start injects WORK_TOKEN env var', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    const workTokenEntry = callArgs.env.find((e: string) => e.startsWith('WORK_TOKEN='));
+    expect(workTokenEntry).toBeDefined();
+    // Token should be a UUID (36 chars: 8-4-4-4-12)
+    const tokenValue = workTokenEntry.split('=')[1];
+    expect(tokenValue).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
   it('POST /agents/:id/start cleans up and marks error when tool install fails', async () => {
     mockQuery
       .mockResolvedValueOnce({

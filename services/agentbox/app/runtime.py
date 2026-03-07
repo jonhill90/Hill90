@@ -64,6 +64,7 @@ class AgentRuntime:
         try:
             body = await request.json()
         except Exception:
+            self._emit_work_failed("Malformed JSON body")
             return JSONResponse(
                 {"error": "validation_error", "detail": "Malformed JSON body"},
                 status_code=400,
@@ -71,6 +72,7 @@ class AgentRuntime:
 
         # 3. Validate schema
         if not isinstance(body, dict):
+            self._emit_work_failed("Request body must be a JSON object")
             return JSONResponse(
                 {"error": "validation_error", "detail": "Request body must be a JSON object"},
                 status_code=400,
@@ -78,6 +80,7 @@ class AgentRuntime:
 
         work_type = body.get("type")
         if not work_type or not isinstance(work_type, str):
+            self._emit_work_failed("Field 'type' is required and must be a non-empty string")
             return JSONResponse(
                 {"error": "validation_error", "detail": "Field 'type' is required and must be a non-empty string"},
                 status_code=400,
@@ -85,12 +88,25 @@ class AgentRuntime:
 
         payload = body.get("payload", {})
         if not isinstance(payload, dict):
+            self._emit_work_failed(
+                "Field 'payload' must be an object",
+                work_type=work_type,
+            )
             return JSONResponse(
                 {"error": "validation_error", "detail": "Field 'payload' must be an object"},
                 status_code=400,
             )
 
         correlation_id = body.get("correlation_id")
+        if correlation_id is not None and not isinstance(correlation_id, str):
+            self._emit_work_failed(
+                "Field 'correlation_id' must be a string or null",
+                work_type=work_type,
+            )
+            return JSONResponse(
+                {"error": "validation_error", "detail": "Field 'correlation_id' must be a string or null"},
+                status_code=400,
+            )
 
         # 4. Generate work ID
         work_id = str(uuid.uuid4())
@@ -128,6 +144,23 @@ class AgentRuntime:
             "work_id": work_id,
             "type": work_type,
         })
+
+    def _emit_work_failed(
+        self,
+        detail: str,
+        *,
+        work_type: str | None = None,
+    ) -> None:
+        """Emit a work_failed event for validation/schema failures."""
+        summary = f"type={work_type}" if work_type else "type=unknown"
+        self._emitter.emit(
+            type="work_failed",
+            tool="runtime",
+            input_summary=summary,
+            output_summary=detail,
+            duration_ms=0,
+            success=False,
+        )
 
     def _check_auth(self, request: Request) -> bool:
         """Validate Bearer token against WORK_TOKEN."""
