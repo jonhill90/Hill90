@@ -1,4 +1,8 @@
-"""Identity tools — exposes agent SOUL.md and RULES.md."""
+"""Identity tools — exposes agent SOUL.md and RULES.md.
+
+DEPRECATED — scheduled for removal in Phase 2 (runtime-first migration).
+Agent reads /etc/agentbox/SOUL.md and RULES.md directly.
+"""
 
 from __future__ import annotations
 

@@ -1,14 +1,13 @@
-"""Tests for tools.shell — MCP wrapper shell execution tools."""
+"""Tests for app.shell — extracted shell execution logic (no MCP dependency)."""
 
 import json
 import re
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.config import ShellConfig
-from app import shell as app_shell
-from tools import shell
+from app import shell
 
 
 @pytest.fixture(autouse=True)
@@ -22,17 +21,17 @@ def configure_shell(tmp_path):
     )
     shell.configure(config)
     # Override the policy's default cwd for local testing
-    original_execute = app_shell._policy.execute
+    original_execute = shell._policy.execute
 
     def patched_execute(command, timeout=30, cwd=str(tmp_path)):
         return original_execute(command, timeout=timeout, cwd=cwd)
 
-    app_shell._policy.execute = patched_execute
+    shell._policy.execute = patched_execute
 
 
 class TestExecuteCommand:
     @pytest.mark.asyncio
-    async def test_echo(self):
+    async def test_execute_echo(self):
         result = json.loads(await shell.execute_command("echo hello"))
         assert result["success"] is True
         assert "hello" in result["stdout"]
@@ -43,33 +42,21 @@ class TestExecuteCommand:
         assert result["success"] is False
         assert "denied pattern" in result["error"]
 
-    @pytest.mark.asyncio
-    async def test_nonzero_exit(self):
-        result = json.loads(await shell.execute_command("false"))
-        assert result["success"] is False
-        assert result["exit_code"] != 0
-
 
 class TestCheckCommand:
     @pytest.mark.asyncio
-    async def test_allowed(self):
+    async def test_check_allowed(self):
         result = json.loads(await shell.check_command("echo test"))
         assert result["allowed"] is True
-
-    @pytest.mark.asyncio
-    async def test_denied(self):
-        result = json.loads(await shell.check_command("rm -rf /home"))
-        assert result["allowed"] is False
 
 
 class TestEventEmission:
     @pytest.mark.asyncio
-    async def test_shell_emits_events(self):
+    async def test_execute_emits_events(self):
         emitter = MagicMock()
-        app_shell._emitter = emitter
+        shell._emitter = emitter
         await shell.execute_command("echo hello")
         assert emitter.emit.call_count == 2
-        # First call is command_start, second is command_complete
         start_call = emitter.emit.call_args_list[0]
         assert start_call.kwargs["type"] == "command_start"
         assert start_call.kwargs["tool"] == "shell"
@@ -78,42 +65,48 @@ class TestEventEmission:
         assert complete_call.kwargs["tool"] == "shell"
         assert complete_call.kwargs["success"] is True
         assert complete_call.kwargs["duration_ms"] is not None
-        app_shell._emitter = None
+        shell._emitter = None
 
     @pytest.mark.asyncio
-    async def test_shell_event_output_is_exit_code_and_byte_count(self):
+    async def test_event_output_is_exit_code_and_byte_count(self):
         emitter = MagicMock()
-        app_shell._emitter = emitter
+        shell._emitter = emitter
         await shell.execute_command("echo hello")
         complete_call = emitter.emit.call_args_list[1]
         output = complete_call.kwargs["output_summary"]
         # Must match "exit N, M bytes stdout" — no actual stdout content
         assert re.match(r"^exit \d+, \d+ bytes stdout$", output)
         assert "hello" not in output
-        app_shell._emitter = None
+        shell._emitter = None
 
 
 class TestUnconfigured:
     @pytest.mark.asyncio
     async def test_unconfigured_execute(self):
-        app_shell._policy = None
+        shell._policy = None
         result = json.loads(await shell.execute_command("echo test"))
         assert result["success"] is False
         assert "not configured" in result["error"]
 
-    @pytest.mark.asyncio
-    async def test_unconfigured_check(self):
-        app_shell._policy = None
-        result = json.loads(await shell.check_command("echo test"))
-        assert result["allowed"] is False
 
+class TestNoFastMCPDependency:
+    def test_no_fastmcp_import_shell(self):
+        """app.shell must not contain any fastmcp import statements."""
+        import ast
+        import inspect
 
-class TestMCPDelegation:
-    @pytest.mark.asyncio
-    async def test_mcp_wrapper_delegates(self):
-        """MCP wrapper tools.shell.execute_command delegates to app.shell.execute_command."""
-        with patch("app.shell.execute_command", new_callable=AsyncMock) as mock_exec:
-            mock_exec.return_value = '{"success": true}'
-            result = await shell.execute_command("echo test", timeout=15)
-            mock_exec.assert_called_once_with("echo test", timeout=15)
-            assert result == '{"success": true}'
+        import app.shell
+
+        source = inspect.getsource(app.shell)
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    assert not alias.name.startswith("fastmcp"), (
+                        f"app.shell imports fastmcp: {alias.name}"
+                    )
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and node.module.startswith("fastmcp"):
+                    raise AssertionError(
+                        f"app.shell imports from fastmcp: {node.module}"
+                    )

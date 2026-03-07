@@ -15,7 +15,7 @@ Hill90 is composed of application services, infrastructure services, and an obse
 | **AI (Model-Router)** | Python (FastAPI) | Internal only | Policy-gated LLM inference gateway for agents |
 | **Knowledge (AKM)** | Python (FastAPI) | Internal only | Persistent agent memory with full-text search |
 | **MCP** | Python (FastAPI) | `ai.hill90.com/mcp` | Model Context Protocol gateway (JWT-authenticated) |
-| **Agentbox** | Python (FastMCP) | Internal only | Sandboxed agent runtime containers |
+| **Agentbox** | Python (FastMCP, migrating to runtime-first) | Internal only | Sandboxed agent runtime containers |
 | **Keycloak** | Java | `auth.hill90.com` | OIDC/OAuth2 identity provider |
 | **UI** | TypeScript (Next.js) | `hill90.com` | Frontend application with Auth.js v5 session management |
 
