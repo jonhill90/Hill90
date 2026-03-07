@@ -91,6 +91,7 @@ Agent containers run in a sandboxed environment with multiple isolation layers:
 - **Read-only config**: Agent config files mounted at `/etc/agentbox` as read-only
 - **Container labels**: `managed-by=hill90-api` label verified before any container operation — prevents the API from accidentally managing unrelated containers
 - **Docker socket proxy**: API service accesses Docker through a socket proxy that allows only container and volume operations (no image pulls, network changes, or builds)
+- **Policy enforcement layer**: Shell and filesystem policies currently operate at the application layer via `app/shell.py` and `app/filesystem.py` modules. Container-level enforcement (seccomp, restricted PATH) is planned for Phase 3 of the runtime-first migration.
 
 ## Service-to-Service Authentication
 

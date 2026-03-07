@@ -15,7 +15,7 @@ API Service (Express, api.hill90.com)
   │                          │                          │
   ▼                          ▼                          ▼
 Agentbox Container       AI Service (FastAPI)      Knowledge Service (FastAPI)
-(FastMCP, port 8054)     (port 8000, internal)     (port 8002, internal)
+(Runtime, port 8054)     (port 8000, internal)     (port 8002, internal)
   │  shell, filesystem,    │  policy-gated LLM       │  entries, search,
   │  identity, health      │  inference, BYOK        │  journal, context
   │                        │                          │
@@ -44,7 +44,7 @@ The AI service and Knowledge service both set `traefik.enable=false` — they ar
 
 ## Agentbox Runtime
 
-Agentbox is a sandboxed FastMCP server that provides controlled tools to AI agents inside Docker containers.
+Agentbox is a sandboxed runtime container for AI agents. It currently uses FastMCP for tool registration (migration to runtime-first in progress). The runtime contract below defines what the container provides independent of MCP.
 
 ### Container Image
 
@@ -55,15 +55,17 @@ Agentbox is a sandboxed FastMCP server that provides controlled tools to AI agen
 
 ### MCP Tools
 
+These tools are currently exposed via MCP. Shell and filesystem logic is also available as plain Python modules in `app/shell.py` and `app/filesystem.py`. Identity and health tools are deprecated and scheduled for removal.
+
 | Tool | Description | Policy-gated |
 |------|-------------|-------------|
-| `get_identity` | Returns agent's SOUL.md and RULES.md content | No (always mounted) |
+| `get_identity` | Returns agent's SOUL.md and RULES.md content (deprecated — Phase 2 removal) | No (always mounted) |
 | `execute_command` | Runs shell commands with policy enforcement | Yes (shell) |
 | `check_command` | Validates if a command would be allowed without executing | Yes (shell) |
 | `read_file` | Reads file contents within allowed paths | Yes (filesystem) |
 | `write_file` | Writes content to files within allowed paths | Yes (filesystem) |
 | `list_directory` | Lists directory contents with metadata | Yes (filesystem) |
-| `health_check` | Returns CPU, memory, disk, PID usage stats | No (default enabled) |
+| `health_check` | Returns CPU, memory, disk, PID usage stats (deprecated — Phase 2 removal) | No (default enabled) |
 
 ### Policy Enforcement
 
@@ -172,6 +174,55 @@ Agentbox emits structured JSONL events for every tool invocation, providing oper
 - After container removal (agent stop), the events endpoint returns 409; volume data persists but has no read path
 - No file rotation or size limits — agents are expected to be short-lived
 - No command string secret redaction in `input_summary`
+
+### Runtime Contract
+
+The runtime contract defines what the container provides to **any** process running inside it, independent of MCP.
+
+**Identity:**
+- Agent config: `/etc/agentbox/agent.yml` (read-only mount)
+- Agent personality: `/etc/agentbox/SOUL.md` (read-only mount)
+- Agent rules: `/etc/agentbox/RULES.md` (read-only mount)
+
+**Persistent storage:**
+- Workspace: `/workspace` (Docker volume, survives restart)
+- Data: `/data` (Docker volume, survives restart)
+- Logs: `/var/log/agentbox` (Docker volume, survives restart)
+
+**Environment variables:**
+- `AGENT_ID` — unique agent identifier
+- `AGENT_CONFIG` — path to agent.yml (`/etc/agentbox/agent.yml`)
+- `AKM_TOKEN`, `AKM_SERVICE_URL` — Knowledge service credentials (if configured)
+- `MODEL_ROUTER_TOKEN`, `MODEL_ROUTER_URL` — AI service credentials (if configured)
+
+**Network:**
+- `hill90_agent_internal` — reaches AI service (:8000) and Knowledge service (:8002)
+- No public internet access
+- No access to edge network or other internal services
+
+**Available CLIs:**
+- `bash`, `git`, `curl`, `wget`, `jq`, `openssh-client`, `rsync`, `vim`, `make`, `python3`
+
+**Event emission:**
+- Any process can append JSONL to `/var/log/agentbox/events.jsonl`
+- Schema: `{id, timestamp, type, tool, input_summary, output_summary, duration_ms, success, metadata}`
+- The `EventEmitter` class (`app/events.py`) provides thread-safe append; direct file write also works
+
+**Health:**
+- HTTP GET on port 8054 returns `{"status": "healthy", "agent": "<id>"}`
+- Docker healthcheck polls this endpoint
+
+### Migration Status
+
+The agentbox is migrating from MCP-first to runtime-first architecture:
+
+| Phase | Scope | Status |
+|---|---|---|
+| **Phase 1** | Extract tool logic to `app/`, thin MCP wrappers in `tools/`, document runtime contract | **Complete** |
+| **Phase 2** | Agent workload support, deprecate identity + health MCP tools | Planned |
+| **Phase 3** | Remove FastMCP, replace with plain Starlette/uvicorn for `/health` | Planned |
+
+**Current state (Phase 1):** Shell and filesystem business logic lives in `app/shell.py` and `app/filesystem.py` as plain Python modules with no FastMCP dependency. The `tools/*.py` files are thin MCP wrappers that delegate to `app/` modules. FastMCP still serves as the transport layer. All external behavior is unchanged.
 
 ---
 

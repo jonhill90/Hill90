@@ -1,12 +1,13 @@
-"""Tests for tools.filesystem — filesystem tools with path policy."""
+"""Tests for tools.filesystem — MCP wrapper filesystem tools with path policy."""
 
 import json
 import os
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.config import FilesystemConfig
+from app import filesystem as app_filesystem
 from tools import filesystem
 
 
@@ -125,43 +126,54 @@ class TestEventEmission:
     @pytest.mark.asyncio
     async def test_read_file_emits_event(self, workspace):
         emitter = MagicMock()
-        filesystem._emitter = emitter
+        app_filesystem._emitter = emitter
         await filesystem.read_file(str(workspace / "test.txt"))
         assert emitter.emit.call_count == 1
         call = emitter.emit.call_args
         assert call.kwargs["type"] == "file_read"
         assert call.kwargs["tool"] == "filesystem"
         assert call.kwargs["success"] is True
-        filesystem._emitter = None
+        app_filesystem._emitter = None
 
     @pytest.mark.asyncio
     async def test_write_file_emits_event(self, workspace):
         emitter = MagicMock()
-        filesystem._emitter = emitter
+        app_filesystem._emitter = emitter
         await filesystem.write_file(str(workspace / "evt.txt"), "content")
         assert emitter.emit.call_count == 1
         call = emitter.emit.call_args
         assert call.kwargs["type"] == "file_write"
         assert call.kwargs["tool"] == "filesystem"
-        filesystem._emitter = None
+        app_filesystem._emitter = None
 
     @pytest.mark.asyncio
     async def test_filesystem_event_output_is_byte_count(self, workspace):
         emitter = MagicMock()
-        filesystem._emitter = emitter
+        app_filesystem._emitter = emitter
         await filesystem.read_file(str(workspace / "test.txt"))
         call = emitter.emit.call_args
         output = call.kwargs["output_summary"]
         # Must be byte count only, not file contents
         assert "bytes" in output
         assert "hello world" not in output
-        filesystem._emitter = None
+        app_filesystem._emitter = None
 
 
 class TestUnconfigured:
     @pytest.mark.asyncio
     async def test_unconfigured_read(self):
-        filesystem._policy = None
+        app_filesystem._policy = None
         result = json.loads(await filesystem.read_file("/workspace/test.txt"))
         assert result["success"] is False
         assert "not configured" in result["error"]
+
+
+class TestMCPDelegation:
+    @pytest.mark.asyncio
+    async def test_mcp_wrapper_delegates(self):
+        """MCP wrapper tools.filesystem.read_file delegates to app.filesystem.read_file."""
+        with patch("app.filesystem.read_file", new_callable=AsyncMock) as mock_read:
+            mock_read.return_value = '{"success": true, "content": "test"}'
+            result = await filesystem.read_file("/workspace/test.txt")
+            mock_read.assert_called_once_with("/workspace/test.txt")
+            assert result == '{"success": true, "content": "test"}'
