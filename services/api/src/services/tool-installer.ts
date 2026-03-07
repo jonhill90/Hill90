@@ -1,5 +1,5 @@
 import { getPool } from '../db/pool';
-import { execInContainerWithExit } from './docker';
+import { execInContainerWithExit, execWithStdin } from './docker';
 
 type InstallMethod = 'builtin' | 'apt' | 'binary';
 
@@ -25,6 +25,76 @@ const INSTALL_TIMEOUTS: Record<InstallMethod, number> = {
   apt: 120_000,
   binary: 300_000,
 };
+
+const ALLOWED_DOWNLOAD_HOSTS = new Set([
+  'github.com',
+  'objects.githubusercontent.com',
+  'download.docker.com',
+]);
+
+const MAX_DOWNLOAD_REDIRECTS = 5;
+
+export function validateDownloadUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid download URL: ${url}`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(
+      `Download URL must use HTTPS (got ${parsed.protocol}): ${url}`
+    );
+  }
+  if (!ALLOWED_DOWNLOAD_HOSTS.has(parsed.hostname)) {
+    throw new Error(
+      `Download URL hostname "${parsed.hostname}" not in allowlist. ` +
+      `Allowed: ${[...ALLOWED_DOWNLOAD_HOSTS].join(', ')}`
+    );
+  }
+}
+
+async function downloadTarball(url: string, timeoutMs: number): Promise<Buffer> {
+  validateDownloadUrl(url);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    let currentUrl = url;
+
+    for (let hop = 0; hop <= MAX_DOWNLOAD_REDIRECTS; hop++) {
+      const resp = await fetch(currentUrl, {
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      if (resp.status >= 300 && resp.status < 400) {
+        const location = resp.headers.get('location');
+        if (!location) {
+          throw new Error(`Redirect from ${currentUrl} missing Location header`);
+        }
+        const resolved = new URL(location, currentUrl).href;
+        validateDownloadUrl(resolved);
+        currentUrl = resolved;
+        continue;
+      }
+
+      if (!resp.ok) {
+        throw new Error(`Download failed: HTTP ${resp.status} from ${currentUrl}`);
+      }
+
+      const buf = Buffer.from(await resp.arrayBuffer());
+      if (buf.length === 0) throw new Error(`Empty response from ${currentUrl}`);
+      return buf;
+    }
+
+    throw new Error(
+      `Too many redirects (max ${MAX_DOWNLOAD_REDIRECTS}) downloading ${url}`
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 const MAX_INSTALL_RETRIES = (() => {
   const parsed = parseInt(process.env.HILL90_TOOL_INSTALL_RETRIES || '1', 10);
@@ -88,16 +158,13 @@ export function binaryInstallScript(tool: ToolRow): string {
       `Set HILL90_${tool.name.toUpperCase()}_VERSION or add to DEFAULT_BINARY_VERSIONS.`
     );
   }
-  const url = tool.install_ref.replaceAll('{version}', version);
   const binPath = BINARY_PATH_OVERRIDES[tool.name]
     ? BINARY_PATH_OVERRIDES[tool.name](version)
     : `${tool.name}/${tool.name}`;
   return `
 set -euo pipefail
 mkdir -p /data/tools/bin /tmp/hill90-tools
-if [ -x /data/tools/bin/${shellQuote(tool.name)} ]; then exit 0; fi
-curl -fsSL ${shellQuote(url)} -o /tmp/hill90-tools/${shellQuote(tool.name)}.tgz
-tar -xzf /tmp/hill90-tools/${shellQuote(tool.name)}.tgz -C /tmp/hill90-tools
+tar -xzf - -C /tmp/hill90-tools
 cp /tmp/hill90-tools/${binPath} /data/tools/bin/${shellQuote(tool.name)}
 chmod +x /data/tools/bin/${shellQuote(tool.name)}
 rm -rf /tmp/hill90-tools
@@ -105,8 +172,30 @@ rm -rf /tmp/hill90-tools
 }
 
 async function installBinary(agentSlug: string, tool: ToolRow): Promise<void> {
+  // Idempotency: skip if binary already exists in container
+  const check = await execInContainerWithExit(
+    agentSlug, ['test', '-x', `/data/tools/bin/${tool.name}`], INSTALL_TIMEOUTS.builtin,
+  );
+  if (check.exitCode === 0) return;
+
+  // Resolve version + URL on API side
+  const version = DEFAULT_BINARY_VERSIONS[tool.name];
+  if (!version) {
+    throw new Error(
+      `No version configured for binary tool "${tool.name}". ` +
+      `Set HILL90_${tool.name.toUpperCase()}_VERSION or add to DEFAULT_BINARY_VERSIONS.`
+    );
+  }
+  const url = tool.install_ref.replaceAll('{version}', version);
+
+  // Download on API side (redirect-safe, HTTPS + allowlist validated per hop)
+  const tarball = await downloadTarball(url, INSTALL_TIMEOUTS.binary);
+
+  // Pipe tarball into container via exec stdin
   const script = binaryInstallScript(tool);
-  const result = await execInContainerWithExit(agentSlug, ['bash', '-lc', script], INSTALL_TIMEOUTS.binary);
+  const result = await execWithStdin(
+    agentSlug, ['bash', '-lc', script], tarball, INSTALL_TIMEOUTS.binary,
+  );
   if (result.exitCode !== 0) {
     throw new Error(`Binary install failed for "${tool.name}": ${result.stderr || result.stdout}`.trim());
   }
