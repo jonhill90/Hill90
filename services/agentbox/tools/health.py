@@ -1,4 +1,9 @@
-"""Health check and resource stats tools."""
+"""Health check and resource stats tools.
+
+DEPRECATED — scheduled for removal in Phase 2 (runtime-first migration).
+Platform queries Docker stats API for health metrics.
+Docker healthcheck (HTTP /health) is sufficient for liveness.
+"""
 
 from __future__ import annotations
 
