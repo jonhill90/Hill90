@@ -14,10 +14,6 @@ vi.mock('next/navigation', () => ({
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
 
-// Mock confirm for overwrite protection tests
-const mockConfirm = vi.fn(() => true)
-vi.stubGlobal('confirm', mockConfirm)
-
 import AgentFormClient from '@/app/agents/new/AgentFormClient'
 
 const MOCK_POLICIES = [
@@ -105,7 +101,6 @@ async function selectCustomMode() {
 describe('AgentFormClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockConfirm.mockReturnValue(true)
     mockFetchDefaults()
   })
 
@@ -138,31 +133,27 @@ describe('AgentFormClient', () => {
     expect(screen.getByText('Assign Models')).toBeInTheDocument()
   })
 
-  it('shows shell advanced fields when shell enabled', async () => {
+  it('custom mode hides direct shell/filesystem/health toggles', async () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    const shellCheckbox = screen.getByLabelText('Shell access')
-    fireEvent.click(shellCheckbox)
-
-    const advancedLink = screen.getByText('Advanced settings', { selector: 'button' })
-    fireEvent.click(advancedLink)
-
-    expect(screen.getByText('Allowed Binaries')).toBeInTheDocument()
-    expect(screen.getByLabelText('Max Timeout (seconds)')).toBeInTheDocument()
+    expect(screen.getByText(/does not expose direct tool policy toggles/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Filesystem access')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Health endpoint')).not.toBeInTheDocument()
   })
 
-  it('shows filesystem advanced fields when filesystem enabled', async () => {
+  it('switching modes still works with custom informational view', async () => {
     render(<AgentFormClient />)
-    await selectCustomMode()
-
-    const fsCheckbox = screen.getByLabelText('Filesystem access')
-    fireEvent.click(fsCheckbox)
-
-    const advancedLinks = screen.getAllByText('Advanced settings', { selector: 'button' })
-    fireEvent.click(advancedLinks[0])
-
-    expect(screen.getByText('Allowed Paths')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByLabelText('Skills')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByLabelText('Custom'))
+    expect(screen.getByText(/runtime access is governed by assigned skills and rbac scope/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Skills'))
+    await waitFor(() => {
+      expect(screen.getAllByText(/Minimal/).length).toBeGreaterThan(0)
+    })
   })
 
   it('submit body includes model_names', async () => {
@@ -194,14 +185,12 @@ describe('AgentFormClient', () => {
     expect(body.model_names).toEqual(['gpt-4o-mini', 'my-custom-model'])
   })
 
-  it('submit body includes advanced tools_config fields', async () => {
+  it('custom mode submit still includes tools_config', async () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
     fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
-
-    fireEvent.click(screen.getByLabelText('Shell access'))
 
     fireEvent.click(screen.getByRole('button', { name: /create agent/i }))
 
@@ -215,54 +204,11 @@ describe('AgentFormClient', () => {
       (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
     )!
     const body = JSON.parse(postCall[1].body)
-    expect(body.tools_config.shell.enabled).toBe(true)
-    expect(body.tools_config.shell.allowed_binaries).toEqual([])
-    expect(body.tools_config.shell.denied_patterns).toEqual([])
-    expect(body.tools_config.shell.max_timeout).toBe(300)
+    expect(body.tools_config).toBeDefined()
+    expect(body.tools_config.shell).toBeDefined()
   })
 
-  it('rejects max_timeout less than 1', async () => {
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    fireEvent.change(screen.getByLabelText('Agent ID (slug)'), { target: { value: 'test-agent' } })
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Test Agent' } })
-
-    fireEvent.click(screen.getByLabelText('Shell access'))
-    fireEvent.click(screen.getByText('Advanced settings', { selector: 'button' }))
-
-    const timeoutInput = screen.getByLabelText('Max Timeout (seconds)')
-    fireEvent.change(timeoutInput, { target: { value: '0' } })
-
-    const form = screen.getByRole('button', { name: /create agent/i }).closest('form')!
-    fireEvent.submit(form)
-
-    await waitFor(() => {
-      expect(screen.getByText(/timeout must be at least 1/i)).toBeInTheDocument()
-    })
-
-    const postCalls = mockFetch.mock.calls.filter(
-      (c: any[]) => c[0] === '/api/agents' && c[1]?.method === 'POST'
-    )
-    expect(postCalls).toHaveLength(0)
-  })
-
-  it('rejects path not starting with /', async () => {
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    fireEvent.click(screen.getByLabelText('Filesystem access'))
-    const advancedLinks = screen.getAllByText('Advanced settings', { selector: 'button' })
-    fireEvent.click(advancedLinks[0])
-
-    const pathInputs = screen.getAllByPlaceholderText(/add/i)
-    fireEvent.change(pathInputs[0], { target: { value: 'nope' } })
-    fireEvent.keyDown(pathInputs[0], { key: 'Enter' })
-
-    expect(screen.getByText(/must start with \//i)).toBeInTheDocument()
-  })
-
-  it('pre-fills advanced tools_config from initial prop', async () => {
+  it('edit mode without skills starts in Custom informational mode', async () => {
     const initial = {
       agent_id: 'existing',
       name: 'Existing Agent',
@@ -286,12 +232,8 @@ describe('AgentFormClient', () => {
       expect(screen.getByText('Tools')).toBeInTheDocument()
     })
 
-    // Edit mode with no skills -> Custom mode, tool toggles visible
-    const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
-    expect(shellCheckbox.checked).toBe(true)
-
-    const fsCheckbox = screen.getByLabelText('Filesystem access') as HTMLInputElement
-    expect(fsCheckbox.checked).toBe(true)
+    expect(screen.getByText(/does not expose direct tool policy toggles/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
 
     const modelCheckbox = screen.getByLabelText('gpt-4o-mini') as HTMLInputElement
     expect(modelCheckbox.checked).toBe(true)
@@ -363,14 +305,12 @@ describe('AgentFormClient', () => {
       expect(screen.getAllByText(/Minimal/).length).toBeGreaterThan(0)
     })
 
-    // Switch to Custom -- manual tool editors visible
+    // Switch to Custom -- informational panel visible
     fireEvent.click(screen.getByLabelText('Custom'))
 
     await waitFor(() => {
-      expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
+      expect(screen.getByText(/does not expose direct tool policy toggles/i)).toBeInTheDocument()
     })
-    expect(screen.getByLabelText('Filesystem access')).toBeInTheDocument()
-    expect(screen.getByLabelText('Health endpoint')).toBeInTheDocument()
   })
 
   // U3: Form Custom mode: manual tools editors shown, skill_ids: [] submitted
@@ -448,50 +388,17 @@ describe('AgentFormClient', () => {
     expect(checkboxes.some(cb => cb.closest('label')?.textContent?.includes('Docker Access'))).toBe(false)
   })
 
-  // U6: Overwrite warning when switching from Custom to Skills with dirty tools
-  it('dirty custom state prompts confirmation before switching to Skills', async () => {
+  // U6: Switching between modes has no overwrite confirmation
+  it('switching from Custom to Skills does not require confirmation', async () => {
     render(<AgentFormClient />)
     await selectCustomMode()
 
-    // Make a manual change in Custom mode (enable shell = dirty)
-    fireEvent.click(screen.getByLabelText('Shell access'))
-
-    // Now try to switch back to Skills mode
+    // Switch back to Skills mode
     fireEvent.click(screen.getByLabelText('Skills'))
 
-    // confirm() should have been called
-    expect(mockConfirm).toHaveBeenCalledWith(
-      expect.stringMatching(/overwrite/i)
-    )
-  })
-
-  it('cancel on overwrite confirmation keeps Custom mode', async () => {
-    mockConfirm.mockReturnValue(false)
-
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    // Make a manual change (enable shell)
-    fireEvent.click(screen.getByLabelText('Shell access'))
-
-    // Try to switch to Skills -- user cancels
-    fireEvent.click(screen.getByLabelText('Skills'))
-
-    // Should still be in Custom mode -- tool toggles visible
-    expect(screen.getByLabelText('Shell access')).toBeInTheDocument()
-    const shellCheckbox = screen.getByLabelText('Shell access') as HTMLInputElement
-    expect(shellCheckbox.checked).toBe(true)
-  })
-
-  it('no confirmation when switching from unmodified Custom to Skills', async () => {
-    render(<AgentFormClient />)
-    await selectCustomMode()
-
-    // Don't make any changes -- just switch back to Skills
-    fireEvent.click(screen.getByLabelText('Skills'))
-
-    // confirm() should NOT have been called
-    expect(mockConfirm).not.toHaveBeenCalled()
+    await waitFor(() => {
+      expect(screen.getAllByText(/Minimal/).length).toBeGreaterThan(0)
+    })
   })
 
   // Skills mode validation: requires at least one skill selected
