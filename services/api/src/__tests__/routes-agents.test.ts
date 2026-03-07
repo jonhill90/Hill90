@@ -36,8 +36,10 @@ jest.mock('../services/agent-files', () => ({
   writeAgentFiles: jest.fn().mockReturnValue('/data/agentbox/test-agent'),
   removeAgentFiles: jest.fn(),
 }));
+const mockReconcileToolInstalls = jest.fn().mockResolvedValue({ installed: [], alreadyInstalled: [], failed: [] });
 jest.mock('../services/tool-installer', () => ({
   ensureRequiredToolsInstalled: (...args: any[]) => mockEnsureRequiredToolsInstalled(...args),
+  reconcileToolInstalls: (...args: any[]) => mockReconcileToolInstalls(...args),
 }));
 
 const app = createApp({
@@ -312,5 +314,64 @@ describe('Agent lifecycle routes', () => {
       .get('/agents/some-id/logs')
       .set('Authorization', `Bearer ${userToken}`);
     expect(res.status).toBe(403);
+  });
+});
+
+describe('POST /agents/:id/reconcile-tools', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockReconcileToolInstalls.mockReset();
+    mockReconcileToolInstalls.mockResolvedValue({ installed: ['gh'], alreadyInstalled: [], failed: [] });
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('returns 401 without auth', async () => {
+    const res = await request(app).post('/agents/uuid-1/reconcile-tools');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 403 for non-admin', async () => {
+    const res = await request(app)
+      .post('/agents/uuid-1/reconcile-tools')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 404 for unknown agent', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/reconcile-tools')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain('Agent not found');
+  });
+
+  it('returns 409 when agent is not running', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'uuid-1', agent_id: 'test-agent', status: 'stopped' }] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/reconcile-tools')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('running');
+  });
+
+  it('returns 200 with reconcile result for running agent', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'uuid-1', agent_id: 'test-agent', status: 'running' }] });
+
+    const res = await request(app)
+      .post('/agents/uuid-1/reconcile-tools')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('installed');
+    expect(res.body).toHaveProperty('alreadyInstalled');
+    expect(res.body).toHaveProperty('failed');
+    expect(Array.isArray(res.body.installed)).toBe(true);
+    expect(mockReconcileToolInstalls).toHaveBeenCalledWith('uuid-1', 'test-agent');
   });
 });

@@ -574,4 +574,77 @@ describe('AgentDetailClient', () => {
     expect(within(skillCard).getByText('git')).toBeInTheDocument()
   })
 
+  // T18: installing status renders blue badge
+  it('installing status renders blue badge', async () => {
+    const installingToolInstalls = [
+      {
+        tool_id: 'tool-gh',
+        tool_name: 'gh',
+        tool_description: 'GitHub CLI',
+        status: 'installing',
+        install_message: 'downloading...',
+        installed_at: null,
+        updated_at: '2026-03-01T00:00:00Z',
+      },
+    ]
+
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === `/api/agents/uuid-1` && (!opts || !opts.method || opts.method === 'GET')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENT) })
+      }
+      if (url === '/api/skills') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_ALL_SKILLS) })
+      }
+      if (typeof url === 'string' && url.includes('/api/agents/uuid-1/tool-installs')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(installingToolInstalls) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // The installing badge should have blue styling
+    await waitFor(() => {
+      const badge = screen.getByText('installing')
+      expect(badge).toBeInTheDocument()
+      expect(badge.className).toContain('bg-blue-900/40')
+      expect(badge.className).toContain('text-blue-400')
+    })
+  })
+
+  // T19: Reconcile button visible for admin on running agent
+  it('reconcile button visible for admin on running agent', async () => {
+    const runningAgent = { ...MOCK_AGENT, status: 'running', container_id: 'abc-123' }
+    mockFetchDefaults(runningAgent as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Reconcile')).toBeInTheDocument()
+    })
+  })
+
+  // T20: Reconcile button hidden for non-admin
+  it('reconcile button hidden for non-admin', async () => {
+    const runningAgent = { ...MOCK_AGENT, status: 'running', container_id: 'abc-123' }
+    mockFetchDefaults(runningAgent as any)
+
+    render(<AgentDetailClient agentId="uuid-1" session={USER_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    // Non-admin should NOT see Reconcile button even on running agent
+    expect(screen.queryByText('Reconcile')).not.toBeInTheDocument()
+  })
+
 })

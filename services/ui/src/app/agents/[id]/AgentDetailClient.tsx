@@ -40,7 +40,7 @@ interface ToolInstallStatus {
   tool_id: string
   tool_name: string
   tool_description: string
-  status: 'pending' | 'installed' | 'failed'
+  status: 'pending' | 'installing' | 'installed' | 'failed'
   install_message: string
   installed_at: string | null
   updated_at: string
@@ -211,6 +211,22 @@ export default function AgentDetailClient({
       await fetchToolInstalls()
     } catch (err) {
       console.error(`Failed to ${action}:`, err)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleReconcileTools = async () => {
+    setActionLoading(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/reconcile-tools`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to reconcile tools')
+      }
+      await fetchToolInstalls()
+    } catch (err) {
+      console.error('Failed to reconcile tools:', err)
     } finally {
       setActionLoading(false)
     }
@@ -529,7 +545,18 @@ export default function AgentDetailClient({
 
           {/* Tool Install Status */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-            <h2 className="text-lg font-semibold text-white mb-3">Tool Install Status</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-white">Tool Install Status</h2>
+              {isAdmin && agent.status === 'running' && (
+                <button
+                  onClick={handleReconcileTools}
+                  disabled={actionLoading}
+                  className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Reconcile
+                </button>
+              )}
+            </div>
             {toolInstallsLoading ? (
               <p className="text-sm text-mountain-400">Loading…</p>
             ) : toolInstalls.length === 0 ? (
@@ -545,7 +572,9 @@ export default function AgentDetailClient({
                           ? 'bg-brand-900/50 text-brand-400 border-brand-700'
                           : row.status === 'failed'
                             ? 'bg-red-900/40 text-red-400 border-red-700'
-                            : 'bg-amber-900/40 text-amber-400 border-amber-700'
+                            : row.status === 'installing'
+                              ? 'bg-blue-900/40 text-blue-400 border-blue-700'
+                              : 'bg-amber-900/40 text-amber-400 border-amber-700'
                       }`}>
                         {row.status}
                       </span>
