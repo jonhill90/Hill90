@@ -274,7 +274,6 @@ export default function AgentDetailClient({
 
   const modelNames = agent.models || []
   const agentSkills = agent.skills || []
-  const tc = agent.tools_config || {}
 
   const handleAssignSkill = async (skillId: string) => {
     try {
@@ -588,16 +587,6 @@ export default function AgentDetailClient({
             )}
           </div>
 
-          {/* Quick Tool Summary */}
-          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-            <h2 className="text-lg font-semibold text-white mb-3">Tool Access</h2>
-            <div className="flex flex-wrap gap-2">
-              <ToolBadge label="Shell" enabled={tc.shell?.enabled} summary={tc.shell?.enabled ? `${tc.shell.allowed_binaries?.length || 0} binaries` : undefined} />
-              <ToolBadge label="Filesystem" enabled={tc.filesystem?.enabled} summary={tc.filesystem?.enabled ? (tc.filesystem.read_only ? 'Read-only' : 'Read-write') : undefined} />
-              <ToolBadge label="Health" enabled={tc.health?.enabled} />
-            </div>
-          </div>
-
           {/* Resource Grid */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
             <h2 className="text-lg font-semibold text-white mb-3">Resources</h2>
@@ -643,10 +632,9 @@ export default function AgentDetailClient({
 
       {activeTab === 'configuration' && (
         <div className="space-y-6">
-          {/* Tool Details */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-white">Tool Configuration</h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-semibold text-white">Skills Runtime</h2>
               {agent.status !== 'running' && (
                 <Link
                   href={`/agents/${agent.id}/edit`}
@@ -656,49 +644,9 @@ export default function AgentDetailClient({
                 </Link>
               )}
             </div>
-
-            <div className="space-y-4">
-              {/* Shell */}
-              <ConfigSection title="Shell" enabled={tc.shell?.enabled}>
-                {tc.shell?.enabled && (
-                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <dt className="text-mountain-400 mb-1">Allowed Binaries</dt>
-                      <dd className="flex flex-wrap gap-1">
-                        {(tc.shell.allowed_binaries || []).length > 0
-                          ? tc.shell.allowed_binaries.map((b: string) => <Badge key={b}>{b}</Badge>)
-                          : <span className="text-mountain-500 text-xs">All allowed</span>}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-mountain-400 mb-1">Max Timeout</dt>
-                      <dd className="text-white">{tc.shell.max_timeout || 300}s</dd>
-                    </div>
-                  </dl>
-                )}
-              </ConfigSection>
-
-              {/* Filesystem */}
-              <ConfigSection title="Filesystem" enabled={tc.filesystem?.enabled}>
-                {tc.filesystem?.enabled && (
-                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <dt className="text-mountain-400 mb-1">Mode</dt>
-                      <dd className="text-white">{tc.filesystem.read_only ? 'Read-only' : 'Read-write'}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-mountain-400 mb-1">Allowed Paths</dt>
-                      <dd className="flex flex-wrap gap-1">
-                        {(tc.filesystem.allowed_paths || []).map((p: string) => <Badge key={p}>{p}</Badge>)}
-                      </dd>
-                    </div>
-                  </dl>
-                )}
-              </ConfigSection>
-
-              {/* Health */}
-              <ConfigSection title="Health" enabled={tc.health?.enabled} />
-            </div>
+            <p className="text-sm text-mountain-400">
+              Runtime capabilities are derived from assigned skills and RBAC scope.
+            </p>
           </div>
 
           {/* Resources */}
@@ -936,39 +884,4 @@ function StatusDot({ status }: { status: string }) {
     : status === 'error' ? 'bg-red-500'
     : 'bg-mountain-500'
   return <span className={`h-2 w-2 rounded-full ${color} inline-block`} />
-}
-
-function ToolBadge({ label, enabled, summary }: { label: string; enabled?: boolean; summary?: string }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md ${
-      enabled
-        ? 'bg-brand-900/50 text-brand-400 border border-brand-700'
-        : 'bg-navy-900 text-mountain-500 border border-navy-700'
-    }`}>
-      {label}
-      {summary && <span className="text-mountain-400">({summary})</span>}
-    </span>
-  )
-}
-
-function ConfigSection({ title, enabled, children }: { title: string; enabled?: boolean; children?: React.ReactNode }) {
-  return (
-    <div className="rounded-md border border-navy-700 bg-navy-900 p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`h-2 w-2 rounded-full ${enabled ? 'bg-brand-500' : 'bg-mountain-600'}`} />
-        <h3 className="text-sm font-medium text-white">{title}</h3>
-        <span className={`text-xs ${enabled ? 'text-brand-400' : 'text-mountain-500'}`}>
-          {enabled ? 'Enabled' : 'Disabled'}
-        </span>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function Badge({ children, variant }: { children: React.ReactNode; variant?: 'red' }) {
-  const cls = variant === 'red'
-    ? 'bg-red-900/30 text-red-400 border border-red-800'
-    : 'bg-navy-800 text-mountain-300 border border-navy-600'
-  return <span className={`px-2 py-0.5 text-xs rounded-md ${cls}`}>{children}</span>
 }

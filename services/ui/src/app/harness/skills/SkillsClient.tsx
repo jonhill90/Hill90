@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
-import { Terminal, FolderOpen, Heart } from 'lucide-react'
 
 interface ToolsConfig {
   shell: { enabled: boolean; allowed_binaries: string[]; denied_patterns: string[]; max_timeout: number }
@@ -322,7 +321,6 @@ export default function SkillsClient() {
         <div className="space-y-3">
           {skills.map((skill) => {
             const isExpanded = expandedId === skill.id
-            const tc = skill.tools_config
 
             return (
               <div
@@ -351,24 +349,6 @@ export default function SkillsClient() {
                           {scopeBadge(skill.scope).label}
                         </span>
                       )}
-                      <div className="flex flex-wrap gap-1">
-                        {tc.shell.enabled && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
-                            <Terminal className="w-3 h-3" /> Shell
-                          </span>
-                        )}
-                        {tc.filesystem.enabled && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
-                            <FolderOpen className="w-3 h-3" /> Filesystem
-                            {tc.filesystem.read_only && <span className="text-mountain-400">(ro)</span>}
-                          </span>
-                        )}
-                        {tc.health.enabled && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-brand-900/50 text-brand-400 border border-brand-700">
-                            <Heart className="w-3 h-3" /> Health
-                          </span>
-                        )}
-                      </div>
                     </div>
                     {skill.description && (
                       <p className="text-xs text-mountain-400 mt-1 truncate">{skill.description}</p>
@@ -420,29 +400,6 @@ export default function SkillsClient() {
                             </div>
                           ) : (
                             <span className="text-mountain-500">None declared</span>
-                          )}
-                        </dd>
-                      </div>
-
-                      {/* Filesystem config */}
-                      <div>
-                        <dt className="text-mountain-400 mb-1">Filesystem</dt>
-                        <dd className="text-white">
-                          {tc.filesystem.enabled ? (
-                            <div className="space-y-1">
-                              <div className="text-xs">
-                                {tc.filesystem.read_only ? 'Read-only' : 'Read-write'}
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {tc.filesystem.allowed_paths.map((p) => (
-                                  <span key={p} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700">
-                                    {p}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-mountain-500">Disabled</span>
                           )}
                         </dd>
                       </div>
