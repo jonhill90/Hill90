@@ -249,6 +249,7 @@ export async function execInContainer(
 export async function execInContainerWithExit(
   agentId: string,
   cmd: string[],
+  timeoutMs?: number,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const containerName = `${CONTAINER_PREFIX}${agentId}`;
   assertAgentboxName(containerName);
@@ -270,7 +271,7 @@ export async function execInContainerWithExit(
   const stderrChunks: Buffer[] = [];
   let remainder: Buffer | null = null;
 
-  await new Promise<void>((resolve, reject) => {
+  const streamPromise = new Promise<void>((resolve, reject) => {
     rawStream.on('data', (chunk: Buffer) => {
       let buf: Buffer = remainder ? Buffer.concat([remainder, chunk]) : chunk;
       remainder = null;
@@ -297,6 +298,18 @@ export async function execInContainerWithExit(
     rawStream.on('end', () => resolve());
     rawStream.on('close', () => resolve());
   });
+
+  if (timeoutMs && timeoutMs > 0) {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        rawStream.destroy();
+        reject(new Error(`Command timed out after ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs);
+    });
+    await Promise.race([streamPromise, timeoutPromise]);
+  } else {
+    await streamPromise;
+  }
 
   const inspect = await exec.inspect();
   return {

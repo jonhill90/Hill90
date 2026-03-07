@@ -148,6 +148,7 @@ const EXPECTED_PATHS = [
   '/agents/{id}/stop',
   '/agents/{id}/status',
   '/agents/{id}/tool-installs',
+  '/agents/{id}/reconcile-tools',
   '/agents/{id}/events',
   '/agents/{id}/logs',
   '/model-policies',
