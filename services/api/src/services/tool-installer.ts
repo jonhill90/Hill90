@@ -28,6 +28,7 @@ const INSTALL_TIMEOUTS: Record<InstallMethod, number> = {
 
 const ALLOWED_DOWNLOAD_HOSTS = new Set([
   'github.com',
+  'release-assets.githubusercontent.com',
   'objects.githubusercontent.com',
   'download.docker.com',
 ]);
