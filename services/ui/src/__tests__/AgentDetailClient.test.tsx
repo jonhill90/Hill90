@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next/link
@@ -553,8 +553,9 @@ describe('AgentDetailClient', () => {
     expect(skillCard.textContent).not.toMatch(/\bSkill\b/)
     expect(skillCard.textContent).not.toContain('Profile')
 
-    // Should show tools
-    expect(screen.getByText('Tools: gh, git')).toBeInTheDocument()
+    // Should show tools as badges on the skill card
+    expect(within(skillCard).getByText('gh')).toBeInTheDocument()
+    expect(within(skillCard).getByText('git')).toBeInTheDocument()
   })
 
   // U6: Detail shows tools on skill cards
@@ -567,8 +568,10 @@ describe('AgentDetailClient', () => {
       expect(screen.getByText('Developer')).toBeInTheDocument()
     })
 
-    // Should show tool names
-    expect(screen.getByText('Tools: gh, git')).toBeInTheDocument()
+    // Should show tool names as badges on the skill card
+    const skillCard = screen.getByText('Developer').closest('[class*="rounded-md"]')!
+    expect(within(skillCard).getByText('gh')).toBeInTheDocument()
+    expect(within(skillCard).getByText('git')).toBeInTheDocument()
   })
 
 })

@@ -221,15 +221,16 @@ describe('SkillsClient', () => {
     expect(screen.getByText('CI Runner')).toBeInTheDocument()
   })
 
-  // U2: Skill with tools shows Tools badges
-  it('Skill with tools shows Tools badges', async () => {
+  // U2: Skill with tools shows tool badges
+  it('Skill with tools shows tool badges', async () => {
     render(<SkillsClient />)
 
     await waitFor(() => {
       expect(screen.getByText('CI Runner')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Tools: gh, git')).toBeInTheDocument()
+    expect(screen.getByText('gh')).toBeInTheDocument()
+    expect(screen.getByText('git')).toBeInTheDocument()
   })
 
   // U3: Create form has tool checkboxes
