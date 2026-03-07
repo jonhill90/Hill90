@@ -4,7 +4,7 @@ import { requireRole } from '../middleware/role';
 import { scopeToOwner } from '../helpers/scope';
 import { writeAgentFiles, removeAgentFiles } from '../services/agent-files';
 import { mergeToolsConfigs, DEFAULT_TOOLS_CONFIG } from '../services/merge-tools-config';
-import { ensureRequiredToolsInstalled } from '../services/tool-installer';
+import { ensureRequiredToolsInstalled, reconcileToolInstalls } from '../services/tool-installer';
 import {
   createAndStartContainer,
   stopAndRemoveContainer,
@@ -865,6 +865,31 @@ router.get('/:id/tool-installs', requireRole('user'), async (req: Request, res: 
   } catch (err) {
     console.error('[agents] Tool install status error:', err);
     res.status(500).json({ error: 'Failed to get tool install status' });
+  }
+});
+
+// Reconcile tool installations for a running agent
+router.post('/:id/reconcile-tools', requireRole('admin'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { rows } = await getPool().query('SELECT id, agent_id, status FROM agents WHERE id = $1', [req.params.id]);
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const agent = rows[0];
+    if (agent.status !== 'running') {
+      res.status(409).json({ error: 'Agent must be running to reconcile tools. Use start instead.' });
+      return;
+    }
+
+    const result = await reconcileToolInstalls(agent.id, agent.agent_id);
+    auditLog('reconcile_tools', agent.agent_id, user.sub, result);
+    res.json(result);
+  } catch (err: any) {
+    console.error('[agents] Reconcile tools error:', err);
+    res.status(500).json({ error: 'Failed to reconcile tools', detail: err.message });
   }
 });
 
