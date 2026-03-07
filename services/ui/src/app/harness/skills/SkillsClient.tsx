@@ -61,13 +61,6 @@ export default function SkillsClient() {
     name: '',
     description: '',
     instructions_md: '',
-    shellEnabled: false,
-    filesystemEnabled: false,
-    readOnly: false,
-    healthEnabled: true,
-    allowed_binaries: '' ,
-    allowed_paths: '/workspace',
-    max_timeout: '300',
   })
   const [formError, setFormError] = useState('')
 
@@ -95,13 +88,6 @@ export default function SkillsClient() {
       name: '',
       description: '',
       instructions_md: '',
-      shellEnabled: false,
-      filesystemEnabled: false,
-      readOnly: false,
-      healthEnabled: true,
-      allowed_binaries: '',
-      allowed_paths: '/workspace',
-      max_timeout: '300',
     })
     setSelectedToolIds([])
     setFormError('')
@@ -118,20 +104,23 @@ export default function SkillsClient() {
       return
     }
 
+    const selectedToolNames = allTools
+      .filter((tool) => selectedToolIds.includes(tool.id))
+      .map((tool) => tool.name)
     const tools_config: ToolsConfig = {
       shell: {
-        enabled: formData.shellEnabled,
-        allowed_binaries: formData.allowed_binaries ? formData.allowed_binaries.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        enabled: true,
+        allowed_binaries: selectedToolNames,
         denied_patterns: [],
-        max_timeout: parseInt(formData.max_timeout, 10) || 300,
+        max_timeout: 300,
       },
       filesystem: {
-        enabled: formData.filesystemEnabled,
-        read_only: formData.readOnly,
-        allowed_paths: formData.allowed_paths ? formData.allowed_paths.split(',').map((s) => s.trim()).filter(Boolean) : [],
+        enabled: true,
+        read_only: false,
+        allowed_paths: ['/workspace', '/data'],
         denied_paths: [],
       },
-      health: { enabled: formData.healthEnabled },
+      health: { enabled: true },
     }
 
     const body: Record<string, unknown> = {
@@ -185,18 +174,10 @@ export default function SkillsClient() {
   }
 
   const handleEdit = (skill: Skill) => {
-    const tc = skill.tools_config
     setFormData({
       name: skill.name,
       description: skill.description || '',
       instructions_md: skill.instructions_md || '',
-      shellEnabled: tc.shell.enabled,
-      filesystemEnabled: tc.filesystem.enabled,
-      readOnly: tc.filesystem.read_only,
-      healthEnabled: tc.health.enabled,
-      allowed_binaries: tc.shell.allowed_binaries.join(', '),
-      allowed_paths: tc.filesystem.allowed_paths.join(', '),
-      max_timeout: tc.shell.max_timeout.toString(),
     })
     setSelectedToolIds(skill.tools?.map(t => t.id) || [])
     setEditingId(skill.id)
@@ -308,65 +289,9 @@ export default function SkillsClient() {
               </div>
             )}
 
-            {/* Tool toggles */}
-            <div className="space-y-3">
-              <label className="block text-sm text-mountain-400">Tools</label>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.shellEnabled}
-                    onChange={(e) => setFormData({ ...formData, shellEnabled: e.target.checked })}
-                    className="rounded border-navy-600"
-                  />
-                  Shell
-                </label>
-                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.filesystemEnabled}
-                    onChange={(e) => setFormData({ ...formData, filesystemEnabled: e.target.checked })}
-                    className="rounded border-navy-600"
-                  />
-                  Filesystem
-                </label>
-                <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.healthEnabled}
-                    onChange={(e) => setFormData({ ...formData, healthEnabled: e.target.checked })}
-                    className="rounded border-navy-600"
-                  />
-                  Health
-                </label>
-              </div>
-            </div>
-
-            {formData.shellEnabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-mountain-400 mb-1">Allowed Binaries (comma-separated)</label>
-                  <input
-                    type="text"
-                    value={formData.allowed_binaries}
-                    onChange={(e) => setFormData({ ...formData, allowed_binaries: e.target.value })}
-                    className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
-                    placeholder="bash, git, curl"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-mountain-400 mb-1">Timeout (seconds)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={formData.max_timeout}
-                    onChange={(e) => setFormData({ ...formData, max_timeout: e.target.value })}
-                    className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
-                    placeholder="300"
-                  />
-                </div>
-              </div>
-            )}
+            <p className="text-xs text-mountain-500">
+              Runtime access controls are managed internally from skill dependencies and RBAC scope.
+            </p>
 
             {formError && (
               <p className="text-sm text-red-400">{formError}</p>

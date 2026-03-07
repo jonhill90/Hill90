@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import TagInput from '@/components/TagInput'
 
 // Mirrors agentbox Pydantic ToolsConfig (services/agentbox/app/config.py)
 interface ToolsConfig {
@@ -96,10 +95,6 @@ export default function AgentFormClient({
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
     new Set(initial?.skills?.map(s => s.id) || [])
   )
-  const toolsCustomDirty = useRef(false)
-
-  const [shellAdvanced, setShellAdvanced] = useState(false)
-  const [fsAdvanced, setFsAdvanced] = useState(false)
   const [soulPreview, setSoulPreview] = useState(false)
   const [rulesPreview, setRulesPreview] = useState(false)
 
@@ -125,26 +120,11 @@ export default function AgentFormClient({
       .catch(() => {})
   }, [])
 
-  // Wrapper: marks tools as user-modified when editing in Custom mode
-  const updateToolsCustom = (newTools: ToolsConfig) => {
-    setTools(newTools)
-    toolsCustomDirty.current = true
-  }
-
   const handleModeChange = (newMode: 'custom' | 'skills') => {
     if (newMode === mode) return
 
-    if (newMode === 'skills' && toolsCustomDirty.current) {
-      if (!confirm('Switching to Skills mode will overwrite your custom tool configuration. Continue?')) {
-        return
-      }
-    }
-
     if (newMode === 'custom') {
       setSelectedSkillIds(new Set())
-      toolsCustomDirty.current = false
-    } else {
-      toolsCustomDirty.current = false
     }
 
     setMode(newMode)
@@ -162,10 +142,6 @@ export default function AgentFormClient({
   const validateForm = (): boolean => {
     if (mode === 'skills' && selectedSkillIds.size === 0) {
       setValidationError('Please select at least one skill or switch to Custom mode')
-      return false
-    }
-    if (mode === 'custom' && tools.shell.enabled && tools.shell.max_timeout < 1) {
-      setValidationError('Timeout must be at least 1 second')
       return false
     }
     setValidationError('')
@@ -216,8 +192,6 @@ export default function AgentFormClient({
       setSaving(false)
     }
   }
-
-  const pathValidate = (v: string) => (v.startsWith('/') ? null : 'Must start with /')
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -369,110 +343,14 @@ export default function AgentFormClient({
             )}
           </div>
         ) : (
-          /* Custom mode — show manual tool toggles */
+          /* Custom mode — no direct tool policy editing */
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
-            {/* Shell */}
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={tools.shell.enabled}
-                onChange={(e) => updateToolsCustom({ ...tools, shell: { ...tools.shell, enabled: e.target.checked } })}
-                className="rounded border-navy-600"
-              />
-              <span className="text-sm text-white">Shell access</span>
-            </label>
-
-            {tools.shell.enabled && (
-              <div className="ml-6 space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setShellAdvanced(!shellAdvanced)}
-                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
-                >
-                  Advanced settings
-                </button>
-                {shellAdvanced && (
-                  <div className="space-y-3 border-l-2 border-navy-600 pl-4">
-                    <TagInput
-                      label="Allowed Binaries"
-                      value={tools.shell.allowed_binaries}
-                      onChange={(v) => updateToolsCustom({ ...tools, shell: { ...tools.shell, allowed_binaries: v } })}
-                      placeholder="Add binary (e.g. bash)..."
-                      disabled={disabled}
-                    />
-                    <div>
-                      <label htmlFor="max_timeout" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-                        Max Timeout (seconds)
-                      </label>
-                      <input
-                        id="max_timeout"
-                        type="number"
-                        value={tools.shell.max_timeout}
-                        onChange={(e) => updateToolsCustom({ ...tools, shell: { ...tools.shell, max_timeout: parseInt(e.target.value) || 0 } })}
-                        min={1}
-                        className="w-32 rounded-lg border border-navy-600 bg-navy-900 px-3 py-1.5 text-white text-sm focus:border-brand-500 focus:outline-none disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Filesystem */}
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={tools.filesystem.enabled}
-                onChange={(e) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, enabled: e.target.checked } })}
-                className="rounded border-navy-600"
-              />
-              <span className="text-sm text-white">Filesystem access</span>
-            </label>
-
-            {tools.filesystem.enabled && (
-              <div className="ml-6 space-y-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={tools.filesystem.read_only}
-                    onChange={(e) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, read_only: e.target.checked } })}
-                    className="rounded border-navy-600"
-                  />
-                  <span className="text-sm text-mountain-400">Read-only filesystem</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => setFsAdvanced(!fsAdvanced)}
-                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
-                >
-                  Advanced settings
-                </button>
-                {fsAdvanced && (
-                  <div className="space-y-3 border-l-2 border-navy-600 pl-4">
-                    <TagInput
-                      label="Allowed Paths"
-                      value={tools.filesystem.allowed_paths}
-                      onChange={(v) => updateToolsCustom({ ...tools, filesystem: { ...tools.filesystem, allowed_paths: v } })}
-                      validate={pathValidate}
-                      placeholder="Add path (e.g. /workspace)..."
-                      disabled={disabled}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Health */}
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={tools.health.enabled}
-                onChange={(e) => updateToolsCustom({ ...tools, health: { ...tools.health, enabled: e.target.checked } })}
-                className="rounded border-navy-600"
-              />
-              <span className="text-sm text-white">Health endpoint</span>
-            </label>
+            <p className="text-sm text-mountain-300">
+              Custom mode does not expose direct tool policy toggles.
+            </p>
+            <p className="text-xs text-mountain-500">
+              Runtime access is governed by assigned skills and RBAC scope.
+            </p>
           </div>
         )}
       </fieldset>
