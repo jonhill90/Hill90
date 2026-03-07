@@ -140,7 +140,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
        LEFT JOIN agent_skills asks ON asks.agent_id = a.id
        LEFT JOIN skills s ON s.id = asks.skill_id
        WHERE ${scope.where.replace(/created_by/g, 'a.created_by')}
-       GROUP BY a.id
+       GROUP BY a.id, mp.allowed_models
        ORDER BY a.created_at DESC`,
       scope.params
     );
@@ -332,7 +332,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
               model_policy_id, COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
-              error_message, created_at, updated_at, created_by
+              error_message, a.created_at, a.updated_at, a.created_by
        FROM agents a
        LEFT JOIN model_policies mp ON mp.id = a.model_policy_id
        WHERE a.id = $${paramOffset} AND ${scope.where.replace(/created_by/g, 'a.created_by')}`,
