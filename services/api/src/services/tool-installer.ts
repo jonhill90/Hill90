@@ -26,7 +26,10 @@ const INSTALL_TIMEOUTS: Record<InstallMethod, number> = {
   binary: 300_000,
 };
 
-const MAX_INSTALL_RETRIES = parseInt(process.env.HILL90_TOOL_INSTALL_RETRIES || '1', 10);
+const MAX_INSTALL_RETRIES = (() => {
+  const parsed = parseInt(process.env.HILL90_TOOL_INSTALL_RETRIES || '1', 10);
+  return Number.isNaN(parsed) || parsed < 0 ? 1 : parsed;
+})();
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;

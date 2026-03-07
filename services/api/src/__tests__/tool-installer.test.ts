@@ -228,3 +228,42 @@ describe('tool-installer service', () => {
     expect(deleteCalls[0][1]).toEqual(['agent-db-id', 'tool-old']);
   });
 });
+
+// T13 (unit): invalid HILL90_TOOL_INSTALL_RETRIES still retries (defaults to 1)
+describe('tool-installer retry env safety', () => {
+  it('invalid HILL90_TOOL_INSTALL_RETRIES defaults to 1 retry', async () => {
+    const origEnv = process.env.HILL90_TOOL_INSTALL_RETRIES;
+    process.env.HILL90_TOOL_INSTALL_RETRIES = 'not-a-number';
+
+    // Re-import the module with fresh env
+    jest.resetModules();
+    const mockQueryInner = jest.fn();
+    const mockExecInner = jest.fn();
+    jest.doMock('../db/pool', () => ({ getPool: () => ({ query: mockQueryInner }) }));
+    jest.doMock('../services/docker', () => ({
+      execInContainerWithExit: (...args: any[]) => mockExecInner(...args),
+    }));
+
+    const { ensureRequiredToolsInstalled: ensureFresh } = require('../services/tool-installer');
+
+    mockQueryInner
+      .mockResolvedValueOnce({
+        rows: [{ id: 'tool-gh', name: 'gh', install_method: 'binary', install_ref: 'https://example.com/gh_{version}.tar.gz' }],
+      })
+      .mockResolvedValue({ rowCount: 1 });
+    mockExecInner
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'fail' }) // first attempt
+      .mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' }); // retry
+
+    await ensureFresh('agent-db-id', 'agent-slug');
+    // Should have retried (2 exec calls), proving NaN didn't yield 0 retries
+    expect(mockExecInner).toHaveBeenCalledTimes(2);
+
+    // Restore
+    if (origEnv === undefined) {
+      delete process.env.HILL90_TOOL_INSTALL_RETRIES;
+    } else {
+      process.env.HILL90_TOOL_INSTALL_RETRIES = origEnv;
+    }
+  });
+});
