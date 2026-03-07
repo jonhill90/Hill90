@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next-auth/react
@@ -229,8 +229,15 @@ describe('SkillsClient', () => {
       expect(screen.getByText('CI Runner')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('gh')).toBeInTheDocument()
-    expect(screen.getByText('git')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('CI Runner'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Tool Dependencies')).toBeInTheDocument()
+    })
+
+    const card = screen.getByText('CI Runner').closest('[class*="rounded-lg"]')!
+    expect(within(card).getByText('gh')).toBeInTheDocument()
+    expect(within(card).getByText('git')).toBeInTheDocument()
   })
 
   // U3: Create form has tool checkboxes
