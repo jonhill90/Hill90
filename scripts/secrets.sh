@@ -20,6 +20,7 @@ Usage: secrets.sh <command> [args]
 Commands:
   init                                    Initialize SOPS keys
   view   [secret_file] [key]             View secrets (all or specific key)
+  get    <secret_file> <key>             Get raw secret value (no ANSI, no prefix)
   update <secret_file> <key> <value>     Update a secret value
   generate                               Generate all production secrets
   help                                   Show this help message
@@ -130,6 +131,31 @@ cmd_view() {
             echo -e "${GREEN}$key=${value}${NC}"
         fi
     fi
+}
+
+# ---------------------------------------------------------------------------
+# get — raw value, no ANSI, no KEY= prefix, preserves trailing = chars
+# ---------------------------------------------------------------------------
+
+cmd_get() {
+    local secret_file="${1:-}"
+    local key="${2:-}"
+
+    if [ -z "$secret_file" ] || [ -z "$key" ]; then
+        echo "Usage: secrets.sh get <secret_file> <key>" >&2
+        exit 1
+    fi
+
+    require_file "$secret_file" "Secret file"
+    ensure_age_key
+
+    local value
+    value=$(sops -d --extract "[\"${key}\"]" "$secret_file" 2>/dev/null || echo "")
+    if [ -z "$value" ]; then
+        echo "Secret not found: $key" >&2
+        exit 1
+    fi
+    printf '%s' "$value"
 }
 
 # ---------------------------------------------------------------------------
@@ -293,6 +319,7 @@ main() {
     case "$cmd" in
         init)           cmd_init "$@" ;;
         view)           cmd_view "$@" ;;
+        get)            cmd_get "$@" ;;
         update)         cmd_update "$@" ;;
         generate)       cmd_generate "$@" ;;
         help|--help|-h) usage ;;
