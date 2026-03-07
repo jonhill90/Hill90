@@ -48,6 +48,13 @@ secrets-view: ## View all secrets or specific key (usage: make secrets-view KEY=
 		bash scripts/secrets.sh view infra/secrets/$(ENV).enc.env $(KEY); \
 	fi
 
+secrets-get: ## Get raw secret value, no ANSI (usage: make secrets-get KEY=VPS_IP)
+	@if [ -z "$(KEY)" ]; then \
+		echo "$(COLOR_RED)Error: KEY is required$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@bash scripts/secrets.sh get infra/secrets/$(ENV).enc.env "$(KEY)"
+
 secrets-update: ## Update a secret value (usage: make secrets-update KEY=VPS_IP VALUE="1.2.3.4")
 	@if [ -z "$(KEY)" ] || [ -z "$(VALUE)" ]; then \
 		echo "$(COLOR_RED)Error: KEY and VALUE are required$(COLOR_RESET)"; \
