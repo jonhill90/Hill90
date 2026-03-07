@@ -332,12 +332,17 @@ describe('tool-installer service', () => {
     expect(() => validateDownloadUrl('https://download.docker.com/linux/static/stable/x86_64/docker-28.0.1.tgz')).not.toThrow();
   });
 
-  // T28: validateDownloadUrl rejects malformed URL
+  // T28: validateDownloadUrl accepts release-assets.githubusercontent.com HTTPS
+  it('validateDownloadUrl accepts release-assets.githubusercontent.com HTTPS', () => {
+    expect(() => validateDownloadUrl('https://release-assets.githubusercontent.com/github-production-release-asset/foo.tar.gz')).not.toThrow();
+  });
+
+  // T29: validateDownloadUrl rejects malformed URL
   it('validateDownloadUrl rejects malformed URL', () => {
     expect(() => validateDownloadUrl('not-a-url')).toThrow(/Invalid download URL/);
   });
 
-  // T29: installBinary rejects tool with disallowed install_ref host
+  // T30: installBinary rejects tool with disallowed install_ref host
   it('rejects binary tool with disallowed install_ref host', async () => {
     mockQuery
       .mockResolvedValueOnce({
@@ -353,7 +358,7 @@ describe('tool-installer service', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  // T30: execWithStdin called with Buffer stdinData on success
+  // T31: execWithStdin called with Buffer stdinData on success
   it('execWithStdin receives Buffer stdinData on successful binary install', async () => {
     const tarballBody = new ArrayBuffer(256);
     mockQuery
@@ -373,7 +378,7 @@ describe('tool-installer service', () => {
     expect(stdinData.length).toBe(256);
   });
 
-  // T31: Allowed host redirecting to disallowed host fails before body download
+  // T32: Allowed host redirecting to disallowed host fails before body download
   it('fails when redirect goes to disallowed host', async () => {
     mockQuery
       .mockResolvedValueOnce({
@@ -393,7 +398,7 @@ describe('tool-installer service', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  // T32: Allowed-to-allowed redirect succeeds (github.com → objects.githubusercontent.com)
+  // T33: Allowed-to-allowed redirect succeeds (github.com → objects.githubusercontent.com)
   it('follows redirect from allowed to allowed host', async () => {
     mockQuery
       .mockResolvedValueOnce({
@@ -415,7 +420,7 @@ describe('tool-installer service', () => {
     expect(mockExecStdin).toHaveBeenCalledTimes(1);
   });
 
-  // T33: Excessive redirects (> MAX_DOWNLOAD_REDIRECTS) fails deterministically
+  // T34: Excessive redirects (> MAX_DOWNLOAD_REDIRECTS) fails deterministically
   it('fails on excessive redirects', async () => {
     mockQuery
       .mockResolvedValueOnce({
