@@ -1,7 +1,7 @@
 """AgentBox server — runtime entry point.
 
 This module is organized into two sections:
-1. Runtime foundation (MCP-independent) — config, events, health endpoint
+1. Runtime foundation (MCP-independent) — config, events, health endpoint, work endpoint
 2. MCP compatibility layer (temporary) — FastMCP server and tool mounting
 
 The runtime foundation survives MCP removal (Phase 3). The MCP compatibility
@@ -16,6 +16,7 @@ from starlette.responses import JSONResponse
 
 from app.config import AgentConfig
 from app.events import EventEmitter
+from app.runtime import AgentRuntime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # === Runtime foundation (MCP-independent) ===
-# Config loading, event emitter, health endpoint
+# Config loading, event emitter, health endpoint, work endpoint
 # These components define the container's runtime contract and are
 # independent of the MCP transport layer.
 
@@ -35,6 +36,9 @@ config = AgentConfig.from_file(
 # Structured event emitter — writes JSONL to the logs volume.
 # Shared by both MCP tool wrappers (tools/) and direct callers (app/).
 emitter = EventEmitter(os.path.join(config.state.logs, "events.jsonl"))
+
+# Runtime workload receiver — handles POST /work with bearer auth.
+runtime = AgentRuntime(config, emitter, os.environ.get("WORK_TOKEN"))
 
 
 # === MCP compatibility layer (temporary — removed in Phase 3) ===
@@ -52,11 +56,11 @@ async def health_endpoint(request):
     return JSONResponse({"status": "healthy", "agent": config.id})
 
 
-# Always mount identity tool (deprecated — removal in Phase 2)
-from tools import identity  # noqa: E402
+# Work endpoint — runtime workload receiver (HTTP, not MCP).
+@mcp.custom_route("/work", methods=["POST"])
+async def work_endpoint(request):
+    return await runtime.handle_work(request)
 
-identity.configure(config, emitter=emitter)
-mcp.mount(identity.server)
 
 # Mount enabled tools with policy config.
 # Shell and filesystem tools delegate to app/shell.py and app/filesystem.py
@@ -74,19 +78,12 @@ if config.tools.filesystem.enabled:
     filesystem.configure(config.tools.filesystem, emitter=emitter)
     mcp.mount(filesystem.server)
 
-# Health tool (deprecated — removal in Phase 2)
-if config.tools.health.enabled:
-    from tools import health  # noqa: E402
-
-    health.configure(config, emitter=emitter)
-    mcp.mount(health.server)
-
 
 if __name__ == "__main__":
-    logger.info(f"Starting AgentBox-{config.id} MCP server...")
+    logger.info(f"Starting AgentBox-{config.id} server...")
     logger.info(f"  Tools: shell={config.tools.shell.enabled}, "
-                f"filesystem={config.tools.filesystem.enabled}, "
-                f"health={config.tools.health.enabled}")
+                f"filesystem={config.tools.filesystem.enabled}")
+    logger.info(f"  Runtime: /work endpoint {'enabled' if runtime._work_token else 'disabled (no WORK_TOKEN)'}")
     logger.info("  Transport: streamable-http on :8054")
 
     try:
