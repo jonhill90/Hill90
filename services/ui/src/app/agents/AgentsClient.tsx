@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Terminal, Folder, Heart } from 'lucide-react'
 import type { Session } from 'next-auth'
 
 interface Agent {
@@ -14,7 +13,6 @@ interface Agent {
   cpus: string
   mem_limit: string
   pids_limit: number
-  tools_config: Record<string, any> | null
   models: string[]
   skills: Array<{ id: string; name: string; scope: string }>
   created_at: string
@@ -144,7 +142,6 @@ export default function AgentsClient({ session }: { session: Session }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredAgents.map((agent) => {
-            const tc = agent.tools_config || {}
             return (
               <div
                 key={agent.id}
@@ -164,25 +161,6 @@ export default function AgentsClient({ session }: { session: Session }) {
                   {agent.description || 'No description'}
                 </p>
 
-                {/* Tool Badges */}
-                <div className="flex items-center gap-1.5 mb-3">
-                  {tc.shell?.enabled && (
-                    <span aria-label="Shell access" className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy-900 border border-navy-600" title="Shell access">
-                      <Terminal className="h-3.5 w-3.5 text-brand-400" />
-                    </span>
-                  )}
-                  {tc.filesystem?.enabled && (
-                    <span aria-label="Filesystem access" className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy-900 border border-navy-600" title="Filesystem access">
-                      <Folder className="h-3.5 w-3.5 text-brand-400" />
-                    </span>
-                  )}
-                  {tc.health?.enabled && (
-                    <span aria-label="Health endpoint" className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy-900 border border-navy-600" title="Health endpoint">
-                      <Heart className="h-3.5 w-3.5 text-mountain-400" />
-                    </span>
-                  )}
-                </div>
-
                 {/* Skill Badges */}
                 <div className="mb-3 flex flex-wrap gap-1">
                   {agent.skills && agent.skills.length > 0 ? (
@@ -201,7 +179,7 @@ export default function AgentsClient({ session }: { session: Session }) {
                     </>
                   ) : (
                     <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-navy-900 text-mountain-400 border border-navy-700">
-                      Custom
+                      No skills
                     </span>
                   )}
                 </div>
