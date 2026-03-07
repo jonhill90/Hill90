@@ -443,18 +443,6 @@ export default function SkillsClient() {
                             <Heart className="w-3 h-3" /> Health
                           </span>
                         )}
-                        {skill.tools?.length > 0 && (
-                          <div className="inline-flex items-center gap-1">
-                            {skill.tools.map((tool) => (
-                              <span
-                                key={`${skill.id}-tool-${tool.id}`}
-                                className="px-2 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono"
-                              >
-                                {tool.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </div>
                     {skill.description && (
@@ -491,23 +479,22 @@ export default function SkillsClient() {
                     )}
 
                     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm mb-4">
-                      {/* Shell config */}
+                      {/* Tool dependencies */}
                       <div>
-                        <dt className="text-mountain-400 mb-1">Shell</dt>
+                        <dt className="text-mountain-400 mb-1">Tool Dependencies</dt>
                         <dd className="text-white">
-                          {tc.shell.enabled ? (
+                          {(skill.tools?.length || 0) > 0 ? (
                             <div className="space-y-1">
                               <div className="flex flex-wrap gap-1">
-                                {tc.shell.allowed_binaries.map((b) => (
-                                  <span key={b} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700">
-                                    {b}
+                                {skill.tools!.map((tool) => (
+                                  <span key={tool.id} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700 font-mono">
+                                    {tool.name}
                                   </span>
                                 ))}
                               </div>
-                              <div className="text-xs text-mountain-500">Timeout: {tc.shell.max_timeout}s</div>
                             </div>
                           ) : (
-                            <span className="text-mountain-500">Disabled</span>
+                            <span className="text-mountain-500">None declared</span>
                           )}
                         </dd>
                       </div>
