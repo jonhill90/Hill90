@@ -208,20 +208,16 @@ describe('AgentsClient', () => {
     expect(mockFetch).toHaveBeenCalledWith('/api/agents')
   })
 
-  it('renders tool capability badges from tools_config', async () => {
+  it('does not render legacy tool capability badges', async () => {
     render(<AgentsClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // ResearchBot has shell + filesystem enabled, so should have both tool badges
-    // Look for the Terminal and Folder icons via their aria-labels
-    const shellBadges = screen.getAllByLabelText('Shell access')
-    expect(shellBadges.length).toBeGreaterThan(0)
-
-    const fsBadges = screen.getAllByLabelText('Filesystem access')
-    expect(fsBadges.length).toBeGreaterThan(0)
+    expect(screen.queryByLabelText('Shell access')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Filesystem access')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Health endpoint')).not.toBeInTheDocument()
   })
 
   it('status filter shows only matching agents', async () => {
@@ -254,17 +250,16 @@ describe('AgentsClient', () => {
     expect(screen.getAllByText(/Container/).length).toBeGreaterThan(0)
   })
 
-  // T10: Agent list card shows Custom when no skill
-  it('agent card shows Custom when no skill', async () => {
+  // T10: Agent list card shows "No skills" when no skill
+  it('agent card shows No skills when no skill', async () => {
     render(<AgentsClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('WriterBot')).toBeInTheDocument()
     })
 
-    // WriterBot has no skills → should show "Custom" badge
-    const customBadges = screen.getAllByText('Custom')
-    expect(customBadges.length).toBeGreaterThan(0)
+    const noSkillBadges = screen.getAllByText('No skills')
+    expect(noSkillBadges.length).toBeGreaterThan(0)
   })
 
   // U9: Agent list shows multiple skill badges

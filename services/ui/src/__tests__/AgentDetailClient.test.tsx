@@ -181,7 +181,7 @@ describe('AgentDetailClient', () => {
     cleanup()
   })
 
-  it('renders overview tab with status and config summary', async () => {
+  it('renders overview tab without legacy tool access summary', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -192,16 +192,14 @@ describe('AgentDetailClient', () => {
     expect(screen.getByText('Overview')).toBeInTheDocument()
     // Status info
     expect(screen.getByText('stopped')).toBeInTheDocument()
-    // Tool badges
-    expect(screen.getByText('Shell')).toBeInTheDocument()
-    expect(screen.getByText('Filesystem')).toBeInTheDocument()
-    expect(screen.getByText('Health')).toBeInTheDocument()
+    // Legacy overview tool summary removed
+    expect(screen.queryByText('Tool Access')).not.toBeInTheDocument()
     expect(screen.getByText('Tool Install Status')).toBeInTheDocument()
     expect(screen.getByText('gh')).toBeInTheDocument()
     expect(screen.getAllByText('installed').length).toBeGreaterThan(0)
   })
 
-  it('clicking Configuration tab shows tool details', async () => {
+  it('clicking Configuration tab shows skills runtime summary', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -211,12 +209,11 @@ describe('AgentDetailClient', () => {
     // Click Configuration tab
     fireEvent.click(screen.getByRole('button', { name: 'Configuration' }))
 
-    // Should show detailed tool config
+    // Should show skills runtime summary (no legacy tool config detail)
     await waitFor(() => {
-      expect(screen.getByText('bash')).toBeInTheDocument()
+      expect(screen.getByText('Skills Runtime')).toBeInTheDocument()
     })
-    expect(screen.getByText('python3')).toBeInTheDocument()
-    expect(screen.getByText('/workspace')).toBeInTheDocument()
+    expect(screen.queryByText('Tool Configuration')).not.toBeInTheDocument()
   })
 
   it('fetches usage data only when Model Access tab clicked', async () => {
@@ -317,7 +314,7 @@ describe('AgentDetailClient', () => {
     expect(screen.getByTestId('raw-logs-toggle')).toBeInTheDocument()
   })
 
-  it('Configuration tab displays allowed_binaries', async () => {
+  it('Configuration tab displays resources', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -327,8 +324,7 @@ describe('AgentDetailClient', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Configuration' }))
 
     await waitFor(() => {
-      expect(screen.getByText('bash')).toBeInTheDocument()
-      expect(screen.getByText('python3')).toBeInTheDocument()
+      expect(screen.getByText('Resources')).toBeInTheDocument()
     })
   })
 
