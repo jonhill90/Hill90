@@ -482,9 +482,16 @@ export default function AgentDetailClient({
                             {badge.label}
                           </span>
                           {skill.tools && skill.tools.length > 0 && (
-                            <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
-                              Tools: {skill.tools.map(t => t.name).join(', ')}
-                            </span>
+                            <div className="inline-flex items-center gap-1">
+                              {skill.tools.map((tool) => (
+                                <span
+                                  key={`${skill.id}-tool-${tool.id}`}
+                                  className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono"
+                                >
+                                  {tool.name}
+                                </span>
+                              ))}
+                            </div>
                           )}
                         </div>
                         <div className="flex items-center gap-2">
