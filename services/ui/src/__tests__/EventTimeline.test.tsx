@@ -7,6 +7,7 @@ import '@testing-library/jest-dom/vitest'
 vi.mock('lucide-react', () => ({
   Terminal: (props: any) => <span data-testid="icon-terminal" {...props} />,
   FolderOpen: (props: any) => <span data-testid="icon-folder" {...props} />,
+  Cog: (props: any) => <span data-testid="icon-cog" {...props} />,
   User: (props: any) => <span data-testid="icon-user" {...props} />,
   HeartPulse: (props: any) => <span data-testid="icon-heart" {...props} />,
   ChevronDown: (props: any) => <span data-testid="icon-chevron-down" {...props} />,
@@ -132,7 +133,32 @@ describe('EventTimeline', () => {
     expect(screen.getByText('All')).toBeInTheDocument()
     expect(screen.getByText('Shell')).toBeInTheDocument()
     expect(screen.getByText('Filesystem')).toBeInTheDocument()
-    expect(screen.getByText('Identity')).toBeInTheDocument()
-    expect(screen.getByText('Health')).toBeInTheDocument()
+    expect(screen.getByText('Runtime')).toBeInTheDocument()
+    // Identity and Health filters removed in Phase 2
+    expect(screen.queryByText('Identity')).not.toBeInTheDocument()
+    expect(screen.queryByText('Health')).not.toBeInTheDocument()
+  })
+
+  it('renders runtime event with cog icon', () => {
+    vi.stubGlobal('EventSource', vi.fn(() => ({
+      onmessage: null,
+      addEventListener: vi.fn(),
+      close: vi.fn(),
+    })))
+
+    const runtimeEvent: AgentEvent = {
+      id: 'evt-runtime',
+      timestamp: new Date().toISOString(),
+      type: 'work_received',
+      tool: 'runtime',
+      input_summary: 'type=test',
+      output_summary: null,
+      duration_ms: null,
+      success: null,
+    }
+
+    render(<EventCard event={runtimeEvent} />)
+    expect(screen.getByTestId('icon-cog')).toBeInTheDocument()
+    expect(screen.getByText('runtime')).toBeInTheDocument()
   })
 })

@@ -25,6 +25,8 @@ class FilesystemConfig(BaseModel):
 
 
 class HealthConfig(BaseModel):
+    # Deprecated: kept for YAML compatibility with existing agent.yml files.
+    # The health MCP tool was removed in Phase 2; Docker HEALTHCHECK + /health HTTP suffice.
     enabled: bool = True
 
 

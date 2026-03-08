@@ -17,7 +17,7 @@ API Service (Express, api.hill90.com)
 Agentbox Container       AI Service (FastAPI)      Knowledge Service (FastAPI)
 (Runtime, port 8054)     (port 8000, internal)     (port 8002, internal)
   │  shell, filesystem,    │  policy-gated LLM       │  entries, search,
-  │  identity, health      │  inference, BYOK        │  journal, context
+  │  runtime (/work)       │  inference, BYOK        │  journal, context
   │                        │                          │
   │                        ▼                          ▼
   │                     LiteLLM (:4000)           PostgreSQL (hill90_akm)
@@ -55,17 +55,35 @@ Agentbox is a sandboxed runtime container for AI agents. It currently uses FastM
 
 ### MCP Tools
 
-These tools are currently exposed via MCP. Shell and filesystem logic is also available as plain Python modules in `app/shell.py` and `app/filesystem.py`. Identity and health tools are deprecated and scheduled for removal.
+These tools are exposed via MCP. Shell and filesystem logic is also available as plain Python modules in `app/shell.py` and `app/filesystem.py`.
 
 | Tool | Description | Policy-gated |
 |------|-------------|-------------|
-| `get_identity` | Returns agent's SOUL.md and RULES.md content (deprecated — Phase 2 removal) | No (always mounted) |
 | `execute_command` | Runs shell commands with policy enforcement | Yes (shell) |
 | `check_command` | Validates if a command would be allowed without executing | Yes (shell) |
 | `read_file` | Reads file contents within allowed paths | Yes (filesystem) |
 | `write_file` | Writes content to files within allowed paths | Yes (filesystem) |
 | `list_directory` | Lists directory contents with metadata | Yes (filesystem) |
-| `health_check` | Returns CPU, memory, disk, PID usage stats (deprecated — Phase 2 removal) | No (default enabled) |
+
+### Runtime Endpoints
+
+These endpoints are plain HTTP handlers (Starlette) currently mounted via FastMCP `custom_route`. They are intended to survive Phase 3 MCP removal.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/health` | None | Docker healthcheck liveness probe |
+| POST | `/work` | Bearer `WORK_TOKEN` | Workload receiver (Phase 2 stub — accepts, emits events, returns ack; no execution) |
+
+**`POST /work` contract**:
+
+```
+Request:  { "type": str, "payload": dict, "correlation_id": str | null }
+Success:  200 { "accepted": true, "work_id": "<uuid>", "type": "<echoed>" }
+Invalid:  400 { "error": "validation_error", "detail": "<message>" }
+Unauth:   401 { "error": "unauthorized" }
+```
+
+**`WORK_TOKEN` auth model**: The API service generates a `crypto.randomUUID()` at container start and injects it as the `WORK_TOKEN` env var. The token is ephemeral — it exists only in API process memory (briefly) and the container environment. It is not stored in the database or any API response. No external service can look up the token in Phase 2 — this is intentional; a caller arrives in Phase 3+.
 
 ### Policy Enforcement
 
@@ -88,8 +106,8 @@ These tools are currently exposed via MCP. Shell and filesystem logic is also av
 The API service writes three files to `/etc/agentbox/` (read-only mount) before starting a container:
 
 - **`agent.yml`** — YAML config defining tools, resource limits, and state paths
-- **`SOUL.md`** — Agent identity/persona document (exposed via `get_identity`)
-- **`RULES.md`** — Operating rules and constraints (exposed via `get_identity`)
+- **`SOUL.md`** — Agent identity/persona document (loaded by `AgentRuntime` at startup)
+- **`RULES.md`** — Operating rules and constraints (loaded by `AgentRuntime` at startup)
 
 **`agent.yml` structure**:
 
@@ -112,7 +130,7 @@ tools:
     allowed_paths: [/workspace, /tmp]
     denied_paths: [/etc/shadow, /etc/passwd, /root]
   health:
-    enabled: true               # default
+    enabled: true               # deprecated — kept for YAML compatibility, no effect
 resources:
   cpus: "1.0"
   mem_limit: "1g"
@@ -146,7 +164,7 @@ Agentbox emits structured JSONL events for every tool invocation, providing oper
 | `id` | string (UUID) | Unique event identifier |
 | `timestamp` | string (ISO 8601) | Event time in UTC |
 | `type` | string | Event type (see table below) |
-| `tool` | string | Tool category: `shell`, `filesystem`, `identity`, `health` |
+| `tool` | string | Tool category: `shell`, `filesystem`, `runtime` |
 | `input_summary` | string | What was requested (truncated to 200 chars) |
 | `output_summary` | string or null | Structured metadata about the result — never raw content |
 | `duration_ms` | integer or null | Execution time in milliseconds |
@@ -162,8 +180,9 @@ Agentbox emits structured JSONL events for every tool invocation, providing oper
 | `file_read` | filesystem | File path | `"{N} bytes"` | File contents |
 | `file_write` | filesystem | File path | `"{N} bytes written"` | File contents |
 | `directory_list` | filesystem | Directory path | `"{N} entries"` | Directory listing |
-| `identity_read` | identity | `"SOUL.md + RULES.md"` | `"{N} bytes"` | Identity content |
-| `health_check` | health | `"health_check"` | `"cpu={N}%, mem={N}%, disk={N}%"` | Raw /proc data |
+| `work_received` | runtime | `"type={type} correlation_id={id}"` | `null` | N/A |
+| `work_completed` | runtime | `"type={type} correlation_id={id}"` | `"work_id={id} (stub)"` | Work payload |
+| `work_failed` | runtime | `"type={type} correlation_id={id}"` | Error detail | Work payload |
 
 **Redaction policy**: No raw stdout, stderr, or file contents are persisted in any event. The `output_summary` field contains only structured metadata (exit codes, byte counts, percentages). Shell command strings in `input_summary` may contain inline secrets — this is comparable to shell history behavior and is an accepted V1 limitation.
 
@@ -194,6 +213,7 @@ The runtime contract defines what the container provides to **any** process runn
 - `AGENT_CONFIG` — path to agent.yml (`/etc/agentbox/agent.yml`)
 - `AKM_TOKEN`, `AKM_SERVICE_URL` — Knowledge service credentials (if configured)
 - `MODEL_ROUTER_TOKEN`, `MODEL_ROUTER_URL` — AI service credentials (if configured)
+- `WORK_TOKEN` — Bearer token for `POST /work` endpoint (ephemeral, generated at container start)
 
 **Network:**
 - `hill90_agent_internal` — reaches AI service (:8000) and Knowledge service (:8002)
@@ -219,10 +239,10 @@ The agentbox is migrating from MCP-first to runtime-first architecture:
 | Phase | Scope | Status |
 |---|---|---|
 | **Phase 1** | Extract tool logic to `app/`, thin MCP wrappers in `tools/`, document runtime contract | **Complete** |
-| **Phase 2** | Agent workload support, deprecate identity + health MCP tools | Planned |
-| **Phase 3** | Remove FastMCP, replace with plain Starlette/uvicorn for `/health` | Planned |
+| **Phase 2** | `POST /work` endpoint, remove identity + health MCP tools, runtime events | **Complete** |
+| **Phase 3** | Remove FastMCP, replace with plain Starlette/uvicorn | Planned |
 
-**Current state (Phase 1):** Shell and filesystem business logic lives in `app/shell.py` and `app/filesystem.py` as plain Python modules with no FastMCP dependency. The `tools/*.py` files are thin MCP wrappers that delegate to `app/` modules. FastMCP still serves as the transport layer. All external behavior is unchanged.
+**Current state (Phase 2):** Shell and filesystem business logic lives in `app/shell.py` and `app/filesystem.py` as plain Python modules with no FastMCP dependency. The `tools/*.py` files are thin MCP wrappers that delegate to `app/` modules. FastMCP still serves as the transport layer. Identity and health MCP tools have been removed. The `POST /work` endpoint provides the runtime workload contract (stub — no execution). `AgentRuntime` (`app/runtime.py`) loads identity files and handles work requests with bearer auth and structured events.
 
 ---
 
@@ -267,7 +287,7 @@ Key columns: `id` (UUID PK), `agent_id` (VARCHAR unique slug), `name`, `descript
    - Resource limits from agent config
    - Network `hill90_agent_internal`
    - Labels: `managed-by=hill90-api`, `traefik.enable=false`
-   - Environment: `AGENT_ID`, `AGENT_CONFIG`, `AKM_TOKEN`, `AKM_SERVICE_URL`, `AKM_REFRESH_SECRET`, `MODEL_ROUTER_TOKEN`, `MODEL_ROUTER_URL`
+   - Environment: `AGENT_ID`, `AGENT_CONFIG`, `AKM_TOKEN`, `AKM_SERVICE_URL`, `AKM_REFRESH_SECRET`, `MODEL_ROUTER_TOKEN`, `MODEL_ROUTER_URL`, `WORK_TOKEN`
 5. **Update DB** — status=running, container_id set
 
 ### Stop Flow

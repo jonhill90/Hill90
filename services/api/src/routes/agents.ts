@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Router, Request, Response } from 'express';
 import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
@@ -704,7 +705,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       cpus: agent.cpus,
       memLimit: agent.mem_limit,
       pidsLimit: agent.pids_limit,
-      env: [...akmEnv, ...modelRouterEnv],
+      env: [...akmEnv, ...modelRouterEnv, `WORK_TOKEN=${crypto.randomUUID()}`],
     });
 
     // Phase 6B: ensure required tools are installed for assigned skills.
