@@ -592,23 +592,48 @@ components:
       properties:
         id:
           type: string
-          format: uuid
+          description: >
+            Event ID. Container events use UUID format. Inference events use
+            "inference-<uuid>" prefix to avoid collision with container event IDs.
         timestamp:
           type: string
           format: date-time
         type:
           type: string
-          enum: [command_start, command_complete, file_read, file_write, directory_list, identity_read, health_check]
+          enum:
+            - command_start
+            - command_complete
+            - file_read
+            - file_write
+            - directory_list
+            - identity_read
+            - health_check
+            - inference_complete
+            - inference_error
+            - inference_rate_limited
+            - inference_budget_exceeded
+            - inference_client_disconnect
+          description: >
+            Event type. Container events use command_start/complete, file_*, etc.
+            Inference events use inference_complete for success, or inference_<status>
+            for non-success statuses (error, rate_limited, budget_exceeded, client_disconnect).
         tool:
           type: string
-          enum: [shell, filesystem, identity, health]
+          enum: [shell, filesystem, runtime, identity, health, inference]
+          description: >
+            Tool category. Inference events always have tool=inference.
         input_summary:
           type: string
-          description: Truncated human-readable input (max 200 chars). May contain command strings.
+          description: >
+            Truncated human-readable input (max 200 chars). For inference events,
+            formatted as "model_name (request_type)".
         output_summary:
           type: string
           nullable: true
-          description: Metadata-only result summary (exit codes, byte counts). Never contains raw output.
+          description: >
+            Metadata-only result summary. For container events: exit codes, byte counts.
+            For inference events: "input_tokens+output_tokens tokens, $cost, latency_ms".
+            Never contains raw output or prompt/completion content.
         duration_ms:
           type: integer
           nullable: true
@@ -618,6 +643,11 @@ components:
         metadata:
           type: object
           nullable: true
+          description: >
+            Additional structured data. For inference events, contains:
+            model_name (string), request_type (string), status (string),
+            input_tokens (integer), output_tokens (integer), cost_usd (number).
+            No prompt or completion content is included.
 
     Error:
       type: object
@@ -1057,10 +1087,13 @@ paths:
     get:
       summary: Get agent events
       description: >
-        Returns structured tool invocation events for a running agent.
-        With follow=true, returns an SSE stream (text/event-stream).
-        Without follow, returns a JSON array of recent events.
-        Scoped to ownership — users see own agents only.
+        Returns structured tool invocation and inference events for a running agent.
+        Container events (shell, filesystem, runtime) come from the JSONL event log.
+        Inference events (model_usage) are merged from the database with owner scoping.
+        With follow=true, returns an SSE stream with initial inference backfill and
+        3-second polling for new inference rows alongside real-time container events.
+        Without follow, returns a merged JSON array sorted by (timestamp, id).
+        Scoped to ownership — users see own agents and own inference rows only.
       security:
         - bearerAuth: []
       parameters:
