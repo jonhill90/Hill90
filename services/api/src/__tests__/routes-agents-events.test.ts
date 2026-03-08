@@ -621,6 +621,79 @@ describe('GET /agents/:id/events', () => {
     expect(backfillCall[1]).toContain('regular-user');
   });
 
+  it('no duplicate inference events between SSE backfill and first poll', (done) => {
+    // Proves the cursor handoff: backfill emits a row, then the first poll
+    // query uses (created_at, id) > (backfill_row.created_at, backfill_row.id)
+    // which strictly excludes the already-emitted row.
+    mockRunningAgent();
+
+    const backfillRow = makeInferenceRow({
+      id: 'bf-dedupe-1111-2222-3333-444444444444',
+      created_at: new Date('2026-03-08T12:00:05.000Z'),
+      model_name: 'gpt-4o-mini',
+    });
+    // Call 2: backfill query returns one row
+    mockInferenceRows([backfillRow]);
+
+    const controlStream = new PassThrough();
+    mockExecInContainer.mockResolvedValueOnce(controlStream);
+
+    // Call 3: first poll query — return empty (the real DB would also return empty
+    // because the cursor excludes the backfill row)
+    mockInferenceRows([]);
+
+    const server = app.listen(0, () => {
+      const port = (server.address() as any).port;
+      const req = http.get(
+        `http://127.0.0.1:${port}/agents/${AGENT_UUID}/events?follow=true&tail=50`,
+        { headers: { Authorization: `Bearer ${userToken}` } },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk: Buffer) => {
+            body += chunk.toString();
+          });
+
+          // Wait for the 3s poll to fire + buffer
+          setTimeout(() => {
+            try {
+              // 1. Verify the backfill inference event appears exactly once
+              const inferenceEventId = `inference-${backfillRow.id}`;
+              const occurrences = body.split(inferenceEventId).length - 1;
+              expect(occurrences).toBe(1);
+
+              // 2. Verify the poll query (3rd mockQuery call) used the correct cursor
+              expect(mockQuery.mock.calls.length).toBeGreaterThanOrEqual(3);
+              const pollCall = mockQuery.mock.calls[2];
+              const pollSql = pollCall[0] as string;
+              // Poll uses incremental cursor mode: (created_at, id) > ($2, $3)
+              expect(pollSql).toContain('(created_at, id) >');
+              // Cursor values match the backfill row
+              expect(pollCall[1]).toContain('2026-03-08T12:00:05.000Z');
+              expect(pollCall[1]).toContain(backfillRow.id);
+
+              // End the stream
+              controlStream.end();
+            } catch (err) {
+              controlStream.end();
+              server.close();
+              done(err);
+            }
+          }, 3500);
+
+          res.on('end', () => {
+            server.close();
+            done();
+          });
+        },
+      );
+
+      req.on('error', (err) => {
+        server.close();
+        done(err);
+      });
+    });
+  }, 10000); // 10s timeout: 3.5s poll wait + server overhead
+
   it('stopped agent returns 409 (unchanged contract)', async () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: AGENT_UUID, agent_id: 'test-agent', status: 'stopped', created_by: 'regular-user' }],
