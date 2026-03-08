@@ -15,7 +15,7 @@ vi.mock('lucide-react', () => ({
   ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
 }))
 
-import EventTimeline from '@/app/agents/[id]/EventTimeline'
+import EventTimeline, { computeGroups } from '@/app/agents/[id]/EventTimeline'
 import EventCard from '@/app/agents/[id]/EventCard'
 import type { AgentEvent } from '@/app/agents/[id]/EventCard'
 
@@ -288,5 +288,322 @@ describe('EventTimeline', () => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(1)
     })
     expect(screen.getByText('inference')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Helper: create events at specific timestamps for grouping tests
+// ---------------------------------------------------------------------------
+const T0 = new Date('2026-01-01T00:00:00.000Z').getTime()
+
+function makeEvent(
+  overrides: Partial<AgentEvent> & { id: string; tool: string; type: string },
+  offsetMs: number = 0,
+): AgentEvent {
+  return {
+    timestamp: new Date(T0 + offsetMs).toISOString(),
+    input_summary: 'test',
+    output_summary: null,
+    duration_ms: null,
+    success: null,
+    ...overrides,
+  }
+}
+
+function inf(id: string, offsetMs: number): AgentEvent {
+  return makeEvent({ id, tool: 'inference', type: 'inference_complete' }, offsetMs)
+}
+
+function wr(id: string, offsetMs: number, workId?: string): AgentEvent {
+  return makeEvent(
+    { id, tool: 'runtime', type: 'work_received', ...(workId ? { metadata: { work_id: workId } } : {}) },
+    offsetMs,
+  )
+}
+
+function wc(id: string, offsetMs: number, workId?: string): AgentEvent {
+  return makeEvent(
+    { id, tool: 'runtime', type: 'work_completed', ...(workId ? { metadata: { work_id: workId } } : {}) },
+    offsetMs,
+  )
+}
+
+function shell(id: string, offsetMs: number): AgentEvent {
+  return makeEvent({ id, tool: 'shell', type: 'command_start' }, offsetMs)
+}
+
+function fs(id: string, offsetMs: number): AgentEvent {
+  return makeEvent({ id, tool: 'filesystem', type: 'file_read' }, offsetMs)
+}
+
+function wf(id: string, offsetMs: number): AgentEvent {
+  return makeEvent({ id, tool: 'runtime', type: 'work_failed' }, offsetMs)
+}
+
+// ---------------------------------------------------------------------------
+// computeGroups — positive tests (strong signal present → grouped)
+// ---------------------------------------------------------------------------
+describe('computeGroups — positive (grouped)', () => {
+  it('G1: shared work_id groups runtime events', () => {
+    const events = [wr('a', 0, 'X'), wc('b', 100, 'X')]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(2)
+    expect(groups.get('a')).toBe(groups.get('b'))
+  })
+
+  it('G2: shared work_id groups across large gap (non-adjacent)', () => {
+    const events = [wr('a', 0, 'X'), shell('s', 5000), wc('b', 10000, 'X')]
+    const groups = computeGroups(events)
+    expect(groups.get('a')).toBe(groups.get('b'))
+    expect(groups.has('s')).toBe(false) // shell is solo
+  })
+
+  it('G3: inference → work_received ≤3s, adjacent', () => {
+    const events = [inf('a', 0), wr('b', 500)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(2)
+    expect(groups.get('a')).toBe(groups.get('b'))
+  })
+
+  it('G4: inference → work_completed ≤3s, adjacent', () => {
+    const events = [inf('a', 0), wc('b', 300)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(2)
+    expect(groups.get('a')).toBe(groups.get('b'))
+  })
+
+  it('G5: full step: inference + work_received + work_completed (transitive)', () => {
+    const events = [inf('a', 0), wr('b', 300, 'X'), wc('c', 500, 'X')]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(3)
+    const groupId = groups.get('a')
+    expect(groups.get('b')).toBe(groupId)
+    expect(groups.get('c')).toBe(groupId)
+  })
+
+  it('G6: two separate steps with gap', () => {
+    const events = [
+      inf('a1', 0), wr('b1', 300, 'A'), wc('c1', 500, 'A'),
+      inf('a2', 5000), wr('b2', 5300, 'B'), wc('c2', 5500, 'B'),
+    ]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(6)
+    // First step grouped together
+    expect(groups.get('a1')).toBe(groups.get('b1'))
+    expect(groups.get('b1')).toBe(groups.get('c1'))
+    // Second step grouped together
+    expect(groups.get('a2')).toBe(groups.get('b2'))
+    expect(groups.get('b2')).toBe(groups.get('c2'))
+    // Different groups
+    expect(groups.get('a1')).not.toBe(groups.get('a2'))
+  })
+
+  it('G7: non-adjacent work_id linking via index', () => {
+    const events = [wr('a', 0, 'X'), inf('i', 500), shell('s', 1000), wc('b', 1500, 'X')]
+    const groups = computeGroups(events)
+    expect(groups.get('a')).toBe(groups.get('b'))
+    // inf and shell are NOT in any group (no signal links them)
+    expect(groups.has('i')).toBe(false)
+    expect(groups.has('s')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeGroups — negative tests (no strong signal → NOT grouped)
+// ---------------------------------------------------------------------------
+describe('computeGroups — negative (not grouped)', () => {
+  it('N1: two inference events ≤3s → NOT grouped', () => {
+    const events = [inf('a', 0), inf('b', 1000)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('N2: three rapid inference events → NOT grouped', () => {
+    const events = [inf('a', 0), inf('b', 500), inf('c', 1000)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('N3: inference → shell ≤3s → NOT grouped', () => {
+    const events = [inf('a', 0), shell('b', 500)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('N4: inference → filesystem ≤3s → NOT grouped', () => {
+    const events = [inf('a', 0), fs('b', 500)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('N5: runtime → inference ≤3s → NOT grouped (wrong direction)', () => {
+    const events = [wr('a', 0), inf('b', 500)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('N6: shell → runtime ≤3s → NOT grouped', () => {
+    const events = [shell('a', 0), wr('b', 500)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('N7: inference → work_received >3s → NOT grouped', () => {
+    const events = [inf('a', 0), wr('b', 4000)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('N8: inference → work_received ≤3s but NOT adjacent → NOT grouped', () => {
+    const events = [inf('a', 0), shell('s', 200), wr('b', 500)]
+    const groups = computeGroups(events)
+    // inf and wr NOT linked (shell is between them)
+    expect(groups.has('a')).toBe(false)
+    expect(groups.has('b')).toBe(false)
+  })
+
+  it('N9: inference → work_failed ≤3s, adjacent → NOT grouped', () => {
+    const events = [inf('a', 0), wf('b', 300)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeGroups — edge cases
+// ---------------------------------------------------------------------------
+describe('computeGroups — edge cases', () => {
+  it('E1: empty events array', () => {
+    const groups = computeGroups([])
+    expect(groups.size).toBe(0)
+  })
+
+  it('E2: single event', () => {
+    const groups = computeGroups([inf('a', 0)])
+    expect(groups.size).toBe(0)
+  })
+
+  it('E3: events with identical timestamps (inf + wr)', () => {
+    const events = [inf('a', 0), wr('b', 0)]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(2)
+    expect(groups.get('a')).toBe(groups.get('b'))
+  })
+
+  it('E4: missing metadata on runtime event (Signal B still works)', () => {
+    const events = [inf('a', 0), wr('b', 500)]
+    // wr has no metadata/work_id, but Signal B (adjacency) should still fire
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(2)
+    expect(groups.get('a')).toBe(groups.get('b'))
+  })
+
+  it('E5: work_id on only one of two runtime events → NOT grouped via Signal A', () => {
+    const events = [
+      wr('a', 0, 'X'),
+      makeEvent({ id: 'b', tool: 'runtime', type: 'work_completed' }, 100), // no work_id
+    ]
+    const groups = computeGroups(events)
+    // No shared work_id → Signal A doesn't fire
+    // runtime→runtime is not a Signal B pattern (requires inference→runtime)
+    expect(groups.has('a')).toBe(false)
+    expect(groups.has('b')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Rendering tests — group spine and layout
+// ---------------------------------------------------------------------------
+describe('EventTimeline — group rendering', () => {
+  function setupSSEAndSendEvents(events: AgentEvent[]) {
+    let capturedOnMessage: ((msg: MessageEvent) => void) | null = null
+    vi.stubGlobal('EventSource', vi.fn(() => {
+      const instance = {
+        onmessage: null as any,
+        addEventListener: vi.fn(),
+        close: vi.fn(),
+      }
+      setTimeout(() => { capturedOnMessage = instance.onmessage }, 0)
+      return instance
+    }))
+
+    render(<EventTimeline agentId="uuid-1" agentStatus="running" />)
+
+    return waitFor(() => expect(capturedOnMessage).toBeTruthy()).then(() => {
+      for (const e of events) {
+        capturedOnMessage!(new MessageEvent('message', { data: JSON.stringify(e) }))
+      }
+      return capturedOnMessage!
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => cleanup())
+
+  it('R1: multi-event group shows spine', async () => {
+    await setupSSEAndSendEvents([inf('a', 0), wr('b', 500)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    expect(screen.getByTestId('group-spine')).toBeInTheDocument()
+  })
+
+  it('R2: solo event has no spine', async () => {
+    await setupSSEAndSendEvents([inf('a', 0)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    expect(screen.queryByTestId('group-spine')).not.toBeInTheDocument()
+  })
+
+  it('R3: group wrapper has pl-3 class', async () => {
+    await setupSSEAndSendEvents([inf('a', 0), wr('b', 500)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    const spine = screen.getByTestId('group-spine')
+    expect(spine.parentElement).toHaveClass('pl-3')
+  })
+
+  it('R4: existing EventCard/EventTimeline tests pass (no regression)', async () => {
+    // This is validated by the full test suite running without failures
+    // Included here as an explicit marker
+    await setupSSEAndSendEvents([
+      { ...MOCK_EVENTS[0], id: 'reg-1' },
+      { ...MOCK_EVENTS[1], id: 'reg-2' },
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+  })
+
+  it('R5: outer container uses space-y-3', async () => {
+    await setupSSEAndSendEvents([inf('a', 0)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    const container = screen.getByTestId('event-card').closest('.space-y-3')
+    expect(container).toBeInTheDocument()
+  })
+
+  it('R6: filter change recomputes — inference-only filter shows no spine', async () => {
+    const onMessage = await setupSSEAndSendEvents([inf('a', 0), wr('b', 500)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    // Spine should be visible with All filter
+    expect(screen.getByTestId('group-spine')).toBeInTheDocument()
+
+    // Switch to Inference filter
+    fireEvent.click(screen.getByText('Inference'))
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    // No runtime events visible → no Signal B → no spine
+    expect(screen.queryByTestId('group-spine')).not.toBeInTheDocument()
   })
 })
