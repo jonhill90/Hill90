@@ -894,9 +894,102 @@ router.post('/:id/reconcile-tools', requireRole('admin'), async (req: Request, r
   }
 });
 
+// ---------------------------------------------------------------------------
+// Inference event helpers (model_usage → AgentEvent merge)
+// ---------------------------------------------------------------------------
+
+interface InferenceRow {
+  id: string;
+  agent_id: string;
+  model_name: string;
+  request_type: string;
+  status: string;
+  latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: string | null; // Postgres numeric serializes as string
+  created_at: Date;
+}
+
+function mapInferenceToEvent(row: InferenceRow): Record<string, unknown> {
+  const cost = Number(row.cost_usd ?? 0);
+  return {
+    id: `inference-${row.id}`,
+    timestamp: row.created_at.toISOString(),
+    type: row.status === 'success' ? 'inference_complete' : `inference_${row.status}`,
+    tool: 'inference',
+    input_summary: `${row.model_name} (${row.request_type})`,
+    output_summary: `${row.input_tokens ?? 0}+${row.output_tokens ?? 0} tokens, $${cost.toFixed(4)}, ${row.latency_ms ?? 0}ms`,
+    duration_ms: row.latency_ms ?? null,
+    success: row.status === 'success',
+    metadata: {
+      model_name: row.model_name,
+      request_type: row.request_type,
+      status: row.status,
+      input_tokens: row.input_tokens ?? 0,
+      output_tokens: row.output_tokens ?? 0,
+      cost_usd: cost,
+    },
+  };
+}
+
+async function getRecentInference(
+  agentId: string,
+  limit: number,
+  userSub: string,
+  admin: boolean,
+  cursor?: { createdAt: string; id: string },
+): Promise<InferenceRow[]> {
+  if (cursor) {
+    // Incremental: rows after cursor, oldest-first
+    const conditions = [`agent_id = $1`, `(created_at, id) > ($2, $3)`];
+    const params: unknown[] = [agentId, cursor.createdAt, cursor.id];
+    let paramIdx = 4;
+    if (!admin) {
+      conditions.push(`owner = $${paramIdx++}`);
+      params.push(userSub);
+    }
+    params.push(limit);
+    const { rows } = await getPool().query(
+      `SELECT id, agent_id, model_name, request_type, status, latency_ms,
+              input_tokens, output_tokens, cost_usd, created_at
+       FROM model_usage
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY created_at ASC, id ASC
+       LIMIT $${paramIdx}`,
+      params,
+    );
+    return rows;
+  }
+
+  // Backfill: N most recent rows (newest-first), reversed in caller for chronological emission
+  const conditions = [`agent_id = $1`];
+  const params: unknown[] = [agentId];
+  let paramIdx = 2;
+  if (!admin) {
+    conditions.push(`owner = $${paramIdx++}`);
+    params.push(userSub);
+  }
+  params.push(limit);
+  const { rows } = await getPool().query(
+    `SELECT id, agent_id, model_name, request_type, status, latency_ms,
+            input_tokens, output_tokens, cost_usd, created_at
+     FROM model_usage
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY created_at DESC, id DESC
+     LIMIT $${paramIdx}`,
+    params,
+  );
+  return rows.reverse(); // Oldest first
+}
+
 // Get agent events (structured activity timeline)
 router.get('/:id/events', requireRole('user'), async (req: Request, res: Response) => {
   try {
+    const user = (req as any).user;
+    const roles: string[] = user?.realm_roles || [];
+    const admin = roles.includes('admin');
+
     const scope = scopeToOwner(req);
     const paramOffset = scope.params.length + 1;
     const { rows } = await getPool().query(
@@ -925,10 +1018,51 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders();
 
+      // Phase 1: Initial inference backfill
+      let cursorCreatedAt = new Date().toISOString();
+      let cursorId = '';
+      try {
+        const backfillRows = await getRecentInference(agent.agent_id, tail, user.sub, admin);
+        for (const row of backfillRows) {
+          res.write(`data: ${JSON.stringify(mapInferenceToEvent(row))}\n\n`);
+        }
+        if (backfillRows.length > 0) {
+          const last = backfillRows[backfillRows.length - 1];
+          cursorCreatedAt = last.created_at.toISOString();
+          cursorId = last.id;
+        }
+      } catch (err) {
+        console.error('[agents] SSE inference backfill failed (continuing):', err);
+      }
+
+      // Phase 2: tail -f for container events
       try {
         const stream = await execInContainer(agent.agent_id, [
           'tail', '-f', '-n', String(tail), '/var/log/agentbox/events.jsonl',
         ]);
+
+        // Phase 3: inference poll
+        const INFERENCE_POLL_MS = 3000;
+        const pollInterval = setInterval(async () => {
+          if (res.writableEnded || res.destroyed) return;
+          try {
+            const newRows = await getRecentInference(
+              agent.agent_id, 50, user.sub, admin,
+              { createdAt: cursorCreatedAt, id: cursorId },
+            );
+            for (const row of newRows) {
+              if (res.writableEnded || res.destroyed) return;
+              res.write(`data: ${JSON.stringify(mapInferenceToEvent(row))}\n\n`);
+            }
+            if (newRows.length > 0) {
+              const last = newRows[newRows.length - 1];
+              cursorCreatedAt = last.created_at.toISOString();
+              cursorId = last.id;
+            }
+          } catch (err) {
+            console.error('[agents] SSE inference poll failed (continuing):', err);
+          }
+        }, INFERENCE_POLL_MS);
 
         let buffer = '';
         stream.on('data', (chunk: Buffer) => {
@@ -945,6 +1079,7 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
         });
 
         stream.on('end', () => {
+          clearInterval(pollInterval);
           if (buffer.trim()) {
             try { JSON.parse(buffer.trim()); res.write(`data: ${buffer.trim()}\n\n`); } catch { /* skip */ }
           }
@@ -953,11 +1088,13 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
         });
 
         stream.on('error', (err: Error) => {
+          clearInterval(pollInterval);
           res.write(`event: error\ndata: ${err.message}\n\n`);
           res.end();
         });
 
         req.on('close', () => {
+          clearInterval(pollInterval);
           (stream as any).destroy?.();
         });
       } catch (err: any) {
@@ -967,7 +1104,7 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
       return;
     }
 
-    // One-shot: return events as JSON array
+    // One-shot: return events as JSON array, merged with inference events
     try {
       const stream = await execInContainer(agent.agent_id, [
         'tail', '-n', String(tail), '/var/log/agentbox/events.jsonl',
@@ -975,17 +1112,41 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
 
       const chunks: Buffer[] = [];
       stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      stream.on('end', () => {
-        const raw = Buffer.concat(chunks).toString('utf-8');
-        const events = raw
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line.length > 0)
-          .map(line => {
-            try { return JSON.parse(line); } catch { return null; }
-          })
-          .filter(e => e !== null);
-        res.json(events);
+      stream.on('end', async () => {
+        try {
+          const raw = Buffer.concat(chunks).toString('utf-8');
+          const containerEvents = raw
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .map(line => {
+              try { return JSON.parse(line); } catch { return null; }
+            })
+            .filter(e => e !== null);
+
+          // Merge inference events from DB
+          let inferenceEvents: Record<string, unknown>[] = [];
+          try {
+            const inferenceRows = await getRecentInference(agent.agent_id, tail, user.sub, admin);
+            inferenceEvents = inferenceRows.map(mapInferenceToEvent);
+          } catch (err) {
+            console.error('[agents] One-shot inference query failed (continuing):', err);
+          }
+
+          // Merge and sort by (timestamp, id)
+          const merged = [...containerEvents, ...inferenceEvents].sort((a: any, b: any) => {
+            const tsCmp = (a.timestamp || '').localeCompare(b.timestamp || '');
+            if (tsCmp !== 0) return tsCmp;
+            return (a.id || '').localeCompare(b.id || '');
+          });
+
+          res.json(merged);
+        } catch (err: any) {
+          console.error('[agents] One-shot merge failed:', err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to merge events', detail: err.message });
+          }
+        }
       });
       stream.on('error', (err: Error) => {
         res.status(500).json({ error: 'Failed to read events', detail: err.message });
