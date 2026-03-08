@@ -1,11 +1,8 @@
 """AgentBox server — runtime entry point.
 
-This module is organized into two sections:
-1. Runtime foundation (MCP-independent) — config, events, health endpoint
-2. MCP compatibility layer (temporary) — FastMCP server and tool mounting
-
-The runtime foundation survives MCP removal (Phase 3). The MCP compatibility
-layer will be replaced by plain Starlette/uvicorn in Phase 3.
+All routes (MCP tools and HTTP endpoints) are currently served via FastMCP.
+The /health and /work endpoints use FastMCP custom_route (plain Starlette
+handlers) and are intended to survive MCP removal in Phase 3.
 """
 
 import logging
@@ -16,6 +13,7 @@ from starlette.responses import JSONResponse
 
 from app.config import AgentConfig
 from app.events import EventEmitter
+from app.runtime import AgentRuntime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,10 +21,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# === Runtime foundation (MCP-independent) ===
-# Config loading, event emitter, health endpoint
-# These components define the container's runtime contract and are
-# independent of the MCP transport layer.
+# Config, events, and runtime — these define the container's runtime contract.
+# Currently served via FastMCP; intended to survive MCP removal in Phase 3.
 
 config = AgentConfig.from_file(
     os.environ.get("AGENT_CONFIG", "/etc/agentbox/agent.yml")
@@ -36,27 +32,30 @@ config = AgentConfig.from_file(
 # Shared by both MCP tool wrappers (tools/) and direct callers (app/).
 emitter = EventEmitter(os.path.join(config.state.logs, "events.jsonl"))
 
+# Runtime workload receiver — handles POST /work with bearer auth.
+runtime = AgentRuntime(config, emitter, os.environ.get("WORK_TOKEN"))
 
-# === MCP compatibility layer (temporary — removed in Phase 3) ===
-# FastMCP server and tool mounting. The MCP wrappers in tools/ delegate
-# to business logic in app/shell.py and app/filesystem.py.
+
+# FastMCP server — hosts MCP tools and custom HTTP routes.
+# MCP tool wrappers in tools/ delegate to app/shell.py and app/filesystem.py.
+# Phase 3 replaces FastMCP with plain Starlette/uvicorn.
 
 mcp = FastMCP(f"AgentBox-{config.id}")
 
 
-# Health endpoint for Docker healthcheck (HTTP, not MCP).
-# This endpoint is part of the runtime foundation — it will be preserved
-# on a plain Starlette server when FastMCP is removed in Phase 3.
+# Health endpoint for Docker healthcheck.
+# Mounted via FastMCP custom_route; intended to survive Phase 3 MCP removal.
 @mcp.custom_route("/health", methods=["GET"])
 async def health_endpoint(request):
     return JSONResponse({"status": "healthy", "agent": config.id})
 
 
-# Always mount identity tool (deprecated — removal in Phase 2)
-from tools import identity  # noqa: E402
+# Work endpoint — runtime workload receiver.
+# Mounted via FastMCP custom_route; intended to survive Phase 3 MCP removal.
+@mcp.custom_route("/work", methods=["POST"])
+async def work_endpoint(request):
+    return await runtime.handle_work(request)
 
-identity.configure(config, emitter=emitter)
-mcp.mount(identity.server)
 
 # Mount enabled tools with policy config.
 # Shell and filesystem tools delegate to app/shell.py and app/filesystem.py
@@ -74,19 +73,12 @@ if config.tools.filesystem.enabled:
     filesystem.configure(config.tools.filesystem, emitter=emitter)
     mcp.mount(filesystem.server)
 
-# Health tool (deprecated — removal in Phase 2)
-if config.tools.health.enabled:
-    from tools import health  # noqa: E402
-
-    health.configure(config, emitter=emitter)
-    mcp.mount(health.server)
-
 
 if __name__ == "__main__":
-    logger.info(f"Starting AgentBox-{config.id} MCP server...")
+    logger.info(f"Starting AgentBox-{config.id} server...")
     logger.info(f"  Tools: shell={config.tools.shell.enabled}, "
-                f"filesystem={config.tools.filesystem.enabled}, "
-                f"health={config.tools.health.enabled}")
+                f"filesystem={config.tools.filesystem.enabled}")
+    logger.info(f"  Runtime: /work endpoint {'enabled' if runtime._work_token else 'disabled (no WORK_TOKEN)'}")
     logger.info("  Transport: streamable-http on :8054")
 
     try:
