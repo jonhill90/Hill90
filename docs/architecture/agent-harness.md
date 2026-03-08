@@ -83,7 +83,7 @@ Invalid:  400 { "error": "validation_error", "detail": "<message>" }
 Unauth:   401 { "error": "unauthorized" }
 ```
 
-**`WORK_TOKEN` auth model**: The API service generates a `crypto.randomUUID()` at container start and injects it as the `WORK_TOKEN` env var. The token is ephemeral — it exists only in API process memory (briefly) and the container environment. It is not stored in the database or any API response. No external service can look up the token in Phase 2 — this is intentional; a caller arrives in Phase 3+.
+**`WORK_TOKEN` auth model**: The API service generates a `crypto.randomUUID()` at container start and injects it as the `WORK_TOKEN` env var. The token is ephemeral — it exists only in API process memory (briefly) and the container environment. It is not stored in the database or any API response. Currently no external service looks up the token — the API service is the only caller of `POST /work`.
 
 ### Policy Enforcement
 
