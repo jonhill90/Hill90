@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Terminal, FolderOpen, User, HeartPulse, Cog, ChevronDown, ChevronRight } from 'lucide-react'
+import { Terminal, FolderOpen, User, HeartPulse, Cog, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
 
 export interface AgentEvent {
   id: string
@@ -21,6 +21,7 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
   runtime: Cog,
   identity: User,
   health: HeartPulse,
+  inference: Sparkles,
 }
 
 function relativeTime(timestamp: string): string {
@@ -63,7 +64,23 @@ export default function EventCard({ event }: { event: AgentEvent }) {
         )}
       </div>
 
-      {expanded && (
+      {expanded && event.tool === 'inference' && event.metadata && (
+        <div className="mt-2 pl-6 text-xs grid grid-cols-2 gap-x-6 gap-y-1" data-testid="event-details">
+          <div><span className="text-mountain-400">Model:</span> <span className="text-mountain-300">{String(event.metadata.model_name)}</span></div>
+          <div><span className="text-mountain-400">Type:</span> <span className="text-mountain-300">{String(event.metadata.request_type)}</span></div>
+          <div><span className="text-mountain-400">Input:</span> <span className="text-mountain-300">{Number(event.metadata.input_tokens).toLocaleString()} tokens</span></div>
+          <div><span className="text-mountain-400">Output:</span> <span className="text-mountain-300">{Number(event.metadata.output_tokens).toLocaleString()} tokens</span></div>
+          <div><span className="text-mountain-400">Cost:</span> <span className="text-mountain-300">${Number(event.metadata.cost_usd).toFixed(4)}</span></div>
+          <div>
+            <span className="text-mountain-400">Status:</span>{' '}
+            <span className={event.metadata.status === 'success' ? 'text-brand-400' : 'text-red-400'}>
+              {String(event.metadata.status)}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {expanded && event.tool !== 'inference' && (
         <div className="mt-2 pl-6 text-xs space-y-1" data-testid="event-details">
           <div><span className="text-mountain-400">Type:</span> <span className="text-mountain-300">{event.type}</span></div>
           {event.output_summary && (

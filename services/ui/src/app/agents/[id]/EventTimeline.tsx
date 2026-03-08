@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import EventCard, { type AgentEvent } from './EventCard'
 
 const MAX_EVENTS = 500
-const TOOL_FILTERS = ['All', 'Shell', 'Filesystem', 'Runtime'] as const
+const TOOL_FILTERS = ['All', 'Shell', 'Filesystem', 'Runtime', 'Inference'] as const
 type ToolFilter = typeof TOOL_FILTERS[number]
 
 export default function EventTimeline({
