@@ -44,7 +44,7 @@ The AI service and Knowledge service both set `traefik.enable=false` — they ar
 
 ## Agentbox Runtime
 
-Agentbox is a sandboxed runtime container for AI agents. It currently uses FastMCP for tool registration (migration to runtime-first in progress). The runtime contract below defines what the container provides independent of MCP.
+Agentbox is a sandboxed runtime container for AI agents. It uses plain Starlette/uvicorn as its HTTP layer. The runtime contract below defines what the container provides.
 
 ### Container Image
 
@@ -53,21 +53,21 @@ Agentbox is a sandboxed runtime container for AI agents. It currently uses FastM
 - **Port**: 8054 (streamable HTTP)
 - **Health check**: `curl -sf http://localhost:8054/health` (30s interval, 10s timeout, 3 retries)
 
-### MCP Tools
+### Tool Functions
 
-These tools are exposed via MCP. Shell and filesystem logic is also available as plain Python modules in `app/shell.py` and `app/filesystem.py`.
+Shell and filesystem logic lives in `app/shell.py` and `app/filesystem.py` as plain Python modules. These are policy-gated functions callable by any future work dispatcher — no MCP protocol involvement.
 
-| Tool | Description | Policy-gated |
-|------|-------------|-------------|
-| `execute_command` | Runs shell commands with policy enforcement | Yes (shell) |
-| `check_command` | Validates if a command would be allowed without executing | Yes (shell) |
-| `read_file` | Reads file contents within allowed paths | Yes (filesystem) |
-| `write_file` | Writes content to files within allowed paths | Yes (filesystem) |
-| `list_directory` | Lists directory contents with metadata | Yes (filesystem) |
+| Function | Module | Policy-gated |
+|----------|--------|-------------|
+| `execute_command` | `app.shell` | Yes (CommandPolicy) |
+| `check_command` | `app.shell` | Yes (CommandPolicy) |
+| `read_file` | `app.filesystem` | Yes (PathPolicy) |
+| `write_file` | `app.filesystem` | Yes (PathPolicy) |
+| `list_directory` | `app.filesystem` | Yes (PathPolicy) |
 
 ### Runtime Endpoints
 
-These endpoints are plain HTTP handlers (Starlette) currently mounted via FastMCP `custom_route`. They are intended to survive Phase 3 MCP removal.
+Plain Starlette HTTP routes served by uvicorn on port 8054.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
@@ -131,6 +131,9 @@ tools:
     denied_paths: [/etc/shadow, /etc/passwd, /root]
   health:
     enabled: true               # deprecated — kept for YAML compatibility, no effect
+# NOTE: tools.shell.enabled, tools.filesystem.enabled, and tools.health.enabled
+# are parsed for YAML compatibility but no longer drive tool registration.
+# Shell and filesystem functions are available as direct Python imports.
 resources:
   cpus: "1.0"
   mem_limit: "1g"
@@ -234,15 +237,15 @@ The runtime contract defines what the container provides to **any** process runn
 
 ### Migration Status
 
-The agentbox is migrating from MCP-first to runtime-first architecture:
+The agentbox completed a three-phase migration from MCP-first to runtime-first architecture:
 
 | Phase | Scope | Status |
 |---|---|---|
 | **Phase 1** | Extract tool logic to `app/`, thin MCP wrappers in `tools/`, document runtime contract | **Complete** |
 | **Phase 2** | `POST /work` endpoint, remove identity + health MCP tools, runtime events | **Complete** |
-| **Phase 3** | Remove FastMCP, replace with plain Starlette/uvicorn | Planned |
+| **Phase 3** | Remove MCP transport, replace with plain Starlette/uvicorn | **Complete** |
 
-**Current state (Phase 2):** Shell and filesystem business logic lives in `app/shell.py` and `app/filesystem.py` as plain Python modules with no FastMCP dependency. The `tools/*.py` files are thin MCP wrappers that delegate to `app/` modules. FastMCP still serves as the transport layer. Identity and health MCP tools have been removed. The `POST /work` endpoint provides the runtime workload contract (stub — no execution). `AgentRuntime` (`app/runtime.py`) loads identity files and handles work requests with bearer auth and structured events.
+**Current state (post-Phase 3):** Shell and filesystem business logic lives in `app/shell.py` and `app/filesystem.py` as plain Python modules. The `tools/` directory has been deleted — no MCP wrappers remain. The server uses Starlette routes + uvicorn with no MCP dependency. The `tools:` section in `agent.yml` is parsed for YAML compatibility but no longer drives tool registration. The `POST /work` endpoint provides the runtime workload contract (stub — no execution). `AgentRuntime` (`app/runtime.py`) loads identity files and handles work requests with bearer auth and structured events.
 
 ---
 
