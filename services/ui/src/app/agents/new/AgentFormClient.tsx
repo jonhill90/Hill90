@@ -3,19 +3,12 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
-// Mirrors agentbox Pydantic ToolsConfig (services/agentbox/app/config.py)
-interface ToolsConfig {
-  shell: { enabled: boolean; allowed_binaries: string[]; denied_patterns: string[]; max_timeout: number }
-  filesystem: { enabled: boolean; read_only: boolean; allowed_paths: string[]; denied_paths: string[] }
-  health: { enabled: boolean }
-}
-
 interface SkillOption {
   id: string
   name: string
   description: string
   scope: string
-  tools_config: ToolsConfig
+  tools_config?: Record<string, unknown>
   instructions_md?: string
   is_platform: boolean
   tools?: Array<{ id: string; name: string }>
@@ -50,7 +43,7 @@ export default function AgentFormClient({
     agent_id: string
     name: string
     description: string
-    tools_config: ToolsConfig
+    tools_config?: Record<string, unknown>
     cpus: string
     mem_limit: string
     pids_limit: number

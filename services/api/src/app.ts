@@ -54,7 +54,6 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Skill management routes (admin-only mutations, enforced in router)
   app.use('/skills', requireAuth, skillsRouter);
-  app.use('/tool-presets', requireAuth, skillsRouter); // compat alias
 
   // Tools catalog routes (admin-only mutations, enforced in router)
   app.use('/tools', requireAuth, toolsRouter);

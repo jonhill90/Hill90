@@ -183,7 +183,7 @@ const EXPECTED_PATHS = [
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token'];
 
 // Compat alias paths — same handler as canonical /skills routes, not in OpenAPI spec
-const COMPAT_PATHS = ['/tool-presets', '/tool-presets/{id}'];
+const COMPAT_PATHS: string[] = [];
 
 /**
  * Introspect Express app._router.stack to extract all registered route paths.

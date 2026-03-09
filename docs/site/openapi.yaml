@@ -2371,7 +2371,6 @@ paths:
               type: object
               required:
                 - name
-                - tools_config
               properties:
                 name:
                   type: string
@@ -2379,7 +2378,7 @@ paths:
                   type: string
                 tools_config:
                   type: object
-                  description: Tool configuration (shell, filesystem, health settings)
+                  description: Tool configuration (shell, filesystem, health settings). Optional — when omitted, auto-derived from scope.
                 instructions_md:
                   type: string
                   description: Behavioral guidance merged into agent RULES.md at start time.

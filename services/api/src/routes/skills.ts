@@ -6,6 +6,14 @@ const router = Router();
 
 const VALID_SCOPES = ['container_local', 'host_docker', 'vps_system'] as const;
 
+function defaultToolsConfigForScope(_scope: string) {
+  return {
+    shell: { enabled: true, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
+    filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: [] },
+    health: { enabled: true },
+  };
+}
+
 function dbHealthCheck(_req: Request, res: Response, next: () => void) {
   if (!process.env.DATABASE_URL) {
     res.status(503).json({ error: 'Database not configured' });
@@ -115,10 +123,10 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
       res.status(400).json({ error: 'name is required' });
       return;
     }
-    if (!tools_config || typeof tools_config !== 'object') {
-      res.status(400).json({ error: 'tools_config is required and must be an object' });
-      return;
-    }
+    const resolvedConfig = (tools_config && typeof tools_config === 'object')
+      ? tools_config
+      : defaultToolsConfigForScope(scope || 'container_local');
+
     if (scope !== undefined && !VALID_SCOPES.includes(scope)) {
       res.status(400).json({ error: `Invalid scope. Must be one of: ${VALID_SCOPES.join(', ')}` });
       return;
@@ -133,7 +141,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
       `INSERT INTO skills (name, description, tools_config, instructions_md, scope, is_platform, created_by)
        VALUES ($1, $2, $3, $4, $5, false, NULL)
        RETURNING *`,
-      [name, description || '', JSON.stringify(tools_config), instructions_md || '', scope || 'container_local']
+      [name, description || '', JSON.stringify(resolvedConfig), instructions_md || '', scope || 'container_local']
     );
 
     const skill = rows[0];
