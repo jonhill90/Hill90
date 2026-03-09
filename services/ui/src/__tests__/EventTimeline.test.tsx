@@ -16,7 +16,7 @@ vi.mock('lucide-react', () => ({
 }))
 
 import EventTimeline, { computeGroups, deriveGroupStatus } from '@/app/agents/[id]/EventTimeline'
-import EventCard from '@/app/agents/[id]/EventCard'
+import EventCard, { getLifecycleInfo, parseExitCode } from '@/app/agents/[id]/EventCard'
 import type { AgentEvent } from '@/app/agents/[id]/EventCard'
 
 const MOCK_EVENTS: AgentEvent[] = [
@@ -80,14 +80,14 @@ describe('EventCard', () => {
     expect(screen.getByText('echo hello')).toBeInTheDocument()
   })
 
-  it('shows success indicator', () => {
-    render(<EventCard event={MOCK_EVENTS[1]} />)
+  it('shows success indicator on non-lifecycle events', () => {
+    render(<EventCard event={MOCK_EVENTS[2]} />)
     expect(screen.getByText('OK')).toBeInTheDocument()
   })
 
-  it('shows failure indicator', () => {
+  it('shows failure indicator on non-lifecycle events', () => {
     const failedEvent: AgentEvent = {
-      ...MOCK_EVENTS[1],
+      ...MOCK_EVENTS[2],
       id: 'evt-fail',
       success: false,
     }
@@ -848,15 +848,183 @@ describe('EventTimeline — group status badges', () => {
     expect(screen.queryByTestId('group-status-badge')).not.toBeInTheDocument()
   })
 
-  it('SB6: existing OK/FAIL indicators unchanged', async () => {
-    const completedEvent = makeEvent(
-      { id: 'ok1', tool: 'shell', type: 'command_complete', success: true, input_summary: 'echo hi' },
+  it('SB6: existing OK/FAIL indicators unchanged on non-lifecycle events', async () => {
+    const fsEvent = makeEvent(
+      { id: 'ok1', tool: 'filesystem', type: 'file_read', success: true, input_summary: '/tmp/data.txt' },
       0,
     )
-    await setupSSEAndSendEvents([completedEvent])
+    await setupSSEAndSendEvents([fsEvent])
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(1)
     })
     expect(screen.getByText('OK')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getLifecycleInfo — pure function tests (LC1-LC9)
+// ---------------------------------------------------------------------------
+describe('getLifecycleInfo', () => {
+  it('LC1: shell command_start → Running', () => {
+    const event = makeEvent({ id: 'lc1', tool: 'shell', type: 'command_start' })
+    expect(getLifecycleInfo(event)).toEqual({
+      label: 'Running', color: 'text-yellow-400', pulse: true,
+    })
+  })
+
+  it('LC2: shell command_complete success → Completed', () => {
+    const event = makeEvent({ id: 'lc2', tool: 'shell', type: 'command_complete', success: true })
+    expect(getLifecycleInfo(event)).toEqual({
+      label: 'Completed', color: 'text-brand-400', pulse: false,
+    })
+  })
+
+  it('LC3: shell command_complete failure → Failed', () => {
+    const event = makeEvent({ id: 'lc3', tool: 'shell', type: 'command_complete', success: false })
+    expect(getLifecycleInfo(event)).toEqual({
+      label: 'Failed', color: 'text-red-400', pulse: false,
+    })
+  })
+
+  it('LC4: runtime work_received → Received', () => {
+    const event = makeEvent({ id: 'lc4', tool: 'runtime', type: 'work_received' })
+    expect(getLifecycleInfo(event)).toEqual({
+      label: 'Received', color: 'text-yellow-400', pulse: true,
+    })
+  })
+
+  it('LC5: runtime work_completed → Completed', () => {
+    const event = makeEvent({ id: 'lc5', tool: 'runtime', type: 'work_completed', success: true })
+    expect(getLifecycleInfo(event)).toEqual({
+      label: 'Completed', color: 'text-brand-400', pulse: false,
+    })
+  })
+
+  it('LC6: runtime work_failed → Failed', () => {
+    const event = makeEvent({ id: 'lc6', tool: 'runtime', type: 'work_failed', success: false })
+    expect(getLifecycleInfo(event)).toEqual({
+      label: 'Failed', color: 'text-red-400', pulse: false,
+    })
+  })
+
+  it('LC7: filesystem event → null (no label)', () => {
+    const event = makeEvent({ id: 'lc7', tool: 'filesystem', type: 'file_read' })
+    expect(getLifecycleInfo(event)).toBeNull()
+  })
+
+  it('LC8: inference event → null (no label)', () => {
+    const event = makeEvent({ id: 'lc8', tool: 'inference', type: 'inference_complete' })
+    expect(getLifecycleInfo(event)).toBeNull()
+  })
+
+  it('LC9: unknown shell type → null (fail-closed)', () => {
+    const event = makeEvent({ id: 'lc9', tool: 'shell', type: 'unknown_type' })
+    expect(getLifecycleInfo(event)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parseExitCode — pure function tests (EC1-EC5)
+// ---------------------------------------------------------------------------
+describe('parseExitCode', () => {
+  it('EC1: standard exit 0', () => {
+    expect(parseExitCode('exit 0, 6 bytes stdout')).toBe(0)
+  })
+
+  it('EC2: non-zero exit', () => {
+    expect(parseExitCode('exit 1, 0 bytes stdout')).toBe(1)
+  })
+
+  it('EC3: large exit code', () => {
+    expect(parseExitCode('exit 137, 100 bytes stdout')).toBe(137)
+  })
+
+  it('EC4: null output_summary', () => {
+    expect(parseExitCode(null)).toBeNull()
+  })
+
+  it('EC5: non-matching format', () => {
+    expect(parseExitCode('some other output')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// EventCard — lifecycle rendering tests (R1-R9)
+// ---------------------------------------------------------------------------
+describe('EventCard — lifecycle rendering', () => {
+  afterEach(() => cleanup())
+
+  it('R1: command_start card shows "Running" label', () => {
+    render(<EventCard event={MOCK_EVENTS[0]} />)
+    expect(screen.getByText('Running')).toBeInTheDocument()
+  })
+
+  it('R2: command_start card shows pulsing dot', () => {
+    render(<EventCard event={MOCK_EVENTS[0]} />)
+    const card = screen.getByTestId('event-card')
+    const pulse = card.querySelector('.animate-pulse')
+    expect(pulse).toBeInTheDocument()
+  })
+
+  it('R3: command_complete (success) shows "Completed" + exit code badge', () => {
+    render(<EventCard event={MOCK_EVENTS[1]} />)
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByText('exit 0')).toBeInTheDocument()
+  })
+
+  it('R4: command_complete (failure) shows "Failed" + exit code badge', () => {
+    const failedEvent: AgentEvent = {
+      ...MOCK_EVENTS[1],
+      id: 'fail-1',
+      success: false,
+      output_summary: 'exit 1, 0 bytes stdout',
+    }
+    render(<EventCard event={failedEvent} />)
+    expect(screen.getByText('Failed')).toBeInTheDocument()
+    expect(screen.getByText('exit 1')).toBeInTheDocument()
+  })
+
+  it('R5: command_start card does NOT show OK/FAIL', () => {
+    render(<EventCard event={MOCK_EVENTS[0]} />)
+    expect(screen.queryByText('OK')).not.toBeInTheDocument()
+    expect(screen.queryByText('FAIL')).not.toBeInTheDocument()
+  })
+
+  it('R6: filesystem event still shows OK/FAIL (not lifecycle label)', () => {
+    render(<EventCard event={MOCK_EVENTS[2]} />)
+    expect(screen.getByText('OK')).toBeInTheDocument()
+    expect(screen.queryByText('Completed')).not.toBeInTheDocument()
+  })
+
+  it('R7: inference event still shows OK/FAIL (not lifecycle label)', () => {
+    render(<EventCard event={MOCK_INFERENCE_EVENT} />)
+    expect(screen.getByText('OK')).toBeInTheDocument()
+    expect(screen.queryByText('Completed')).not.toBeInTheDocument()
+  })
+
+  it('R8: exit code in expanded details for command_complete', () => {
+    render(<EventCard event={MOCK_EVENTS[1]} />)
+    fireEvent.click(screen.getByTestId('event-card'))
+    const details = screen.getByTestId('event-details')
+    expect(details).toHaveTextContent('Exit Code:')
+    expect(details.textContent).toMatch(/Exit Code:\s*0/)
+  })
+
+  it('R9: work_received shows "Received" with pulsing dot', () => {
+    const wrEvent: AgentEvent = {
+      id: 'wr-1',
+      timestamp: new Date().toISOString(),
+      type: 'work_received',
+      tool: 'runtime',
+      input_summary: 'type=verify',
+      output_summary: null,
+      duration_ms: null,
+      success: null,
+    }
+    render(<EventCard event={wrEvent} />)
+    expect(screen.getByText('Received')).toBeInTheDocument()
+    const card = screen.getByTestId('event-card')
+    const pulse = card.querySelector('.animate-pulse')
+    expect(pulse).toBeInTheDocument()
   })
 })
