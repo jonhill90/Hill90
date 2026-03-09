@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Terminal, FolderOpen, Cog, User, HeartPulse, Sparkles } from 'lucide-react'
-import EventCard, { type AgentEvent } from './EventCard'
+import EventCard, { type AgentEvent, formatDuration } from './EventCard'
 
 const MAX_EVENTS = 500
 const MAX_STEP_GAP_MS = 3000
@@ -163,6 +163,18 @@ export function deriveGroupStatus(groupEvents: AgentEvent[]): GroupStatus | null
   return 'in_progress'
 }
 
+export function computeGroupSpan(groupEvents: AgentEvent[]): number | null {
+  if (groupEvents.length < 2) return null
+  let minTs = Infinity
+  let maxTs = -Infinity
+  for (const event of groupEvents) {
+    const t = new Date(event.timestamp).getTime()
+    if (t < minTs) minTs = t
+    if (t > maxTs) maxTs = t
+  }
+  return Math.max(0, maxTs - minTs)
+}
+
 // Local icon map — duplicated from EventCard to avoid coupling
 const BANNER_ICONS: Record<string, typeof Terminal> = {
   shell: Terminal,
@@ -312,6 +324,11 @@ export default function EventTimeline({
                         <span className="h-1.5 w-1.5 rounded-full bg-mountain-400 animate-pulse" />
                       )}
                       {cfg.label}
+                      {(() => {
+                        const span = computeGroupSpan(seg.events)
+                        if (span === null) return null
+                        return <span> · {formatDuration(span)}</span>
+                      })()}
                     </div>
                   )
                 })()}

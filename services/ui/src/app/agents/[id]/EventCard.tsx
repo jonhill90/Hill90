@@ -40,6 +40,22 @@ export function getLifecycleInfo(event: AgentEvent): LifecycleInfo | null {
   return null
 }
 
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) {
+    const val = ms / 1000
+    return val % 1 === 0 ? `${val}s` : `${val.toFixed(1)}s`
+  }
+  if (ms < 3_600_000) {
+    const mins = Math.floor(ms / 60_000)
+    const secs = Math.floor((ms % 60_000) / 1000)
+    return `${mins}m ${secs}s`
+  }
+  const hrs = Math.floor(ms / 3_600_000)
+  const mins = Math.floor((ms % 3_600_000) / 60_000)
+  return `${hrs}h ${mins}m`
+}
+
 const TOOL_ICONS: Record<string, typeof Terminal> = {
   shell: Terminal,
   filesystem: FolderOpen,
@@ -108,7 +124,7 @@ export default function EventCard({ event }: { event: AgentEvent }) {
           )
         })()}
         {event.duration_ms !== null && (
-          <span className="text-mountain-500 text-xs">{event.duration_ms}ms</span>
+          <span className="text-mountain-500 text-xs">{formatDuration(event.duration_ms)}</span>
         )}
         <span className="text-mountain-500 text-xs whitespace-nowrap">{relativeTime(event.timestamp)}</span>
         {expanded ? (

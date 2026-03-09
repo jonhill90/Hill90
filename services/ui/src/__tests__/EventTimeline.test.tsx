@@ -15,8 +15,8 @@ vi.mock('lucide-react', () => ({
   ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
 }))
 
-import EventTimeline, { computeGroups, deriveGroupStatus } from '@/app/agents/[id]/EventTimeline'
-import EventCard, { getLifecycleInfo, parseExitCode } from '@/app/agents/[id]/EventCard'
+import EventTimeline, { computeGroups, deriveGroupStatus, computeGroupSpan } from '@/app/agents/[id]/EventTimeline'
+import EventCard, { getLifecycleInfo, parseExitCode, formatDuration } from '@/app/agents/[id]/EventCard'
 import type { AgentEvent } from '@/app/agents/[id]/EventCard'
 
 const MOCK_EVENTS: AgentEvent[] = [
@@ -1026,5 +1026,196 @@ describe('EventCard — lifecycle rendering', () => {
     const card = screen.getByTestId('event-card')
     const pulse = card.querySelector('.animate-pulse')
     expect(pulse).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatDuration — pure function tests (FD1-FD11)
+// ---------------------------------------------------------------------------
+describe('formatDuration', () => {
+  it('FD1: sub-second exact ms', () => {
+    expect(formatDuration(450)).toBe('450ms')
+  })
+
+  it('FD2: zero ms', () => {
+    expect(formatDuration(0)).toBe('0ms')
+  })
+
+  it('FD3: boundary 999ms stays ms', () => {
+    expect(formatDuration(999)).toBe('999ms')
+  })
+
+  it('FD4: boundary 1000ms → whole second, no trailing .0', () => {
+    expect(formatDuration(1000)).toBe('1s')
+  })
+
+  it('FD5: seconds with decimal', () => {
+    expect(formatDuration(1500)).toBe('1.5s')
+  })
+
+  it('FD6: large whole seconds, no trailing .0', () => {
+    expect(formatDuration(45000)).toBe('45s')
+  })
+
+  it('FD7: fractional seconds', () => {
+    expect(formatDuration(7800)).toBe('7.8s')
+  })
+
+  it('FD8: boundary 60000ms → minutes', () => {
+    expect(formatDuration(60000)).toBe('1m 0s')
+  })
+
+  it('FD9: minutes + seconds', () => {
+    expect(formatDuration(123000)).toBe('2m 3s')
+  })
+
+  it('FD10: boundary 3600000ms → hours', () => {
+    expect(formatDuration(3600000)).toBe('1h 0m')
+  })
+
+  it('FD11: hours + minutes', () => {
+    expect(formatDuration(3900000)).toBe('1h 5m')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// computeGroupSpan — pure function tests (GS1-GS6)
+// ---------------------------------------------------------------------------
+describe('computeGroupSpan', () => {
+  it('GS1: two events 1500ms apart', () => {
+    const events = [
+      makeEvent({ id: 'gs1a', tool: 'runtime', type: 'work_received' }, 0),
+      makeEvent({ id: 'gs1b', tool: 'runtime', type: 'work_completed' }, 1500),
+    ]
+    expect(computeGroupSpan(events)).toBe(1500)
+  })
+
+  it('GS2: same timestamp (back-to-back)', () => {
+    const events = [
+      makeEvent({ id: 'gs2a', tool: 'runtime', type: 'work_received' }, 0),
+      makeEvent({ id: 'gs2b', tool: 'runtime', type: 'work_completed' }, 0),
+    ]
+    expect(computeGroupSpan(events)).toBe(0)
+  })
+
+  it('GS3: single event → null', () => {
+    const events = [makeEvent({ id: 'gs3a', tool: 'runtime', type: 'work_received' }, 0)]
+    expect(computeGroupSpan(events)).toBeNull()
+  })
+
+  it('GS4: empty array → null', () => {
+    expect(computeGroupSpan([])).toBeNull()
+  })
+
+  it('GS5: three events, span from min to max', () => {
+    const events = [
+      makeEvent({ id: 'gs5a', tool: 'inference', type: 'inference_complete' }, 0),
+      makeEvent({ id: 'gs5b', tool: 'runtime', type: 'work_received' }, 500),
+      makeEvent({ id: 'gs5c', tool: 'runtime', type: 'work_completed' }, 1200),
+    ]
+    expect(computeGroupSpan(events)).toBe(1200)
+  })
+
+  it('GS6: out-of-order timestamps → min/max, not first/last', () => {
+    const events = [
+      makeEvent({ id: 'gs6a', tool: 'runtime', type: 'work_completed' }, 1200),
+      makeEvent({ id: 'gs6b', tool: 'inference', type: 'inference_complete' }, 0),
+      makeEvent({ id: 'gs6c', tool: 'runtime', type: 'work_received' }, 500),
+    ]
+    expect(computeGroupSpan(events)).toBe(1200)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Activity Timing Clarity — rendering tests (RD1-RD4)
+// ---------------------------------------------------------------------------
+describe('Activity Timing Clarity — rendering', () => {
+  afterEach(() => cleanup())
+
+  it('RD1: EventCard shows formatted duration (1500ms → "1.5s")', () => {
+    const event: AgentEvent = {
+      id: 'rd1',
+      timestamp: new Date().toISOString(),
+      type: 'file_read',
+      tool: 'filesystem',
+      input_summary: '/tmp/data.txt',
+      output_summary: '1024 bytes',
+      duration_ms: 1500,
+      success: true,
+    }
+    render(<EventCard event={event} />)
+    expect(screen.getByText('1.5s')).toBeInTheDocument()
+    expect(screen.queryByText('1500ms')).not.toBeInTheDocument()
+  })
+
+  it('RD2: EventCard hides duration when null', () => {
+    const event: AgentEvent = {
+      id: 'rd2',
+      timestamp: new Date().toISOString(),
+      type: 'command_start',
+      tool: 'shell',
+      input_summary: 'echo hello',
+      output_summary: null,
+      duration_ms: null,
+      success: null,
+    }
+    render(<EventCard event={event} />)
+    // duration_ms is null → no duration display at all
+    const card = screen.getByTestId('event-card')
+    expect(card.textContent).not.toContain('0ms')
+    expect(card.textContent).not.toContain('nullms')
+  })
+})
+
+describe('Activity Timing Clarity — group span rendering', () => {
+  function setupSSEAndSendEvents(events: AgentEvent[]) {
+    let capturedOnMessage: ((msg: MessageEvent) => void) | null = null
+    vi.stubGlobal('EventSource', vi.fn(() => {
+      const instance = {
+        onmessage: null as any,
+        addEventListener: vi.fn(),
+        close: vi.fn(),
+      }
+      setTimeout(() => { capturedOnMessage = instance.onmessage }, 0)
+      return instance
+    }))
+
+    render(<EventTimeline agentId="uuid-1" agentStatus="running" />)
+
+    return waitFor(() => expect(capturedOnMessage).toBeTruthy()).then(() => {
+      for (const e of events) {
+        capturedOnMessage!(new MessageEvent('message', { data: JSON.stringify(e) }))
+      }
+      return capturedOnMessage!
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => cleanup())
+
+  it('RD3: group badge shows span ("Completed · 0ms")', async () => {
+    // Back-to-back timestamps → span = 0ms
+    await setupSSEAndSendEvents([inf('a', 0), wr('b', 0, 'W1'), wc('c', 0, 'W1')])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    const badge = screen.getByTestId('group-status-badge')
+    expect(badge).toHaveTextContent('Completed')
+    expect(badge).toHaveTextContent('·')
+    expect(badge).toHaveTextContent('0ms')
+  })
+
+  it('RD4: no span separator on ungrouped event', async () => {
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'solo', tool: 'shell', type: 'command_start', input_summary: 'ls' }, 0),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    expect(screen.queryByTestId('group-status-badge')).not.toBeInTheDocument()
+    expect(screen.queryByText('·')).not.toBeInTheDocument()
   })
 })
