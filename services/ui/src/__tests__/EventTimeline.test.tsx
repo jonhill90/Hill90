@@ -15,7 +15,7 @@ vi.mock('lucide-react', () => ({
   ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
 }))
 
-import EventTimeline, { computeGroups } from '@/app/agents/[id]/EventTimeline'
+import EventTimeline, { computeGroups, deriveGroupStatus } from '@/app/agents/[id]/EventTimeline'
 import EventCard from '@/app/agents/[id]/EventCard'
 import type { AgentEvent } from '@/app/agents/[id]/EventCard'
 
@@ -287,7 +287,9 @@ describe('EventTimeline', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(1)
     })
-    expect(screen.getByText('inference')).toBeInTheDocument()
+    // "inference" appears in both EventCard and banner — verify via event card
+    const card = screen.getByTestId('event-card')
+    expect(card).toHaveTextContent('inference')
   })
 })
 
@@ -605,5 +607,256 @@ describe('EventTimeline — group rendering', () => {
     })
     // No runtime events visible → no Signal B → no spine
     expect(screen.queryByTestId('group-spine')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deriveGroupStatus — pure function tests (GS1-GS8)
+// ---------------------------------------------------------------------------
+describe('deriveGroupStatus', () => {
+  it('GS1: work_received + work_completed → completed', () => {
+    const events = [wr('a', 0), wc('b', 100)]
+    expect(deriveGroupStatus(events)).toBe('completed')
+  })
+
+  it('GS2: work_received + work_failed → failed', () => {
+    const events = [wr('a', 0), wf('b', 100)]
+    expect(deriveGroupStatus(events)).toBe('failed')
+  })
+
+  it('GS3: work_received only → in_progress', () => {
+    const events = [wr('a', 0)]
+    expect(deriveGroupStatus(events)).toBe('in_progress')
+  })
+
+  it('GS4: work_failed takes precedence over work_completed', () => {
+    const events = [wr('a', 0), wc('b', 100), wf('c', 200)]
+    expect(deriveGroupStatus(events)).toBe('failed')
+  })
+
+  it('GS5: realistic full step: inference + work_received + work_completed → completed', () => {
+    const events = [inf('a', 0), wr('b', 300), wc('c', 500)]
+    expect(deriveGroupStatus(events)).toBe('completed')
+  })
+
+  it('GS6: no runtime work-step events → null (no badge)', () => {
+    const events = [inf('a', 0), shell('b', 100)]
+    expect(deriveGroupStatus(events)).toBeNull()
+  })
+
+  it('GS7: inference_error + work_completed → completed NOT failed', () => {
+    const inferenceError = makeEvent(
+      { id: 'ie', tool: 'inference', type: 'inference_error', success: false },
+      50,
+    )
+    const events = [wr('a', 0), inferenceError, wc('b', 100)]
+    expect(deriveGroupStatus(events)).toBe('completed')
+  })
+
+  it('GS8: shell command_complete (success=false) does NOT affect group status', () => {
+    const shellFail = makeEvent(
+      { id: 'sf', tool: 'shell', type: 'command_complete', success: false },
+      50,
+    )
+    const events = [wr('a', 0), shellFail, wc('b', 100)]
+    expect(deriveGroupStatus(events)).toBe('completed')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Latest Activity banner rendering tests (LA1-LA5)
+// ---------------------------------------------------------------------------
+describe('EventTimeline — Latest Activity banner', () => {
+  function setupSSEAndSendEvents(events: AgentEvent[]) {
+    let capturedOnMessage: ((msg: MessageEvent) => void) | null = null
+    vi.stubGlobal('EventSource', vi.fn(() => {
+      const instance = {
+        onmessage: null as any,
+        addEventListener: vi.fn(),
+        close: vi.fn(),
+      }
+      setTimeout(() => { capturedOnMessage = instance.onmessage }, 0)
+      return instance
+    }))
+
+    render(<EventTimeline agentId="uuid-1" agentStatus="running" />)
+
+    return waitFor(() => expect(capturedOnMessage).toBeTruthy()).then(() => {
+      for (const e of events) {
+        capturedOnMessage!(new MessageEvent('message', { data: JSON.stringify(e) }))
+      }
+      return capturedOnMessage!
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => cleanup())
+
+  it('LA1: banner shows when events exist', async () => {
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'e1', tool: 'shell', type: 'command_start', input_summary: 'echo hello' }, 0),
+    ])
+    await waitFor(() => {
+      expect(screen.getByTestId('latest-activity')).toBeInTheDocument()
+    })
+  })
+
+  it('LA2: banner not shown when no events', () => {
+    vi.stubGlobal('EventSource', vi.fn(() => ({
+      onmessage: null,
+      addEventListener: vi.fn(),
+      close: vi.fn(),
+    })))
+    render(<EventTimeline agentId="uuid-1" agentStatus="running" />)
+    expect(screen.queryByTestId('latest-activity')).not.toBeInTheDocument()
+  })
+
+  it('LA3: banner shows most recent event tool', async () => {
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'e1', tool: 'shell', type: 'command_start', input_summary: 'echo hello' }, 0),
+      makeEvent({ id: 'e2', tool: 'filesystem', type: 'file_read', input_summary: '/tmp/data.txt' }, 100),
+    ])
+    await waitFor(() => {
+      const banner = screen.getByTestId('latest-activity')
+      expect(banner).toHaveTextContent('filesystem')
+    })
+  })
+
+  it('LA4: banner shows input_summary', async () => {
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'e1', tool: 'shell', type: 'command_start', input_summary: 'npm run build' }, 0),
+    ])
+    await waitFor(() => {
+      const banner = screen.getByTestId('latest-activity')
+      expect(banner).toHaveTextContent('npm run build')
+    })
+  })
+
+  it('LA5: banner updates when new event arrives via SSE', async () => {
+    const onMessage = await setupSSEAndSendEvents([
+      makeEvent({ id: 'e1', tool: 'shell', type: 'command_start', input_summary: 'first command' }, 0),
+    ])
+    await waitFor(() => {
+      expect(screen.getByTestId('latest-activity')).toHaveTextContent('first command')
+    })
+    // Send a second event
+    onMessage(new MessageEvent('message', {
+      data: JSON.stringify(
+        makeEvent({ id: 'e2', tool: 'runtime', type: 'work_received', input_summary: 'second event' }, 200),
+      ),
+    }))
+    await waitFor(() => {
+      expect(screen.getByTestId('latest-activity')).toHaveTextContent('second event')
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Group status badge rendering tests (SB1-SB6)
+// ---------------------------------------------------------------------------
+describe('EventTimeline — group status badges', () => {
+  function setupSSEAndSendEvents(events: AgentEvent[]) {
+    let capturedOnMessage: ((msg: MessageEvent) => void) | null = null
+    vi.stubGlobal('EventSource', vi.fn(() => {
+      const instance = {
+        onmessage: null as any,
+        addEventListener: vi.fn(),
+        close: vi.fn(),
+      }
+      setTimeout(() => { capturedOnMessage = instance.onmessage }, 0)
+      return instance
+    }))
+
+    render(<EventTimeline agentId="uuid-1" agentStatus="running" />)
+
+    return waitFor(() => expect(capturedOnMessage).toBeTruthy()).then(() => {
+      for (const e of events) {
+        capturedOnMessage!(new MessageEvent('message', { data: JSON.stringify(e) }))
+      }
+      return capturedOnMessage!
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => cleanup())
+
+  it('SB1: completed group shows Completed badge', async () => {
+    // Full step: inference → work_received → work_completed (grouped via Signal A + B)
+    await setupSSEAndSendEvents([inf('a', 0), wr('b', 300, 'W1'), wc('c', 500, 'W1')])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    const badge = screen.getByTestId('group-status-badge')
+    expect(badge).toHaveTextContent('Completed')
+  })
+
+  it('SB2: badge has brand-400 color for completed', async () => {
+    await setupSSEAndSendEvents([inf('a', 0), wr('b', 300, 'W1'), wc('c', 500, 'W1')])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    const badge = screen.getByTestId('group-status-badge')
+    expect(badge.className).toContain('text-brand-400')
+  })
+
+  it('SB3: in_progress badge has pulsing dot', async () => {
+    // Only work_received, no closing event — need to be grouped (so add inference for Signal B)
+    await setupSSEAndSendEvents([inf('a', 0), wr('b', 300)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    const badge = screen.getByTestId('group-status-badge')
+    expect(badge).toHaveTextContent('In Progress')
+    const dot = badge.querySelector('.animate-pulse')
+    expect(dot).toBeInTheDocument()
+  })
+
+  it('SB4: no badge on ungrouped events', async () => {
+    // Solo shell event — not grouped
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'solo', tool: 'shell', type: 'command_start', input_summary: 'ls' }, 0),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    expect(screen.queryByTestId('group-status-badge')).not.toBeInTheDocument()
+  })
+
+  it('SB5: no badge on group without runtime work-step events', async () => {
+    // Two inference events sharing a work_id — grouped but no runtime work-step events
+    const i1 = makeEvent(
+      { id: 'i1', tool: 'inference', type: 'inference_complete', metadata: { work_id: 'Z' } },
+      0,
+    )
+    const i2 = makeEvent(
+      { id: 'i2', tool: 'inference', type: 'inference_complete', metadata: { work_id: 'Z' } },
+      100,
+    )
+    await setupSSEAndSendEvents([i1, i2])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    // They share work_id so they ARE grouped (spine visible)
+    expect(screen.getByTestId('group-spine')).toBeInTheDocument()
+    // But no runtime work-step events → no badge
+    expect(screen.queryByTestId('group-status-badge')).not.toBeInTheDocument()
+  })
+
+  it('SB6: existing OK/FAIL indicators unchanged', async () => {
+    const completedEvent = makeEvent(
+      { id: 'ok1', tool: 'shell', type: 'command_complete', success: true, input_summary: 'echo hi' },
+      0,
+    )
+    await setupSSEAndSendEvents([completedEvent])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    expect(screen.getByText('OK')).toBeInTheDocument()
   })
 })
