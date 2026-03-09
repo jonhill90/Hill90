@@ -15,6 +15,31 @@ export interface AgentEvent {
   metadata?: Record<string, unknown>
 }
 
+export type LifecycleInfo = { label: string; color: string; pulse: boolean }
+
+export function parseExitCode(outputSummary: string | null): number | null {
+  if (!outputSummary) return null
+  const match = outputSummary.match(/^exit (\d+)/)
+  return match ? parseInt(match[1], 10) : null
+}
+
+export function getLifecycleInfo(event: AgentEvent): LifecycleInfo | null {
+  if (event.tool === 'shell') {
+    if (event.type === 'command_start') return { label: 'Running', color: 'text-yellow-400', pulse: true }
+    if (event.type === 'command_complete') {
+      return event.success === false
+        ? { label: 'Failed', color: 'text-red-400', pulse: false }
+        : { label: 'Completed', color: 'text-brand-400', pulse: false }
+    }
+  }
+  if (event.tool === 'runtime') {
+    if (event.type === 'work_received') return { label: 'Received', color: 'text-yellow-400', pulse: true }
+    if (event.type === 'work_completed') return { label: 'Completed', color: 'text-brand-400', pulse: false }
+    if (event.type === 'work_failed') return { label: 'Failed', color: 'text-red-400', pulse: false }
+  }
+  return null
+}
+
 const TOOL_ICONS: Record<string, typeof Terminal> = {
   shell: Terminal,
   filesystem: FolderOpen,
@@ -51,8 +76,37 @@ export default function EventCard({ event }: { event: AgentEvent }) {
         <Icon className="h-4 w-4 text-mountain-400 shrink-0" />
         <span className="text-mountain-300 font-medium">{event.tool}</span>
         <span className="text-mountain-500 text-xs truncate flex-1">{event.input_summary}</span>
-        {event.success === true && <span className="text-brand-400 text-xs">OK</span>}
-        {event.success === false && <span className="text-red-400 text-xs">FAIL</span>}
+        {(() => {
+          const lifecycle = getLifecycleInfo(event)
+          if (lifecycle) {
+            const exitCode = event.type === 'command_complete' ? parseExitCode(event.output_summary) : null
+            return (
+              <>
+                <span className={`text-xs flex items-center gap-1 ${lifecycle.color}`}>
+                  {lifecycle.pulse && (
+                    <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                  )}
+                  {lifecycle.label}
+                </span>
+                {exitCode !== null && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${
+                    exitCode === 0
+                      ? 'text-brand-400 bg-brand-900/30'
+                      : 'text-red-400 bg-red-900/30'
+                  }`}>
+                    exit {exitCode}
+                  </span>
+                )}
+              </>
+            )
+          }
+          return (
+            <>
+              {event.success === true && <span className="text-brand-400 text-xs">OK</span>}
+              {event.success === false && <span className="text-red-400 text-xs">FAIL</span>}
+            </>
+          )
+        })()}
         {event.duration_ms !== null && (
           <span className="text-mountain-500 text-xs">{event.duration_ms}ms</span>
         )}
@@ -83,6 +137,14 @@ export default function EventCard({ event }: { event: AgentEvent }) {
       {expanded && event.tool !== 'inference' && (
         <div className="mt-2 pl-6 text-xs space-y-1" data-testid="event-details">
           <div><span className="text-mountain-400">Type:</span> <span className="text-mountain-300">{event.type}</span></div>
+          {event.type === 'command_complete' && parseExitCode(event.output_summary) !== null && (
+            <div>
+              <span className="text-mountain-400">Exit Code:</span>{' '}
+              <span className={parseExitCode(event.output_summary) === 0 ? 'text-brand-400' : 'text-red-400'}>
+                {parseExitCode(event.output_summary)}
+              </span>
+            </div>
+          )}
           {event.output_summary && (
             <div><span className="text-mountain-400">Output:</span> <span className="text-mountain-300">{event.output_summary}</span></div>
           )}
