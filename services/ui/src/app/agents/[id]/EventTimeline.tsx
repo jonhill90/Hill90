@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Terminal, FolderOpen, Cog, User, HeartPulse, Sparkles } from 'lucide-react'
 import EventCard, { type AgentEvent } from './EventCard'
 
 const MAX_EVENTS = 500
@@ -136,6 +137,48 @@ function buildSegments(events: AgentEvent[], groups: Map<string, string>): Segme
   return segments
 }
 
+// ---------------------------------------------------------------------------
+// Group status derivation — scoped to runtime work-step events only
+// ---------------------------------------------------------------------------
+export type GroupStatus = 'completed' | 'failed' | 'in_progress'
+
+const WORK_STEP_TYPES = new Set(['work_received', 'work_completed', 'work_failed'])
+
+export function deriveGroupStatus(groupEvents: AgentEvent[]): GroupStatus | null {
+  let hasWorkReceived = false
+  let hasWorkCompleted = false
+  let hasWorkFailed = false
+
+  for (const event of groupEvents) {
+    if (event.tool !== 'runtime' || !WORK_STEP_TYPES.has(event.type)) continue
+    if (event.type === 'work_received') hasWorkReceived = true
+    else if (event.type === 'work_completed') hasWorkCompleted = true
+    else if (event.type === 'work_failed') hasWorkFailed = true
+  }
+
+  if (!hasWorkReceived && !hasWorkCompleted && !hasWorkFailed) return null
+
+  if (hasWorkFailed) return 'failed'
+  if (hasWorkCompleted) return 'completed'
+  return 'in_progress'
+}
+
+// Local icon map — duplicated from EventCard to avoid coupling
+const BANNER_ICONS: Record<string, typeof Terminal> = {
+  shell: Terminal,
+  filesystem: FolderOpen,
+  runtime: Cog,
+  identity: User,
+  health: HeartPulse,
+  inference: Sparkles,
+}
+
+const GROUP_STATUS_CONFIG = {
+  completed: { css: 'bg-brand-900/50 text-brand-400 border-brand-700', label: 'Completed' },
+  failed: { css: 'bg-red-900/40 text-red-400 border-red-700', label: 'Failed' },
+  in_progress: { css: 'bg-navy-700 text-mountain-400 border-navy-600', label: 'In Progress' },
+} as const
+
 export default function EventTimeline({
   agentId,
   agentStatus,
@@ -225,6 +268,24 @@ export default function EventTimeline({
         </div>
       </div>
 
+      {events.length > 0 && (() => {
+        const last = events[events.length - 1]
+        const BannerIcon = BANNER_ICONS[last.tool] || Terminal
+        const summary = last.input_summary.length > 60
+          ? last.input_summary.slice(0, 57) + '...'
+          : last.input_summary
+        return (
+          <div
+            className="flex items-center gap-2 bg-navy-700/50 border border-navy-600 rounded-md px-3 py-2 mb-3"
+            data-testid="latest-activity"
+          >
+            <BannerIcon className="h-4 w-4 text-mountain-400 shrink-0" />
+            <span className="text-xs text-mountain-400">{last.tool}</span>
+            <span className="text-sm text-mountain-300 truncate">{summary}</span>
+          </div>
+        )
+      })()}
+
       <div
         ref={containerRef}
         onScroll={handleScroll}
@@ -238,6 +299,22 @@ export default function EventTimeline({
           segments.map((seg) =>
             seg.groupId !== null ? (
               <div key={seg.groupId} className="relative pl-3">
+                {(() => {
+                  const status = deriveGroupStatus(seg.events)
+                  if (status === null) return null
+                  const cfg = GROUP_STATUS_CONFIG[status]
+                  return (
+                    <div
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded-md border mb-1 ${cfg.css}`}
+                      data-testid="group-status-badge"
+                    >
+                      {status === 'in_progress' && (
+                        <span className="h-1.5 w-1.5 rounded-full bg-mountain-400 animate-pulse" />
+                      )}
+                      {cfg.label}
+                    </div>
+                  )
+                })()}
                 <div
                   className="absolute left-0 top-3 bottom-3 w-0.5 bg-navy-600 rounded-full"
                   aria-hidden="true"
