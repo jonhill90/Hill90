@@ -84,7 +84,7 @@ Traefik (edge network)           ┌──────────────�
 - **Keycloak**: Identity provider (OIDC/OAuth2) at auth.hill90.com
 - **UI**: Next.js frontend application
 - **Knowledge (AKM)**: Agent Knowledge Manager — persistent agent memory with full-text search, journaling, and context assembly (internal-only, `traefik.enable=false`)
-- **Agentbox**: Sandboxed agent runtime containers — configurable tools (shell, filesystem, identity, health), non-root user, resource limits, network-isolated on `agent_internal`. Runtime-first migration in progress (FastMCP being phased out).
+- **Agentbox**: Sandboxed agent runtime containers — shell and filesystem functions, non-root user, resource limits, network-isolated on `agent_internal`. Runtime-first (Starlette/uvicorn).
 
 ### Agent Harness
 

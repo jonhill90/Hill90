@@ -1,4 +1,4 @@
-# Hill90 AgentBox Service Dockerfile (Python/FastMCP)
+# Hill90 AgentBox Service Dockerfile (Python/Starlette)
 # Multi-stage build for production
 # NOTE: akm CLI binary is copied from the hill90/knowledge image.
 # Build knowledge image first: docker compose -f deploy/compose/prod/docker-compose.knowledge.yml build
@@ -55,7 +55,6 @@ RUN mkdir -p /etc/agentbox /workspace /var/log/agentbox /data && \
 
 # Copy application code
 COPY app ./app
-COPY tools ./tools
 
 USER agentuser
 

@@ -1,8 +1,7 @@
 """Tests for app.server — server composition verification.
 
-Since app.server has module-level code that requires a valid agent.yml,
-these tests verify server composition via source inspection rather than
-import. The runtime module itself is tested in test_runtime.py.
+Source inspection tests verifying Starlette patterns in server.py.
+These complement the functional tests in test_server_functional.py.
 """
 
 from pathlib import Path
@@ -13,56 +12,42 @@ SERVER_PATH = Path(__file__).parent.parent / "app" / "server.py"
 
 class TestServerComposition:
     def test_server_file_exists(self):
+        """S1: Server file exists."""
         assert SERVER_PATH.exists()
 
-    def test_health_endpoint_registered(self):
-        """The /health endpoint should be registered."""
+    def test_health_route_registered(self):
+        """S2: /health route registered as Starlette Route."""
         source = SERVER_PATH.read_text()
-        assert '@mcp.custom_route("/health"' in source
+        assert 'Route("/health"' in source
 
-    def test_work_endpoint_registered(self):
-        """The /work endpoint should be registered."""
+    def test_work_route_registered(self):
+        """S3: /work route registered as Starlette Route."""
         source = SERVER_PATH.read_text()
-        assert '@mcp.custom_route("/work"' in source
+        assert 'Route("/work"' in source
 
     def test_runtime_imported(self):
-        """AgentRuntime should be imported and instantiated."""
+        """S4: AgentRuntime imported and instantiated."""
         source = SERVER_PATH.read_text()
         assert "from app.runtime import AgentRuntime" in source
-        assert "runtime = AgentRuntime(" in source
+        assert "AgentRuntime(" in source
 
-    def test_identity_tool_not_mounted(self):
-        """Identity MCP tool should not be imported or mounted."""
+    def test_no_fastmcp_in_server(self):
+        """S5: No FastMCP import in server.py."""
         source = SERVER_PATH.read_text()
-        assert "from tools import identity" not in source
-        assert "identity.configure" not in source
+        assert "fastmcp" not in source.lower()
 
-    def test_health_tool_not_mounted(self):
-        """Health MCP tool should not be imported or mounted."""
+    def test_no_tools_import_in_server(self):
+        """S6: No tools/ import in server.py."""
         source = SERVER_PATH.read_text()
-        assert "from tools import health" not in source
-        assert "health.configure" not in source
+        assert "from tools" not in source
+        assert "import tools" not in source
 
-    def test_shell_tool_still_available(self):
-        """Shell MCP tool should still be conditionally mounted."""
+    def test_uvicorn_run_used(self):
+        """S7: uvicorn.run used for serving."""
         source = SERVER_PATH.read_text()
-        assert "from tools import shell" in source
+        assert "uvicorn.run(" in source
 
-    def test_filesystem_tool_still_available(self):
-        """Filesystem MCP tool should still be conditionally mounted."""
+    def test_starlette_app_constructed(self):
+        """S8: Starlette app constructed."""
         source = SERVER_PATH.read_text()
-        assert "from tools import filesystem" in source
-
-    def test_work_token_read_from_env(self):
-        """WORK_TOKEN should be read from environment."""
-        source = SERVER_PATH.read_text()
-        assert 'os.environ.get("WORK_TOKEN")' in source
-
-    def test_no_false_mcp_independence_claims(self):
-        """Server should not claim endpoints are 'MCP-independent' in implementation.
-
-        Endpoints currently use FastMCP custom_route. The docstring and comments
-        must acknowledge this (architect review finding #3).
-        """
-        source = SERVER_PATH.read_text()
-        assert "MCP-independent" not in source
+        assert "Starlette(" in source

@@ -15,7 +15,7 @@ Hill90 is composed of application services, infrastructure services, and an obse
 | **AI (Model-Router)** | Python (FastAPI) | Internal only | Policy-gated LLM inference gateway for agents |
 | **Knowledge (AKM)** | Python (FastAPI) | Internal only | Persistent agent memory with full-text search |
 | **MCP** | Python (FastAPI) | `ai.hill90.com/mcp` | Model Context Protocol gateway (JWT-authenticated) |
-| **Agentbox** | Python (FastMCP, migrating to runtime-first) | Internal only | Sandboxed agent runtime containers |
+| **Agentbox** | Python (Starlette/uvicorn) | Internal only | Sandboxed agent runtime containers |
 | **Keycloak** | Java | `auth.hill90.com` | OIDC/OAuth2 identity provider |
 | **UI** | TypeScript (Next.js) | `hill90.com` | Frontend application with Auth.js v5 session management |
 
@@ -41,11 +41,11 @@ The Agent Knowledge Manager provides persistent memory for agent containers. Age
 
 ### Agentbox
 
-Each agent runs in a sandboxed container with configurable tools:
-- **Shell** — Policy-gated command execution with allowlists and deny patterns
-- **Filesystem** — Policy-gated file operations with path restrictions
-- **Identity** — Agent personality (SOUL.md) and rules (RULES.md)
-- **Health** — Container health monitoring
+Each agent runs in a sandboxed container with policy-gated functions:
+- **Shell** — Command execution with binary allowlists and deny patterns
+- **Filesystem** — File operations with path restrictions and read-only mode
+- **Identity** — Agent personality (SOUL.md) and rules (RULES.md), loaded at startup
+- **Health** — HTTP health endpoint for Docker healthcheck
 
 Agentbox containers are network-isolated and can only communicate with the AI service (for inference) and Knowledge service (for memory). They cannot reach the public internet or other services.
 
