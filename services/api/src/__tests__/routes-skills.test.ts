@@ -161,13 +161,23 @@ describe('Skill CRUD routes', () => {
     expect(res.body.error).toContain('name');
   });
 
-  it('POST /skills rejects create without tools_config', async () => {
+  it('POST /skills creates skill with scope-derived tools_config when omitted', async () => {
+    const created = { ...adminCreatedSkill, id: 'auto-config-id', tools_config: '{}' };
+    mockQuery.mockResolvedValueOnce({ rows: [created] });
+    // fetchToolsForSkills query
+    mockQuery.mockResolvedValueOnce({ rows: [] });
     const res = await request(app)
       .post('/skills')
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'no-config' });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toContain('tools_config');
+      .send({ name: 'Auto Config Skill' });
+    expect(res.status).toBe(201);
+    const insertCall = mockQuery.mock.calls[0];
+    expect(insertCall[0]).toContain('INSERT INTO skills');
+    // Verify the auto-derived config was passed to the query
+    const configArg = JSON.parse(insertCall[1][2]);
+    expect(configArg.shell.enabled).toBe(true);
+    expect(configArg.filesystem.enabled).toBe(true);
+    expect(configArg.health.enabled).toBe(true);
   });
 
   it('POST /skills admin creates skill', async () => {
@@ -436,40 +446,6 @@ describe('Skill CRUD routes', () => {
     expect(res.status).toBe(201);
     const insertCall = mockQuery.mock.calls[0];
     expect(insertCall[1]).toContain('');
-  });
-
-  // T3: /tool-presets compat alias serves same data as /skills
-  it('GET /tool-presets compat alias returns same data as /skills', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [developerSkill, minimalSkill],
-    });
-    // fetchToolsForSkills query
-    mockQuery.mockResolvedValueOnce({ rows: [] });
-    const res = await request(app)
-      .get('/tool-presets')
-      .set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveLength(2);
-    expect(res.body[0].name).toBe('Developer');
-  });
-
-  it('POST /tool-presets compat alias creates skill', async () => {
-    const newSkill = { ...adminCreatedSkill, id: 'new-id' };
-    mockQuery.mockResolvedValueOnce({ rows: [newSkill] });
-    // fetchToolsForSkills query
-    mockQuery.mockResolvedValueOnce({ rows: [] });
-    const res = await request(app)
-      .post('/tool-presets')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({
-        name: 'Custom Admin Skill',
-        description: 'Admin-created non-platform skill',
-        tools_config: adminCreatedSkill.tools_config,
-      });
-    expect(res.status).toBe(201);
-    // Verify query hits the skills table (not tool_presets)
-    const insertCall = mockQuery.mock.calls[0];
-    expect(insertCall[0]).toContain('INSERT INTO skills');
   });
 
   // tools array on skills

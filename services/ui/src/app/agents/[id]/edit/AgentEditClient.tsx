@@ -43,7 +43,6 @@ export default function AgentEditClient({ agentId, isAdmin = false }: { agentId:
         agent_id: agent.agent_id,
         name: agent.name,
         description: agent.description,
-        tools_config: agent.tools_config,
         cpus: agent.cpus,
         mem_limit: agent.mem_limit,
         pids_limit: agent.pids_limit,

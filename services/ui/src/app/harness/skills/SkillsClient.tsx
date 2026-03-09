@@ -3,12 +3,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 
-interface ToolsConfig {
-  shell: { enabled: boolean; allowed_binaries: string[]; denied_patterns: string[]; max_timeout: number }
-  filesystem: { enabled: boolean; read_only: boolean; allowed_paths: string[]; denied_paths: string[] }
-  health: { enabled: boolean }
-}
-
 interface Tool {
   id: string
   name: string
@@ -23,7 +17,7 @@ interface Skill {
   name: string
   description: string
   scope: string
-  tools_config: ToolsConfig
+  tools_config: Record<string, any>
   instructions_md: string
   is_platform: boolean
   tools: Array<{ id: string; name: string; description: string; install_method: string }>
@@ -60,6 +54,7 @@ export default function SkillsClient() {
     name: '',
     description: '',
     instructions_md: '',
+    scope: 'container_local',
   })
   const [formError, setFormError] = useState('')
 
@@ -87,6 +82,7 @@ export default function SkillsClient() {
       name: '',
       description: '',
       instructions_md: '',
+      scope: 'container_local',
     })
     setSelectedToolIds([])
     setFormError('')
@@ -103,29 +99,10 @@ export default function SkillsClient() {
       return
     }
 
-    const selectedToolNames = allTools
-      .filter((tool) => selectedToolIds.includes(tool.id))
-      .map((tool) => tool.name)
-    const tools_config: ToolsConfig = {
-      shell: {
-        enabled: true,
-        allowed_binaries: selectedToolNames,
-        denied_patterns: [],
-        max_timeout: 300,
-      },
-      filesystem: {
-        enabled: true,
-        read_only: false,
-        allowed_paths: ['/workspace', '/data'],
-        denied_paths: [],
-      },
-      health: { enabled: true },
-    }
-
     const body: Record<string, unknown> = {
       name: formData.name.trim(),
-      tools_config,
       instructions_md: formData.instructions_md,
+      scope: formData.scope,
     }
     body.tool_ids = selectedToolIds
     if (formData.description.trim()) {
@@ -177,6 +154,7 @@ export default function SkillsClient() {
       name: skill.name,
       description: skill.description || '',
       instructions_md: skill.instructions_md || '',
+      scope: skill.scope || 'container_local',
     })
     setSelectedToolIds(skill.tools?.map(t => t.id) || [])
     setEditingId(skill.id)
@@ -241,6 +219,20 @@ export default function SkillsClient() {
                   placeholder="Brief description"
                 />
               </div>
+              {isAdmin && (
+                <div>
+                  <label className="block text-sm text-mountain-400 mb-1">Scope</label>
+                  <select
+                    value={formData.scope}
+                    onChange={(e) => setFormData({ ...formData, scope: e.target.value })}
+                    className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
+                  >
+                    <option value="container_local">Container</option>
+                    <option value="host_docker">Host Docker</option>
+                    <option value="vps_system">VPS System</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Instructions */}
@@ -287,10 +279,6 @@ export default function SkillsClient() {
                 </div>
               </div>
             )}
-
-            <p className="text-xs text-mountain-500">
-              Runtime access controls are managed internally from skill dependencies and RBAC scope.
-            </p>
 
             {formError && (
               <p className="text-sm text-red-400">{formError}</p>
