@@ -263,6 +263,113 @@ describe('SkillsClient', () => {
     expect(screen.getByLabelText('gh')).toBeInTheDocument()
   })
 
+  // T5: create form does not send tools_config in request body
+  it('create form does not send tools_config in request body', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Skill'))
+
+    await waitFor(() => {
+      expect(screen.getByText('New Skill')).toBeInTheDocument()
+    })
+
+    // Fill in name
+    const nameInput = screen.getByPlaceholderText('Skill name')
+    fireEvent.change(nameInput, { target: { value: 'Test Skill' } })
+
+    // Submit
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        (call: any[]) => call[0] === '/api/skills' && call[1]?.method === 'POST'
+      )
+      expect(postCall).toBeDefined()
+      const body = JSON.parse(postCall![1].body)
+      expect(body).not.toHaveProperty('tools_config')
+      expect(body.name).toBe('Test Skill')
+      expect(body.scope).toBe('container_local')
+    })
+  })
+
+  // T6: create form shows scope selector for admin
+  it('create form shows scope selector for admin', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Skill'))
+
+    await waitFor(() => {
+      expect(screen.getByText('New Skill')).toBeInTheDocument()
+    })
+
+    // Scope selector should be present for admin
+    const scopeSelect = screen.getByDisplayValue('Container')
+    expect(scopeSelect).toBeInTheDocument()
+    expect(scopeSelect.tagName).toBe('SELECT')
+
+    // All three options should be present
+    const options = within(scopeSelect as HTMLElement).getAllByRole('option')
+    expect(options).toHaveLength(3)
+    expect(options.map((o: HTMLElement) => (o as HTMLOptionElement).value)).toEqual([
+      'container_local',
+      'host_docker',
+      'vps_system',
+    ])
+  })
+
+  // T7a: hides scope selector for non-admin
+  it('hides scope selector for non-admin', async () => {
+    mockSession = {
+      data: { user: { name: 'User', email: 'user@hill90.com', roles: ['user'] }, expires: '2026-12-31' },
+      status: 'authenticated',
+    }
+
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    // Non-admin should not see "Add Skill" button at all
+    expect(screen.queryByText('Add Skill')).not.toBeInTheDocument()
+    // And no scope selector visible
+    expect(screen.queryByDisplayValue('Container')).not.toBeInTheDocument()
+  })
+
+  // T8a: edit form pre-fills scope
+  it('edit form pre-fills scope from skill', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Developer')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Developer'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Edit')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Edit'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Edit Skill')).toBeInTheDocument()
+    })
+
+    // Developer skill has scope host_docker
+    const scopeSelect = screen.getByDisplayValue('Host Docker') as HTMLSelectElement
+    expect(scopeSelect).toBeInTheDocument()
+    expect(scopeSelect.value).toBe('host_docker')
+  })
+
   // T11: Nav says "Skills" with /harness/skills href
   it('nav items include Skills entry', () => {
     const harness = NAV_ITEMS.find((item) => item.type === 'group' && item.id === 'harness') as NavGroup
