@@ -698,6 +698,13 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       }
     }
 
+    // Generate work token and chat callback env
+    const workToken = crypto.randomUUID();
+    const chatEnv: string[] = [];
+    if (process.env.CHAT_CALLBACK_TOKEN) {
+      chatEnv.push(`CHAT_CALLBACK_TOKEN=${process.env.CHAT_CALLBACK_TOKEN}`);
+    }
+
     // Create and start container
     const containerId = await createAndStartContainer({
       agentId: agent.agent_id,
@@ -705,7 +712,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       cpus: agent.cpus,
       memLimit: agent.mem_limit,
       pidsLimit: agent.pids_limit,
-      env: [...akmEnv, ...modelRouterEnv, `WORK_TOKEN=${crypto.randomUUID()}`],
+      env: [...akmEnv, ...modelRouterEnv, ...chatEnv, `WORK_TOKEN=${workToken}`],
     });
 
     // Phase 6B: ensure required tools are installed for assigned skills.
@@ -737,10 +744,10 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       );
     }
 
-    // Update DB
+    // Update DB (store work_token for chat dispatch verification)
     await getPool().query(
-      `UPDATE agents SET status = 'running', container_id = $1, error_message = NULL, updated_at = NOW() WHERE id = $2`,
-      [containerId, req.params.id]
+      `UPDATE agents SET status = 'running', container_id = $1, work_token = $2, error_message = NULL, updated_at = NOW() WHERE id = $3`,
+      [containerId, workToken, req.params.id]
     );
 
     auditLog('start', agent.agent_id, user.sub, { container_id: containerId, akm_jti: akmJti, model_router_jti: modelRouterJti });
@@ -794,8 +801,27 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
 
     await stopAndRemoveContainer(agent.agent_id);
 
+    // Mark any pending chat messages from this agent as error (stale cleanup).
+    // Contract: chat-dispatch uses agent UUID (agents.id) as author_id, not the slug.
+    // Bump seq so SSE cursor-based consumers pick up the status transition.
+    try {
+      const { rowCount } = await getPool().query(
+        `UPDATE chat_messages
+         SET status = 'error', error_message = 'Agent stopped',
+             seq = nextval('chat_messages_seq')
+         WHERE author_id = $1 AND author_type = 'agent' AND status = 'pending'`,
+        [agent.id]
+      );
+      if (rowCount && rowCount > 0) {
+        console.log(`[agents] Marked ${rowCount} pending chat message(s) as error for ${agent.agent_id}`);
+      }
+    } catch (err) {
+      console.error(`[agents] Stale chat message cleanup failed for ${agent.agent_id}:`, err);
+      // Continue with stop — clearing agent state is more important
+    }
+
     await getPool().query(
-      `UPDATE agents SET status = 'stopped', container_id = NULL, akm_jti = NULL, akm_exp = NULL, model_router_jti = NULL, model_router_exp = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
+      `UPDATE agents SET status = 'stopped', container_id = NULL, work_token = NULL, akm_jti = NULL, akm_exp = NULL, model_router_jti = NULL, model_router_exp = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
 
