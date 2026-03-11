@@ -64,7 +64,7 @@ export default function NewThreadDialog({ onClose, onCreated }: Props) {
       }
 
       const data = await res.json()
-      onCreated(data.thread_id)
+      onCreated(data.thread.id)
     } catch {
       setError('Failed to create thread')
     } finally {

@@ -226,8 +226,19 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
       messages,
       model,
       callbackUrl,
-    }).catch(err => {
+    }).catch(async (err) => {
       console.error(`[chat] Dispatch failed for thread=${thread.id}:`, err);
+      // Mark placeholder as error immediately so SSE delivers failure
+      try {
+        await pool.query(
+          `UPDATE chat_messages SET status = 'error', error_message = 'Dispatch failed',
+           seq = nextval('chat_messages_seq')
+           WHERE id = $1 AND status = 'pending'`,
+          [placeholder.id]
+        );
+      } catch (updateErr) {
+        console.error(`[chat] Failed to mark dispatch error:`, updateErr);
+      }
     });
 
     res.status(201).json({
@@ -507,8 +518,18 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
       messages,
       model,
       callbackUrl,
-    }).catch(err => {
+    }).catch(async (err) => {
       console.error(`[chat] Dispatch failed for thread=${threadId}:`, err);
+      try {
+        await pool.query(
+          `UPDATE chat_messages SET status = 'error', error_message = 'Dispatch failed',
+           seq = nextval('chat_messages_seq')
+           WHERE id = $1 AND status = 'pending'`,
+          [placeholder.id]
+        );
+      } catch (updateErr) {
+        console.error(`[chat] Failed to mark dispatch error:`, updateErr);
+      }
     });
 
     res.status(201).json({ message_id: placeholder.id });
