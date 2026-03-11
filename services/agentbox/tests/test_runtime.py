@@ -789,3 +789,48 @@ class TestShellCommand:
         failed = [e for e in events if e["type"] == "work_failed"]
         assert len(failed) == 1
         assert failed[0]["metadata"]["command_id"] == command_id
+
+    @pytest.mark.asyncio
+    async def test_shell_command_success_path(self, tmp_path):
+        """SC15: shell_command with allowed binary succeeds end-to-end (success=True)."""
+        runtime, emitter, log_path = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        # Configure shell with "echo" in allowlist — resolved to full path at init
+        shell_config = ShellConfig(
+            enabled=True, allowed_binaries=["echo"], denied_patterns=[], max_timeout=300,
+        )
+        shell.configure(shell_config, emitter)
+        # Patch cwd to tmp_path so subprocess can find a valid working directory
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo success-marker"}}',
+        )
+        response = await runtime.handle_work(request)
+        assert response.status_code == 200
+        resp_body = json.loads(response.body)
+        assert resp_body["accepted"] is True
+
+        time.sleep(1.0)
+
+        events = _read_events(log_path)
+        event_types = [e["type"] for e in events]
+        # Full 4-event lifecycle
+        assert "work_received" in event_types
+        assert "command_start" in event_types
+        assert "command_complete" in event_types
+        assert "work_completed" in event_types
+
+        # command_complete reports success=True with exit 0
+        cmd_complete = [e for e in events if e["type"] == "command_complete"][0]
+        assert cmd_complete["success"] is True
+        assert "exit 0" in cmd_complete["output_summary"]
+
+        # work_completed reports success=True
+        work_completed = [e for e in events if e["type"] == "work_completed"][0]
+        assert work_completed["success"] is True

@@ -112,6 +112,51 @@ class TestNoFastMCPDependency:
                     )
 
 
+class TestAllowlistSuccessPath:
+    """Tests that short-name allowlist resolves correctly and commands succeed."""
+
+    @pytest.mark.asyncio
+    async def test_execute_with_short_name_allowlist(self, tmp_path):
+        """SM5: Command succeeds when binary is in allowlist by short name."""
+        config = ShellConfig(
+            enabled=True,
+            allowed_binaries=["echo"],
+            denied_patterns=[],
+            max_timeout=10,
+        )
+        shell.configure(config)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        result = json.loads(await shell.execute_command("echo allowlist-ok"))
+        assert result["success"] is True
+        assert result["exit_code"] == 0
+        assert "allowlist-ok" in result["stdout"]
+
+    @pytest.mark.asyncio
+    async def test_execute_rejected_binary_not_in_allowlist(self, tmp_path):
+        """SM6: Command fails when binary is not in short-name allowlist."""
+        config = ShellConfig(
+            enabled=True,
+            allowed_binaries=["git"],
+            denied_patterns=[],
+            max_timeout=10,
+        )
+        shell.configure(config)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        result = json.loads(await shell.execute_command("echo should-fail"))
+        assert result["success"] is False
+        assert "not in allowlist" in result["error"]
+
+
 class TestMetadataPropagation:
     """Tests for command_id / work_id metadata propagation through shell events."""
 
