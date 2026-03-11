@@ -192,6 +192,7 @@ describe('Agent lifecycle routes', () => {
   afterEach(() => {
     delete process.env.DATABASE_URL;
     delete process.env.AGENTBOX_CONFIG_HOST_PATH;
+    delete process.env.CHAT_CALLBACK_TOKEN;
   });
 
   it('POST /agents/:id/start requires admin role', async () => {
@@ -254,6 +255,59 @@ describe('Agent lifecycle routes', () => {
     expect(tokenValue).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
+  it('POST /agents/:id/start stores work_token in DB', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    // Find the UPDATE call that sets work_token
+    const updateCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('work_token')
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall![0]).toContain('work_token = $');
+    // work_token param should be a UUID
+    const workTokenParam = updateCall![1].find(
+      (p: any) => typeof p === 'string' && /^[0-9a-f]{8}-/.test(p)
+    );
+    expect(workTokenParam).toBeDefined();
+  });
+
+  it('POST /agents/:id/start injects CHAT_CALLBACK_TOKEN when configured', async () => {
+    process.env.CHAT_CALLBACK_TOKEN = 'test-chat-callback-token';
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    const chatTokenEntry = callArgs.env.find((e: string) => e.startsWith('CHAT_CALLBACK_TOKEN='));
+    expect(chatTokenEntry).toBe('CHAT_CALLBACK_TOKEN=test-chat-callback-token');
+  });
+
   it('POST /agents/:id/start cleans up and marks error when tool install fails', async () => {
     mockQuery
       .mockResolvedValueOnce({
@@ -283,6 +337,34 @@ describe('Agent lifecycle routes', () => {
       .post('/agents/some-id/stop')
       .set('Authorization', `Bearer ${userToken}`);
     expect(res.status).toBe(403);
+  });
+
+  it('POST /agents/:id/stop clears work_token and cleans stale chat messages', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'uuid-1', agent_id: 'test-agent', status: 'running' }] }) // SELECT agent
+      .mockResolvedValueOnce({ rowCount: 2 }) // UPDATE chat_messages (stale cleanup)
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/stop')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('stopped');
+
+    // Verify stale chat message cleanup
+    const cleanupCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('chat_messages')
+    );
+    expect(cleanupCall).toBeDefined();
+    expect(cleanupCall![0]).toContain("status = 'error'");
+    expect(cleanupCall![0]).toContain("'Agent stopped'");
+    expect(cleanupCall![1]).toEqual(['uuid-1']);
+
+    // Verify work_token cleared in UPDATE
+    const updateCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('work_token = NULL')
+    );
+    expect(updateCall).toBeDefined();
   });
 
   it('GET /agents/:id/status scopes to owner', async () => {

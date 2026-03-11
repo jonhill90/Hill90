@@ -178,9 +178,13 @@ const EXPECTED_PATHS = [
   '/tools/{id}',
   '/agents/{id}/skills',
   '/agents/{id}/skills/{skillId}',
+  '/chat/threads',
+  '/chat/threads/{id}',
+  '/chat/threads/{id}/messages',
+  '/chat/threads/{id}/stream',
 ];
 
-const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token'];
+const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback'];
 
 // Compat alias paths — same handler as canonical /skills routes, not in OpenAPI spec
 const COMPAT_PATHS: string[] = [];
