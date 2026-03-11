@@ -177,3 +177,46 @@ class TestToolsConfigBackwardCompat:
         r4 = client_disabled.post("/work", json=work_payload, headers=headers)
         assert r3.status_code == r4.status_code == 200
         assert r3.json()["accepted"] == r4.json()["accepted"] is True
+
+
+class TestShellCommandFunctional:
+    """Functional tests for shell_command work type through the Starlette app."""
+
+    def test_shell_command_disabled_returns_400(self, tmp_path):
+        """SF1: shell_command with shell disabled returns 400."""
+        config = _make_config(tools={"shell": {"enabled": False}})
+        client, _, _ = _make_client(tmp_path, config=config)
+        response = client.post(
+            "/work",
+            json={"type": "shell_command", "payload": {"command": "echo hi"}},
+            headers={"Authorization": "Bearer test-token-123"},
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "shell_disabled"
+
+    def test_shell_command_enabled_returns_200(self, tmp_path, monkeypatch):
+        """SF2: shell_command with shell enabled returns 200 accepted."""
+        config = _make_config(tools={"shell": {"enabled": True}})
+
+        async def mock_execute(command, timeout=30, **kwargs):
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "hi\n", "stderr": ""})
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute)
+
+        client, _, _ = _make_client(tmp_path, config=config)
+        response = client.post(
+            "/work",
+            json={"type": "shell_command", "payload": {"command": "echo hi"}},
+            headers={"Authorization": "Bearer test-token-123"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert "command_id" in body
+
+    def test_shell_configure_called_when_enabled(self):
+        """SF3: server.py calls shell.configure when shell is enabled."""
+        import inspect
+        import app.server
+
+        source = inspect.getsource(app.server)
+        assert "shell.configure(" in source

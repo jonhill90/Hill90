@@ -82,6 +82,23 @@ export function computeGroups(events: AgentEvent[]): Map<string, string> {
     }
   }
 
+  // Phase 1b (Signal C): Index events by metadata.command_id
+  const commandIdIndex = new Map<string, number[]>()
+  for (let i = 0; i < events.length; i++) {
+    const cid = events[i].metadata?.command_id
+    if (typeof cid === 'string') {
+      const list = commandIdIndex.get(cid)
+      if (list) { list.push(i) } else { commandIdIndex.set(cid, [i]) }
+    }
+  }
+  for (const indices of commandIdIndex.values()) {
+    if (indices.length >= 2) {
+      for (let k = 1; k < indices.length; k++) {
+        uf.union(indices[0], indices[k])
+      }
+    }
+  }
+
   // Phase 2 (Signal B): Adjacent inference→runtime scan
   const SIGNAL_B_TYPES = new Set(['work_received', 'work_completed'])
   for (let i = 0; i < events.length - 1; i++) {

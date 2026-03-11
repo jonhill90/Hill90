@@ -110,3 +110,61 @@ class TestNoFastMCPDependency:
                     raise AssertionError(
                         f"app.shell imports from fastmcp: {node.module}"
                     )
+
+
+class TestMetadataPropagation:
+    """Tests for command_id / work_id metadata propagation through shell events."""
+
+    @pytest.mark.asyncio
+    async def test_execute_with_command_id_metadata(self):
+        """SM1: command_id kwarg propagates to both emit calls as metadata."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test", command_id="CID-1")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                assert call.kwargs["metadata"]["command_id"] == "CID-1"
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_execute_with_work_id_metadata(self):
+        """SM2: work_id kwarg propagates to both emit calls as metadata."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test", work_id="WID-1")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                assert call.kwargs["metadata"]["work_id"] == "WID-1"
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_execute_with_both_ids(self):
+        """SM3: Both command_id and work_id propagate to metadata."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test", command_id="CID-2", work_id="WID-2")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                meta = call.kwargs["metadata"]
+                assert meta["command_id"] == "CID-2"
+                assert meta["work_id"] == "WID-2"
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_execute_no_kwargs_no_metadata(self):
+        """SM4: No command_id/work_id kwargs results in metadata=None (backward compat)."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                assert call.kwargs["metadata"] is None
+        finally:
+            shell._emitter = None

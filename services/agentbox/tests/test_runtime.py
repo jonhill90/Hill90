@@ -2,10 +2,13 @@
 
 import json
 import os
+import re
+import time
 
 import pytest
 
-from app.config import AgentConfig
+from app import shell
+from app.config import AgentConfig, ShellConfig
 from app.events import EventEmitter
 from app.runtime import AgentRuntime
 
@@ -269,13 +272,13 @@ class TestWorkAccept:
         runtime, _, _ = _make_runtime(tmp_path)
         request = _MockRequest(
             headers={"authorization": "Bearer test-token-123"},
-            body='{"type":"shell_command","payload":{"cmd":"echo hello"},"correlation_id":"corr-1"}',
+            body='{"type":"custom_task","payload":{"cmd":"echo hello"},"correlation_id":"corr-1"}',
         )
         response = await runtime.handle_work(request)
         assert response.status_code == 200
         body = json.loads(response.body)
         assert body["accepted"] is True
-        assert body["type"] == "shell_command"
+        assert body["type"] == "custom_task"
         assert "work_id" in body
 
     @pytest.mark.asyncio
@@ -464,3 +467,325 @@ class TestWorkFailedEvents:
         events = [json.loads(line) for line in log_path.read_text().strip().split("\n") if line]
         failed = [e for e in events if e["type"] == "work_failed"]
         assert len(failed) == 0
+
+
+# ---------------------------------------------------------------------------
+# Shell command tests
+# ---------------------------------------------------------------------------
+
+def _make_shell_runtime(tmp_path, shell_enabled=True, max_timeout=300, work_token="test-token-123"):
+    """Create an AgentRuntime with shell tools configured."""
+    log_path = tmp_path / "events.jsonl"
+    emitter = EventEmitter(str(log_path))
+    config = AgentConfig(
+        version=1,
+        id="test-agent",
+        name="Test Agent",
+        description="A test agent",
+        tools={"shell": {"enabled": shell_enabled, "max_timeout": max_timeout}},
+    )
+    return AgentRuntime(config, emitter, work_token), emitter, log_path
+
+
+def _read_events(log_path):
+    """Read all events from the JSONL log file."""
+    content = log_path.read_text().strip()
+    if not content:
+        return []
+    return [json.loads(line) for line in content.split("\n") if line]
+
+
+class TestShellCommand:
+    """Tests for shell_command work type routing."""
+
+    @pytest.mark.asyncio
+    async def test_shell_command_accepted(self, tmp_path, monkeypatch):
+        """SC1: shell_command with valid payload returns 200 accepted."""
+        runtime, _, log_path = _make_shell_runtime(tmp_path)
+
+        async def mock_execute(command, timeout=30, **kwargs):
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "hello\n", "stderr": ""})
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute)
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo hello"}}',
+        )
+        response = await runtime.handle_work(request)
+        assert response.status_code == 200
+        body = json.loads(response.body)
+        assert body["accepted"] is True
+
+    @pytest.mark.asyncio
+    async def test_shell_command_ack_includes_command_id(self, tmp_path, monkeypatch):
+        """SC2: shell_command response includes a UUID command_id."""
+        runtime, _, _ = _make_shell_runtime(tmp_path)
+
+        async def mock_execute(command, timeout=30, **kwargs):
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "", "stderr": ""})
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute)
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo hello"}}',
+        )
+        response = await runtime.handle_work(request)
+        body = json.loads(response.body)
+        assert "command_id" in body
+        assert re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            body["command_id"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_shell_command_rejects_missing_command(self, tmp_path):
+        """SC3: shell_command without payload.command returns 400."""
+        runtime, _, _ = _make_shell_runtime(tmp_path)
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{}}',
+        )
+        response = await runtime.handle_work(request)
+        assert response.status_code == 400
+        body = json.loads(response.body)
+        assert body["error"] == "validation_error"
+
+    @pytest.mark.asyncio
+    async def test_shell_command_rejects_empty_command(self, tmp_path):
+        """SC4: shell_command with empty command returns 400."""
+        runtime, _, _ = _make_shell_runtime(tmp_path)
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":""}}',
+        )
+        response = await runtime.handle_work(request)
+        assert response.status_code == 400
+        body = json.loads(response.body)
+        assert body["error"] == "validation_error"
+
+    @pytest.mark.asyncio
+    async def test_shell_command_rejects_when_disabled(self, tmp_path):
+        """SC5: shell_command with shell disabled returns 400 shell_disabled."""
+        runtime, _, _ = _make_shell_runtime(tmp_path, shell_enabled=False)
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo hello"}}',
+        )
+        response = await runtime.handle_work(request)
+        assert response.status_code == 400
+        body = json.loads(response.body)
+        assert body["error"] == "shell_disabled"
+
+    @pytest.mark.asyncio
+    async def test_shell_command_emits_work_failed_when_disabled(self, tmp_path):
+        """SC6: shell_command with shell disabled emits work_failed event."""
+        runtime, _, log_path = _make_shell_runtime(tmp_path, shell_enabled=False)
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo hello"}}',
+        )
+        await runtime.handle_work(request)
+
+        events = _read_events(log_path)
+        failed = [e for e in events if e["type"] == "work_failed"]
+        assert len(failed) == 1
+        assert "shell_disabled" in failed[0]["output_summary"]
+
+    @pytest.mark.asyncio
+    async def test_shell_command_timeout_clamped_to_max(self, tmp_path, monkeypatch):
+        """SC7: payload.timeout exceeding max_timeout is clamped."""
+        runtime, _, _ = _make_shell_runtime(tmp_path, max_timeout=10)
+
+        captured = {}
+
+        async def mock_execute(command, timeout=30, **kwargs):
+            captured["timeout"] = timeout
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "", "stderr": ""})
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute)
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo hi","timeout":999}}',
+        )
+        await runtime.handle_work(request)
+        # Wait for background thread to call mock
+        time.sleep(0.5)
+        assert captured["timeout"] == 10
+
+    @pytest.mark.asyncio
+    async def test_shell_command_timeout_defaults_to_30(self, tmp_path, monkeypatch):
+        """SC8: Missing payload.timeout defaults to 30."""
+        runtime, _, _ = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        captured = {}
+
+        async def mock_execute(command, timeout=30, **kwargs):
+            captured["timeout"] = timeout
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "", "stderr": ""})
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute)
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo hi"}}',
+        )
+        await runtime.handle_work(request)
+        time.sleep(0.5)
+        assert captured["timeout"] == 30
+
+    @pytest.mark.asyncio
+    async def test_shell_command_timeout_invalid_uses_default(self, tmp_path, monkeypatch):
+        """SC9: Non-numeric payload.timeout falls back to 30."""
+        runtime, _, _ = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        captured = {}
+
+        async def mock_execute(command, timeout=30, **kwargs):
+            captured["timeout"] = timeout
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "", "stderr": ""})
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute)
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo hi","timeout":"abc"}}',
+        )
+        await runtime.handle_work(request)
+        time.sleep(0.5)
+        assert captured["timeout"] == 30
+
+    @pytest.mark.asyncio
+    async def test_shell_command_four_event_lifecycle(self, tmp_path):
+        """SC10: shell_command emits work_received, command_start, command_complete, work_completed."""
+        runtime, emitter, log_path = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        # Configure real shell so we get command_start/command_complete events
+        shell_config = ShellConfig(enabled=True, allowed_binaries=[], denied_patterns=[], max_timeout=300)
+        shell.configure(shell_config, emitter)
+        # Override cwd to tmp_path for safety
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo lifecycle"}}',
+        )
+        await runtime.handle_work(request)
+        time.sleep(1.0)
+
+        events = _read_events(log_path)
+        event_types = [e["type"] for e in events]
+        assert "work_received" in event_types
+        assert "command_start" in event_types
+        assert "command_complete" in event_types
+        assert "work_completed" in event_types
+
+    @pytest.mark.asyncio
+    async def test_shell_command_all_events_share_work_id(self, tmp_path):
+        """SC11: All 4 lifecycle events share the same work_id."""
+        runtime, emitter, log_path = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        shell_config = ShellConfig(enabled=True, allowed_binaries=[], denied_patterns=[], max_timeout=300)
+        shell.configure(shell_config, emitter)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo wid"}}',
+        )
+        response = await runtime.handle_work(request)
+        resp_body = json.loads(response.body)
+        work_id = resp_body["work_id"]
+
+        time.sleep(1.0)
+
+        events = _read_events(log_path)
+        assert len(events) >= 4
+        for event in events:
+            assert event.get("metadata", {}).get("work_id") == work_id
+
+    @pytest.mark.asyncio
+    async def test_shell_command_shell_events_have_command_id(self, tmp_path):
+        """SC12: command_start and command_complete events have command_id in metadata."""
+        runtime, emitter, log_path = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        shell_config = ShellConfig(enabled=True, allowed_binaries=[], denied_patterns=[], max_timeout=300)
+        shell.configure(shell_config, emitter)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo cid"}}',
+        )
+        response = await runtime.handle_work(request)
+        resp_body = json.loads(response.body)
+        command_id = resp_body["command_id"]
+
+        time.sleep(1.0)
+
+        events = _read_events(log_path)
+        shell_events = [e for e in events if e["type"] in ("command_start", "command_complete")]
+        assert len(shell_events) == 2
+        for event in shell_events:
+            assert event["metadata"]["command_id"] == command_id
+
+    @pytest.mark.asyncio
+    async def test_shell_command_work_completed_has_command_id(self, tmp_path):
+        """SC13: work_completed event has command_id in metadata."""
+        runtime, emitter, log_path = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        shell_config = ShellConfig(enabled=True, allowed_binaries=[], denied_patterns=[], max_timeout=300)
+        shell.configure(shell_config, emitter)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo done"}}',
+        )
+        response = await runtime.handle_work(request)
+        resp_body = json.loads(response.body)
+        command_id = resp_body["command_id"]
+
+        time.sleep(1.0)
+
+        events = _read_events(log_path)
+        completed = [e for e in events if e["type"] == "work_completed"]
+        assert len(completed) == 1
+        assert completed[0]["metadata"]["command_id"] == command_id
+
+    @pytest.mark.asyncio
+    async def test_shell_command_failed_emits_work_failed(self, tmp_path, monkeypatch):
+        """SC14: Exception in shell execution emits work_failed with command_id."""
+        runtime, _, log_path = _make_shell_runtime(tmp_path, max_timeout=300)
+
+        async def mock_execute_fail(command, timeout=30, **kwargs):
+            raise RuntimeError("shell boom")
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute_fail)
+
+        request = _MockRequest(
+            headers={"authorization": "Bearer test-token-123"},
+            body='{"type":"shell_command","payload":{"command":"echo fail"}}',
+        )
+        response = await runtime.handle_work(request)
+        resp_body = json.loads(response.body)
+        command_id = resp_body["command_id"]
+
+        time.sleep(1.0)
+
+        events = _read_events(log_path)
+        failed = [e for e in events if e["type"] == "work_failed"]
+        assert len(failed) == 1
+        assert failed[0]["metadata"]["command_id"] == command_id
