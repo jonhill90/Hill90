@@ -374,6 +374,17 @@ cmd_seed() {
     bao_exec_env kv put secret/observability/grafana \
         "GRAFANA_ADMIN_PASSWORD=$(get_secret GRAFANA_ADMIN_PASSWORD)"
 
+    # Seed shared/chat
+    local chat_callback_token
+    chat_callback_token=$(get_secret CHAT_CALLBACK_TOKEN)
+    if [ -n "$chat_callback_token" ]; then
+        echo "Seeding secret/shared/chat..."
+        bao_exec_env kv put secret/shared/chat \
+            "CHAT_CALLBACK_TOKEN=${chat_callback_token}"
+    else
+        info "CHAT_CALLBACK_TOKEN not found in SOPS — skipping shared/chat seed"
+    fi
+
     # Seed mcp/config (if keys exist)
     echo "Seeding secret/mcp/config..."
     local mcp_internal_secret
@@ -482,6 +493,8 @@ cmd_export() {
         "secret/observability/grafana"
         "secret/mcp/config"
         "secret/knowledge/config"
+        "secret/shared/model-router"
+        "secret/shared/chat"
     )
 
     for p in "${paths[@]}"; do
@@ -518,6 +531,8 @@ cmd_sync_to_sops() {
         "secret/observability/grafana"
         "secret/mcp/config"
         "secret/knowledge/config"
+        "secret/shared/model-router"
+        "secret/shared/chat"
     )
 
     # Create timestamped backup before modifying SOPS

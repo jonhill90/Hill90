@@ -98,6 +98,7 @@ make secrets-view KEY=SPECIFIC_KEY
 | `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER | Traefik reverse proxy |
 | `secret/infra/dns-manager` | HOSTINGER_API_KEY | DNS manager |
 | `secret/observability/grafana` | GRAFANA_ADMIN_PASSWORD | Grafana |
+| `secret/shared/chat` | CHAT_CALLBACK_TOKEN | API verifies, agentbox sends (chat callback auth) |
 | `secret/mcp/config` | INTERNAL_SERVICE_SECRET | MCP service (duplicate from api/config) |
 
 ## Automated Sync

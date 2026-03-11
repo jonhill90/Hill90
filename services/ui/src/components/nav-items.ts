@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server } from 'lucide-react'
+import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavLink {
@@ -26,6 +26,7 @@ export const NAV_ITEMS: NavItem[] = [
   { type: 'link', id: 'home', label: 'Home', href: '/', icon: Home },
   { type: 'link', id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { type: 'link', id: 'agents', label: 'Agents', href: '/agents', icon: Bot },
+  { type: 'link', id: 'chat', label: 'Chat', href: '/chat', icon: MessageSquare },
   {
     type: 'group',
     id: 'harness',
