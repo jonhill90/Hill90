@@ -1,19 +1,21 @@
 """AgentRuntime — workload receiver and identity loader.
 
 Provides the POST /work endpoint contract for receiving work items.
-Phase 2: stub implementation — accepts work, emits events, returns ack.
-No execution logic (Phase 3+).
+Routes work by type: 'chat' → chat handler (inference + callback).
+Unknown types emit work_completed stub.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import threading
 import uuid
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app.chat import handle_chat
 from app.config import AgentConfig
 from app.events import EventEmitter
 
@@ -127,16 +129,26 @@ class AgentRuntime:
             metadata={"work_id": work_id},
         )
 
-        # 7. Stub: no execution — immediately emit work_completed
-        self._emitter.emit(
-            type="work_completed",
-            tool="runtime",
-            input_summary=summary,
-            output_summary=f"work_id={work_id} (stub — no execution)",
-            duration_ms=0,
-            success=True,
-            metadata={"work_id": work_id},
-        )
+        # 7. Route by work type
+        if work_type == "chat":
+            # Run chat handler in background thread (uses blocking requests lib)
+            thread = threading.Thread(
+                target=self._run_chat,
+                args=(payload, work_id, summary),
+                daemon=True,
+            )
+            thread.start()
+        else:
+            # Unknown type: stub — emit work_completed
+            self._emitter.emit(
+                type="work_completed",
+                tool="runtime",
+                input_summary=summary,
+                output_summary=f"work_id={work_id} (stub — no execution)",
+                duration_ms=0,
+                success=True,
+                metadata={"work_id": work_id},
+            )
 
         # 8. Return ack
         return JSONResponse({
@@ -144,6 +156,37 @@ class AgentRuntime:
             "work_id": work_id,
             "type": work_type,
         })
+
+    def _run_chat(self, payload: dict, work_id: str, summary: str) -> None:
+        """Execute chat handler in background thread."""
+        try:
+            handle_chat(
+                payload,
+                soul=self.soul,
+                rules=self.rules,
+                work_id=work_id,
+                emitter=self._emitter,
+            )
+            self._emitter.emit(
+                type="work_completed",
+                tool="runtime",
+                input_summary=summary,
+                output_summary=f"work_id={work_id}",
+                duration_ms=None,
+                success=True,
+                metadata={"work_id": work_id},
+            )
+        except Exception as exc:
+            logger.error("Chat work failed: %s", exc, exc_info=True)
+            self._emitter.emit(
+                type="work_failed",
+                tool="runtime",
+                input_summary=summary,
+                output_summary=f"error={str(exc)[:200]}",
+                duration_ms=None,
+                success=False,
+                metadata={"work_id": work_id},
+            )
 
     def _emit_work_failed(
         self,
