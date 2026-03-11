@@ -661,6 +661,47 @@ components:
         message:
           type: string
 
+    ChatMessage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        seq:
+          type: integer
+          description: Monotonic sequence number for cursor-based streaming
+        author_id:
+          type: string
+        author_type:
+          type: string
+          enum: [human, agent]
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        status:
+          type: string
+          enum: [pending, complete, error]
+        model:
+          type: string
+          nullable: true
+        input_tokens:
+          type: integer
+          nullable: true
+        output_tokens:
+          type: integer
+          nullable: true
+        duration_ms:
+          type: integer
+          nullable: true
+        error_message:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
 paths:
   /health:
     get:
@@ -2729,3 +2770,225 @@ paths:
           description: Agent, skill, or assignment not found
         "409":
           description: Agent is running
+
+  # ── Chat Lane (Phase 1: direct threads) ──
+
+  /chat/threads:
+    get:
+      summary: List chat threads
+      description: |
+        Lists threads the caller participates in. Admin sees all threads.
+        Returns last message preview (truncated to 100 chars).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    type:
+                      type: string
+                      enum: [direct, group]
+                    title:
+                      type: string
+                      nullable: true
+                    created_by:
+                      type: string
+                    last_message:
+                      type: string
+                      nullable: true
+                    last_author_type:
+                      type: string
+                      nullable: true
+                    created_at:
+                      type: string
+                      format: date-time
+                    updated_at:
+                      type: string
+                      format: date-time
+        "401":
+          description: Not authenticated
+
+    post:
+      summary: Create direct thread
+      description: |
+        Creates a new direct thread (1 human + 1 agent), sends the first message,
+        and dispatches work to the agentbox. Returns the thread and placeholder ID.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, message]
+              properties:
+                agent_id:
+                  type: string
+                  format: uuid
+                message:
+                  type: string
+                title:
+                  type: string
+                  nullable: true
+                idempotency_key:
+                  type: string
+                  nullable: true
+      responses:
+        "201":
+          description: Thread created and message dispatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  thread:
+                    type: object
+                  message_id:
+                    type: string
+                    format: uuid
+        "400":
+          description: Missing or invalid fields
+        "403":
+          description: Elevated scope requires admin role
+        "404":
+          description: Agent not found
+        "409":
+          description: Agent not running or duplicate idempotency key
+
+  /chat/threads/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get thread detail with messages
+      description: |
+        Returns thread metadata, participants, and all messages.
+        Requires participant membership or admin role.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread with messages
+        "404":
+          description: Thread not found or not a participant
+
+    put:
+      summary: Update thread title
+      description: Requires thread owner or admin role.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Thread updated
+        "404":
+          description: Thread not found or not owner
+
+    delete:
+      summary: Delete thread
+      description: Deletes thread and cascades to messages and participants.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread deleted
+        "404":
+          description: Thread not found or not owner
+
+  /chat/threads/{id}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      summary: Send message in thread
+      description: |
+        Sends a user message and dispatches work to the agent.
+        Pre-checks: agent running, concurrency guard, elevated scope check.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                idempotency_key:
+                  type: string
+                  nullable: true
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message_id:
+                    type: string
+                    format: uuid
+        "400":
+          description: Missing or invalid fields
+        "403":
+          description: Elevated scope requires admin role
+        "404":
+          description: Thread not found or not a participant
+        "409":
+          description: Agent not running, concurrency guard, or duplicate
+
+  /chat/threads/{id}/stream:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: SSE message stream
+      description: |
+        Server-Sent Events stream with DB-backed cursor replay via Last-Event-ID.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          description: Thread not found or not a participant
