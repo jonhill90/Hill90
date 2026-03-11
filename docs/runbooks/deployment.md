@@ -294,11 +294,21 @@ If a volume name change causes data loss:
      tar xzf /backup/<volume-name>.tar.gz -C /dest
    ```
 
+## Chat Token Rotation
+
+After rotating `CHAT_CALLBACK_TOKEN`, running agents must be restarted for the new token to take effect. The token is injected into each agentbox container at start time as an env var. Until an agent is stopped and restarted, it continues using the old token — callbacks from those agents will fail with 401.
+
+**Rotation steps:**
+1. Update the token in SOPS and vault (see secrets-workflow.md)
+2. Redeploy API service: `bash scripts/deploy.sh api prod`
+3. Restart all running agents: stop + start each agent via the UI or API
+
 ## Failure Modes
 
 - Missing or invalid secrets: `sops`/runtime env errors at deploy time.
 - Missing Docker networks: app deploy fails until `make deploy-infra` recreates them.
 - ACME rate limiting: switch to staged testing cadence and retry after cooldown.
+- Chat callback auth failure (401): `CHAT_CALLBACK_TOKEN` mismatch between API and agentbox — restart agents after token rotation.
 
 ## See Also
 
