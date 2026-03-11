@@ -10,7 +10,7 @@ const API_URL = process.env.API_URL || 'http://localhost:3000'
 export async function proxyToApi(
   req: NextRequest,
   backendPath: string,
-  { label = 'proxy' }: { label?: string } = {}
+  { label = 'proxy', sse = false }: { label?: string; sse?: boolean } = {}
 ) {
   const session = await auth()
   if (!session?.accessToken) {
@@ -32,8 +32,8 @@ export async function proxyToApi(
     headers['Content-Type'] = contentType
   }
 
-  // follow=true is reserved for SSE streaming routes — no timeout for long-lived streams
-  const isSSE = req.nextUrl.searchParams.get('follow') === 'true'
+  // SSE streaming routes — no timeout for long-lived streams
+  const isSSE = sse || req.nextUrl.searchParams.get('follow') === 'true'
 
   const fetchOpts: RequestInit = {
     method: req.method,
