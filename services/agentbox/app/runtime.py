@@ -1,12 +1,14 @@
 """AgentRuntime — workload receiver and identity loader.
 
 Provides the POST /work endpoint contract for receiving work items.
-Routes work by type: 'chat' → chat handler (inference + callback).
+Routes work by type: 'chat' → chat handler, 'shell_command' → shell execution.
 Unknown types emit work_completed stub.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import threading
@@ -15,6 +17,7 @@ import uuid
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from app import shell
 from app.chat import handle_chat
 from app.config import AgentConfig
 from app.events import EventEmitter
@@ -138,6 +141,66 @@ class AgentRuntime:
                 daemon=True,
             )
             thread.start()
+        elif work_type == "shell_command":
+            # Validate shell enabled
+            if not self._config.tools.shell.enabled:
+                self._emitter.emit(
+                    type="work_failed",
+                    tool="runtime",
+                    input_summary=summary,
+                    output_summary="shell_disabled",
+                    duration_ms=0,
+                    success=False,
+                    metadata={"work_id": work_id},
+                )
+                return JSONResponse(
+                    {"error": "shell_disabled"},
+                    status_code=400,
+                )
+
+            # Validate payload.command
+            command = payload.get("command")
+            if not command or not isinstance(command, str):
+                self._emitter.emit(
+                    type="work_failed",
+                    tool="runtime",
+                    input_summary=summary,
+                    output_summary="validation_error: payload.command required",
+                    duration_ms=0,
+                    success=False,
+                    metadata={"work_id": work_id},
+                )
+                return JSONResponse(
+                    {"error": "validation_error", "detail": "payload.command is required and must be a non-empty string"},
+                    status_code=400,
+                )
+
+            # Enforce timeout ceiling
+            raw_timeout = payload.get("timeout", 30)
+            try:
+                timeout = max(int(raw_timeout), 1)
+            except (TypeError, ValueError):
+                timeout = 30
+            timeout = min(timeout, self._config.tools.shell.max_timeout)
+
+            # Generate command_id
+            command_id = str(uuid.uuid4())
+
+            # Run shell in background thread
+            thread = threading.Thread(
+                target=self._run_shell,
+                args=(command, timeout, work_id, command_id, summary),
+                daemon=True,
+            )
+            thread.start()
+
+            # Return ack with command_id
+            return JSONResponse({
+                "accepted": True,
+                "work_id": work_id,
+                "command_id": command_id,
+                "type": work_type,
+            })
         else:
             # Unknown type: stub — emit work_completed
             self._emitter.emit(
@@ -186,6 +249,46 @@ class AgentRuntime:
                 duration_ms=None,
                 success=False,
                 metadata={"work_id": work_id},
+            )
+
+    def _run_shell(
+        self,
+        command: str,
+        timeout: int,
+        work_id: str,
+        command_id: str,
+        summary: str,
+    ) -> None:
+        """Execute shell command in background thread."""
+        try:
+            result_json = asyncio.run(
+                shell.execute_command(
+                    command,
+                    timeout=timeout,
+                    command_id=command_id,
+                    work_id=work_id,
+                )
+            )
+            result = json.loads(result_json)
+            self._emitter.emit(
+                type="work_completed",
+                tool="runtime",
+                input_summary=summary,
+                output_summary=f"work_id={work_id} command_id={command_id}",
+                duration_ms=None,
+                success=result.get("success", False),
+                metadata={"work_id": work_id, "command_id": command_id},
+            )
+        except Exception as exc:
+            logger.error("Shell work failed: %s", exc, exc_info=True)
+            self._emitter.emit(
+                type="work_failed",
+                tool="runtime",
+                input_summary=summary,
+                output_summary=f"error={str(exc)[:200]}",
+                duration_ms=None,
+                success=False,
+                metadata={"work_id": work_id, "command_id": command_id},
             )
 
     def _emit_work_failed(

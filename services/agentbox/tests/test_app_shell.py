@@ -110,3 +110,106 @@ class TestNoFastMCPDependency:
                     raise AssertionError(
                         f"app.shell imports from fastmcp: {node.module}"
                     )
+
+
+class TestAllowlistSuccessPath:
+    """Tests that short-name allowlist resolves correctly and commands succeed."""
+
+    @pytest.mark.asyncio
+    async def test_execute_with_short_name_allowlist(self, tmp_path):
+        """SM5: Command succeeds when binary is in allowlist by short name."""
+        config = ShellConfig(
+            enabled=True,
+            allowed_binaries=["echo"],
+            denied_patterns=[],
+            max_timeout=10,
+        )
+        shell.configure(config)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        result = json.loads(await shell.execute_command("echo allowlist-ok"))
+        assert result["success"] is True
+        assert result["exit_code"] == 0
+        assert "allowlist-ok" in result["stdout"]
+
+    @pytest.mark.asyncio
+    async def test_execute_rejected_binary_not_in_allowlist(self, tmp_path):
+        """SM6: Command fails when binary is not in short-name allowlist."""
+        config = ShellConfig(
+            enabled=True,
+            allowed_binaries=["git"],
+            denied_patterns=[],
+            max_timeout=10,
+        )
+        shell.configure(config)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        result = json.loads(await shell.execute_command("echo should-fail"))
+        assert result["success"] is False
+        assert "not in allowlist" in result["error"]
+
+
+class TestMetadataPropagation:
+    """Tests for command_id / work_id metadata propagation through shell events."""
+
+    @pytest.mark.asyncio
+    async def test_execute_with_command_id_metadata(self):
+        """SM1: command_id kwarg propagates to both emit calls as metadata."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test", command_id="CID-1")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                assert call.kwargs["metadata"]["command_id"] == "CID-1"
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_execute_with_work_id_metadata(self):
+        """SM2: work_id kwarg propagates to both emit calls as metadata."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test", work_id="WID-1")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                assert call.kwargs["metadata"]["work_id"] == "WID-1"
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_execute_with_both_ids(self):
+        """SM3: Both command_id and work_id propagate to metadata."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test", command_id="CID-2", work_id="WID-2")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                meta = call.kwargs["metadata"]
+                assert meta["command_id"] == "CID-2"
+                assert meta["work_id"] == "WID-2"
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_execute_no_kwargs_no_metadata(self):
+        """SM4: No command_id/work_id kwargs results in metadata=None (backward compat)."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+        try:
+            await shell.execute_command("echo test")
+            assert emitter.emit.call_count == 2
+            for call in emitter.emit.call_args_list:
+                assert call.kwargs["metadata"] is None
+        finally:
+            shell._emitter = None

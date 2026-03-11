@@ -1,6 +1,7 @@
 """Tests for app.policy — command and path policy enforcement."""
 
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -9,12 +10,45 @@ from app.policy import CommandPolicy, PathPolicy
 
 
 class TestCommandPolicy:
-    def test_allowed_binary(self):
-        policy = CommandPolicy(allowed_binaries=["/usr/bin/echo"])
+    def test_allowed_binary_full_path(self):
+        """Absolute path in allowlist works when binary resolves to that path."""
+        echo_path = shutil.which("echo")
+        if echo_path:
+            real_path = os.path.realpath(echo_path)
+            policy = CommandPolicy(allowed_binaries=[real_path])
+            allowed, reason = policy.check("echo hello")
+            assert allowed is True
+        else:
+            pytest.skip("echo not found in PATH")
+
+    def test_short_name_resolves_to_allowed(self):
+        """Short binary names are resolved to full paths at init."""
+        policy = CommandPolicy(allowed_binaries=["echo"])
         allowed, reason = policy.check("echo hello")
-        # echo resolves via shutil.which — may or may not be in /usr/bin
-        # so we test the mechanism, not the exact path
-        assert isinstance(allowed, bool)
+        assert allowed is True
+        assert reason == "ok"
+
+    def test_short_name_execute_succeeds(self, tmp_path):
+        """A command whose binary is in the allowlist by short name executes successfully."""
+        policy = CommandPolicy(allowed_binaries=["echo"])
+        result = policy.execute("echo success-marker", cwd=str(tmp_path))
+        assert result["success"] is True
+        assert result["exit_code"] == 0
+        assert "success-marker" in result["stdout"]
+
+    def test_resolve_preserves_absolute_paths(self):
+        """Absolute paths in the allowlist are kept as-is."""
+        echo_path = shutil.which("echo")
+        real_path = os.path.realpath(echo_path)
+        policy = CommandPolicy(allowed_binaries=[real_path])
+        allowed, reason = policy.check("echo test")
+        assert allowed is True
+
+    def test_unresolvable_binary_kept(self):
+        """Binary names that cannot be resolved are kept in the set."""
+        policy = CommandPolicy(allowed_binaries=["nonexistent_binary_xyz"])
+        # The unresolvable name should still be in the set
+        assert "nonexistent_binary_xyz" in policy.allowed
 
     def test_denied_pattern_blocks(self):
         policy = CommandPolicy(denied_patterns=[r"rm\s+-rf\s+/"])
