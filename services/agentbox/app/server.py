@@ -13,6 +13,7 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from app import shell
 from app.config import AgentConfig
 from app.events import EventEmitter
 from app.runtime import AgentRuntime
@@ -35,6 +36,9 @@ def create_app(
     calls this with config loaded from agent.yml.
     """
     runtime = AgentRuntime(config, emitter, work_token)
+
+    if config.tools.shell.enabled:
+        shell.configure(config.tools.shell, emitter)
 
     async def health_endpoint(request):
         return JSONResponse({"status": "healthy", "agent": config.id})

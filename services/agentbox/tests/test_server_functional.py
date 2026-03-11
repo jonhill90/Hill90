@@ -177,3 +177,82 @@ class TestToolsConfigBackwardCompat:
         r4 = client_disabled.post("/work", json=work_payload, headers=headers)
         assert r3.status_code == r4.status_code == 200
         assert r3.json()["accepted"] == r4.json()["accepted"] is True
+
+
+class TestShellCommandFunctional:
+    """Functional tests for shell_command work type through the Starlette app."""
+
+    def test_shell_command_disabled_returns_400(self, tmp_path):
+        """SF1: shell_command with shell disabled returns 400."""
+        config = _make_config(tools={"shell": {"enabled": False}})
+        client, _, _ = _make_client(tmp_path, config=config)
+        response = client.post(
+            "/work",
+            json={"type": "shell_command", "payload": {"command": "echo hi"}},
+            headers={"Authorization": "Bearer test-token-123"},
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "shell_disabled"
+
+    def test_shell_command_enabled_returns_200(self, tmp_path, monkeypatch):
+        """SF2: shell_command with shell enabled returns 200 accepted."""
+        config = _make_config(tools={"shell": {"enabled": True}})
+
+        async def mock_execute(command, timeout=30, **kwargs):
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "hi\n", "stderr": ""})
+        monkeypatch.setattr("app.runtime.shell.execute_command", mock_execute)
+
+        client, _, _ = _make_client(tmp_path, config=config)
+        response = client.post(
+            "/work",
+            json={"type": "shell_command", "payload": {"command": "echo hi"}},
+            headers={"Authorization": "Bearer test-token-123"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert "command_id" in body
+
+    def test_shell_command_success_path(self, tmp_path):
+        """SF4: shell_command with allowed binary succeeds through full stack."""
+        from app import shell
+
+        config = _make_config(
+            tools={"shell": {"enabled": True, "allowed_binaries": ["echo"]}}
+        )
+        client, _, log_path = _make_client(tmp_path, config=config)
+
+        # Patch cwd to tmp_path (default is /workspace which doesn't exist in tests)
+        original_execute = shell._policy.execute
+
+        def patched_execute(command, timeout=30, cwd=str(tmp_path)):
+            return original_execute(command, timeout=timeout, cwd=cwd)
+        shell._policy.execute = patched_execute
+
+        response = client.post(
+            "/work",
+            json={"type": "shell_command", "payload": {"command": "echo sf4-marker"}},
+            headers={"Authorization": "Bearer test-token-123"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["accepted"] is True
+        assert "command_id" in body
+
+        # Wait for background thread
+        import time
+        time.sleep(1.0)
+
+        events = [json.loads(line) for line in log_path.read_text().strip().split("\n")]
+        completed = [e for e in events if e["type"] == "command_complete"]
+        assert len(completed) == 1
+        assert completed[0]["success"] is True
+        assert "exit 0" in completed[0]["output_summary"]
+
+    def test_shell_configure_called_when_enabled(self):
+        """SF3: server.py calls shell.configure when shell is enabled."""
+        import inspect
+        import app.server
+
+        source = inspect.getsource(app.server)
+        assert "shell.configure(" in source

@@ -18,9 +18,27 @@ class CommandPolicy:
         denied_patterns: list[str] | None = None,
         max_timeout: int = 300,
     ):
-        self.allowed = set(allowed_binaries or [])
+        self.allowed = self._resolve_binaries(allowed_binaries or [])
         self.denied = [re.compile(p) for p in (denied_patterns or [])]
         self.max_timeout = max_timeout
+
+    @staticmethod
+    def _resolve_binaries(names: list[str]) -> set[str]:
+        """Resolve binary names to absolute paths for allowlist comparison.
+
+        Accepts both short names (e.g. "bash") and absolute paths
+        (e.g. "/usr/bin/bash"). Short names are resolved via PATH lookup;
+        entries that cannot be resolved are kept as-is.
+        """
+        resolved = set()
+        for name in names:
+            path = shutil.which(name) if not os.path.isabs(name) else name
+            if path:
+                resolved.add(os.path.realpath(path))
+            else:
+                # Keep unresolvable names so the set isn't silently empty
+                resolved.add(name)
+        return resolved
 
     def check(self, command: str) -> tuple[bool, str]:
         """Check if a command is allowed by policy. Returns (allowed, reason)."""

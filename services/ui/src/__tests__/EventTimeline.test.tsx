@@ -330,6 +330,27 @@ function wc(id: string, offsetMs: number, workId?: string): AgentEvent {
   )
 }
 
+function shellStart(id: string, offsetMs: number, commandId?: string, workId?: string): AgentEvent {
+  const metadata: Record<string, string> = {}
+  if (commandId) metadata.command_id = commandId
+  if (workId) metadata.work_id = workId
+  return makeEvent(
+    { id, tool: 'shell', type: 'command_start', ...(Object.keys(metadata).length ? { metadata } : {}) },
+    offsetMs,
+  )
+}
+
+function shellComplete(id: string, offsetMs: number, commandId?: string, workId?: string): AgentEvent {
+  const metadata: Record<string, string> = {}
+  if (commandId) metadata.command_id = commandId
+  if (workId) metadata.work_id = workId
+  return makeEvent(
+    { id, tool: 'shell', type: 'command_complete', success: true, ...(Object.keys(metadata).length ? { metadata } : {}) },
+    offsetMs,
+  )
+}
+
+// Legacy shell factory (no metadata) — used by older tests
 function shell(id: string, offsetMs: number): AgentEvent {
   return makeEvent({ id, tool: 'shell', type: 'command_start' }, offsetMs)
 }
@@ -1217,5 +1238,63 @@ describe('Activity Timing Clarity — group span rendering', () => {
     })
     expect(screen.queryByTestId('group-status-badge')).not.toBeInTheDocument()
     expect(screen.queryByText('·')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Signal C: command_id grouping — pure function tests (U1-U4)
+// ---------------------------------------------------------------------------
+describe('Signal C: command_id grouping', () => {
+  it('C1: shared command_id groups shell start+complete', () => {
+    const events = [
+      shellStart('s1', 0, 'CMD-1'),
+      shellComplete('s2', 100, 'CMD-1'),
+    ]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(2)
+    expect(groups.get('s1')).toBe(groups.get('s2'))
+  })
+
+  it('C2: work_id + command_id groups full 4-event lifecycle', () => {
+    const events = [
+      wr('wr1', 0, 'W1'),
+      shellStart('s1', 50, 'CMD-1', 'W1'),
+      shellComplete('s2', 150, 'CMD-1', 'W1'),
+      wc('wc1', 200, 'W1'),
+    ]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(4)
+    // All four should share the same group
+    const groupId = groups.get('wr1')
+    expect(groups.get('s1')).toBe(groupId)
+    expect(groups.get('s2')).toBe(groupId)
+    expect(groups.get('wc1')).toBe(groupId)
+  })
+
+  it('C3: shell without command_id NOT grouped by Signal C', () => {
+    // Old-style shell events (no metadata) should not be grouped
+    const events = [
+      shell('old1', 0),
+      makeEvent({ id: 'old2', tool: 'shell', type: 'command_complete', success: true }, 100),
+    ]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(0)
+  })
+
+  it('C4: different command_ids produce separate groups', () => {
+    const events = [
+      shellStart('a1', 0, 'CMD-A'),
+      shellComplete('a2', 100, 'CMD-A'),
+      shellStart('b1', 200, 'CMD-B'),
+      shellComplete('b2', 300, 'CMD-B'),
+    ]
+    const groups = computeGroups(events)
+    expect(groups.size).toBe(4)
+    // First pair grouped together
+    expect(groups.get('a1')).toBe(groups.get('a2'))
+    // Second pair grouped together
+    expect(groups.get('b1')).toBe(groups.get('b2'))
+    // Different groups
+    expect(groups.get('a1')).not.toBe(groups.get('b1'))
   })
 })

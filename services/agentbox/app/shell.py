@@ -28,7 +28,13 @@ def configure(config: ShellConfig, emitter: EventEmitter | None = None) -> None:
     _emitter = emitter
 
 
-async def execute_command(command: str, timeout: int = 30) -> str:
+async def execute_command(
+    command: str,
+    timeout: int = 30,
+    *,
+    command_id: str | None = None,
+    work_id: str | None = None,
+) -> str:
     """Execute a shell command with policy enforcement.
 
     Commands are validated against the agent's binary allowlist and deny patterns.
@@ -37,12 +43,20 @@ async def execute_command(command: str, timeout: int = 30) -> str:
     Args:
         command: The command to execute (e.g. "git status")
         timeout: Max execution time in seconds (1-300, default 30)
+        command_id: Optional UUID to correlate command_start/command_complete events
+        work_id: Optional UUID to correlate with parent work step
 
     Returns:
         JSON string with success, exit_code, stdout, stderr
     """
     if _policy is None:
         return json.dumps({"success": False, "error": "Shell tools not configured"})
+
+    meta: dict[str, str] = {}
+    if command_id:
+        meta["command_id"] = command_id
+    if work_id:
+        meta["work_id"] = work_id
 
     if _emitter:
         _emitter.emit(
@@ -52,6 +66,7 @@ async def execute_command(command: str, timeout: int = 30) -> str:
             output_summary=None,
             duration_ms=None,
             success=None,
+            metadata=meta or None,
         )
 
     t0 = time.monotonic()
@@ -67,6 +82,7 @@ async def execute_command(command: str, timeout: int = 30) -> str:
             output_summary=f"exit {result.get('exit_code', -1)}, {stdout_len} bytes stdout",
             duration_ms=duration_ms,
             success=result.get("success", False),
+            metadata=meta or None,
         )
 
     return json.dumps(result)
