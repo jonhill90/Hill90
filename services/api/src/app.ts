@@ -14,6 +14,7 @@ import usageRouter from './routes/usage';
 import { requireRole } from './middleware/role';
 import { docsRouter, specRouter } from './routes/docs';
 import { delegationTokenHandler } from './services/model-router-delegation';
+import chatRouter, { chatCallbackHandler, startStaleSweeper } from './routes/chat';
 
 interface AppOptions {
   issuer?: string;
@@ -30,8 +31,9 @@ export function createApp(opts: AppOptions = {}): Application {
     res.json({ status: 'healthy', service: 'api' });
   });
 
-  // Internal service-to-service endpoint (service-token auth, not Keycloak)
+  // Internal service-to-service endpoints (service-token auth, not Keycloak)
   app.post('/internal/delegation-token', delegationTokenHandler);
+  app.post('/internal/chat/callback', chatCallbackHandler);
 
   // Protected routes
   const issuer = opts.issuer || process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';
@@ -72,6 +74,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Shared knowledge proxy routes (user-scoped CRUD)
   app.use('/shared-knowledge', requireAuth, sharedKnowledgeRouter);
+
+  // Chat routes (user-scoped, participant-enforced in router)
+  app.use('/chat', requireAuth, chatRouter);
 
   // User profile routes
   app.use('/profile', requireAuth, profileRouter);

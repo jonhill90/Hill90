@@ -3,6 +3,7 @@ import { getPool, closePool } from './db/pool';
 import { runMigrations } from './db/migrate';
 import { reconcileAgentStatuses } from './services/docker';
 import { getS3Client, ensureBucket, AVATAR_BUCKET } from './services/s3';
+import { startStaleSweeper, stopStaleSweeper } from './routes/chat';
 
 const PORT = process.env.PORT || 3000;
 
@@ -48,6 +49,10 @@ async function start() {
     console.error('[startup] Avatar bucket init failed, avatar routes may error:', err);
   }
 
+  // Start chat stale message sweeper (§9, cleanup path 2)
+  startStaleSweeper();
+  console.log('[startup] Chat stale message sweeper started');
+
   const server = app.listen(PORT, () => {
     console.log(`Hill90 API service listening on port ${PORT}`);
   });
@@ -55,6 +60,7 @@ async function start() {
   // Graceful shutdown
   const shutdown = async () => {
     console.log('[shutdown] Closing server...');
+    stopStaleSweeper();
     server.close();
     await closePool();
     process.exit(0);
