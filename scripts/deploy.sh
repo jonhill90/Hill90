@@ -340,6 +340,14 @@ cmd_service() {
         # API container runs as node (uid 1000) — needs write access to this bind mount
         mkdir -p /opt/hill90/agentbox-configs
         sudo chown 1000:1000 /opt/hill90/agentbox-configs
+
+        # Build agentbox base image — dynamically spawned by API via docker-proxy
+        echo "Building agentbox base image..."
+        if ! docker image inspect hill90/knowledge:latest >/dev/null 2>&1; then
+            die "Cannot build agentbox: hill90/knowledge:latest not found. Deploy knowledge first: bash scripts/deploy.sh knowledge prod"
+        fi
+        docker build -t hill90/agentbox:latest services/agentbox/
+        echo "Agentbox image built successfully"
     fi
     if [[ "$service" == "minio" ]]; then
         sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \

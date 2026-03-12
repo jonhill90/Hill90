@@ -167,6 +167,11 @@ class TestDornyFilters:
         )
         assert services == {"knowledge"}
 
+    def test_agentbox_change_triggers_only_api(self, dorny_filters):
+        """Agentbox source changes trigger API deploy (image rebuild)."""
+        services = _services_for_path("services/agentbox/app/main.py", dorny_filters)
+        assert services == {"api"}
+
     def test_agentsmd_triggers_no_services(self, dorny_filters):
         services = _services_for_path("AGENTS.md", dorny_filters)
         assert services == set()
@@ -188,6 +193,7 @@ class TestTriggerPaths:
         """
         expected = sorted([
             "services/api/**",
+            "services/agentbox/**",
             "services/ai/**",
             "services/mcp/**",
             "services/ui/**",
@@ -244,7 +250,12 @@ class TestTriggerPaths:
     def test_trigger_paths_exclude_edge(self, trigger_paths):
         assert not _matches_any("platform/edge/traefik/traefik.yml", trigger_paths)
 
-    def test_trigger_paths_exclude_agentbox(self, trigger_paths):
+    def test_trigger_paths_include_agentbox_service(self, trigger_paths):
+        """Agentbox source changes trigger the workflow (API rebuilds image)."""
+        assert _matches_any("services/agentbox/app/main.py", trigger_paths)
+
+    def test_trigger_paths_exclude_agentbox_platform(self, trigger_paths):
+        """Platform agentbox configs don't trigger deploy."""
         assert not _matches_any("platform/agentbox/agents/coder/agent.yml", trigger_paths)
 
     def test_trigger_paths_exclude_deploy_scripts(self, trigger_paths):
