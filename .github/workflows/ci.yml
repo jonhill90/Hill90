@@ -115,3 +115,9 @@ jobs:
           pip install poetry
           poetry install --no-root
           poetry run pytest tests/ -v
+
+      - name: Run Agentbox tests
+        working-directory: services/agentbox
+        run: |
+          poetry install --no-root
+          poetry run pytest tests/ -v

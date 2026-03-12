@@ -19,6 +19,7 @@ on:
       - 'deploy/compose/prod/docker-compose.ai.yml'
       - 'deploy/compose/prod/docker-compose.mcp.yml'
       - 'deploy/compose/prod/docker-compose.ui.yml'
+      - 'services/agentbox/**'
       - 'services/knowledge/**'
       - 'deploy/compose/prod/docker-compose.knowledge.yml'
       - 'deploy/compose/prod/docker-compose.observability.yml'
@@ -70,6 +71,7 @@ jobs:
               - 'deploy/compose/prod/docker-compose.auth.yml'
             api:
               - 'services/api/**'
+              - 'services/agentbox/**'
               - 'deploy/compose/prod/docker-compose.api.yml'
             ai:
               - 'services/ai/**'

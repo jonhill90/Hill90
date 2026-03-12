@@ -276,10 +276,8 @@
   run grep 'deploy-agentbox' Makefile
   [ "$status" -eq 1 ]
 
-  # deploy.yml must not contain deploy-agentbox job or agentbox dispatch option
+  # deploy.yml must not contain standalone deploy-agentbox job
   run grep 'deploy-agentbox' .github/workflows/deploy.yml
-  [ "$status" -eq 1 ]
-  run grep 'agentbox' .github/workflows/deploy.yml
   [ "$status" -eq 1 ]
 
   # rollback.sh must not contain agentbox) case
@@ -291,6 +289,20 @@
   [ "$status" -eq 1 ]
   run grep 'agentbox-list' AGENTS.md
   [ "$status" -eq 1 ]
+}
+
+# ---------------------------------------------------------------------------
+# Agentbox image build in API preflight
+# ---------------------------------------------------------------------------
+
+@test "deploy.sh API preflight includes agentbox image build" {
+  run grep 'docker build.*hill90/agentbox' scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy.sh API preflight checks knowledge image dependency" {
+  run grep 'hill90/knowledge:latest' scripts/deploy.sh
+  [ "$status" -eq 0 ]
 }
 
 # ---------------------------------------------------------------------------
