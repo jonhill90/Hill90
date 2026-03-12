@@ -2818,10 +2818,12 @@ paths:
           description: Not authenticated
 
     post:
-      summary: Create direct thread
+      summary: Create thread
       description: |
-        Creates a new direct thread (1 human + 1 agent), sends the first message,
-        and dispatches work to the agentbox. Returns the thread and placeholder ID.
+        Creates a new thread and sends the first message. Supports both direct
+        (single agent_id) and group (agent_ids array) creation. For group threads,
+        dispatches to all running agents and returns three-array response
+        (dispatched/skipped/failed). Max 8 agents per group.
       security:
         - bearerAuth: []
       requestBody:
@@ -2830,11 +2832,18 @@ paths:
           application/json:
             schema:
               type: object
-              required: [agent_id, message]
               properties:
                 agent_id:
                   type: string
                   format: uuid
+                  description: Single agent UUID (creates direct thread)
+                agent_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Multiple agent UUIDs (creates group thread)
+                  maxItems: 8
                 message:
                   type: string
                 title:
@@ -2843,6 +2852,7 @@ paths:
                 idempotency_key:
                   type: string
                   nullable: true
+              required: [message]
       responses:
         "201":
           description: Thread created and message dispatched
@@ -2856,8 +2866,21 @@ paths:
                   message_id:
                     type: string
                     format: uuid
+                    description: Placeholder ID (direct thread)
+                  user_message:
+                    type: object
+                    description: User message info (group thread)
+                  dispatched:
+                    type: array
+                    description: Agents dispatched (group thread)
+                  skipped:
+                    type: array
+                    description: Agents skipped (group thread)
+                  failed:
+                    type: array
+                    description: Agents failed (group thread)
         "400":
-          description: Missing or invalid fields
+          description: Missing or invalid fields, or exceeds max agents
         "403":
           description: Elevated scope requires admin role
         "404":
@@ -2968,6 +2991,91 @@ paths:
         "409":
           description: Agent not running, concurrency guard, or duplicate
 
+  /chat/threads/{id}/participants:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    put:
+      summary: Add or remove agent participants
+      description: |
+        Add or remove agent participants from a group thread. Only the thread owner
+        or admin can modify participants. Removing an agent sets left_at and marks
+        any pending messages from that agent as error.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                add:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Agent UUIDs to add
+                remove:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Agent UUIDs to remove
+      responses:
+        "200":
+          description: Updated participant list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  participants:
+                    type: array
+                    items:
+                      type: object
+        "400":
+          description: Exceeds max agents per group
+        "403":
+          description: Elevated scope requires admin role
+        "404":
+          description: Thread not found or not owner
+
+  /chat/threads/{id}/cancel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      summary: Cancel all pending messages
+      description: |
+        Marks all pending messages in the thread as error with message
+        'Cancelled by user'. Bumps seq for SSE visibility.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Cancellation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled:
+                    type: integer
+                    description: Number of messages cancelled
+        "404":
+          description: Thread not found or not a participant
+
   /chat/threads/{id}/stream:
     parameters:
       - name: id
@@ -2992,3 +3100,43 @@ paths:
                 type: string
         "404":
           description: Thread not found or not a participant
+
+  /chat/threads/{id}/events:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Thread-scoped agent event stream
+      description: |
+        Server-side validated, correlation-filtered event stream for all running
+        agents in the thread. Validates participant membership, resolves active
+        agents, proxies their event streams, and filters to events whose
+        correlation_id matches a message_id in this thread. Returns SSE when
+        follow=true, JSON array otherwise.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: follow
+          in: query
+          schema:
+            type: string
+            enum: ["true"]
+          description: Enable SSE streaming mode
+        - name: tail
+          in: query
+          schema:
+            type: integer
+            default: 20
+          description: Number of historical events to include
+      responses:
+        "200":
+          description: Event stream (SSE) or event array (JSON)
+        "404":
+          description: Thread not found or not a participant
+        "409":
+          description: No running agents in thread

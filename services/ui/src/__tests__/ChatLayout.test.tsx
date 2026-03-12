@@ -67,12 +67,10 @@ const MOCK_THREADS = [
     created_by: 'user-1',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T01:00:00Z',
-    last_message: {
-      content: 'Hello from agent',
-      author_type: 'agent',
-      created_at: '2026-01-01T01:00:00Z',
-      status: 'complete',
-    },
+    last_message: 'Hello from agent',
+    last_author_type: 'agent',
+    agent_count: 1,
+    agents: [{ id: 'agent-1', agent_id: 'research-bot', name: 'ResearchBot', status: 'running' }],
     agent: { id: 'agent-1', agent_id: 'research-bot', name: 'ResearchBot', status: 'running' },
   },
   {
@@ -82,7 +80,25 @@ const MOCK_THREADS = [
     created_by: 'user-1',
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:30:00Z',
+    last_message: null,
+    agent_count: 1,
+    agents: [{ id: 'agent-2', agent_id: 'writer-bot', name: 'WriterBot', status: 'stopped' }],
     agent: { id: 'agent-2', agent_id: 'writer-bot', name: 'WriterBot', status: 'stopped' },
+  },
+  {
+    id: 'thread-3',
+    type: 'group',
+    title: 'Research Group',
+    created_by: 'user-1',
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T02:00:00Z',
+    last_message: 'Latest update',
+    agent_count: 3,
+    agents: [
+      { id: 'agent-1', agent_id: 'research-bot', name: 'ResearchBot', status: 'running' },
+      { id: 'agent-3', agent_id: 'analyst-bot', name: 'AnalystBot', status: 'running' },
+      { id: 'agent-4', agent_id: 'summary-bot', name: 'SummaryBot', status: 'stopped' },
+    ],
   },
 ]
 
@@ -103,7 +119,6 @@ describe('ChatLayout', () => {
     render(<ChatLayout session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
-      // ResearchBot may appear in both desktop and mobile sidebar
       expect(screen.getAllByText('ResearchBot').length).toBeGreaterThan(0)
       expect(screen.getAllByText('My custom title').length).toBeGreaterThan(0)
     })
@@ -114,6 +129,26 @@ describe('ChatLayout', () => {
 
     await waitFor(() => {
       expect(screen.getAllByText('Hello from agent').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('shows group thread with group icon', async () => {
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Research Group').length).toBeGreaterThan(0)
+      expect(screen.getAllByTestId('group-icon').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('shows agent names under group thread title', async () => {
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('agent-names').length).toBeGreaterThan(0)
+      const agentNameEl = screen.getAllByTestId('agent-names')[0]
+      expect(agentNameEl.textContent).toContain('ResearchBot')
+      expect(agentNameEl.textContent).toContain('AnalystBot')
     })
   })
 
@@ -146,13 +181,14 @@ describe('ChatLayout', () => {
     })
   })
 
-  it('opens new thread dialog on button click', async () => {
-    // First fetch returns threads, second fetch (for agents in dialog) returns empty
-    let callCount = 0
+  it('opens new thread dialog with agent picker on button click', async () => {
+    const mockAgents = [
+      { id: 'agent-1', agent_id: 'bot-1', name: 'Bot One', status: 'running' },
+      { id: 'agent-2', agent_id: 'bot-2', name: 'Bot Two', status: 'running' },
+    ]
     mockFetch.mockImplementation(async (url: string) => {
-      callCount++
       if (typeof url === 'string' && url.includes('/api/agents')) {
-        return { ok: true, json: async () => [] }
+        return { ok: true, json: async () => mockAgents }
       }
       return { ok: true, json: async () => MOCK_THREADS }
     })
@@ -166,11 +202,10 @@ describe('ChatLayout', () => {
     fireEvent.click(screen.getAllByText('+ New')[0])
 
     await waitFor(() => {
-      // Dialog opens with a "Start Chat" submit button
       expect(screen.getByText('Start Chat')).toBeInTheDocument()
-      // And has agent/message form fields
-      expect(screen.getByText('Agent')).toBeInTheDocument()
-      expect(screen.getByText('Message')).toBeInTheDocument()
+      expect(screen.getByTestId('agent-picker')).toBeInTheDocument()
+      expect(screen.getByText('Bot One')).toBeInTheDocument()
+      expect(screen.getByText('Bot Two')).toBeInTheDocument()
     })
   })
 })
@@ -197,7 +232,6 @@ describe('ChatView via ChatLayout', () => {
     )
 
     await waitFor(() => {
-      // Should show agent name in header area
       expect(screen.getAllByText('ResearchBot').length).toBeGreaterThan(0)
     })
   })
@@ -212,6 +246,58 @@ describe('ChatView via ChatLayout', () => {
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Type a message...')).toBeInTheDocument()
+    })
+  })
+
+  it('shows session toggle button', async () => {
+    render(
+      <ChatLayout
+        session={MOCK_SESSION as any}
+        activeThreadId="thread-1"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('session-toggle')).toBeInTheDocument()
+    })
+  })
+
+  it('shows group-specific placeholder in group thread', async () => {
+    render(
+      <ChatLayout
+        session={MOCK_SESSION as any}
+        activeThreadId="thread-3"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText(/Message all agents/)).toBeInTheDocument()
+    })
+  })
+
+  it('shows agent status bar in group thread header', async () => {
+    render(
+      <ChatLayout
+        session={MOCK_SESSION as any}
+        activeThreadId="thread-3"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-status-bar')).toBeInTheDocument()
+    })
+  })
+
+  it('shows Group badge in group thread header', async () => {
+    render(
+      <ChatLayout
+        session={MOCK_SESSION as any}
+        activeThreadId="thread-3"
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Group')).toBeInTheDocument()
     })
   })
 })

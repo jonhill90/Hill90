@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest'
 
 import ChatMessage from '@/app/chat/ChatMessage'
 import type { Message } from '@/app/chat/ChatView'
+import type { ChatAgent } from '@/app/chat/ChatLayout'
 
 function makeMessage(overrides: Partial<Message> = {}): Message {
   return {
@@ -21,10 +22,16 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     output_tokens: null,
     duration_ms: null,
     error_message: null,
+    reply_to: null,
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }
 }
+
+const MOCK_AGENTS: ChatAgent[] = [
+  { id: 'agent-1', agent_id: 'research-bot', name: 'ResearchBot', status: 'running' },
+  { id: 'agent-2', agent_id: 'writer-bot', name: 'WriterBot', status: 'running' },
+]
 
 describe('ChatMessage', () => {
   afterEach(() => {
@@ -113,5 +120,75 @@ describe('ChatMessage', () => {
       />
     )
     expect(screen.getByText('An error occurred')).toBeInTheDocument()
+  })
+
+  // Phase 1B: Agent name badges in group threads
+  it('shows agent name badge in group thread', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          id: 'msg-a1',
+          author_id: 'agent-1',
+          author_type: 'agent',
+          role: 'assistant',
+          content: 'Research result',
+        })}
+        isOwnMessage={false}
+        isGroup={true}
+        agents={MOCK_AGENTS}
+      />
+    )
+    expect(screen.getByTestId('agent-badge')).toBeInTheDocument()
+    expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+  })
+
+  it('does not show agent badge in direct thread', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          author_id: 'agent-1',
+          author_type: 'agent',
+          role: 'assistant',
+          content: 'Response',
+        })}
+        isOwnMessage={false}
+        isGroup={false}
+        agents={MOCK_AGENTS}
+      />
+    )
+    expect(screen.queryByTestId('agent-badge')).not.toBeInTheDocument()
+  })
+
+  it('does not show agent badge on user messages in group thread', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          role: 'user',
+          content: 'Question',
+        })}
+        isOwnMessage={true}
+        isGroup={true}
+        agents={MOCK_AGENTS}
+      />
+    )
+    expect(screen.queryByTestId('agent-badge')).not.toBeInTheDocument()
+  })
+
+  it('shows agent-specific thinking text in group pending', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          author_id: 'agent-2',
+          author_type: 'agent',
+          role: 'assistant',
+          status: 'pending',
+          content: '',
+        })}
+        isOwnMessage={false}
+        isGroup={true}
+        agents={MOCK_AGENTS}
+      />
+    )
+    expect(screen.getByText('WriterBot is thinking...')).toBeInTheDocument()
   })
 })

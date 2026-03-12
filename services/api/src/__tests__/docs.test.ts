@@ -180,8 +180,11 @@ const EXPECTED_PATHS = [
   '/agents/{id}/skills/{skillId}',
   '/chat/threads',
   '/chat/threads/{id}',
+  '/chat/threads/{id}/participants',
   '/chat/threads/{id}/messages',
+  '/chat/threads/{id}/cancel',
   '/chat/threads/{id}/stream',
+  '/chat/threads/{id}/events',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback'];
