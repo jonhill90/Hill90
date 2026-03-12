@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { Users } from 'lucide-react'
 import type { ChatThread } from './ChatLayout'
 
 interface Props {
@@ -49,14 +50,13 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
     <div className="flex-1 overflow-y-auto">
       {threads.map(thread => {
         const isActive = thread.id === activeThreadId
-        const displayTitle = thread.title || thread.agent?.name || 'Chat'
-        const preview = thread.last_message?.content
-          ? truncate(thread.last_message.content, 60)
+        const isGroup = thread.type === 'group'
+        const displayTitle = thread.title
+          || (isGroup ? `Group (${thread.agent_count || 0} agents)` : thread.agent?.name || 'Chat')
+        const preview = thread.last_message
+          ? truncate(thread.last_message, 60)
           : 'No messages yet'
-        const time = thread.last_message?.created_at
-          ? timeAgo(thread.last_message.created_at)
-          : timeAgo(thread.created_at)
-        const isPending = thread.last_message?.status === 'pending'
+        const time = timeAgo(thread.updated_at || thread.created_at)
 
         return (
           <Link
@@ -69,15 +69,23 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
+                  {isGroup && (
+                    <Users size={12} className="text-mountain-400 flex-shrink-0" data-testid="group-icon" />
+                  )}
                   <span className="text-sm font-medium text-gray-200 truncate">
                     {displayTitle}
                   </span>
-                  {thread.agent?.status === 'running' && (
+                  {!isGroup && thread.agent?.status === 'running' && (
                     <span className="w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0" />
                   )}
                 </div>
-                <p className={`text-xs mt-0.5 truncate ${isPending ? 'text-mountain-400 italic' : 'text-mountain-500'}`}>
-                  {isPending ? 'Thinking...' : preview}
+                {isGroup && thread.agents && thread.agents.length > 0 && (
+                  <p className="text-[10px] text-mountain-500 truncate mt-0.5" data-testid="agent-names">
+                    {thread.agents.map(a => a.name).join(', ')}
+                  </p>
+                )}
+                <p className="text-xs mt-0.5 truncate text-mountain-500">
+                  {preview}
                 </p>
               </div>
               <span className="text-xs text-mountain-500 flex-shrink-0 mt-0.5">{time}</span>

@@ -5,8 +5,8 @@ async function proxyRequest(req: NextRequest, { params }: { params: Promise<{ pa
   const { path } = await params
   const pathStr = path.join('/')
 
-  // Chat stream is always SSE — disable timeout
-  const isStream = pathStr.endsWith('/stream')
+  // SSE endpoints — disable timeout
+  const isStream = pathStr.endsWith('/stream') || pathStr.endsWith('/events')
 
   return proxyToApi(req, `/chat/threads/${pathStr}`, {
     label: 'chat-proxy',
