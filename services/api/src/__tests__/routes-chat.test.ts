@@ -26,6 +26,7 @@ jest.mock('../services/docker', () => ({
   getContainerLogs: jest.fn(),
   removeAgentVolumes: jest.fn(),
   reconcileAgentStatuses: jest.fn(),
+  execInContainer: jest.fn(),
 }));
 
 jest.mock('../services/agent-files', () => ({
@@ -62,7 +63,7 @@ const userToken = makeToken('regular-user', ['user']);
 const otherUserToken = makeToken('other-user', ['user']);
 const noRoleToken = makeToken('no-role-user', []);
 
-// ── Thread CRUD ──
+// ── Thread CRUD (Phase 1 preserved + Phase 1B extensions) ──
 
 describe('Chat thread CRUD', () => {
   beforeEach(() => {
@@ -88,13 +89,20 @@ describe('Chat thread CRUD', () => {
     expect(res.status).toBe(403);
   });
 
-  it('GET /chat/threads returns threads for participant', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [
-        { id: 'thread-1', type: 'direct', title: 'Test', created_by: 'regular-user',
-          created_at: new Date(), updated_at: new Date(), last_message: 'Hello', last_author_type: 'human' },
-      ],
-    });
+  it('GET /chat/threads returns threads for participant with agent info', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [
+          { id: 'thread-1', type: 'direct', title: 'Test', created_by: 'regular-user',
+            created_at: new Date(), updated_at: new Date(), last_message: 'Hello', last_author_type: 'human' },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          { thread_id: 'thread-1', participant_id: 'agent-uuid', participant_type: 'agent',
+            role: 'member', left_at: null, agent_id: 'test-agent', agent_name: 'Test Agent', agent_status: 'running' },
+        ],
+      });
 
     const res = await request(app)
       .get('/chat/threads')
@@ -102,15 +110,14 @@ describe('Chat thread CRUD', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].id).toBe('thread-1');
-
-    // Verify participant-scoped query
-    const sql = mockQuery.mock.calls[0][0];
-    expect(sql).toContain('chat_participants');
-    expect(sql).toContain('participant_id = $1');
+    expect(res.body[0].agents).toHaveLength(1);
+    expect(res.body[0].agent.name).toBe('Test Agent');
   });
 
   it('GET /chat/threads admin sees all', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
       .get('/chat/threads')
@@ -122,11 +129,11 @@ describe('Chat thread CRUD', () => {
     expect(sql).not.toContain('participant_id = $1');
   });
 
-  it('POST /chat/threads creates thread and dispatches', async () => {
+  it('POST /chat/threads creates direct thread and dispatches', async () => {
     mockQuery
       .mockResolvedValueOnce({  // getAgentForDispatch
         rows: [{
-          id: 'agent-uuid', agent_id: 'test-agent', status: 'running',
+          id: 'agent-uuid', agent_id: 'test-agent', name: 'Test Agent', status: 'running',
           work_token: 'wt-123', models: ['gpt-4o-mini'],
         }],
       })
@@ -138,7 +145,9 @@ describe('Chat thread CRUD', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] })  // INSERT participants
-      .mockResolvedValueOnce({ rows: [] })  // INSERT user message
+      .mockResolvedValueOnce({  // INSERT user message
+        rows: [{ id: 'user-msg-uuid', seq: 1 }],
+      })
       .mockResolvedValueOnce({  // INSERT assistant placeholder
         rows: [{ id: 'placeholder-uuid' }],
       });
@@ -153,7 +162,6 @@ describe('Chat thread CRUD', () => {
     expect(res.body.message_id).toBe('placeholder-uuid');
 
     // Verify dispatch was called
-    await new Promise(r => setTimeout(r, 10)); // let fire-and-forget resolve
     expect(mockDispatchChatWork).toHaveBeenCalledWith(expect.objectContaining({
       agentId: 'test-agent',
       workToken: 'wt-123',
@@ -161,6 +169,59 @@ describe('Chat thread CRUD', () => {
       messageId: 'placeholder-uuid',
       model: 'gpt-4o-mini',
     }));
+  });
+
+  it('POST /chat/threads creates group thread with agent_ids', async () => {
+    mockQuery
+      // getAgentForDispatch for agent 1
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'agent-1', agent_id: 'agent-alpha', name: 'Alpha', status: 'running',
+          work_token: 'wt-1', models: ['gpt-4o-mini'],
+        }],
+      })
+      // getAgentForDispatch for agent 2
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'agent-2', agent_id: 'agent-beta', name: 'Beta', status: 'running',
+          work_token: 'wt-2', models: ['gpt-4o'],
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope agent 1
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope agent 2
+      .mockResolvedValueOnce({  // INSERT thread
+        rows: [{
+          id: 'group-thread', type: 'group', title: null,
+          created_by: 'regular-user', created_at: new Date(), updated_at: new Date(),
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // INSERT participants
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 1 }] })  // user message
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder agent 1
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder agent 2
+
+    const res = await request(app)
+      .post('/chat/threads')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_ids: ['agent-1', 'agent-2'], message: 'Hello group' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.thread.type).toBe('group');
+    expect(res.body.dispatched).toHaveLength(2);
+    expect(res.body.skipped).toHaveLength(0);
+    expect(res.body.failed).toHaveLength(0);
+  });
+
+  it('POST /chat/threads rejects >8 agents (I4)', async () => {
+    const res = await request(app)
+      .post('/chat/threads')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({
+        agent_ids: ['a1','a2','a3','a4','a5','a6','a7','a8','a9'],
+        message: 'Too many agents',
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Maximum 8');
   });
 
   it('POST /chat/threads rejects missing agent_id', async () => {
@@ -181,22 +242,10 @@ describe('Chat thread CRUD', () => {
     expect(res.body.error).toContain('message');
   });
 
-  it('POST /chat/threads returns 409 if agent not running', async () => {
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'agent-uuid', agent_id: 'test-agent', status: 'stopped', work_token: null, models: [] }],
-    });
-
-    const res = await request(app)
-      .post('/chat/threads')
-      .set('Authorization', `Bearer ${userToken}`)
-      .send({ agent_id: 'agent-uuid', message: 'Hello' });
-    expect(res.status).toBe(409);
-  });
-
-  it('POST /chat/threads returns 403 for elevated agent + non-admin', async () => {
+  it('POST /chat/threads returns 403 for elevated agent + non-admin (strict deny)', async () => {
     mockQuery
       .mockResolvedValueOnce({
-        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', status: 'running', work_token: 'wt', models: [] }],
+        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', name: 'Test', status: 'running', work_token: 'wt', models: [] }],
       })
       .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] }); // elevated scope found
 
@@ -208,6 +257,53 @@ describe('Chat thread CRUD', () => {
     expect(res.body.error).toContain('host_docker');
   });
 
+  it('POST /chat/threads group: strict elevated deny rejects entire request if ANY target agent is elevated (I13)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'safe', name: 'Safe Agent', status: 'running', work_token: 'wt', models: [] }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-2', agent_id: 'elevated', name: 'Elevated Agent', status: 'running', work_token: 'wt', models: [] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // safe agent — no elevated scope
+      .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] });  // elevated agent
+
+    const res = await request(app)
+      .post('/chat/threads')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_ids: ['agent-1', 'agent-2'], message: 'Hello' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Elevated');
+  });
+
+  it('POST /chat/threads group: skips stopped agents, dispatches running (I3 + skipped[])', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'running-one', name: 'Running', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-2', agent_id: 'stopped-one', name: 'Stopped', status: 'stopped', work_token: null, models: [] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope 1
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope 2
+      .mockResolvedValueOnce({  // INSERT thread
+        rows: [{ id: 'group-thread', type: 'group', title: null, created_by: 'regular-user', created_at: new Date(), updated_at: new Date() }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // INSERT participants
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 1 }] })  // user message
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });  // placeholder for running agent
+
+    const res = await request(app)
+      .post('/chat/threads')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_ids: ['agent-1', 'agent-2'], message: 'Hello' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(1);
+    expect(res.body.skipped).toHaveLength(1);
+    expect(res.body.skipped[0].reason).toBe('not_running');
+  });
+
   it('GET /chat/threads/:id returns thread with messages', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
@@ -216,11 +312,13 @@ describe('Chat thread CRUD', () => {
                  created_at: new Date(), updated_at: new Date() }],
       })
       .mockResolvedValueOnce({ rows: [  // participants
-        { participant_id: 'regular-user', participant_type: 'human', role: 'owner', joined_at: new Date() },
+        { participant_id: 'regular-user', participant_type: 'human', role: 'owner',
+          joined_at: new Date(), left_at: null, agent_id: null, agent_name: null, agent_status: null },
       ]})
       .mockResolvedValueOnce({ rows: [  // messages
         { id: 'msg-1', seq: 1, author_id: 'regular-user', author_type: 'human', role: 'user',
-          content: 'Hello', status: 'complete', created_at: new Date().toISOString() },
+          content: 'Hello', status: 'complete', reply_to: null, target_agents: null,
+          created_at: new Date().toISOString() },
       ]});
 
     const res = await request(app)
@@ -268,9 +366,99 @@ describe('Chat thread CRUD', () => {
   });
 });
 
-// ── Send message ──
+// ── Participant management ──
 
-describe('Chat send message', () => {
+describe('Chat participant management', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('PUT /chat/threads/:id/participants adds agent (I5)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isThreadOwner
+      .mockResolvedValueOnce({ rows: ['agent-1'] })  // getThreadAgents
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope check
+      .mockResolvedValueOnce({ rows: [] })  // INSERT participant
+      .mockResolvedValueOnce({ rows: [  // return participants
+        { participant_id: 'agent-1', participant_type: 'agent', role: 'member',
+          joined_at: new Date(), left_at: null, agent_id: 'alpha', agent_name: 'Alpha', agent_status: 'running' },
+      ]});
+
+    const res = await request(app)
+      .put('/chat/threads/thread-1/participants')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ add: ['agent-1'] });
+    expect(res.status).toBe(200);
+    expect(res.body.participants).toHaveLength(1);
+  });
+
+  it('PUT /chat/threads/:id/participants removes agent and marks pending as error (I6)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isThreadOwner
+      .mockResolvedValueOnce({ rowCount: 1 })  // mark pending as error
+      .mockResolvedValueOnce({ rowCount: 1 })  // set left_at
+      .mockResolvedValueOnce({ rows: [] });  // return participants (empty after removal)
+
+    const res = await request(app)
+      .put('/chat/threads/thread-1/participants')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ remove: ['agent-1'] });
+    expect(res.status).toBe(200);
+
+    // Verify pending messages were marked as error
+    const errorSql = mockQuery.mock.calls[1][0];
+    expect(errorSql).toContain("status = 'error'");
+    expect(errorSql).toContain("status = 'pending'");
+  });
+
+  it('PUT /chat/threads/:id/participants rejects >8 agents', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isThreadOwner
+      .mockResolvedValueOnce({  // getThreadAgents — already 7
+        rows: ['a1','a2','a3','a4','a5','a6','a7'].map(id => ({ participant_id: id })),
+      });
+
+    const res = await request(app)
+      .put('/chat/threads/thread-1/participants')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ add: ['a8', 'a9'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Maximum 8');
+  });
+
+  it('PUT /chat/threads/:id/participants rejects elevated agent for non-admin', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isThreadOwner
+      .mockResolvedValueOnce({ rows: [] })  // getThreadAgents
+      .mockResolvedValueOnce({ rows: [{ scope: 'vps_system' }] });  // elevated scope
+
+    const res = await request(app)
+      .put('/chat/threads/thread-1/participants')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ add: ['elevated-agent'] });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('vps_system');
+  });
+
+  it('PUT /chat/threads/:id/participants returns 404 for non-owner', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // not owner
+
+    const res = await request(app)
+      .put('/chat/threads/thread-1/participants')
+      .set('Authorization', `Bearer ${otherUserToken}`)
+      .send({ add: ['agent-1'] });
+    expect(res.status).toBe(404);
+  });
+});
+
+// ── Multi-agent dispatch + @-mention routing ──
+
+describe('Chat multi-agent dispatch', () => {
   beforeEach(() => {
     mockQuery.mockReset();
     mockDispatchChatWork.mockReset();
@@ -282,37 +470,356 @@ describe('Chat send message', () => {
     delete process.env.DATABASE_URL;
   });
 
-  it('POST /chat/threads/:id/messages sends and dispatches', async () => {
+  it('POST /chat/threads/:id/messages dispatches to all agents in group (I8, I11)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-uuid' }] })  // getThreadAgent
-      .mockResolvedValueOnce({  // getAgentForDispatch
-        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
       })
-      .mockResolvedValueOnce({ rows: [] })  // concurrency guard
-      .mockResolvedValueOnce({ rows: [] })  // getAgentElevatedScope
-      .mockResolvedValueOnce({ rows: [] })  // INSERT user message
-      .mockResolvedValueOnce({ rows: [{ id: 'placeholder-uuid' }] })  // INSERT placeholder
+      // getAgentForDispatch — agent 1
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt-1', models: ['gpt-4o-mini'] }],
+      })
+      // getAgentForDispatch — agent 2
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt-2', models: ['gpt-4o'] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope agent 1
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope agent 2
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard agent 1
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard agent 2
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
-      .mockResolvedValueOnce({ rows: [  // message history
-        { role: 'user', content: 'Hello' },
-      ]});
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder agent 1
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder agent 2
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello everyone' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(2);
+    expect(res.body.skipped).toHaveLength(0);
+    expect(res.body.failed).toHaveLength(0);
+    expect(res.body.user_message.id).toBe('user-msg');
+
+    expect(mockDispatchChatWork).toHaveBeenCalledTimes(2);
+  });
+
+  it('POST /chat/threads/:id/messages @-mention routes to single agent (I9)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
+      })
+      // resolveAgentSlugs
+      .mockResolvedValueOnce({
+        rows: [{ slug: 'alpha', participant_id: 'agent-1' }],
+      })
+      // getAgentForDispatch — only targeted agent
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt-1', models: ['gpt-4o-mini'] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });  // placeholder
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: '@alpha What is 2+2?' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(1);
+    expect(res.body.dispatched[0].agent_id).toBe('agent-1');
+    expect(mockDispatchChatWork).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /chat/threads/:id/messages returns 400 for unknown @-mention (I10)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'agent-1' }],
+      })
+      // resolveAgentSlugs — no match
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: '@nonexistent Hello' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Unknown agent: @nonexistent');
+  });
+
+  it('POST /chat/threads/:id/messages skips agent with pending, dispatches others (I12)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt-1', models: ['gpt-4o-mini'] }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt-2', models: ['gpt-4o'] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope 1
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope 2
+      .mockResolvedValueOnce({ rows: [{ id: 'pending-msg' }] })  // concurrency guard agent 1 — has pending!
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard agent 2 — clear
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder for agent 2
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(1);
+    expect(res.body.dispatched[0].agent_id).toBe('agent-2');
+    expect(res.body.skipped).toHaveLength(1);
+    expect(res.body.skipped[0].agent_id).toBe('agent-1');
+    expect(res.body.skipped[0].reason).toBe('has_pending');
+  });
+
+  it('POST /chat/threads/:id/messages strict elevated deny for group (I13)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'safe', name: 'Safe', status: 'running', work_token: 'wt', models: [] }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-2', agent_id: 'elevated', name: 'Elevated', status: 'running', work_token: 'wt', models: [] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope agent 1 — clear
+      .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] });  // elevated scope agent 2 — elevated!
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('Elevated');
+    // No user message or placeholders should have been created
+    // (rejected before any DB writes)
+  });
+
+  it('POST /chat/threads/:id/messages sets reply_to on placeholders (I15)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'agent-1' }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg-123', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [] })  // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });  // placeholder
+
+    await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello' });
+
+    // Verify the INSERT placeholder SQL includes reply_to
+    const placeholderCall = mockQuery.mock.calls.find(
+      (call: any[]) => call[0].includes('reply_to') && call[0].includes("'pending'") && call[0].includes('INSERT')
+    );
+    expect(placeholderCall).toBeDefined();
+    // reply_to param should be user message ID
+    expect(placeholderCall![1]).toContain('user-msg-123');
+  });
+
+  it('POST /chat/threads/:id/messages stores target_agents for @-mentions (I16)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })
+      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-1' }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'alpha', participant_id: 'agent-1' }] })  // resolveAgentSlugs
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [] })  // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });
+
+    await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: '@alpha Hello' });
+
+    // Verify user message INSERT includes target_agents
+    const userMsgCall = mockQuery.mock.calls.find(
+      (call: any[]) => call[0].includes('target_agents') && call[0].includes('INSERT')
+    );
+    expect(userMsgCall).toBeDefined();
+    // target_agents param should be JSON with the agent UUID
+    const targetAgentsParam = userMsgCall![1][4]; // 5th param
+    expect(targetAgentsParam).toContain('agent-1');
+  });
+
+  it('POST /chat/threads/:id/messages direct thread preserved — single dispatch (I17)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-uuid' }] })  // getThreadAgents
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', name: 'Test', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 1 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'Hello' }] })  // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'placeholder-uuid' }] });  // placeholder
 
     const res = await request(app)
       .post('/chat/threads/thread-1/messages')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ message: 'How are you?' });
+
     expect(res.status).toBe(201);
     expect(res.body.message_id).toBe('placeholder-uuid');
+    // Direct thread response has no dispatched/skipped/failed arrays
+    expect(res.body.dispatched).toBeUndefined();
+    expect(mockDispatchChatWork).toHaveBeenCalledTimes(1);
   });
 
-  it('POST /chat/threads/:id/messages returns 409 for concurrent send', async () => {
+  it('POST /chat/threads/:id/messages dispatch failure marks placeholder as error (I14a)', async () => {
+    mockDispatchChatWork.mockRejectedValue(new Error('Connection refused'));
+
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-uuid' }] })  // getThreadAgent
-      .mockResolvedValueOnce({  // getAgentForDispatch
-        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', status: 'running', work_token: 'wt', models: [] }],
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-1' }] })  // getThreadAgents
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
       })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [] })  // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder
+      .mockResolvedValueOnce({ rowCount: 1 });  // UPDATE placeholder to error
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(0);
+    expect(res.body.failed).toHaveLength(1);
+    expect(res.body.failed[0].reason).toBe('dispatch_failed');
+    expect(res.body.failed[0].message_id).toBe('ph-1');
+  });
+});
+
+// ── Cancel ──
+
+describe('Chat cancel', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('POST /chat/threads/:id/cancel marks all pending as error (I7)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rowCount: 3 });  // UPDATE pending → error
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/cancel')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.cancelled).toBe(3);
+
+    // Verify error message
+    const sql = mockQuery.mock.calls[1][0];
+    expect(sql).toContain("'Cancelled by user'");
+    expect(sql).toContain('nextval');
+  });
+
+  it('POST /chat/threads/:id/cancel no-op if no pending', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rowCount: 0 });  // no pending
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/cancel')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.cancelled).toBe(0);
+  });
+
+  it('POST /chat/threads/:id/cancel requires participant', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/cancel')
+      .set('Authorization', `Bearer ${otherUserToken}`);
+
+    expect(res.status).toBe(404);
+  });
+});
+
+// ── Send message backward compat ──
+
+describe('Chat send message (backward compat)', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockDispatchChatWork.mockReset();
+    mockDispatchChatWork.mockResolvedValue({ accepted: true, work_id: 'work-123' });
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('POST /chat/threads/:id/messages returns 409 for concurrent send on direct thread', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-uuid' }] })  // getThreadAgents
+      .mockResolvedValueOnce({  // getAgentForDispatch
+        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', name: 'Test', status: 'running', work_token: 'wt', models: [] }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope
       .mockResolvedValueOnce({ rows: [{ id: 'pending-msg' }] });  // concurrency guard finds pending
 
     const res = await request(app)
@@ -326,9 +833,10 @@ describe('Chat send message', () => {
   it('POST /chat/threads/:id/messages returns 409 for idempotency duplicate', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })
       .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-uuid' }] })
       .mockResolvedValueOnce({
-        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', status: 'running', work_token: 'wt', models: [] }],
+        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', name: 'Test', status: 'running', work_token: 'wt', models: [] }],
       })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -343,7 +851,7 @@ describe('Chat send message', () => {
   });
 });
 
-// ── Callback ──
+// ── Callback (unchanged from Phase 1) ──
 
 describe('Chat callback', () => {
   beforeEach(() => {
@@ -460,7 +968,6 @@ describe('Chat callback', () => {
     expect(res.status).toBe(200);
     expect(res.body.updated).toBe(true);
 
-    // Verify status='error' was passed
     const params = mockQuery.mock.calls[0][1];
     expect(params[2]).toBe('error');
   });
@@ -480,7 +987,6 @@ describe('Chat stale sweeper', () => {
 
   it('sweeper function is exported and can be started/stopped', async () => {
     const { startStaleSweeper, stopStaleSweeper } = await import('../routes/chat');
-    // Just verify they don't throw
     expect(typeof startStaleSweeper).toBe('function');
     expect(typeof stopStaleSweeper).toBe('function');
   });
@@ -514,7 +1020,8 @@ describe('Chat SSE stream', () => {
     mockQuery.mockResolvedValueOnce({
       rows: [{
         id: 'msg-1', seq: 5, author_id: 'user-1', author_type: 'human',
-        role: 'user', content: 'Hello', status: 'complete', model: null,
+        role: 'user', content: 'Hello', status: 'complete', reply_to: null,
+        target_agents: null, model: null,
         input_tokens: null, output_tokens: null, duration_ms: null,
         error_message: null, created_at: new Date().toISOString(),
       }],
@@ -562,7 +1069,7 @@ describe('Chat RBAC', () => {
   it('POST /chat/threads allows admin to send to elevated agent', async () => {
     mockQuery
       .mockResolvedValueOnce({
-        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
+        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', name: 'Test', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
       })
       .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] })  // elevated scope found — but admin
       .mockResolvedValueOnce({
@@ -570,7 +1077,7 @@ describe('Chat RBAC', () => {
                  created_at: new Date(), updated_at: new Date() }],
       })
       .mockResolvedValueOnce({ rows: [] })  // participants
-      .mockResolvedValueOnce({ rows: [] })  // user message
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 1 }] })  // user message
       .mockResolvedValueOnce({ rows: [{ id: 'ph-uuid' }] });  // placeholder
 
     const res = await request(app)
@@ -578,5 +1085,114 @@ describe('Chat RBAC', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ agent_id: 'agent-uuid', message: 'Run docker' });
     expect(res.status).toBe(201);
+  });
+
+  it('POST /chat/threads admin can create group with elevated agents (V12)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-1', agent_id: 'elevated-one', name: 'E1', status: 'running', work_token: 'wt', models: [] }],
+      })
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-2', agent_id: 'safe-one', name: 'S1', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
+      })
+      .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] })  // agent 1 elevated
+      .mockResolvedValueOnce({ rows: [] })  // agent 2 not elevated
+      // Admin bypasses elevated check
+      .mockResolvedValueOnce({
+        rows: [{ id: 'group-thread', type: 'group', title: null, created_by: 'admin-user',
+                 created_at: new Date(), updated_at: new Date() }],
+      })
+      .mockResolvedValueOnce({ rows: [] })  // INSERT participants
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 1 }] })  // user message
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder 1
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder 2
+
+    const res = await request(app)
+      .post('/chat/threads')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ agent_ids: ['agent-1', 'agent-2'], message: 'Hello elevated group' });
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(2);
+  });
+});
+
+// ── @-mention parsing unit tests ──
+
+describe('parseMentions', () => {
+  // Import the exported function
+  let parseMentions: (content: string) => { slugs: string[]; cleanContent: string };
+
+  beforeAll(async () => {
+    const mod = await import('../routes/chat');
+    parseMentions = mod.parseMentions;
+  });
+
+  it('extracts single @-mention', () => {
+    const result = parseMentions('@test-agent What is 2+2?');
+    expect(result.slugs).toEqual(['test-agent']);
+    expect(result.cleanContent).toBe('What is 2+2?');
+  });
+
+  it('extracts multiple @-mentions', () => {
+    const result = parseMentions('@alpha @beta What do you think?');
+    expect(result.slugs).toEqual(['alpha', 'beta']);
+    expect(result.cleanContent).toBe('What do you think?');
+  });
+
+  it('deduplicates @-mentions', () => {
+    const result = parseMentions('@alpha @alpha Hello');
+    expect(result.slugs).toEqual(['alpha']);
+  });
+
+  it('returns empty slugs when no mentions', () => {
+    const result = parseMentions('Hello world');
+    expect(result.slugs).toEqual([]);
+    expect(result.cleanContent).toBe('Hello world');
+  });
+
+  it('handles @-mention at start of line', () => {
+    const result = parseMentions('@agent test');
+    expect(result.slugs).toEqual(['agent']);
+  });
+
+  it('handles @-mention after space', () => {
+    const result = parseMentions('Hey @agent test');
+    expect(result.slugs).toEqual(['agent']);
+  });
+});
+
+// ── Thread events ──
+
+describe('Chat thread events', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('GET /chat/threads/:id/events requires participant', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .get('/chat/threads/thread-1/events')
+      .set('Authorization', `Bearer ${otherUserToken}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /chat/threads/:id/events returns 409 if no running agents', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [  // agents — all stopped
+        { participant_id: 'agent-1', agent_id: 'alpha', status: 'stopped' },
+      ] });
+
+    const res = await request(app)
+      .get('/chat/threads/thread-1/events')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toContain('No running agents');
   });
 });

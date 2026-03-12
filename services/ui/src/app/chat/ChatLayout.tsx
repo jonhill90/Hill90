@@ -7,6 +7,13 @@ import ThreadList from './ThreadList'
 import NewThreadDialog from './NewThreadDialog'
 import ChatView from './ChatView'
 
+export interface ChatAgent {
+  id: string
+  agent_id: string
+  name: string
+  status: string
+}
+
 export interface ChatThread {
   id: string
   type: string
@@ -14,18 +21,12 @@ export interface ChatThread {
   created_by: string
   created_at: string
   updated_at: string
-  last_message?: {
-    content: string
-    author_type: string
-    created_at: string
-    status: string
-  }
-  agent?: {
-    id: string
-    agent_id: string
-    name: string
-    status: string
-  }
+  last_message?: string | null
+  last_author_type?: string | null
+  agent_count?: number
+  agents?: ChatAgent[]
+  // Backward compat: single agent for direct threads
+  agent?: ChatAgent
 }
 
 interface Props {
@@ -128,7 +129,7 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
         )}
       </div>
 
-      {/* Message pane */}
+      {/* Message pane (flex-1) */}
       <div className="flex-1 flex flex-col min-w-0">
         {activeThreadId ? (
           <ChatView
