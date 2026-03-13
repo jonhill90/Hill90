@@ -408,4 +408,119 @@ describe('Agent skill assignment endpoints', () => {
     expect(res.status).toBe(200);
     expect(res.body.removed).toBe(true);
   });
+
+  // -----------------------------------------------------------------------
+  // Audit logging for elevated-scope operations
+  // -----------------------------------------------------------------------
+
+  describe('Audit logging', () => {
+    let consoleSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleSpy.mockRestore();
+    });
+
+    function getAuditCalls(): any[] {
+      return consoleSpy.mock.calls
+        .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
+        .filter((obj: any) => obj?.type === 'audit');
+    }
+
+    // T8: Skill assign elevated deny emits audit
+    it('POST /agents/:id/skills host_docker deny emits audit', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [stoppedAgent] })
+        .mockResolvedValueOnce({ rows: [hostDockerSkill] });
+
+      await request(app)
+        .post(`/agents/${AGENT_ID}/skills`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ skill_id: SKILL_HOST_DOCKER });
+
+      const audits = getAuditCalls();
+      expect(audits).toHaveLength(1);
+      expect(audits[0].action).toBe('skill_assign_denied');
+      expect(audits[0].skill_scope).toBe('host_docker');
+    });
+
+    // T9: Skill assign elevated success emits audit
+    it('POST /agents/:id/skills admin assign host_docker emits audit', async () => {
+      const adminAssignment = { ...assignmentRecord, skill_id: SKILL_HOST_DOCKER, assigned_by: 'admin-user' };
+      mockQuery
+        .mockResolvedValueOnce({ rows: [stoppedAgent] })
+        .mockResolvedValueOnce({ rows: [hostDockerSkill] })
+        .mockResolvedValueOnce({ rows: [adminAssignment] })
+        .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] })
+        .mockResolvedValueOnce({ rowCount: 1 });
+
+      await request(app)
+        .post(`/agents/${AGENT_ID}/skills`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ skill_id: SKILL_HOST_DOCKER });
+
+      const audits = getAuditCalls();
+      expect(audits).toHaveLength(1);
+      expect(audits[0].action).toBe('skill_assign');
+      expect(audits[0].skill_scope).toBe('host_docker');
+    });
+
+    // T10: Skill remove elevated deny emits audit
+    it('DELETE /agents/:id/skills/:skillId host_docker deny emits audit', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [stoppedAgent] })
+        .mockResolvedValueOnce({ rows: [hostDockerSkill] });
+
+      await request(app)
+        .delete(`/agents/${AGENT_ID}/skills/${SKILL_HOST_DOCKER}`)
+        .set('Authorization', `Bearer ${userToken}`);
+
+      const audits = getAuditCalls();
+      expect(audits).toHaveLength(1);
+      expect(audits[0].action).toBe('skill_remove_denied');
+      expect(audits[0].skill_scope).toBe('host_docker');
+    });
+
+    // T11: Skill remove elevated success emits audit
+    it('DELETE /agents/:id/skills/:skillId admin remove host_docker emits audit', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [stoppedAgent] })
+        .mockResolvedValueOnce({ rows: [hostDockerSkill] })
+        .mockResolvedValueOnce({ rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rowCount: 1 });
+
+      await request(app)
+        .delete(`/agents/${AGENT_ID}/skills/${SKILL_HOST_DOCKER}`)
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      const audits = getAuditCalls();
+      expect(audits).toHaveLength(1);
+      expect(audits[0].action).toBe('skill_remove');
+      expect(audits[0].skill_scope).toBe('host_docker');
+    });
+
+    // T24: Non-elevated skill assign does NOT emit audit
+    it('POST /agents/:id/skills container_local assign does not emit audit', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [stoppedAgent] })
+        .mockResolvedValueOnce({ rows: [containerSkill] })
+        .mockResolvedValueOnce({ rows: [assignmentRecord] })
+        .mockResolvedValueOnce({ rows: [{ tools_config: devToolsConfig }] })
+        .mockResolvedValueOnce({ rowCount: 1 });
+
+      await request(app)
+        .post(`/agents/${AGENT_ID}/skills`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .send({ skill_id: SKILL_CONTAINER });
+
+      const audits = getAuditCalls();
+      expect(audits).toHaveLength(1);
+      expect(audits[0].action).toBe('skill_assign');
+      expect(audits[0].skill_scope).toBe('container_local');
+    });
+  });
 });

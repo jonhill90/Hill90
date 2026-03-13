@@ -570,4 +570,220 @@ describe('Skill CRUD routes', () => {
       expect(insertSql).not.toContain('kind');
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Scope-Change Safety Contract (D2, D3, D8)
+  // -----------------------------------------------------------------------
+  describe('Scope-change safety contract', () => {
+    const SKILL_ID = 'scope-change-skill';
+    const AGENT_UUID = '00000000-0000-0000-0000-aaaaaaaaaaaa';
+
+    // T1: Escalation blocked when running agents assigned → 409 with running agent IDs
+    it('PUT /skills/:id scope → elevated, running agents → 409 with agent IDs', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }) // existing skill
+        .mockResolvedValueOnce({ rows: [{ id: AGENT_UUID, agent_id: 'my-agent' }] }); // running agent
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'host_docker' });
+      expect(res.status).toBe(409);
+      expect(res.body.running_agents).toHaveLength(1);
+      expect(res.body.running_agents[0].agent_id).toBe('my-agent');
+    });
+
+    // T2: Escalation blocked when stopped agents assigned (none running) → 409 with count
+    it('PUT /skills/:id scope → elevated, stopped agents → 409 with count', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }) // existing skill
+        .mockResolvedValueOnce({ rows: [] })  // no running agents
+        .mockResolvedValueOnce({ rows: [{ count: 3 }] }); // 3 assigned agents
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'host_docker' });
+      expect(res.status).toBe(409);
+      expect(res.body.assigned_count).toBe(3);
+      expect(res.body.error).toContain('escalate');
+    });
+
+    // T3: Escalation allowed when no agents assigned → 200
+    it('PUT /skills/:id scope → elevated, no agents → 200', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }) // existing skill
+        .mockResolvedValueOnce({ rows: [] })  // no running agents
+        .mockResolvedValueOnce({ rows: [{ count: 0 }] }) // no assigned agents
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'host_docker' }] }); // UPDATE returns
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'host_docker' });
+      expect(res.status).toBe(200);
+    });
+
+    // T4: De-escalation blocked when running agents assigned (D8 contract) → 409
+    it('PUT /skills/:id elevated → non-elevated, running agents → 409 (D8)', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'host_docker' }] }) // existing skill (elevated)
+        .mockResolvedValueOnce({ rows: [{ id: AGENT_UUID, agent_id: 'my-agent' }] }); // running agent
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'container_local' });
+      expect(res.status).toBe(409);
+      expect(res.body.running_agents).toHaveLength(1);
+      expect(res.body.error).toContain('running agents');
+    });
+
+    // T5: De-escalation allowed when stopped agents assigned → 200
+    it('PUT /skills/:id elevated → non-elevated, stopped agents → 200', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'host_docker' }] }) // existing skill (elevated)
+        .mockResolvedValueOnce({ rows: [] }) // no running agents
+        // No escalation check needed (de-escalation)
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }); // UPDATE returns
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'container_local' });
+      expect(res.status).toBe(200);
+    });
+
+    // T6a: De-escalation allowed when no agents assigned → 200
+    it('PUT /skills/:id elevated → non-elevated, no agents → 200', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'vps_system' }] }) // existing skill (elevated)
+        .mockResolvedValueOnce({ rows: [] }) // no running agents
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }); // UPDATE returns
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'container_local' });
+      expect(res.status).toBe(200);
+    });
+
+    // T6b: Scope unchanged (non-elevated no-op) → 200
+    it('PUT /skills/:id scope unchanged (non-elevated) → 200', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }) // existing skill
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }); // UPDATE returns
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'container_local' });
+      expect(res.status).toBe(200);
+    });
+
+    // T6c: Scope unchanged (elevated to same elevated) → 200 (idempotent)
+    it('PUT /skills/:id elevated to same elevated → 200 (idempotent)', async () => {
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'host_docker' }] }) // existing skill
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'host_docker' }] }); // UPDATE returns
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ scope: 'host_docker' });
+      expect(res.status).toBe(200);
+    });
+
+    // T6d: Non-elevated → different non-elevated → 200
+    it('PUT /skills/:id non-elevated → different non-elevated → 200', async () => {
+      // Currently only one non-elevated scope (container_local), so this tests same→same
+      // but validates the guard is NOT triggered for non-elevated transitions
+      mockQuery
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }) // existing skill
+        .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local', name: 'Updated' }] }); // UPDATE returns
+      // fetchToolsForSkills query
+      mockQuery.mockResolvedValueOnce({ rows: [] });
+      const res = await request(app)
+        .put(`/skills/${SKILL_ID}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name: 'Updated', scope: 'container_local' });
+      expect(res.status).toBe(200);
+      // Verify no agent_skills/agents join query was made (guard skipped)
+      const queries = mockQuery.mock.calls.map((c: any) => c[0]);
+      expect(queries.some((q: string) => q.includes('agent_skills'))).toBe(false);
+    });
+
+    // Scope-change audit emission tests
+    describe('audit emissions', () => {
+      let consoleSpy: jest.SpyInstance;
+
+      beforeEach(() => {
+        consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      });
+
+      afterEach(() => {
+        consoleSpy.mockRestore();
+      });
+
+      function getAuditCalls(): any[] {
+        return consoleSpy.mock.calls
+          .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
+          .filter((obj: any) => obj?.type === 'audit');
+      }
+
+      it('blocked scope change emits skill_scope_change_blocked audit', async () => {
+        mockQuery
+          .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] })
+          .mockResolvedValueOnce({ rows: [{ id: AGENT_UUID, agent_id: 'my-agent' }] }); // running agent
+        await request(app)
+          .put(`/skills/${SKILL_ID}`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ scope: 'host_docker' });
+
+        const audits = getAuditCalls();
+        expect(audits).toHaveLength(1);
+        expect(audits[0].action).toBe('skill_scope_change_blocked');
+        expect(audits[0].old_scope).toBe('container_local');
+        expect(audits[0].new_scope).toBe('host_docker');
+        expect(audits[0].reason).toBe('running_agents');
+      });
+
+      it('allowed scope change emits skill_scope_change audit', async () => {
+        mockQuery
+          .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'host_docker' }] }) // existing (elevated)
+          .mockResolvedValueOnce({ rows: [] }) // no running agents
+          .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] }); // UPDATE returns
+        mockQuery.mockResolvedValueOnce({ rows: [] }); // fetchToolsForSkills
+        await request(app)
+          .put(`/skills/${SKILL_ID}`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ scope: 'container_local' });
+
+        const audits = getAuditCalls();
+        expect(audits).toHaveLength(1);
+        expect(audits[0].action).toBe('skill_scope_change');
+        expect(audits[0].old_scope).toBe('host_docker');
+        expect(audits[0].new_scope).toBe('container_local');
+      });
+
+      it('escalation blocked emits skill_scope_change_blocked with escalation reason', async () => {
+        mockQuery
+          .mockResolvedValueOnce({ rows: [{ id: SKILL_ID, scope: 'container_local' }] })
+          .mockResolvedValueOnce({ rows: [] })  // no running agents
+          .mockResolvedValueOnce({ rows: [{ count: 2 }] }); // 2 assigned agents
+        await request(app)
+          .put(`/skills/${SKILL_ID}`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .send({ scope: 'host_docker' });
+
+        const audits = getAuditCalls();
+        expect(audits).toHaveLength(1);
+        expect(audits[0].action).toBe('skill_scope_change_blocked');
+        expect(audits[0].reason).toBe('escalation_with_assignments');
+        expect(audits[0].assigned_count).toBe(2);
+      });
+    });
+  });
 });

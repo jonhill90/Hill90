@@ -971,6 +971,125 @@ describe('Chat callback', () => {
     const params = mockQuery.mock.calls[0][1];
     expect(params[2]).toBe('error');
   });
+
+  // T13: Callback elevated-agent response emits audit tag
+  it('POST /internal/chat/callback tags elevated-agent response', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockQuery
+        .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+        .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+        .mockResolvedValueOnce({ rows: [{ author_id: 'agent-uuid-1' }] }) // SELECT author_id
+        .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] }); // getAgentElevatedScope
+
+      const res = await request(app)
+        .post('/internal/chat/callback')
+        .set('Authorization', 'Bearer test-callback-secret')
+        .send({
+          message_id: 'msg-uuid',
+          content: 'Agent response',
+          status: 'complete',
+        });
+      expect(res.status).toBe(200);
+
+      const audits = consoleSpy.mock.calls
+        .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
+        .filter((obj: any) => obj?.type === 'audit');
+      expect(audits).toHaveLength(1);
+      expect(audits[0].action).toBe('elevated_agent_response');
+      expect(audits[0].skill_scope).toBe('host_docker');
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+});
+
+// ── Chat audit logging ──
+
+describe('Chat audit logging', () => {
+  let consoleSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+    process.env.CHAT_CALLBACK_TOKEN = 'test-callback-secret';
+    consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.CHAT_CALLBACK_TOKEN;
+    consoleSpy.mockRestore();
+  });
+
+  function getAuditCalls(): any[] {
+    return consoleSpy.mock.calls
+      .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
+      .filter((obj: any) => obj?.type === 'audit');
+  }
+
+  // T7a: POST /chat/threads elevated deny emits audit
+  it('POST /chat/threads elevated deny emits audit', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-uuid', agent_id: 'test-agent', name: 'Test', status: 'running', work_token: 'wt', models: [] }],
+      })
+      .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] }); // elevated
+
+    const res = await request(app)
+      .post('/chat/threads')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'agent-uuid', message: 'Hello' });
+    expect(res.status).toBe(403);
+
+    const audits = getAuditCalls();
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe('chat_elevated_denied');
+    expect(audits[0].endpoint).toBe('POST /chat/threads');
+    expect(audits[0].skill_scope).toBe('host_docker');
+  });
+
+  // T7b: POST /chat/threads/:id/messages elevated deny emits audit
+  it('POST /chat/threads/:id/messages elevated deny emits audit', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-uuid' }] })  // getThreadAgents
+      .mockResolvedValueOnce({
+        rows: [{ id: 'agent-uuid', agent_id: 'elevated-agent', name: 'Elevated', status: 'running', work_token: 'wt', models: [] }],
+      })  // getAgentForDispatch
+      .mockResolvedValueOnce({ rows: [{ scope: 'vps_system' }] }); // getAgentElevatedScope
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello elevated' });
+    expect(res.status).toBe(403);
+
+    const audits = getAuditCalls();
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe('chat_elevated_denied');
+    expect(audits[0].endpoint).toBe('POST /chat/threads/:id/messages');
+  });
+
+  // T7c: PUT /chat/threads/:id/participants elevated deny emits audit
+  it('PUT /chat/threads/:id/participants elevated deny emits audit', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isThreadOwner
+      .mockResolvedValueOnce({ rows: [{ participant_id: 'existing-agent' }] })  // getThreadAgents (current count)
+      .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] });  // getAgentElevatedScope
+
+    const res = await request(app)
+      .put('/chat/threads/thread-1/participants')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ add: ['new-elevated-agent'] });
+    expect(res.status).toBe(403);
+
+    const audits = getAuditCalls();
+    expect(audits).toHaveLength(1);
+    expect(audits[0].action).toBe('chat_elevated_denied');
+    expect(audits[0].endpoint).toBe('PUT /chat/threads/:id/participants');
+  });
 });
 
 // ── Stale sweeper ──
