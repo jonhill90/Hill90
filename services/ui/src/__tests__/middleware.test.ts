@@ -45,13 +45,37 @@ describe('middleware', () => {
   })
 
   it('passes through when req.auth is present', () => {
-    mockSession = { user: { name: 'Test' } }
+    mockSession = { user: { name: 'Test' }, accessToken: 'at-123' }
     const req = makeRequest('/dashboard')
 
     const result = middleware(req as any)
 
     // When auth is present, handler returns undefined (no redirect)
     expect(result).toBeUndefined()
+  })
+
+  it('redirects when req.auth has RefreshAccessTokenError', () => {
+    mockSession = { user: { name: 'Test' }, error: 'RefreshAccessTokenError', accessToken: undefined }
+    const req = makeRequest('/dashboard')
+
+    const result = middleware(req as any)
+
+    expect(NextResponse.redirect).toHaveBeenCalledWith(
+      new URL('/api/auth/signin', 'https://hill90.com/dashboard')
+    )
+    expect(result).toBeDefined()
+  })
+
+  it('redirects when req.auth has no accessToken', () => {
+    mockSession = { user: { name: 'Test' }, accessToken: undefined }
+    const req = makeRequest('/dashboard')
+
+    const result = middleware(req as any)
+
+    expect(NextResponse.redirect).toHaveBeenCalledWith(
+      new URL('/api/auth/signin', 'https://hill90.com/dashboard')
+    )
+    expect(result).toBeDefined()
   })
 
   it('redirects to /api/auth/signin for /profile when unauthenticated', () => {
@@ -79,7 +103,7 @@ describe('middleware', () => {
   })
 
   it('passes through /profile when authenticated', () => {
-    mockSession = { user: { name: 'Test' } }
+    mockSession = { user: { name: 'Test' }, accessToken: 'at-123' }
     const req = makeRequest('/profile')
 
     const result = middleware(req as any)
@@ -88,7 +112,7 @@ describe('middleware', () => {
   })
 
   it('passes through /settings when authenticated', () => {
-    mockSession = { user: { name: 'Test' } }
+    mockSession = { user: { name: 'Test' }, accessToken: 'at-123' }
     const req = makeRequest('/settings')
 
     const result = middleware(req as any)
@@ -109,7 +133,7 @@ describe('middleware', () => {
   })
 
   it('passes through /docs/api when authenticated', () => {
-    mockSession = { user: { name: 'Test' } }
+    mockSession = { user: { name: 'Test' }, accessToken: 'at-123' }
     const req = makeRequest('/docs/api')
 
     const result = middleware(req as any)
