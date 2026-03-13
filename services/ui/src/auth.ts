@@ -26,7 +26,14 @@ async function refreshAccessToken(token: JWT): Promise<JWT> {
   )
 
   if (!response.ok) {
-    return { ...token, error: "RefreshAccessTokenError" }
+    return {
+      ...token,
+      accessToken: undefined,
+      idToken: undefined,
+      refreshToken: undefined,
+      accessTokenExpires: undefined,
+      error: "RefreshAccessTokenError",
+    }
   }
 
   const refreshed = await response.json()
@@ -87,9 +94,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return refreshAccessToken(token)
     },
     async session({ session, token }) {
-      session.accessToken = token.accessToken
-      session.idToken = token.idToken
       session.error = token.error
+      if (token.error === "RefreshAccessTokenError") {
+        session.accessToken = undefined
+        session.idToken = undefined
+      } else {
+        session.accessToken = token.accessToken
+        session.idToken = token.idToken
+      }
       if (session.user) {
         session.user.roles = token.roles
       }
