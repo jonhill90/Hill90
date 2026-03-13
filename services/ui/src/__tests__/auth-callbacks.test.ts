@@ -123,6 +123,10 @@ describe('jwt callback', () => {
     const result = await jwtCallback({ token, account: undefined })
 
     expect(result.error).toBe('RefreshAccessTokenError')
+    expect(result.accessToken).toBeUndefined()
+    expect(result.refreshToken).toBeUndefined()
+    expect(result.idToken).toBeUndefined()
+    expect(result.accessTokenExpires).toBeUndefined()
 
     vi.unstubAllGlobals()
   })
@@ -162,5 +166,24 @@ describe('session callback', () => {
     const result = await sessionCallback({ session, token })
 
     expect(result.idToken).toBe('id-token-value')
+  })
+
+  it('clears session tokens when refresh failed', async () => {
+    const token = {
+      accessToken: 'stale-at',
+      idToken: 'stale-id',
+      roles: ['user'],
+      error: 'RefreshAccessTokenError',
+    }
+    const session = {
+      user: { name: 'Test', email: 'test@test.com' },
+      expires: '2099-01-01',
+    }
+
+    const result = await sessionCallback({ session, token })
+
+    expect(result.accessToken).toBeUndefined()
+    expect(result.idToken).toBeUndefined()
+    expect(result.error).toBe('RefreshAccessTokenError')
   })
 })
