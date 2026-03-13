@@ -3,6 +3,8 @@ import { Router, Request, Response } from 'express';
 import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
 import { scopeToOwner } from '../helpers/scope';
+import { ELEVATED_SCOPES, isAdmin } from '../helpers/elevated-scope';
+import { auditLog } from '../helpers/audit';
 import { writeAgentFiles, removeAgentFiles } from '../services/agent-files';
 import { mergeToolsConfigs, DEFAULT_TOOLS_CONFIG } from '../services/merge-tools-config';
 import { ensureRequiredToolsInstalled, reconcileToolInstalls } from '../services/tool-installer';
@@ -28,17 +30,6 @@ import {
 import { revokeAgentModelRouterToken } from '../services/model-router-revoke';
 
 const router = Router();
-
-function auditLog(action: string, agentId: string, userSub: string, extra?: Record<string, unknown>) {
-  console.log(JSON.stringify({
-    type: 'audit',
-    action,
-    agent_id: agentId,
-    user_sub: userSub,
-    timestamp: new Date().toISOString(),
-    ...extra,
-  }));
-}
 
 function dbHealthCheck(_req: Request, res: Response, next: () => void) {
   if (!process.env.DATABASE_URL) {
@@ -243,6 +234,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       }
       if (skillRows.some((s: any) => ELEVATED_SCOPES.includes(s.scope)) && !isAdmin(req)) {
         const elevatedScope = skillRows.find((s: any) => ELEVATED_SCOPES.includes(s.scope))!.scope;
+        auditLog('skill_assign_denied', agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'POST /agents' });
         res.status(403).json({ error: `Assigning ${elevatedScope} skills requires admin role` });
         return;
       }
@@ -493,6 +485,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         }
         if (skillRows.some((s: any) => ELEVATED_SCOPES.includes(s.scope)) && !isAdmin(req)) {
           const elevatedScope = skillRows.find((s: any) => ELEVATED_SCOPES.includes(s.scope))!.scope;
+          auditLog('skill_assign_denied', existing[0].agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'PUT /agents/:id' });
           res.status(403).json({ error: `Assigning ${elevatedScope} skills requires admin role` });
           return;
         }
@@ -512,6 +505,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
           .filter((cs: any) => !skill_ids.includes(cs.skill_id))
           .filter((cs: any) => ELEVATED_SCOPES.includes(cs.scope));
         if (removedIds.length > 0) {
+          auditLog('skill_remove_denied', existing[0].agent_id, user.sub, { skill_scope: removedIds[0].scope, endpoint: 'PUT /agents/:id' });
           res.status(403).json({ error: `Cannot remove ${removedIds[0].scope} skills without admin role` });
           return;
         }
@@ -1259,14 +1253,6 @@ router.get('/:id/logs', requireRole('admin'), async (req: Request, res: Response
 // Skill assignment (user role, RBAC on scope)
 // ---------------------------------------------------------------------------
 
-const ELEVATED_SCOPES = ['host_docker', 'vps_system'];
-
-function isAdmin(req: Request): boolean {
-  const user = (req as any).user;
-  const roles: string[] = user?.realm_roles || [];
-  return roles.includes('admin');
-}
-
 // Assign skill to agent
 router.post('/:id/skills', requireRole('user'), async (req: Request, res: Response) => {
   try {
@@ -1306,6 +1292,7 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
 
     const skillScope = skillRows[0].scope;
     if (ELEVATED_SCOPES.includes(skillScope) && !isAdmin(req)) {
+      auditLog('skill_assign_denied', req.params.id, user.sub, { skill_id, skill_scope: skillScope, endpoint: 'POST /agents/:id/skills' });
       res.status(403).json({ error: `Assigning ${skillScope} skills requires admin role` });
       return;
     }
@@ -1342,6 +1329,7 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
       [JSON.stringify(mergedConfig), req.params.id]
     );
 
+    auditLog('skill_assign', req.params.id, user.sub, { skill_id, skill_scope: skillScope, endpoint: 'POST /agents/:id/skills' });
     res.status(201).json(assignmentRow);
   } catch (err: any) {
     console.error('[agents] Assign skill error:', err);
@@ -1380,6 +1368,8 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
 
     const skillScope = skillRows[0].scope;
     if (ELEVATED_SCOPES.includes(skillScope) && !isAdmin(req)) {
+      const user = (req as any).user;
+      auditLog('skill_remove_denied', req.params.id, user.sub, { skill_id: req.params.skillId, skill_scope: skillScope, endpoint: 'DELETE /agents/:id/skills/:skillId' });
       res.status(403).json({ error: `Removing ${skillScope} skills requires admin role` });
       return;
     }
@@ -1410,6 +1400,8 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
       [JSON.stringify(removeMerged), req.params.id]
     );
 
+    const user = (req as any).user;
+    auditLog('skill_remove', req.params.id, user.sub, { skill_id: req.params.skillId, skill_scope: skillScope, endpoint: 'DELETE /agents/:id/skills/:skillId' });
     res.json({ removed: true });
   } catch (err) {
     console.error('[agents] Remove skill error:', err);

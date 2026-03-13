@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
+import { isAdmin, isElevatedScope } from '../helpers/elevated-scope';
+import { auditLog } from '../helpers/audit';
 
 const router = Router();
 
@@ -23,12 +25,6 @@ function dbHealthCheck(_req: Request, res: Response, next: () => void) {
 }
 
 router.use(dbHealthCheck);
-
-function isAdmin(req: Request): boolean {
-  const user = (req as any).user;
-  const roles: string[] = user?.realm_roles || [];
-  return roles.includes('admin');
-}
 
 // Helper: fetch tools for a set of skill IDs via skill_tools join
 async function fetchToolsForSkills(skillIds: string[]): Promise<Record<string, any[]>> {
@@ -171,7 +167,7 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
 router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => {
   try {
     const { rows: existing } = await getPool().query(
-      'SELECT id FROM skills WHERE id = $1',
+      'SELECT id, scope FROM skills WHERE id = $1',
       [req.params.id]
     );
     if (existing.length === 0) {
@@ -189,6 +185,52 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
     if (tool_ids !== undefined && (!Array.isArray(tool_ids) || !tool_ids.every((id: unknown) => typeof id === 'string'))) {
       res.status(400).json({ error: 'tool_ids must be an array of UUIDs' });
       return;
+    }
+
+    // Scope-Change Safety Contract (D2, D3, D8):
+    // No elevated scope transition while tools_config is live in a running container.
+    const oldScope = existing[0].scope;
+    const newScope = scope || oldScope;
+    if (oldScope !== newScope && (isElevatedScope(oldScope) || isElevatedScope(newScope))) {
+      // Check for running agents assigned to this skill
+      const { rows: runningAgents } = await getPool().query(
+        `SELECT a.id, a.agent_id FROM agent_skills asks
+         JOIN agents a ON a.id = asks.agent_id
+         WHERE asks.skill_id = $1 AND a.status = 'running'`,
+        [req.params.id]
+      );
+      if (runningAgents.length > 0) {
+        const user = (req as any).user;
+        auditLog('skill_scope_change_blocked', req.params.id, user.sub, {
+          old_scope: oldScope, new_scope: newScope, reason: 'running_agents',
+          running_agents: runningAgents.map((a: any) => a.agent_id),
+        });
+        res.status(409).json({
+          error: 'Cannot change scope while running agents are assigned. Stop the agent(s) first.',
+          running_agents: runningAgents.map((a: any) => ({ id: a.id, agent_id: a.agent_id })),
+        });
+        return;
+      }
+
+      // Escalation (to elevated) blocked when any agents assigned (D3)
+      if (isElevatedScope(newScope)) {
+        const { rows: countRows } = await getPool().query(
+          `SELECT COUNT(*)::int AS count FROM agent_skills WHERE skill_id = $1`,
+          [req.params.id]
+        );
+        if (countRows[0].count > 0) {
+          const user = (req as any).user;
+          auditLog('skill_scope_change_blocked', req.params.id, user.sub, {
+            old_scope: oldScope, new_scope: newScope, reason: 'escalation_with_assignments',
+            assigned_count: countRows[0].count,
+          });
+          res.status(409).json({
+            error: 'Cannot escalate scope while agents are assigned. Remove assignments first.',
+            assigned_count: countRows[0].count,
+          });
+          return;
+        }
+      }
     }
 
     const { rows } = await getPool().query(
@@ -210,6 +252,12 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
         req.params.id,
       ]
     );
+
+    // Audit scope change if scope actually changed
+    if (oldScope !== newScope) {
+      const user = (req as any).user;
+      auditLog('skill_scope_change', req.params.id, user.sub, { old_scope: oldScope, new_scope: newScope });
+    }
 
     // Update skill_tools if provided
     if (tool_ids !== undefined) {
