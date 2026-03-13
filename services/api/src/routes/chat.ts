@@ -22,6 +22,7 @@ import crypto from 'crypto';
 import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
 import { isAdmin, getAgentElevatedScope } from '../helpers/elevated-scope';
+import { auditLog } from '../helpers/audit';
 import { dispatchChatWork } from '../services/chat-dispatch';
 import { execInContainer } from '../services/docker';
 
@@ -292,6 +293,7 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
     for (const agent of agents) {
       const elevatedScope = await getAgentElevatedScope(agent!.id);
       if (elevatedScope && !admin) {
+        auditLog('chat_elevated_denied', agent!.agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'POST /chat/threads' });
         res.status(403).json({
           error: `Elevated agent ${agent!.name || agent!.agent_id} (${elevatedScope}) requires admin privileges`,
         });
@@ -606,6 +608,7 @@ router.put('/threads/:id/participants', requireRole('user'), async (req: Request
       for (const agentUuid of add) {
         const elevatedScope = await getAgentElevatedScope(agentUuid);
         if (elevatedScope && !admin) {
+          auditLog('chat_elevated_denied', agentUuid, user.sub, { skill_scope: elevatedScope, endpoint: 'PUT /chat/threads/:id/participants' });
           res.status(403).json({
             error: `Elevated agent ${agentUuid} (${elevatedScope}) requires admin privileges`,
           });
@@ -735,6 +738,7 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
     for (const agent of targetAgents) {
       const elevatedScope = await getAgentElevatedScope(agent.id);
       if (elevatedScope && !admin) {
+        auditLog('chat_elevated_denied', agent.agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'POST /chat/threads/:id/messages' });
         res.status(403).json({
           error: `Elevated agent ${agent.name || agent.agent_id} (${elevatedScope}) requires admin privileges`,
         });
@@ -1247,6 +1251,22 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
      WHERE id = (SELECT thread_id FROM chat_messages WHERE id = $1)`,
     [message_id]
   );
+
+  // Elevated-agent response tagging (D6): informational audit only
+  try {
+    const { rows: msgRows } = await pool.query(
+      `SELECT author_id FROM chat_messages WHERE id = $1 AND author_type = 'agent'`,
+      [message_id]
+    );
+    if (msgRows.length > 0) {
+      const elevatedScope = await getAgentElevatedScope(msgRows[0].author_id);
+      if (elevatedScope) {
+        auditLog('elevated_agent_response', msgRows[0].author_id, 'service', { message_id, skill_scope: elevatedScope, status: finalStatus });
+      }
+    }
+  } catch (tagErr) {
+    console.error('[chat-callback] Elevated tagging failed (non-blocking):', tagErr);
+  }
 
   res.json({ updated: true });
 }
