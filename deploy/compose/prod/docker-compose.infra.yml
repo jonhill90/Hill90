@@ -15,14 +15,6 @@ networks:
     driver: bridge
     internal: true
     name: hill90_agent_internal
-  agent_sandbox:
-    driver: bridge
-    internal: true
-    name: hill90_agent_sandbox
-  docker_proxy:
-    driver: bridge
-    internal: true
-    name: hill90_docker_proxy
 
 volumes:
   traefik-certs:

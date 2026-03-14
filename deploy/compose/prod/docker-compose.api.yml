@@ -14,10 +14,12 @@ networks:
     external: true
     name: hill90_agent_internal
   agent_sandbox:
-    external: true
+    driver: bridge
+    internal: true
     name: hill90_agent_sandbox
   docker_proxy:
-    external: true
+    driver: bridge
+    internal: true
     name: hill90_docker_proxy
 
 services:
