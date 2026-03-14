@@ -293,7 +293,7 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
     for (const agent of agents) {
       const elevatedScope = await getAgentElevatedScope(agent!.id);
       if (elevatedScope && !admin) {
-        auditLog('chat_elevated_denied', agent!.agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'POST /chat/threads' });
+        auditLog('chat_elevated_denied', agent!.agent_id, user.sub, 'human', { skill_scope: elevatedScope, endpoint: 'POST /chat/threads' });
         res.status(403).json({
           error: `Elevated agent ${agent!.name || agent!.agent_id} (${elevatedScope}) requires admin privileges`,
         });
@@ -608,7 +608,7 @@ router.put('/threads/:id/participants', requireRole('user'), async (req: Request
       for (const agentUuid of add) {
         const elevatedScope = await getAgentElevatedScope(agentUuid);
         if (elevatedScope && !admin) {
-          auditLog('chat_elevated_denied', agentUuid, user.sub, { skill_scope: elevatedScope, endpoint: 'PUT /chat/threads/:id/participants' });
+          auditLog('chat_elevated_denied', agentUuid, user.sub, 'human', { skill_scope: elevatedScope, endpoint: 'PUT /chat/threads/:id/participants' });
           res.status(403).json({
             error: `Elevated agent ${agentUuid} (${elevatedScope}) requires admin privileges`,
           });
@@ -738,7 +738,7 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
     for (const agent of targetAgents) {
       const elevatedScope = await getAgentElevatedScope(agent.id);
       if (elevatedScope && !admin) {
-        auditLog('chat_elevated_denied', agent.agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'POST /chat/threads/:id/messages' });
+        auditLog('chat_elevated_denied', agent.agent_id, user.sub, 'human', { skill_scope: elevatedScope, endpoint: 'POST /chat/threads/:id/messages' });
         res.status(403).json({
           error: `Elevated agent ${agent.name || agent.agent_id} (${elevatedScope}) requires admin privileges`,
         });
@@ -1261,7 +1261,7 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
     if (msgRows.length > 0) {
       const elevatedScope = await getAgentElevatedScope(msgRows[0].author_id);
       if (elevatedScope) {
-        auditLog('elevated_agent_response', msgRows[0].author_id, 'service', { message_id, skill_scope: elevatedScope, status: finalStatus });
+        auditLog('elevated_agent_response', msgRows[0].author_id, 'service', 'service', { message_id, skill_scope: elevatedScope, status: finalStatus });
       }
     }
   } catch (tagErr) {

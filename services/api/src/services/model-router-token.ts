@@ -40,6 +40,7 @@ export interface ModelRouterTokenResult {
  */
 export async function generateAgentModelRouterToken(
   agentId: string,
+  owner: string,
 ): Promise<ModelRouterTokenResult> {
   const privateKey = getPrivateKey();
   const jti = crypto.randomUUID();
@@ -54,6 +55,7 @@ export async function generateAgentModelRouterToken(
     exp: expiresAt,
     iat: now,
     jti,
+    owner,
   }));
 
   const signingInput = `${header}.${payload}`;

@@ -201,7 +201,7 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
       );
       if (runningAgents.length > 0) {
         const user = (req as any).user;
-        auditLog('skill_scope_change_blocked', req.params.id, user.sub, {
+        auditLog('skill_scope_change_blocked', req.params.id, user.sub, 'human', {
           old_scope: oldScope, new_scope: newScope, reason: 'running_agents',
           running_agents: runningAgents.map((a: any) => a.agent_id),
         });
@@ -220,7 +220,7 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
         );
         if (countRows[0].count > 0) {
           const user = (req as any).user;
-          auditLog('skill_scope_change_blocked', req.params.id, user.sub, {
+          auditLog('skill_scope_change_blocked', req.params.id, user.sub, 'human', {
             old_scope: oldScope, new_scope: newScope, reason: 'escalation_with_assignments',
             assigned_count: countRows[0].count,
           });
@@ -256,7 +256,7 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
     // Audit scope change if scope actually changed
     if (oldScope !== newScope) {
       const user = (req as any).user;
-      auditLog('skill_scope_change', req.params.id, user.sub, { old_scope: oldScope, new_scope: newScope });
+      auditLog('skill_scope_change', req.params.id, user.sub, 'human', { old_scope: oldScope, new_scope: newScope });
     }
 
     // Update skill_tools if provided
