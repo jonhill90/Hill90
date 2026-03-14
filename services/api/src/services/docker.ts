@@ -19,8 +19,22 @@ const docker = createDockerClient();
 const CONTAINER_PREFIX = 'agentbox-';
 const MANAGED_LABEL = 'managed-by';
 const MANAGED_VALUE = 'hill90-api';
-const AGENT_NETWORK = 'hill90_agent_internal';
+export const AGENT_NETWORK = 'hill90_agent_internal';
+export const AGENT_SANDBOX_NETWORK = 'hill90_agent_sandbox';
 const VOLUME_SUFFIXES = ['workspace', 'logs', 'data'];
+
+/**
+ * Map an agent's effective scope to its Docker network.
+ * Deny-by-default: unknown or null scopes get the sandbox network.
+ * If new scopes are added to VALID_SCOPES without updating this function,
+ * they will default to sandbox (safe).
+ */
+export function resolveAgentNetwork(scope: string | null): string {
+  if (scope === 'host_docker' || scope === 'vps_system') {
+    return AGENT_NETWORK;
+  }
+  return AGENT_SANDBOX_NETWORK;
+}
 
 function assertAgentboxName(name: string): void {
   if (!name.startsWith(CONTAINER_PREFIX)) {
@@ -52,6 +66,7 @@ export interface CreateAgentContainerOpts {
   memLimit: string;
   pidsLimit: number;
   env?: string[];
+  network?: string;
 }
 
 export async function createAndStartContainer(opts: CreateAgentContainerOpts): Promise<string> {
@@ -108,7 +123,7 @@ export async function createAndStartContainer(opts: CreateAgentContainerOpts): P
       Memory: memoryBytes,
       PidsLimit: opts.pidsLimit,
       RestartPolicy: { Name: 'unless-stopped' },
-      NetworkMode: AGENT_NETWORK,
+      NetworkMode: opts.network || AGENT_SANDBOX_NETWORK,
     },
   });
 

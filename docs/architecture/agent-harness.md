@@ -30,11 +30,13 @@ Agentbox Container       AI Service (FastAPI)      Knowledge Service (FastAPI)
 PostgreSQL (hill90)
 ```
 
-**Network topology**: Three Docker networks isolate traffic.
+**Network topology**: Five Docker networks isolate traffic.
 
 - **`hill90_edge`** — Public-facing. Traefik routes external requests to API, UI, Keycloak, and the MCP gateway path on `ai.hill90.com/mcp`.
 - **`hill90_internal`** — Service mesh. API, AI, Knowledge, Keycloak, PostgreSQL, and LiteLLM communicate here. Not publicly routed.
-- **`hill90_agent_internal`** — Agent isolation. Agentbox containers reach the AI service and Knowledge service but cannot access the edge network or public internet.
+- **`hill90_agent_sandbox`** — Default agent network. Agents with `container_local` or no skill scopes are placed here. Reaches AI and Knowledge services only.
+- **`hill90_agent_internal`** — Elevated agent network. Agents with `host_docker` or `vps_system` skill scopes are placed here. Reaches AI and Knowledge services but not the Docker socket proxy.
+- **`hill90_docker_proxy`** — Docker socket proxy isolation. Only the API service connects — no agent containers can reach this network.
 
 The AI service and Knowledge service both set `traefik.enable=false` — they are internal-only. The `ai.hill90.com` hostname exists for TLS/DNS but only the MCP gateway (`/mcp` path prefix) is publicly routed through it.
 
@@ -152,7 +154,7 @@ Docker enforces resource limits from agent configuration:
 - **Memory**: parsed from suffix (e.g., `1g` → bytes)
 - **PIDs**: max process count (default 200)
 - **Volumes**: three named volumes per agent — `agentbox-{agent_id}-workspace`, `agentbox-{agent_id}-logs`, `agentbox-{agent_id}-data`
-- **Network**: `hill90_agent_internal` only
+- **Network**: `hill90_agent_sandbox` (default) or `hill90_agent_internal` (elevated scopes) — resolved at start from assigned skill scopes
 
 ### Runtime Events
 
@@ -219,9 +221,10 @@ The runtime contract defines what the container provides to **any** process runn
 - `WORK_TOKEN` — Bearer token for `POST /work` endpoint (ephemeral, generated at container start)
 
 **Network:**
-- `hill90_agent_internal` — reaches AI service (:8000) and Knowledge service (:8002)
+- `hill90_agent_sandbox` (default) or `hill90_agent_internal` (elevated scopes) — resolved at start from assigned skill scopes
+- Both networks reach AI service (:8000) and Knowledge service (:8002)
 - No public internet access
-- No access to edge network or other internal services
+- No access to edge network, Docker socket proxy, or other internal services
 
 **Available CLIs:**
 - `bash`, `git`, `curl`, `wget`, `jq`, `openssh-client`, `rsync`, `vim`, `make`, `python3`
@@ -288,7 +291,7 @@ Key columns: `id` (UUID PK), `agent_id` (VARCHAR unique slug), `name`, `descript
    - Read-only config mount at `/etc/agentbox`
    - Named volumes for workspace, logs, data
    - Resource limits from agent config
-   - Network `hill90_agent_internal`
+   - Network `hill90_agent_sandbox` (default) or `hill90_agent_internal` (elevated scopes) — resolved from agent's assigned skill scopes via `getAgentEffectiveScope()` → `resolveAgentNetwork()`
    - Labels: `managed-by=hill90-api`, `traefik.enable=false`
    - Environment: `AGENT_ID`, `AGENT_CONFIG`, `AKM_TOKEN`, `AKM_SERVICE_URL`, `AKM_REFRESH_SECRET`, `MODEL_ROUTER_TOKEN`, `MODEL_ROUTER_URL`, `WORK_TOKEN`
 5. **Update DB** — status=running, container_id set

@@ -13,6 +13,9 @@ networks:
   agent_internal:
     external: true
     name: hill90_agent_internal
+  agent_sandbox:
+    external: true
+    name: hill90_agent_sandbox
 
 volumes:
   akm-data:
@@ -32,6 +35,7 @@ services:
       - edge
       - internal
       - agent_internal
+      - agent_sandbox
     volumes:
       - akm-data:/data/knowledge
       - akm-keys:/etc/akm:ro

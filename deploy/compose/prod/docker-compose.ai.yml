@@ -13,6 +13,9 @@ networks:
   agent_internal:
     external: true
     name: hill90_agent_internal
+  agent_sandbox:
+    external: true
+    name: hill90_agent_sandbox
 
 volumes:
   akm-keys:
@@ -67,6 +70,7 @@ services:
     networks:
       - internal
       - agent_internal
+      - agent_sandbox
     volumes:
       - akm-keys:/etc/akm:ro
     environment:
