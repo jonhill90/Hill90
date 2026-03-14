@@ -67,6 +67,7 @@ export interface CreateAgentContainerOpts {
   pidsLimit: number;
   env?: string[];
   network?: string;
+  image?: string;
 }
 
 export async function createAndStartContainer(opts: CreateAgentContainerOpts): Promise<string> {
@@ -95,7 +96,7 @@ export async function createAndStartContainer(opts: CreateAgentContainerOpts): P
   const memoryBytes = parseMemLimit(opts.memLimit);
 
   const container = await docker.createContainer({
-    Image: 'hill90/agentbox:latest',
+    Image: opts.image || 'hill90/agentbox:latest',
     name: containerName,
     Env: [
       `AGENT_ID=${opts.agentId}`,

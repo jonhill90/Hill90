@@ -13,6 +13,35 @@ describe('Docker service module', () => {
   });
 });
 
+describe('CreateAgentContainerOpts interface', () => {
+  // DS-1: image param accepted by interface
+  it('accepts optional image parameter in opts type', () => {
+    // TypeScript compilation verifies the interface accepts `image`.
+    // This test validates the type is importable and structurally correct.
+    const opts: import('../services/docker').CreateAgentContainerOpts = {
+      agentId: 'test',
+      hostConfigPath: '/data',
+      cpus: '1.0',
+      memLimit: '1g',
+      pidsLimit: 200,
+      image: 'custom:v1',
+    };
+    expect(opts.image).toBe('custom:v1');
+  });
+
+  // DS-2: image param is optional (undefined falls back to default)
+  it('image param is optional (undefined by default)', () => {
+    const opts: import('../services/docker').CreateAgentContainerOpts = {
+      agentId: 'test',
+      hostConfigPath: '/data',
+      cpus: '1.0',
+      memLimit: '1g',
+      pidsLimit: 200,
+    };
+    expect(opts.image).toBeUndefined();
+  });
+});
+
 describe('resolveAgentNetwork', () => {
   const { resolveAgentNetwork, AGENT_NETWORK, AGENT_SANDBOX_NETWORK } = require('../services/docker');
 
