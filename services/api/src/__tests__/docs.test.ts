@@ -160,6 +160,7 @@ const EXPECTED_PATHS = [
   '/user-models/{id}',
   '/usage',
   '/container-profiles',
+  '/container-profiles/{id}',
   '/knowledge/agents',
   '/knowledge/entries',
   '/knowledge/entries/{agentId}/{path}',

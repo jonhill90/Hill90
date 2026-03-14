@@ -149,6 +149,43 @@ components:
           type: string
           format: date-time
 
+    ContainerProfileCreate:
+      type: object
+      required:
+        - name
+        - docker_image
+      properties:
+        name:
+          type: string
+          description: Unique profile name
+        description:
+          type: string
+        docker_image:
+          type: string
+          description: Docker image for agent containers
+        default_cpus:
+          type: string
+        default_mem_limit:
+          type: string
+        default_pids_limit:
+          type: integer
+
+    ContainerProfileUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        docker_image:
+          type: string
+        default_cpus:
+          type: string
+        default_mem_limit:
+          type: string
+        default_pids_limit:
+          type: integer
+
     AgentStatus:
       type: object
       properties:
@@ -2623,6 +2660,112 @@ paths:
           description: Not authenticated
         "403":
           description: Requires user role
+
+    post:
+      summary: Create container profile
+      description: Creates a new container profile. Admin only. API-created profiles always have is_platform=false.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContainerProfileCreate"
+      responses:
+        "201":
+          description: Container profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContainerProfile"
+        "400":
+          description: Missing required fields (name or docker_image)
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "409":
+          description: Duplicate profile name
+
+  /container-profiles/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get container profile
+      description: Returns a single container profile by ID.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Container profile detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContainerProfile"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Container profile not found
+
+    put:
+      summary: Update container profile
+      description: Updates a container profile. Admin only. is_platform cannot be changed via API.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContainerProfileUpdate"
+      responses:
+        "200":
+          description: Container profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContainerProfile"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Container profile not found
+        "409":
+          description: Duplicate profile name
+
+    delete:
+      summary: Delete container profile
+      description: Deletes a container profile. Admin only. Platform profiles cannot be deleted. Profiles assigned to agents cannot be deleted.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Container profile deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role or platform profile is undeletable
+        "404":
+          description: Container profile not found
+        "409":
+          description: Profile is assigned to agents
 
   /tools:
     get:
