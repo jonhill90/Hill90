@@ -35,6 +35,7 @@ def make_jwt(ed25519_keypair):
         exp: int | None = None,
         iat: int | None = None,
         jti: str = "test-jti-001",
+        owner: str | None = None,
     ) -> str:
         now = int(time.time())
         payload = {
@@ -44,6 +45,7 @@ def make_jwt(ed25519_keypair):
             "exp": exp if exp is not None else now + 3600,
             "iat": iat if iat is not None else now,
             "jti": jti,
+            **({"owner": owner} if owner else {}),
         }
         return pyjwt.encode(payload, private_pem, algorithm="EdDSA")
 

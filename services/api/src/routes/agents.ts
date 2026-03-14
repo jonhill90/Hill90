@@ -235,7 +235,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       }
       if (skillRows.some((s: any) => ELEVATED_SCOPES.includes(s.scope)) && !isAdmin(req)) {
         const elevatedScope = skillRows.find((s: any) => ELEVATED_SCOPES.includes(s.scope))!.scope;
-        auditLog('skill_assign_denied', agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'POST /agents' });
+        auditLog('skill_assign_denied', agent_id, user.sub, 'human', { skill_scope: elevatedScope, endpoint: 'POST /agents' });
         res.status(403).json({ error: `Assigning ${elevatedScope} skills requires admin role` });
         return;
       }
@@ -486,7 +486,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         }
         if (skillRows.some((s: any) => ELEVATED_SCOPES.includes(s.scope)) && !isAdmin(req)) {
           const elevatedScope = skillRows.find((s: any) => ELEVATED_SCOPES.includes(s.scope))!.scope;
-          auditLog('skill_assign_denied', existing[0].agent_id, user.sub, { skill_scope: elevatedScope, endpoint: 'PUT /agents/:id' });
+          auditLog('skill_assign_denied', existing[0].agent_id, user.sub, 'human', { skill_scope: elevatedScope, endpoint: 'PUT /agents/:id' });
           res.status(403).json({ error: `Assigning ${elevatedScope} skills requires admin role` });
           return;
         }
@@ -506,7 +506,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
           .filter((cs: any) => !skill_ids.includes(cs.skill_id))
           .filter((cs: any) => ELEVATED_SCOPES.includes(cs.scope));
         if (removedIds.length > 0) {
-          auditLog('skill_remove_denied', existing[0].agent_id, user.sub, { skill_scope: removedIds[0].scope, endpoint: 'PUT /agents/:id' });
+          auditLog('skill_remove_denied', existing[0].agent_id, user.sub, 'human', { skill_scope: removedIds[0].scope, endpoint: 'PUT /agents/:id' });
           res.status(403).json({ error: `Cannot remove ${removedIds[0].scope} skills without admin role` });
           return;
         }
@@ -603,7 +603,7 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
     // Purge volumes if requested
     if (req.query.purge === 'true') {
       await removeAgentVolumes(agent.agent_id);
-      auditLog('purge_volumes', agent.agent_id, user.sub);
+      auditLog('purge_volumes', agent.agent_id, user.sub, 'human');
     }
 
     // Remove config files
@@ -612,7 +612,7 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
     // Delete from DB
     await getPool().query('DELETE FROM agents WHERE id = $1', [req.params.id]);
 
-    auditLog('delete', agent.agent_id, user.sub);
+    auditLog('delete', agent.agent_id, user.sub, 'human');
     res.json({ deleted: true });
   } catch (err) {
     console.error('[agents] Delete error:', err);
@@ -684,7 +684,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     let modelRouterExp: number | null = null;
     if (isModelRouterConfigured()) {
       try {
-        const mrToken = await generateAgentModelRouterToken(agent.agent_id);
+        const mrToken = await generateAgentModelRouterToken(agent.agent_id, agent.created_by);
         modelRouterEnv = getModelRouterEnvVars(mrToken);
         modelRouterJti = mrToken.jti;
         modelRouterExp = mrToken.expiresAt;
@@ -750,7 +750,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       [containerId, workToken, req.params.id]
     );
 
-    auditLog('start', agent.agent_id, user.sub, { container_id: containerId, network, akm_jti: akmJti, model_router_jti: modelRouterJti });
+    auditLog('start', agent.agent_id, user.sub, 'human', { container_id: containerId, network, akm_jti: akmJti, model_router_jti: modelRouterJti });
     res.json({ status: 'running', container_id: containerId });
   } catch (err: any) {
     console.error('[agents] Start error:', err);
@@ -825,7 +825,7 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
       [req.params.id]
     );
 
-    auditLog('stop', agent.agent_id, user.sub);
+    auditLog('stop', agent.agent_id, user.sub, 'human');
     res.json({ status: 'stopped' });
   } catch (err: any) {
     console.error('[agents] Stop error:', err);
@@ -912,7 +912,7 @@ router.post('/:id/reconcile-tools', requireRole('admin'), async (req: Request, r
     }
 
     const result = await reconcileToolInstalls(agent.id, agent.agent_id);
-    auditLog('reconcile_tools', agent.agent_id, user.sub, result);
+    auditLog('reconcile_tools', agent.agent_id, user.sub, 'human', result);
     res.json(result);
   } catch (err: any) {
     console.error('[agents] Reconcile tools error:', err);
@@ -1298,7 +1298,7 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
 
     const skillScope = skillRows[0].scope;
     if (ELEVATED_SCOPES.includes(skillScope) && !isAdmin(req)) {
-      auditLog('skill_assign_denied', req.params.id, user.sub, { skill_id, skill_scope: skillScope, endpoint: 'POST /agents/:id/skills' });
+      auditLog('skill_assign_denied', req.params.id, user.sub, 'human', { skill_id, skill_scope: skillScope, endpoint: 'POST /agents/:id/skills' });
       res.status(403).json({ error: `Assigning ${skillScope} skills requires admin role` });
       return;
     }
@@ -1335,7 +1335,7 @@ router.post('/:id/skills', requireRole('user'), async (req: Request, res: Respon
       [JSON.stringify(mergedConfig), req.params.id]
     );
 
-    auditLog('skill_assign', req.params.id, user.sub, { skill_id, skill_scope: skillScope, endpoint: 'POST /agents/:id/skills' });
+    auditLog('skill_assign', req.params.id, user.sub, 'human', { skill_id, skill_scope: skillScope, endpoint: 'POST /agents/:id/skills' });
     res.status(201).json(assignmentRow);
   } catch (err: any) {
     console.error('[agents] Assign skill error:', err);
@@ -1375,7 +1375,7 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
     const skillScope = skillRows[0].scope;
     if (ELEVATED_SCOPES.includes(skillScope) && !isAdmin(req)) {
       const user = (req as any).user;
-      auditLog('skill_remove_denied', req.params.id, user.sub, { skill_id: req.params.skillId, skill_scope: skillScope, endpoint: 'DELETE /agents/:id/skills/:skillId' });
+      auditLog('skill_remove_denied', req.params.id, user.sub, 'human', { skill_id: req.params.skillId, skill_scope: skillScope, endpoint: 'DELETE /agents/:id/skills/:skillId' });
       res.status(403).json({ error: `Removing ${skillScope} skills requires admin role` });
       return;
     }
@@ -1407,7 +1407,7 @@ router.delete('/:id/skills/:skillId', requireRole('user'), async (req: Request, 
     );
 
     const user = (req as any).user;
-    auditLog('skill_remove', req.params.id, user.sub, { skill_id: req.params.skillId, skill_scope: skillScope, endpoint: 'DELETE /agents/:id/skills/:skillId' });
+    auditLog('skill_remove', req.params.id, user.sub, 'human', { skill_id: req.params.skillId, skill_scope: skillScope, endpoint: 'DELETE /agents/:id/skills/:skillId' });
     res.json({ removed: true });
   } catch (err) {
     console.error('[agents] Remove skill error:', err);

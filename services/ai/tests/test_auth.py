@@ -77,3 +77,51 @@ class TestVerifyModelRouterToken:
         token = pyjwt.encode(payload, private_pem, algorithm="EdDSA")
         with pytest.raises(AuthError):
             verify_model_router_token(token, public_pem)
+
+    def test_valid_token_with_owner_populates_claims(self, ed25519_keypair, make_jwt):
+        """AI-1: Valid token with owner claim populates AgentClaims.owner."""
+        _, public_pem = ed25519_keypair
+        token = make_jwt(owner="user-uuid-123")
+        claims = verify_model_router_token(token, public_pem)
+        assert claims.owner == "user-uuid-123"
+
+    def test_token_without_owner_sets_none(self, ed25519_keypair, make_jwt):
+        """AI-2: Token without owner claim sets AgentClaims.owner to None."""
+        _, public_pem = ed25519_keypair
+        token = make_jwt()
+        claims = verify_model_router_token(token, public_pem)
+        assert claims.owner is None
+
+    def test_rs256_keycloak_token_rejected(self, ed25519_keypair):
+        """AB-4: RS256 Keycloak token rejected by model-router verifier."""
+        import jwt as pyjwt
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding,
+            NoEncryption,
+            PrivateFormat,
+        )
+
+        _, public_pem = ed25519_keypair
+
+        # Generate an RSA key to simulate a Keycloak token
+        rsa_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        rsa_private_pem = rsa_key.private_bytes(
+            Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
+        )
+
+        payload = {
+            "sub": "human-user-id",
+            "iss": "https://auth.hill90.com/realms/hill90",
+            "aud": "hill90-model-router",
+            "exp": int(time.time()) + 3600,
+            "iat": int(time.time()),
+            "jti": "keycloak-jti-001",
+            "realm_roles": ["user", "admin"],
+        }
+        token = pyjwt.encode(
+            payload, rsa_private_pem, algorithm="RS256", headers={"kid": "keycloak-kid-1"}
+        )
+
+        with pytest.raises(AuthError):
+            verify_model_router_token(token, public_pem)

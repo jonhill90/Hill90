@@ -28,6 +28,7 @@ class AgentClaims:
     exp: int
     iat: int
     jti: str
+    owner: str | None = None
     delegation_id: str | None = None
     parent_jti: str | None = None
 
@@ -91,6 +92,7 @@ def verify_model_router_token(
         exp=payload["exp"],
         iat=payload["iat"],
         jti=jti,
+        owner=payload.get("owner"),
         delegation_id=delegation_id,
         parent_jti=parent_jti,
     )
