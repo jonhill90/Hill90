@@ -363,6 +363,178 @@ function wf(id: string, offsetMs: number): AgentEvent {
   return makeEvent({ id, tool: 'runtime', type: 'work_failed' }, offsetMs)
 }
 
+function identity(id: string, offsetMs: number): AgentEvent {
+  return makeEvent({ id, tool: 'identity', type: 'identity_check' }, offsetMs)
+}
+
+function health(id: string, offsetMs: number): AgentEvent {
+  return makeEvent({ id, tool: 'health', type: 'health_check' }, offsetMs)
+}
+
+// ---------------------------------------------------------------------------
+// Runtime filter semantics — RF1-RF10
+// ---------------------------------------------------------------------------
+describe('EventTimeline — Runtime filter semantics', () => {
+  function setupSSEAndSendEvents(events: AgentEvent[]) {
+    let capturedOnMessage: ((msg: MessageEvent) => void) | null = null
+    vi.stubGlobal('EventSource', vi.fn(() => {
+      const instance = {
+        onmessage: null as any,
+        addEventListener: vi.fn(),
+        close: vi.fn(),
+      }
+      setTimeout(() => { capturedOnMessage = instance.onmessage }, 0)
+      return instance
+    }))
+
+    render(<EventTimeline agentId="uuid-1" agentStatus="running" />)
+
+    return waitFor(() => expect(capturedOnMessage).toBeTruthy()).then(() => {
+      for (const e of events) {
+        capturedOnMessage!(new MessageEvent('message', { data: JSON.stringify(e) }))
+      }
+      return capturedOnMessage!
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => cleanup())
+
+  it('RF1: Runtime filter excludes inference events', async () => {
+    await setupSSEAndSendEvents([shell('s1', 0), inf('i1', 100)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+  })
+
+  it('RF2: Runtime filter includes shell events', async () => {
+    await setupSSEAndSendEvents([shell('s1', 0), shell('s2', 100)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+  })
+
+  it('RF3: Runtime filter includes filesystem events', async () => {
+    await setupSSEAndSendEvents([fs('f1', 0), inf('i1', 100)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    // The remaining card should be the filesystem event
+    const card = screen.getByTestId('event-card')
+    expect(card).toHaveTextContent('filesystem')
+  })
+
+  it('RF4: Runtime filter includes work lifecycle events', async () => {
+    await setupSSEAndSendEvents([wr('w1', 0), wc('w2', 100), inf('i1', 200)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+  })
+
+  it('RF5: Runtime filter includes all container tool types', async () => {
+    await setupSSEAndSendEvents([identity('id1', 0), health('h1', 100), inf('i1', 200)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+  })
+
+  it('RF6: Runtime filter deterministic with mixed arrival order', async () => {
+    await setupSSEAndSendEvents([
+      shell('s1', 0), inf('i1', 50), fs('f1', 100), inf('i2', 150), wr('w1', 200),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(5)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+  })
+
+  it('RF7: Runtime then All filter restores all events', async () => {
+    await setupSSEAndSendEvents([shell('s1', 0), inf('i1', 100)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    fireEvent.click(screen.getByText('All'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+  })
+
+  it('RF8: Inference filter unchanged after Runtime fix', async () => {
+    await setupSSEAndSendEvents([shell('s1', 0), fs('f1', 50), inf('i1', 100)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    fireEvent.click(screen.getByText('Inference'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+    })
+    const card = screen.getByTestId('event-card')
+    expect(card).toHaveTextContent('inference')
+  })
+
+  it('RF9: Runtime filter excludes inference in initial backfill payload', async () => {
+    // Send all events at once (simulating initial SSE backfill)
+    await setupSSEAndSendEvents([shell('s1', 0), inf('i1', 50), fs('f1', 100), inf('i2', 150)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(4)
+    })
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+  })
+
+  it('RF10: Runtime filter continues excluding inference on live SSE append', async () => {
+    const onMessage = await setupSSEAndSendEvents([shell('s1', 0), wr('w1', 100)])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    // Set filter to Runtime
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    // Emit a new inference event via live SSE
+    onMessage(new MessageEvent('message', {
+      data: JSON.stringify(inf('i-live', 200)),
+    }))
+    // Should still show 2 cards — inference excluded
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+  })
+})
+
 // ---------------------------------------------------------------------------
 // computeGroups — positive tests (strong signal present → grouped)
 // ---------------------------------------------------------------------------
