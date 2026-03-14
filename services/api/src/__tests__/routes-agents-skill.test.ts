@@ -16,14 +16,20 @@ jest.mock('../db/pool', () => ({
   getPool: () => ({ query: mockQuery }),
 }));
 
-jest.mock('../services/docker', () => ({
-  createAndStartContainer: jest.fn(),
-  stopAndRemoveContainer: jest.fn(),
-  inspectContainer: jest.fn(),
-  getContainerLogs: jest.fn(),
-  removeAgentVolumes: jest.fn(),
-  reconcileAgentStatuses: jest.fn(),
-}));
+jest.mock('../services/docker', () => {
+  const actual = jest.requireActual('../services/docker');
+  return {
+    createAndStartContainer: jest.fn(),
+    stopAndRemoveContainer: jest.fn(),
+    inspectContainer: jest.fn(),
+    getContainerLogs: jest.fn(),
+    removeAgentVolumes: jest.fn(),
+    reconcileAgentStatuses: jest.fn(),
+    resolveAgentNetwork: actual.resolveAgentNetwork,
+    AGENT_NETWORK: actual.AGENT_NETWORK,
+    AGENT_SANDBOX_NETWORK: actual.AGENT_SANDBOX_NETWORK,
+  };
+});
 jest.mock('../services/agent-files', () => ({
   writeAgentFiles: jest.fn(),
   removeAgentFiles: jest.fn(),
