@@ -491,6 +491,180 @@ describe('POST /agents/:id/reconcile-tools', () => {
   });
 });
 
+describe('Agent container profile wiring', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockCreateAndStartContainer.mockReset();
+    mockCreateAndStartContainer.mockResolvedValue('container-id-123');
+    mockEnsureRequiredToolsInstalled.mockReset();
+    mockEnsureRequiredToolsInstalled.mockResolvedValue(undefined);
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+    process.env.AGENTBOX_CONFIG_HOST_PATH = '/opt/hill90/agentbox-configs';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.AGENTBOX_CONFIG_HOST_PATH;
+  });
+
+  // RA-1: POST /agents with valid container_profile_id persists it
+  it('POST /agents with valid container_profile_id persists it', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'profile-uuid' }] }) // SELECT container_profiles (validation)
+      .mockResolvedValueOnce({
+        rows: [{ id: 'uuid-1', agent_id: 'test-agent', name: 'Test', status: 'stopped',
+                 container_profile_id: 'profile-uuid', created_by: 'regular-user' }],
+      }) // INSERT agent
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test', container_profile_id: 'profile-uuid' });
+
+    expect(res.status).toBe(201);
+    // Verify INSERT includes container_profile_id
+    const insertCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('INSERT INTO agents')
+    );
+    expect(insertCall).toBeTruthy();
+    expect(insertCall![0]).toContain('container_profile_id');
+    expect(insertCall![1]).toContain('profile-uuid');
+  });
+
+  // RA-2: POST /agents with nonexistent container_profile_id returns 400
+  it('POST /agents with nonexistent container_profile_id returns 400', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [] }); // SELECT container_profiles (not found)
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test', container_profile_id: 'nonexistent-uuid' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Container profile not found');
+  });
+
+  // RA-3: POST /agents with omitted container_profile_id succeeds
+  it('POST /agents with omitted container_profile_id succeeds', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{ id: 'uuid-1', agent_id: 'test-agent', name: 'Test', status: 'stopped',
+                 container_profile_id: null, created_by: 'regular-user' }],
+      }) // INSERT agent (no profile validation needed)
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
+
+    const res = await request(app)
+      .post('/agents')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ agent_id: 'test-agent', name: 'Test' });
+
+    expect(res.status).toBe(201);
+  });
+
+  // RA-4: PUT /agents/:id updates container_profile_id
+  it('PUT /agents/:id updates container_profile_id', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 'uuid-1', agent_id: 'test', status: 'stopped', created_by: 'regular-user', model_policy_id: null }] }) // SELECT existing agent
+      .mockResolvedValueOnce({ rows: [{ id: 'profile-uuid' }] }) // SELECT container_profiles (validation)
+      .mockResolvedValueOnce({
+        rows: [{ id: 'uuid-1', agent_id: 'test', name: 'Test', status: 'stopped',
+                 container_profile_id: 'profile-uuid', created_by: 'regular-user' }],
+      }) // UPDATE agent
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills for response
+
+    const res = await request(app)
+      .put('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ container_profile_id: 'profile-uuid' });
+
+    expect(res.status).toBe(200);
+    const updateCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('UPDATE agents SET')
+    );
+    expect(updateCall).toBeTruthy();
+    expect(updateCall![0]).toContain('container_profile_id');
+  });
+
+  // RA-5: GET /agents/:id includes container_profile object
+  it('GET /agents/:id includes container_profile object', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test', status: 'stopped',
+          container_profile_id: 'profile-uuid', cp_name: 'standard',
+          cp_docker_image: 'hill90/agentbox:latest',
+          models: [], created_by: 'regular-user',
+          created_at: new Date(), updated_at: new Date(),
+        }],
+      }) // SELECT agent with LEFT JOIN
+      .mockResolvedValueOnce({ rows: [] }); // SELECT skills
+
+    const res = await request(app)
+      .get('/agents/uuid-1')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.container_profile).toEqual({
+      id: 'profile-uuid',
+      name: 'standard',
+      docker_image: 'hill90/agentbox:latest',
+    });
+    // Raw columns should be cleaned up
+    expect(res.body.cp_name).toBeUndefined();
+    expect(res.body.cp_docker_image).toBeUndefined();
+  });
+
+  // RA-6: Agent start with valid profile resolves profile image
+  it('Agent start with valid profile resolves profile image', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+          container_profile_id: 'profile-uuid',
+        }],
+      }) // SELECT agent
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
+      .mockResolvedValueOnce({ rows: [{ docker_image: 'custom-runtime:v2' }] }) // SELECT container_profiles (profile resolution)
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    expect(callArgs.image).toBe('custom-runtime:v2');
+  });
+
+  // RA-7: Agent start with null profile falls back to default image
+  it('Agent start with null profile falls back to default image', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+          container_profile_id: null,
+        }],
+      }) // SELECT agent
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    expect(callArgs.image).toBeUndefined();
+  });
+});
+
 describe('Agent start — network resolution (S1-S4)', () => {
   beforeEach(() => {
     mockQuery.mockReset();

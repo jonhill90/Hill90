@@ -7,6 +7,7 @@ import sharedKnowledgeRouter from './routes/shared-knowledge';
 import modelPoliciesRouter from './routes/model-policies';
 import skillsRouter from './routes/skills';
 import toolsRouter from './routes/tools';
+import containerProfilesRouter from './routes/container-profiles';
 import providerConnectionsRouter from './routes/provider-connections';
 import userModelsRouter from './routes/user-models';
 import profileRouter from './routes/profile';
@@ -59,6 +60,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Tools catalog routes (admin-only mutations, enforced in router)
   app.use('/tools', requireAuth, toolsRouter);
+
+  // Container profiles (read-only list, user role)
+  app.use('/container-profiles', requireAuth, containerProfilesRouter);
 
   // Provider connections (user-scoped BYOK credentials)
   app.use('/provider-connections', requireAuth, providerConnectionsRouter);
