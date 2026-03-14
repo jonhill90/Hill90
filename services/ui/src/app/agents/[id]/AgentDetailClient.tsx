@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
@@ -83,6 +83,14 @@ export default function AgentDetailClient({
   const [knowledge, setKnowledge] = useState<any[]>([])
   const [knowledgeLoading, setKnowledgeLoading] = useState(false)
   const [knowledgeFetched, setKnowledgeFetched] = useState(false)
+
+  // Knowledge tab sub-views
+  const [knowledgeSearch, setKnowledgeSearch] = useState('')
+  const [knowledgeSearchResults, setKnowledgeSearchResults] = useState<any[] | null>(null)
+  const [knowledgeSearchLoading, setKnowledgeSearchLoading] = useState(false)
+  const [selectedEntry, setSelectedEntry] = useState<any | null>(null)
+  const [selectedEntryContent, setSelectedEntryContent] = useState<string | null>(null)
+  const [selectedEntryLoading, setSelectedEntryLoading] = useState(false)
 
   // Logs
   const [logs, setLogs] = useState('')
@@ -764,46 +772,165 @@ export default function AgentDetailClient({
 
       {activeTab === 'knowledge' && (
         <div className="space-y-6">
-          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold text-white">Knowledge Entries</h2>
-              <Link
-                href="/harness/knowledge"
-                className="text-sm text-brand-400 hover:text-brand-300 transition-colors"
-              >
-                Browse in Harness
-              </Link>
+          {selectedEntry ? (
+            /* Entry detail view */
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <div className="mb-3">
+                <button
+                  onClick={() => { setSelectedEntry(null); setSelectedEntryContent(null) }}
+                  className="text-sm text-brand-400 hover:text-brand-300 transition-colors cursor-pointer"
+                >
+                  Back to list
+                </button>
+              </div>
+              <div className="mb-3">
+                <h2 className="text-lg font-semibold text-white">{selectedEntry.title || selectedEntry.path}</h2>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-xs font-mono text-mountain-400">{selectedEntry.path}</span>
+                  <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-900 text-mountain-300 border border-navy-600">
+                    {selectedEntry.entry_type}
+                  </span>
+                </div>
+              </div>
+              {selectedEntryLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                </div>
+              ) : selectedEntryContent !== null ? (
+                <pre className="text-sm text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-4 max-h-96 overflow-auto">
+                  {selectedEntryContent}
+                </pre>
+              ) : (
+                <p className="text-sm text-mountain-500">Failed to load entry content</p>
+              )}
             </div>
-            {knowledgeLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+          ) : (
+            /* List / search view */
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <div className="mb-3">
+                <h2 className="text-lg font-semibold text-white">Knowledge Entries</h2>
               </div>
-            ) : knowledge.length > 0 ? (
-              <div className="space-y-2">
-                <p className="text-sm text-mountain-400 mb-3">{knowledge.length} entries</p>
-                {knowledge.slice(0, 10).map((entry: any) => (
-                  <div key={entry.id} className="rounded-md border border-navy-700 bg-navy-900 p-3">
-                    <pre className="text-xs text-mountain-300 whitespace-pre-wrap line-clamp-3">
-                      {entry.content}
-                    </pre>
-                    <p className="text-xs text-mountain-500 mt-1">
-                      {new Date(entry.created_at).toLocaleString()}
-                    </p>
-                  </div>
-                ))}
-                {knowledge.length > 10 && (
-                  <p className="text-xs text-mountain-500">
-                    Showing 10 of {knowledge.length} entries.{' '}
-                    <Link href="/harness/knowledge" className="text-brand-400 hover:text-brand-300">
-                      View all
-                    </Link>
-                  </p>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-mountain-500">No knowledge entries</p>
-            )}
-          </div>
+
+              {/* Search input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (!knowledgeSearch.trim() || !agent) return
+                  setKnowledgeSearchLoading(true)
+                  fetch(`/api/knowledge/search?q=${encodeURIComponent(knowledgeSearch.trim())}&agent_id=${agent.agent_id}`)
+                    .then((res) => (res.ok ? res.json() : null))
+                    .then((data) => {
+                      if (data && data.results) setKnowledgeSearchResults(data.results)
+                      else setKnowledgeSearchResults([])
+                    })
+                    .catch(() => setKnowledgeSearchResults([]))
+                    .finally(() => setKnowledgeSearchLoading(false))
+                }}
+                className="flex gap-2 mb-4"
+              >
+                <input
+                  type="text"
+                  value={knowledgeSearch}
+                  onChange={(e) => {
+                    setKnowledgeSearch(e.target.value)
+                    if (!e.target.value.trim()) setKnowledgeSearchResults(null)
+                  }}
+                  placeholder="Search knowledge entries..."
+                  className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:outline-none focus:border-brand-500"
+                />
+                <button
+                  type="submit"
+                  disabled={knowledgeSearchLoading || !knowledgeSearch.trim()}
+                  className="px-4 py-2 text-sm font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  Search
+                </button>
+              </form>
+
+              {knowledgeSearchResults !== null ? (
+                /* Search results view */
+                <div>
+                  {knowledgeSearchLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                    </div>
+                  ) : knowledgeSearchResults.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-mountain-400 mb-2">{knowledgeSearchResults.length} results</p>
+                      {knowledgeSearchResults.map((result: any) => (
+                        <button
+                          key={result.id || result.path}
+                          onClick={() => {
+                            setSelectedEntry(result)
+                            setSelectedEntryLoading(true)
+                            fetch(`/api/knowledge/entries/${agent.agent_id}/${result.path}`)
+                              .then((res) => (res.ok ? res.json() : null))
+                              .then((data) => { if (data) setSelectedEntryContent(data.content ?? null) })
+                              .catch(() => setSelectedEntryContent(null))
+                              .finally(() => setSelectedEntryLoading(false))
+                          }}
+                          className="w-full text-left rounded-md border border-navy-700 bg-navy-900 p-3 hover:border-navy-500 transition-colors cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-medium text-white">{result.title || result.path}</span>
+                            <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600">
+                              {result.entry_type}
+                            </span>
+                            {result.score != null && (
+                              <span className="text-xs text-mountain-500">score: {Number(result.score).toFixed(2)}</span>
+                            )}
+                          </div>
+                          <p className="text-xs font-mono text-mountain-400 mb-1">{result.path}</p>
+                          {result.headline && (
+                            <p className="text-xs text-mountain-300">{renderHeadline(result.headline)}</p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-mountain-500">No results found</p>
+                  )}
+                </div>
+              ) : knowledgeLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                </div>
+              ) : knowledge.length > 0 ? (
+                /* Entry list */
+                <div className="space-y-2">
+                  <p className="text-sm text-mountain-400 mb-3">{knowledge.length} entries</p>
+                  {knowledge.map((entry: any) => (
+                    <button
+                      key={entry.id}
+                      onClick={() => {
+                        setSelectedEntry(entry)
+                        setSelectedEntryLoading(true)
+                        fetch(`/api/knowledge/entries/${agent.agent_id}/${entry.path}`)
+                          .then((res) => (res.ok ? res.json() : null))
+                          .then((data) => { if (data) setSelectedEntryContent(data.content ?? null) })
+                          .catch(() => setSelectedEntryContent(null))
+                          .finally(() => setSelectedEntryLoading(false))
+                      }}
+                      className="w-full text-left rounded-md border border-navy-700 bg-navy-900 p-3 hover:border-navy-500 transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium text-white">{entry.title || entry.path}</span>
+                        <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600">
+                          {entry.entry_type}
+                        </span>
+                      </div>
+                      <p className="text-xs font-mono text-mountain-400">{entry.path}</p>
+                      <p className="text-xs text-mountain-500 mt-1">
+                        {new Date(entry.created_at).toLocaleString()}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-mountain-500">No knowledge entries</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -876,6 +1003,15 @@ export default function AgentDetailClient({
         </div>
       )}
     </>
+  )
+}
+
+function renderHeadline(text: string): React.ReactNode {
+  const parts = text.split('**')
+  return parts.map((part, i) =>
+    i % 2 === 1
+      ? React.createElement('strong', { key: i, className: 'text-white' }, part)
+      : part
   )
 }
 
