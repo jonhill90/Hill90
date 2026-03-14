@@ -237,6 +237,84 @@ describe('Knowledge proxy routes — read entry', () => {
   });
 });
 
+describe('Knowledge proxy routes — response-field contracts', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockListEntries.mockReset();
+    mockReadEntry.mockReset();
+    mockSearchEntries.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('entry list response contains path, title, entry_type fields', async () => {
+    mockListEntries.mockResolvedValueOnce({
+      status: 200,
+      data: [
+        { id: '1', agent_id: 'my-agent', path: 'notes/test.md', title: 'Test Note', entry_type: 'note', tags: [], status: 'active', sync_status: 'synced', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+      ],
+    });
+
+    const res = await request(app)
+      .get('/knowledge/entries?agent_id=my-agent')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body[0]).toHaveProperty('path', 'notes/test.md');
+    expect(res.body[0]).toHaveProperty('title', 'Test Note');
+    expect(res.body[0]).toHaveProperty('entry_type', 'note');
+  });
+
+  it('entry detail response contains content field', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [{ agent_id: 'my-agent' }] });
+    mockReadEntry.mockResolvedValueOnce({
+      status: 200,
+      data: { id: '1', agent_id: 'my-agent', path: 'notes/test.md', title: 'Test Note', entry_type: 'note', content: '# Test Content', content_hash: 'abc123', tags: [], status: 'active', sync_status: 'synced', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+    });
+
+    const res = await request(app)
+      .get('/knowledge/entries/my-agent/notes/test.md')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('content', '# Test Content');
+  });
+
+  it('search response contains score and headline fields', async () => {
+    mockSearchEntries.mockResolvedValueOnce({
+      status: 200,
+      data: { query: 'test', results: [{ id: '1', agent_id: 'a', path: 'notes/test.md', title: 'Test', entry_type: 'note', tags: [], score: 0.85, headline: 'Some **test** content', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }], count: 1, search_type: 'fts', score_type: 'ts_rank' },
+    });
+
+    const res = await request(app)
+      .get('/knowledge/search?q=test')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.results[0]).toHaveProperty('score', 0.85);
+    expect(res.body.results[0]).toHaveProperty('headline', 'Some **test** content');
+  });
+
+  it('search response envelope has query, count, search_type', async () => {
+    mockSearchEntries.mockResolvedValueOnce({
+      status: 200,
+      data: { query: 'test', results: [], count: 0, search_type: 'fts', score_type: 'ts_rank' },
+    });
+
+    const res = await request(app)
+      .get('/knowledge/search?q=test')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('query', 'test');
+    expect(res.body).toHaveProperty('count', 0);
+    expect(res.body).toHaveProperty('search_type', 'fts');
+  });
+});
+
 describe('Knowledge proxy routes — search', () => {
   beforeEach(() => {
     mockQuery.mockReset();
