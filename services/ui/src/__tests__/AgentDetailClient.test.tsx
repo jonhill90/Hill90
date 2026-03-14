@@ -79,9 +79,19 @@ const MOCK_USAGE = {
 }
 
 const MOCK_KNOWLEDGE_ENTRIES = [
-  { id: '1', agent_id: 'research-bot', content: 'Some knowledge', created_at: '2026-01-10T00:00:00Z' },
-  { id: '2', agent_id: 'research-bot', content: 'More knowledge', created_at: '2026-01-12T00:00:00Z' },
+  { id: '1', agent_id: 'research-bot', path: 'notes/research.md', title: 'Research Notes', entry_type: 'note', tags: [], status: 'active', sync_status: 'synced', created_at: '2026-01-10T00:00:00Z', updated_at: '2026-01-10T00:00:00Z' },
+  { id: '2', agent_id: 'research-bot', path: 'docs/api.md', title: 'API Documentation', entry_type: 'doc', tags: ['api'], status: 'active', sync_status: 'synced', created_at: '2026-01-12T00:00:00Z', updated_at: '2026-01-12T00:00:00Z' },
 ]
+
+const MOCK_KNOWLEDGE_SEARCH_RESULTS = {
+  query: 'test', results: [
+    { id: '1', agent_id: 'research-bot', path: 'notes/research.md', title: 'Research Notes', entry_type: 'note', tags: [], score: 0.85, headline: 'Some **test** content', created_at: '2026-01-10T00:00:00Z', updated_at: '2026-01-10T00:00:00Z' },
+  ], count: 1, search_type: 'fts', score_type: 'ts_rank',
+}
+
+const MOCK_KNOWLEDGE_ENTRY_DETAIL = {
+  id: '1', agent_id: 'research-bot', path: 'notes/research.md', title: 'Research Notes', entry_type: 'note', content: '# Research Notes\n\nFull content here.', content_hash: 'abc123', tags: [], status: 'active', sync_status: 'synced', created_at: '2026-01-10T00:00:00Z', updated_at: '2026-01-10T00:00:00Z',
+}
 
 const ADMIN_SESSION = {
   user: { name: 'Admin', email: 'admin@hill90.com', roles: ['admin'] },
@@ -157,6 +167,12 @@ function mockFetchDefaults(agentOverride?: typeof MOCK_AGENT) {
     }
     if (typeof url === 'string' && url.includes('/api/usage')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USAGE) })
+    }
+    if (typeof url === 'string' && url.includes('/api/knowledge/search')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_KNOWLEDGE_SEARCH_RESULTS) })
+    }
+    if (typeof url === 'string' && /\/api\/knowledge\/entries\/[^/]+\/.+/.test(url)) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_KNOWLEDGE_ENTRY_DETAIL) })
     }
     if (typeof url === 'string' && url.includes('/api/knowledge/entries')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_KNOWLEDGE_ENTRIES) })
@@ -641,6 +657,208 @@ describe('AgentDetailClient', () => {
 
     // Non-admin should NOT see Reconcile button even on running agent
     expect(screen.queryByText('Reconcile')).not.toBeInTheDocument()
+  })
+
+  // U1: Knowledge tab shows entry list with paths
+  it('Knowledge tab shows entry list with paths', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('notes/research.md')).toBeInTheDocument()
+    })
+    expect(screen.getByText('docs/api.md')).toBeInTheDocument()
+    expect(screen.getByText('Research Notes')).toBeInTheDocument()
+    expect(screen.getByText('API Documentation')).toBeInTheDocument()
+  })
+
+  // U2: Knowledge search triggers API call
+  it('Knowledge search triggers API call', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search knowledge entries...')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Search knowledge entries...'), { target: { value: 'test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => {
+      const searchCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/knowledge/search?q=test&agent_id=research-bot')
+      )
+      expect(searchCalls.length).toBeGreaterThan(0)
+    })
+  })
+
+  // U3: Knowledge search results display
+  it('Knowledge search results display with path and headline', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search knowledge entries...')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Search knowledge entries...'), { target: { value: 'test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('1 results')).toBeInTheDocument()
+    })
+    expect(screen.getByText('notes/research.md')).toBeInTheDocument()
+    expect(screen.getByText('score: 0.85')).toBeInTheDocument()
+  })
+
+  // U4: Knowledge entry click loads full content
+  it('Knowledge entry click loads full content', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Research Notes')).toBeInTheDocument()
+    })
+
+    // Click the first entry
+    fireEvent.click(screen.getByText('Research Notes'))
+
+    // Should fetch entry detail
+    await waitFor(() => {
+      const detailCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/knowledge/entries/research-bot/notes/research.md')
+      )
+      expect(detailCalls.length).toBeGreaterThan(0)
+    })
+
+    // Should show full content
+    await waitFor(() => {
+      expect(screen.getByText(/# Research Notes/)).toBeInTheDocument()
+      expect(screen.getByText(/Full content here/)).toBeInTheDocument()
+    })
+  })
+
+  // U5: Knowledge back button returns to list
+  it('Knowledge back button returns to list', async () => {
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Research Notes')).toBeInTheDocument()
+    })
+
+    // Click entry to go to detail view
+    fireEvent.click(screen.getByText('Research Notes'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Back to list')).toBeInTheDocument()
+    })
+
+    // Click back
+    fireEvent.click(screen.getByText('Back to list'))
+
+    // Should be back to list view
+    await waitFor(() => {
+      expect(screen.getByText('Knowledge Entries')).toBeInTheDocument()
+    })
+    expect(screen.getByText('notes/research.md')).toBeInTheDocument()
+  })
+
+  // U6: Knowledge empty state
+  it('Knowledge empty state shows message', async () => {
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === `/api/agents/uuid-1` && (!opts || !opts.method || opts.method === 'GET')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENT) })
+      }
+      if (url === '/api/skills') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_ALL_SKILLS) })
+      }
+      if (typeof url === 'string' && url.includes('/api/agents/uuid-1/tool-installs')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_TOOL_INSTALLS) })
+      }
+      if (typeof url === 'string' && url.includes('/api/knowledge/entries')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('No knowledge entries')).toBeInTheDocument()
+    })
+  })
+
+  // U7: Knowledge search no results
+  it('Knowledge search no results shows message', async () => {
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === `/api/agents/uuid-1` && (!opts || !opts.method || opts.method === 'GET')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENT) })
+      }
+      if (url === '/api/skills') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_ALL_SKILLS) })
+      }
+      if (typeof url === 'string' && url.includes('/api/agents/uuid-1/tool-installs')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_TOOL_INSTALLS) })
+      }
+      if (typeof url === 'string' && url.includes('/api/knowledge/search')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ query: 'nothing', results: [], count: 0, search_type: 'fts', score_type: 'ts_rank' }) })
+      }
+      if (typeof url === 'string' && url.includes('/api/knowledge/entries')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_KNOWLEDGE_ENTRIES) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('ResearchBot')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search knowledge entries...')).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByPlaceholderText('Search knowledge entries...'), { target: { value: 'nothing' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('No results found')).toBeInTheDocument()
+    })
   })
 
 })
