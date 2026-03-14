@@ -101,9 +101,12 @@ Internal service endpoints use bearer tokens (shared secrets) distinct from agen
 |-------|---------|---------|-----------------|
 | AKM internal service token | `AKM_INTERNAL_SERVICE_TOKEN` | API service | Knowledge service `/internal/*` endpoints |
 | Model-router internal service token | `MODEL_ROUTER_INTERNAL_SERVICE_TOKEN` | API service, AI service | AI service `/internal/*` endpoints |
+| Chat callback token | `CHAT_CALLBACK_TOKEN` | Agentbox | API service `/internal/chat/callback` |
 | Delegation token signing | `MODEL_ROUTER_SIGNING_PRIVATE_KEY` | API service | Signs child delegation JWTs (private key never leaves API service) |
 
 Both AKM and model-router signing private keys are held exclusively by the API service. The AI and Knowledge services only hold the corresponding public keys for JWT verification.
+
+For a comprehensive view of the three principal types (human, agent, service) and their auth boundaries, see [Agent Identity Model](./agent-identity-model.md).
 
 ## Network Segmentation
 

@@ -36,14 +36,14 @@ function verifyEd25519Jwt(token: string, publicKey: crypto.KeyObject): boolean {
 
 describe('generateAgentModelRouterToken', () => {
   it('generates a valid Ed25519 JWT', async () => {
-    const result = await generateAgentModelRouterToken('test-agent-1');
+    const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     expect(result.token).toBeTruthy();
     expect(result.jti).toBeTruthy();
     expect(result.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000));
   });
 
   it('uses hill90-model-router audience (not hill90-akm)', async () => {
-    const result = await generateAgentModelRouterToken('test-agent-1');
+    const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     const { payload } = decodeJwt(result.token);
     expect(payload.aud).toBe('hill90-model-router');
     expect(payload.iss).toBe('hill90-api');
@@ -51,7 +51,7 @@ describe('generateAgentModelRouterToken', () => {
   });
 
   it('JWT carries identity only — no model scopes in claims', async () => {
-    const result = await generateAgentModelRouterToken('test-agent-1');
+    const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     const { payload } = decodeJwt(result.token);
     expect(payload.scopes).toBeUndefined();
     expect(payload.models).toBeUndefined();
@@ -59,7 +59,7 @@ describe('generateAgentModelRouterToken', () => {
   });
 
   it('includes jti for revocation tracking', async () => {
-    const result = await generateAgentModelRouterToken('test-agent-1');
+    const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     const { payload } = decodeJwt(result.token);
     expect(payload.jti).toBe(result.jti);
     // JTI should be a UUID
@@ -69,14 +69,14 @@ describe('generateAgentModelRouterToken', () => {
   });
 
   it('signature verifies with the public key', async () => {
-    const result = await generateAgentModelRouterToken('test-agent-1');
+    const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     const valid = verifyEd25519Jwt(result.token, testPublicKey);
     expect(valid).toBe(true);
   });
 
   it('has 1-hour expiry', async () => {
     const before = Math.floor(Date.now() / 1000);
-    const result = await generateAgentModelRouterToken('test-agent-1');
+    const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     const { payload } = decodeJwt(result.token);
     // exp should be ~1h from now (allow 2s tolerance)
     expect(payload.exp).toBeGreaterThanOrEqual(before + 3600 - 2);
@@ -86,7 +86,7 @@ describe('generateAgentModelRouterToken', () => {
 
 describe('getModelRouterEnvVars', () => {
   it('returns MODEL_ROUTER_TOKEN and MODEL_ROUTER_URL', async () => {
-    const result = await generateAgentModelRouterToken('test-agent-1');
+    const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     const envVars = getModelRouterEnvVars(result);
     expect(envVars).toContainEqual(expect.stringMatching(/^MODEL_ROUTER_TOKEN=/));
     expect(envVars).toContainEqual(expect.stringMatching(/^MODEL_ROUTER_URL=/));
@@ -96,5 +96,21 @@ describe('getModelRouterEnvVars', () => {
 describe('isModelRouterConfigured', () => {
   it('returns true when private key is set', () => {
     expect(isModelRouterConfigured()).toBe(true);
+  });
+});
+
+describe('model-router token owner claim', () => {
+  it('MRT-1: includes owner claim in JWT payload', async () => {
+    const result = await generateAgentModelRouterToken('test-agent-1', 'owner-uuid-123');
+    const { payload } = decodeJwt(result.token);
+    expect(payload.owner).toBe('owner-uuid-123');
+  });
+
+  it('MRT-2: owner claim survives Ed25519 round-trip', async () => {
+    const result = await generateAgentModelRouterToken('test-agent-1', 'owner-uuid-456');
+    const valid = verifyEd25519Jwt(result.token, testPublicKey);
+    expect(valid).toBe(true);
+    const { payload } = decodeJwt(result.token);
+    expect(payload.owner).toBe('owner-uuid-456');
   });
 });
