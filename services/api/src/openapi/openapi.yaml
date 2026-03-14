@@ -90,6 +90,23 @@ components:
                       type: string
                       enum: [builtin, apt, binary]
           description: Skills assigned to this agent.
+        container_profile_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: FK to container_profiles table. Determines Docker image for the agent container.
+        container_profile:
+          type: object
+          nullable: true
+          description: Resolved container profile object (from LEFT JOIN).
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            docker_image:
+              type: string
         error_message:
           type: string
           nullable: true
@@ -101,6 +118,36 @@ components:
           format: date-time
         created_by:
           type: string
+
+    ContainerProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Unique profile name (e.g. "standard", "gpu")
+        description:
+          type: string
+        docker_image:
+          type: string
+          description: Docker image used when starting agent containers with this profile
+        default_cpus:
+          type: string
+        default_mem_limit:
+          type: string
+        default_pids_limit:
+          type: integer
+        is_platform:
+          type: boolean
+          description: Platform profiles are managed by admins and cannot be deleted by users.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     AgentStatus:
       type: object
@@ -813,6 +860,11 @@ paths:
                     type: string
                     format: uuid
                   description: Skill IDs to assign. Config is merged from all skills at save time (resolve-on-save).
+                container_profile_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Container profile to assign. Determines Docker image. Omit for default.
       responses:
         "201":
           description: Agent created
@@ -901,6 +953,11 @@ paths:
                     type: string
                     format: uuid
                   description: Skill IDs to assign. Empty array to detach all skills (Custom mode). Config is merged from all skills at save time.
+                container_profile_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Container profile to assign. Omit for no change; explicit null to clear.
       responses:
         "200":
           description: Agent updated
@@ -2546,6 +2603,26 @@ paths:
           description: Skill not found
         "409":
           description: Skill is assigned to agents
+
+  /container-profiles:
+    get:
+      summary: List container profiles
+      description: Returns all container profiles. Used by agent form to populate the profile selector.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Container profile list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContainerProfile"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
 
   /tools:
     get:

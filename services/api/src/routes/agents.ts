@@ -124,19 +124,30 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
               a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               a.created_at, a.updated_at, a.created_by,
+              a.container_profile_id,
+              cp.name AS cp_name, cp.docker_image AS cp_docker_image,
               COALESCE(
                 json_agg(json_build_object('id', s.id, 'name', s.name, 'scope', s.scope))
                 FILTER (WHERE s.id IS NOT NULL), '[]'
               ) AS skills
        FROM agents a
        LEFT JOIN model_policies mp ON mp.id = a.model_policy_id
+       LEFT JOIN container_profiles cp ON cp.id = a.container_profile_id
        LEFT JOIN agent_skills asks ON asks.agent_id = a.id
        LEFT JOIN skills s ON s.id = asks.skill_id
        WHERE ${scope.where.replace(/created_by/g, 'a.created_by')}
-       GROUP BY a.id, mp.allowed_models
+       GROUP BY a.id, mp.allowed_models, cp.name, cp.docker_image
        ORDER BY a.created_at DESC`,
       scope.params
     );
+    // Attach container_profile object
+    for (const row of rows) {
+      row.container_profile = row.container_profile_id
+        ? { id: row.container_profile_id, name: row.cp_name, docker_image: row.cp_docker_image }
+        : null;
+      delete row.cp_name;
+      delete row.cp_docker_image;
+    }
     res.json(rows);
   } catch (err) {
     console.error('[agents] List error:', err);
@@ -148,7 +159,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
 router.post('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids } = req.body;
+    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id } = req.body;
 
     // Reject legacy field
     if (req.body.tool_preset_id !== undefined) {
@@ -221,6 +232,18 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       validatedPolicyId = null;
     }
 
+    // Validate container_profile_id if provided
+    if (container_profile_id !== undefined && container_profile_id !== null) {
+      const { rows: profileRows } = await getPool().query(
+        'SELECT id FROM container_profiles WHERE id = $1',
+        [container_profile_id]
+      );
+      if (profileRows.length === 0) {
+        res.status(400).json({ error: 'Container profile not found' });
+        return;
+      }
+    }
+
     // Resolve tools_config from explicit payload or assigned skills
     let resolvedToolsConfig = tools_config || DEFAULT_TOOLS_CONFIG;
     let validatedSkillIds: string[] = [];
@@ -245,11 +268,11 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const { rows } = await getPool().query(
-      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, container_profile_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING id, agent_id, name, description, status, tools_config,
                  cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-                 model_policy_id, error_message, created_at, updated_at, created_by`,
+                 model_policy_id, container_profile_id, error_message, created_at, updated_at, created_by`,
       [
         agent_id,
         name,
@@ -261,6 +284,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         soul_md || '',
         rules_md || '',
         validatedPolicyId,
+        container_profile_id || null,
         user.sub,
       ]
     );
@@ -325,10 +349,13 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-              model_policy_id, COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
+              model_policy_id, a.container_profile_id,
+              cp.name AS cp_name, cp.docker_image AS cp_docker_image,
+              COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               error_message, a.created_at, a.updated_at, a.created_by
        FROM agents a
        LEFT JOIN model_policies mp ON mp.id = a.model_policy_id
+       LEFT JOIN container_profiles cp ON cp.id = a.container_profile_id
        WHERE a.id = $${paramOffset} AND ${scope.where.replace(/created_by/g, 'a.created_by')}`,
       [...scope.params, req.params.id]
     );
@@ -338,6 +365,11 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const agent = rows[0];
+    agent.container_profile = agent.container_profile_id
+      ? { id: agent.container_profile_id, name: agent.cp_name, docker_image: agent.cp_docker_image }
+      : null;
+    delete agent.cp_name;
+    delete agent.cp_docker_image;
 
     // Fetch skills for this agent
     const { rows: skillRows } = await getPool().query(
@@ -382,7 +414,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const user = (req as any).user;
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids } = req.body;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id } = req.body;
 
     // Validate skill_ids
     if (skill_ids !== undefined) {
@@ -424,6 +456,18 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
             return;
           }
         }
+      }
+    }
+
+    // Validate container_profile_id if provided (non-null)
+    if (container_profile_id !== undefined && container_profile_id !== null) {
+      const { rows: cpRows } = await getPool().query(
+        'SELECT id FROM container_profiles WHERE id = $1',
+        [container_profile_id]
+      );
+      if (cpRows.length === 0) {
+        res.status(400).json({ error: 'Container profile not found' });
+        return;
       }
     }
 
@@ -516,6 +560,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     // Build SET clause: model_policy_id uses explicit flag to allow clearing to NULL
     const modelPolicyProvided = model_policy_id !== undefined || model_names !== undefined;
     const effectiveModelPolicyId = model_names !== undefined ? resolvedModelPolicyId : model_policy_id;
+    const containerProfileProvided = container_profile_id !== undefined;
     const { rows } = await getPool().query(
       `UPDATE agents SET
         name = COALESCE($1, name),
@@ -527,11 +572,12 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         soul_md = COALESCE($7, soul_md),
         rules_md = COALESCE($8, rules_md),
         model_policy_id = CASE WHEN $9::boolean THEN $10::uuid ELSE model_policy_id END,
+        container_profile_id = CASE WHEN $11::boolean THEN $12::uuid ELSE container_profile_id END,
         updated_at = NOW()
-       WHERE id = $11
+       WHERE id = $13
        RETURNING id, agent_id, name, description, status, tools_config,
                  cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-                 model_policy_id, error_message, created_at, updated_at, created_by`,
+                 model_policy_id, container_profile_id, error_message, created_at, updated_at, created_by`,
       [
         name || null,
         description ?? null,
@@ -543,6 +589,8 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         rules_md ?? null,
         modelPolicyProvided,
         modelPolicyProvided ? (effectiveModelPolicyId ?? null) : null,
+        containerProfileProvided,
+        containerProfileProvided ? (container_profile_id ?? null) : null,
         req.params.id,
       ]
     );
@@ -704,6 +752,16 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     const effectiveScope = await getAgentEffectiveScope(agent.id);
     const network = resolveAgentNetwork(effectiveScope);
 
+    // Resolve container profile image
+    let profileImage: string | undefined;
+    if (agent.container_profile_id) {
+      const { rows: profileRows } = await getPool().query(
+        'SELECT docker_image FROM container_profiles WHERE id = $1',
+        [agent.container_profile_id]
+      );
+      if (profileRows.length > 0) profileImage = profileRows[0].docker_image;
+    }
+
     // Create and start container
     const containerId = await createAndStartContainer({
       agentId: agent.agent_id,
@@ -713,6 +771,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       pidsLimit: agent.pids_limit,
       env: [...akmEnv, ...modelRouterEnv, ...chatEnv, `WORK_TOKEN=${workToken}`],
       network,
+      image: profileImage,
     });
 
     // Phase 6B: ensure required tools are installed for assigned skills.
@@ -750,7 +809,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       [containerId, workToken, req.params.id]
     );
 
-    auditLog('start', agent.agent_id, user.sub, 'human', { container_id: containerId, network, akm_jti: akmJti, model_router_jti: modelRouterJti });
+    auditLog('start', agent.agent_id, user.sub, 'human', { container_id: containerId, network, profile_image: profileImage || 'hill90/agentbox:latest', akm_jti: akmJti, model_router_jti: modelRouterJti });
     res.json({ status: 'running', container_id: containerId });
   } catch (err: any) {
     console.error('[agents] Start error:', err);

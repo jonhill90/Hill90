@@ -24,12 +24,20 @@ const MOCK_SKILLS = [
   { id: 'skill-dev', name: 'Developer', description: 'Dev', scope: 'container_local', tools_config: {}, instructions_md: '', is_platform: true, tools: [{ id: 'tool-git', name: 'git' }] },
   { id: 'skill-docker', name: 'Docker', description: 'Docker', scope: 'host_docker', tools_config: {}, instructions_md: '', is_platform: false, tools: [{ id: 'tool-docker', name: 'docker' }] },
 ]
+const MOCK_CONTAINER_PROFILES = [
+  {
+    id: 'profile-uuid-1', name: 'standard', description: 'Standard runtime',
+    docker_image: 'hill90/agentbox:latest', default_cpus: '1.0', default_mem_limit: '1g',
+    default_pids_limit: 200, is_platform: true,
+  },
+]
 
 function mockFetchDefaults() {
   mockFetch.mockImplementation((url: string, opts?: any) => {
     if (url === '/api/model-policies') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
     if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_USER_MODELS) })
     if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
+    if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
     if (url === '/api/agents' && opts?.method === 'POST') return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'new-uuid' }) })
     if (typeof url === 'string' && url.startsWith('/api/agents/') && opts?.method === 'PUT') return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'existing-uuid' }) })
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
@@ -91,6 +99,19 @@ describe('AgentFormClient', () => {
       const body = JSON.parse(postCall[1].body)
       expect(body.skill_ids).toEqual(['skill-min'])
       expect(body.tools_config).toBeUndefined()
+    })
+  })
+
+  // UI-1: Form renders profile selector with standard profile
+  it('renders profile selector with standard profile option', async () => {
+    render(<AgentFormClient />)
+    await waitFor(() => expect(screen.getByText('Container Profile')).toBeInTheDocument())
+    const select = screen.getByLabelText('Runtime Profile') as HTMLSelectElement
+    expect(select).toBeInTheDocument()
+    // Verify standard profile option exists
+    await waitFor(() => {
+      const options = Array.from(select.options).map(o => o.text)
+      expect(options).toContain('standard (platform) — hill90/agentbox:latest')
     })
   })
 

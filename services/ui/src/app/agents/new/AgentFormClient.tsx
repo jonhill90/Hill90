@@ -29,6 +29,17 @@ function scopeBadge(scope: string): { label: string; colorClasses: string } {
   }
 }
 
+interface ContainerProfileOption {
+  id: string
+  name: string
+  description: string
+  docker_image: string
+  default_cpus: string
+  default_mem_limit: string
+  default_pids_limit: number
+  is_platform: boolean
+}
+
 interface PolicyOption {
   name: string
 }
@@ -51,6 +62,7 @@ export default function AgentFormClient({
     rules_md: string
     models?: string[]
     skills?: Array<{ id: string; name: string; scope: string }>
+    container_profile_id?: string | null
   }
   agentUuid?: string
   disabled?: boolean
@@ -76,6 +88,8 @@ export default function AgentFormClient({
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
     new Set(initial?.skills?.map(s => s.id) || [])
   )
+  const [containerProfiles, setContainerProfiles] = useState<ContainerProfileOption[]>([])
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(initial?.container_profile_id || '')
   const [soulPreview, setSoulPreview] = useState(false)
   const [rulesPreview, setRulesPreview] = useState(false)
 
@@ -99,7 +113,21 @@ export default function AgentFormClient({
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setSkills(data))
       .catch(() => {})
+    fetch('/api/container-profiles')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setContainerProfiles(data))
+      .catch(() => {})
   }, [])
+
+  const handleProfileChange = (profileId: string) => {
+    setSelectedProfileId(profileId)
+    const profile = containerProfiles.find(p => p.id === profileId)
+    if (profile) {
+      setCpus(profile.default_cpus)
+      setMemLimit(profile.default_mem_limit)
+      setPidsLimit(profile.default_pids_limit)
+    }
+  }
 
   const handleSkillToggle = (skillId: string) => {
     setSelectedSkillIds(prev => {
@@ -137,6 +165,9 @@ export default function AgentFormClient({
       rules_md: rulesMd,
       model_names: selectedModels,
       skill_ids: [...selectedSkillIds],
+    }
+    if (selectedProfileId) {
+      body.container_profile_id = selectedProfileId
     }
 
     try {
@@ -282,6 +313,32 @@ export default function AgentFormClient({
               </p>
             </div>
           )}
+        </div>
+      </fieldset>
+
+      {/* Container Profile */}
+      <fieldset disabled={disabled} className="space-y-4">
+        <legend className="text-lg font-semibold text-white mb-4">Container Profile</legend>
+        <div>
+          <label htmlFor="container_profile" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
+            Runtime Profile
+          </label>
+          <select
+            id="container_profile"
+            value={selectedProfileId}
+            onChange={(e) => handleProfileChange(e.target.value)}
+            className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm focus:border-brand-500 focus:outline-none disabled:opacity-50"
+          >
+            <option value="">None (default image)</option>
+            {containerProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}{p.is_platform ? ' (platform)' : ''} — {p.docker_image}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-mountain-500 mt-1">
+            Determines the Docker image and default resource limits for this agent.
+          </p>
         </div>
       </fieldset>
 
