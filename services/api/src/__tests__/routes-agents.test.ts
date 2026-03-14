@@ -29,6 +29,9 @@ jest.mock('../services/docker', () => ({
   getContainerLogs: jest.fn(),
   removeAgentVolumes: jest.fn().mockResolvedValue(undefined),
   reconcileAgentStatuses: jest.fn().mockResolvedValue(undefined),
+  resolveAgentNetwork: jest.requireActual('../services/docker').resolveAgentNetwork,
+  AGENT_NETWORK: 'hill90_agent_internal',
+  AGENT_SANDBOX_NETWORK: 'hill90_agent_sandbox',
 }));
 
 // Mock agent-files service
@@ -219,7 +222,8 @@ describe('Agent lifecycle routes', () => {
           soul_md: '', rules_md: '', description: '',
         }],
       })
-      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (no skill)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -239,7 +243,8 @@ describe('Agent lifecycle routes', () => {
           soul_md: '', rules_md: '', description: '',
         }],
       })
-      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -264,7 +269,8 @@ describe('Agent lifecycle routes', () => {
           soul_md: '', rules_md: '', description: '',
         }],
       })
-      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
     const res = await request(app)
@@ -295,7 +301,8 @@ describe('Agent lifecycle routes', () => {
           soul_md: '', rules_md: '', description: '',
         }],
       })
-      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
     const res = await request(app)
@@ -318,6 +325,7 @@ describe('Agent lifecycle routes', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (no skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE status=error in catch block
     mockEnsureRequiredToolsInstalled.mockRejectedValueOnce(new Error('gh install failed'));
 
@@ -480,5 +488,114 @@ describe('POST /agents/:id/reconcile-tools', () => {
     expect(res.body).toHaveProperty('failed');
     expect(Array.isArray(res.body.installed)).toBe(true);
     expect(mockReconcileToolInstalls).toHaveBeenCalledWith('uuid-1', 'test-agent');
+  });
+});
+
+describe('Agent start — network resolution (S1-S4)', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockCreateAndStartContainer.mockReset();
+    mockCreateAndStartContainer.mockResolvedValue('container-id-123');
+    mockEnsureRequiredToolsInstalled.mockReset();
+    mockEnsureRequiredToolsInstalled.mockResolvedValue(undefined);
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+    process.env.AGENTBOX_CONFIG_HOST_PATH = '/data/agentbox';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.AGENTBOX_CONFIG_HOST_PATH;
+  });
+
+  // S1: agent has container_local skill → sandbox network
+  it('start handler resolves container_local scope to sandbox network', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ name: 'Shell', instructions_md: 'shell skill' }] }) // skill instructions
+      .mockResolvedValueOnce({ rows: [{ scope: 'container_local' }] }) // getAgentEffectiveScope
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    expect(callArgs.network).toBe('hill90_agent_sandbox');
+  });
+
+  // S2: agent has host_docker skill → agent_internal network
+  it('start handler resolves host_docker scope to agent_internal network', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ name: 'Docker', instructions_md: 'docker skill' }] }) // skill instructions
+      .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] }) // getAgentEffectiveScope
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    expect(callArgs.network).toBe('hill90_agent_internal');
+  });
+
+  // S3: agent has vps_system skill → agent_internal network
+  it('start handler resolves vps_system scope to agent_internal network', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [{ name: 'System', instructions_md: 'system skill' }] }) // skill instructions
+      .mockResolvedValueOnce({ rows: [{ scope: 'vps_system' }] }) // getAgentEffectiveScope
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    expect(callArgs.network).toBe('hill90_agent_internal');
+  });
+
+  // S4: agent has no skills → deny-by-default sandbox
+  it('start handler defaults to sandbox when agent has no skills', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '1.0', mem_limit: '1g', pids_limit: 200,
+          soul_md: '', rules_md: '', description: '',
+        }],
+      })
+      .mockResolvedValueOnce({ rows: [] }) // skill instructions (no skills)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentEffectiveScope (null — no skills)
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    expect(callArgs.network).toBe('hill90_agent_sandbox');
   });
 });

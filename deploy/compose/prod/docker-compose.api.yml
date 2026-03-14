@@ -13,6 +13,14 @@ networks:
   agent_internal:
     external: true
     name: hill90_agent_internal
+  agent_sandbox:
+    driver: bridge
+    internal: true
+    name: hill90_agent_sandbox
+  docker_proxy:
+    driver: bridge
+    internal: true
+    name: hill90_docker_proxy
 
 services:
   # Docker Socket Proxy — limits API surface for agentbox container management
@@ -21,7 +29,7 @@ services:
     container_name: docker-proxy
     restart: unless-stopped
     networks:
-      - agent_internal
+      - docker_proxy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
@@ -77,6 +85,8 @@ services:
       - edge
       - internal
       - agent_internal
+      - agent_sandbox
+      - docker_proxy
     depends_on:
       docker-proxy:
         condition: service_healthy

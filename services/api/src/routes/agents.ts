@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
 import { scopeToOwner } from '../helpers/scope';
-import { ELEVATED_SCOPES, isAdmin } from '../helpers/elevated-scope';
+import { ELEVATED_SCOPES, isAdmin, getAgentEffectiveScope } from '../helpers/elevated-scope';
 import { auditLog } from '../helpers/audit';
 import { writeAgentFiles, removeAgentFiles } from '../services/agent-files';
 import { mergeToolsConfigs, DEFAULT_TOOLS_CONFIG } from '../services/merge-tools-config';
@@ -15,6 +15,7 @@ import {
   getContainerLogs,
   execInContainer,
   removeAgentVolumes,
+  resolveAgentNetwork,
 } from '../services/docker';
 import {
   generateAgentAkmToken,
@@ -699,6 +700,10 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       chatEnv.push(`CHAT_CALLBACK_TOKEN=${process.env.CHAT_CALLBACK_TOKEN}`);
     }
 
+    // Resolve agent scope for network assignment
+    const effectiveScope = await getAgentEffectiveScope(agent.id);
+    const network = resolveAgentNetwork(effectiveScope);
+
     // Create and start container
     const containerId = await createAndStartContainer({
       agentId: agent.agent_id,
@@ -707,6 +712,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       memLimit: agent.mem_limit,
       pidsLimit: agent.pids_limit,
       env: [...akmEnv, ...modelRouterEnv, ...chatEnv, `WORK_TOKEN=${workToken}`],
+      network,
     });
 
     // Phase 6B: ensure required tools are installed for assigned skills.
@@ -744,7 +750,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       [containerId, workToken, req.params.id]
     );
 
-    auditLog('start', agent.agent_id, user.sub, { container_id: containerId, akm_jti: akmJti, model_router_jti: modelRouterJti });
+    auditLog('start', agent.agent_id, user.sub, { container_id: containerId, network, akm_jti: akmJti, model_router_jti: modelRouterJti });
     res.json({ status: 'running', container_id: containerId });
   } catch (err: any) {
     console.error('[agents] Start error:', err);

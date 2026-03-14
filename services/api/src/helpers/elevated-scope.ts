@@ -32,3 +32,25 @@ export async function getAgentElevatedScope(agentUuid: string): Promise<string |
   );
   return rows.length > 0 ? rows[0].scope : null;
 }
+
+/**
+ * Return the agent's highest-priority scope from all assigned skills.
+ * Priority: vps_system > host_docker > container_local.
+ * Returns null if the agent has no skill assignments.
+ *
+ * Distinct from getAgentElevatedScope (which only queries elevated scopes
+ * for RBAC purposes). This function returns ALL scopes for network resolution.
+ */
+export async function getAgentEffectiveScope(agentUuid: string): Promise<string | null> {
+  const { rows } = await getPool().query(
+    `SELECT DISTINCT s.scope FROM agent_skills asks
+     JOIN skills s ON s.id = asks.skill_id
+     WHERE asks.agent_id = $1 AND s.scope IS NOT NULL`,
+    [agentUuid]
+  );
+  if (rows.length === 0) return null;
+  const scopes = rows.map((r: any) => r.scope);
+  if (scopes.includes('vps_system')) return 'vps_system';
+  if (scopes.includes('host_docker')) return 'host_docker';
+  return 'container_local';
+}

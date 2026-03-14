@@ -83,7 +83,7 @@ User-provided API keys (Bring Your Own Key) are encrypted at rest and handled wi
 Agent containers run in a sandboxed environment with multiple isolation layers:
 
 - **Non-root user**: `agentuser` (UID 1000) — prevents privilege escalation
-- **Network isolation**: `hill90_agent_internal` network only — agents can reach the AI service and Knowledge service but cannot access the edge network, public internet, or other internal services
+- **Network isolation**: Agents are placed on `hill90_agent_sandbox` (default) or `hill90_agent_internal` (elevated scopes only) based on their assigned skill scopes. Neither network grants access to the Docker socket proxy, edge network, or public internet.
 - **Environment stripping**: Agent containers receive only `PATH`, `HOME`, `LANG`, `TERM`, plus explicitly injected service tokens — no inherited secrets from the host
 - **Resource limits**: CPU (NanoCPUs), memory, and PID limits enforced by Docker per agent configuration
 - **Shell policy**: Command allowlist (optional) + deny pattern regex applied before execution; `subprocess.run(shell=False)` prevents shell injection
@@ -109,7 +109,9 @@ Both AKM and model-router signing private keys are held exclusively by the API s
 
 - `hill90_edge`: ingress-facing network for Traefik and public app routes.
 - `hill90_internal`: internal-only network for private service communication (API, AI, Knowledge, PostgreSQL, LiteLLM).
-- `hill90_agent_internal`: agent isolation network — agentbox containers reach AI and Knowledge services but not edge or public internet.
+- `hill90_agent_internal`: elevated agent network — agents with `host_docker` or `vps_system` skill scopes are placed here. Reaches AI and Knowledge services but not edge, public internet, or Docker socket proxy.
+- `hill90_agent_sandbox`: default agent network — agents with `container_local` or no skill scopes are placed here. Reaches AI and Knowledge services only.
+- `hill90_docker_proxy`: isolated network for the Docker socket proxy. Only the API service connects — no agent containers can reach this network.
 - Keycloak bridges both edge (public OIDC) and internal (database) networks.
 - MinIO connects to both edge (Tailscale console) and internal (S3 API for app containers) networks.
 - Tailscale-only routes are protected with Traefik middleware and IP allowlists.
