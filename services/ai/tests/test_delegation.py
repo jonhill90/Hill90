@@ -350,6 +350,25 @@ class TestAliasResolution:
         result = resolve_aliases_list(["fast", "gpt-4o", "embed"], policy)
         assert result == ["gpt-4o-mini", "gpt-4o", "text-embedding-3-small"]
 
+    def test_alias_shadow_single_pass(self):
+        """U1: Alias target shadows another alias key — single-pass, no chain."""
+        # A→B, B→C: request "A" resolves to "B" (NOT "C")
+        policy = self._policy(aliases={"A": "B", "B": "C"})
+        assert resolve_alias("A", policy) == "B"
+
+    def test_alias_target_in_allowed_models(self):
+        """U2: Alias target equals a real model in allowed_models."""
+        policy = self._policy(aliases={"fast": "gpt-4o-mini"})
+        # "fast" resolves to "gpt-4o-mini" which is in allowed_models — correct
+        assert resolve_alias("fast", policy) == "gpt-4o-mini"
+
+    def test_alias_key_shadows_allowed_model(self):
+        """U3: Alias key equals a model in allowed_models — alias takes priority."""
+        # If "gpt-4o-mini" is both an alias key and in allowed_models,
+        # the alias lookup takes priority (single-pass)
+        policy = self._policy(aliases={"gpt-4o-mini": "gpt-4o"})
+        assert resolve_alias("gpt-4o-mini", policy) == "gpt-4o"
+
 
 # ---- Usage logging with delegation_id ----
 

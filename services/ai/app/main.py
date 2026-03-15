@@ -187,6 +187,9 @@ class PolicyResult:
     # BYOK fields — populated when model resolves to a user-owned model
     user_model: UserModelInfo | None = None
     owner: str | None = None
+    # Resolution chain fields (AI-121)
+    requested_model: str | None = None
+    provider_model_id: str | None = None
 
 
 async def _enforce_policy(
@@ -238,6 +241,7 @@ async def _enforce_policy(
                         status="error",
                         latency_ms=0,
                         delegation_id=delegation_id,
+                        requested_model=requested_model,
                     )
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
@@ -261,6 +265,7 @@ async def _enforce_policy(
                             conn=conn, agent_id=claims.sub, model_name=resolved_model,
                             request_type=request_type, status="rate_limited",
                             latency_ms=0, delegation_id=delegation_id,
+                            requested_model=requested_model,
                         )
                 except Exception as e:
                     logger.warning("usage_log_failed", error=str(e))
@@ -290,6 +295,7 @@ async def _enforce_policy(
                             conn=conn, agent_id=claims.sub, model_name=resolved_model,
                             request_type=request_type, status="budget_exceeded",
                             latency_ms=0, delegation_id=delegation_id,
+                            requested_model=requested_model,
                         )
                 except Exception as e:
                     logger.warning("usage_log_failed", error=str(e))
@@ -315,6 +321,7 @@ async def _enforce_policy(
                             conn=conn, agent_id=claims.sub, model_name=resolved_model,
                             request_type=request_type, status="rate_limited",
                             latency_ms=0, delegation_id=delegation_id,
+                            requested_model=requested_model,
                         )
                 except Exception as e:
                     logger.warning("usage_log_failed", error=str(e))
@@ -339,6 +346,7 @@ async def _enforce_policy(
                             conn=conn, agent_id=claims.sub, model_name=resolved_model,
                             request_type=request_type, status="budget_exceeded",
                             latency_ms=0, delegation_id=delegation_id,
+                            requested_model=requested_model,
                         )
                 except Exception as e:
                     logger.warning("usage_log_failed", error=str(e))
@@ -352,7 +360,7 @@ async def _enforce_policy(
                     }},
                 )
 
-        return PolicyResult(resolved_model=resolved_model, delegation_id=delegation_id)
+        return PolicyResult(resolved_model=resolved_model, delegation_id=delegation_id, requested_model=requested_model)
 
     # Non-delegation (parent) path
     if resolved_model not in policy.allowed_models:
@@ -375,6 +383,7 @@ async def _enforce_policy(
                         request_type=request_type,
                         status="rate_limited",
                         latency_ms=0,
+                        requested_model=requested_model,
                     )
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
@@ -406,6 +415,7 @@ async def _enforce_policy(
                         request_type=request_type,
                         status="budget_exceeded",
                         latency_ms=0,
+                        requested_model=requested_model,
                     )
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
@@ -422,7 +432,7 @@ async def _enforce_policy(
                 },
             )
 
-    return PolicyResult(resolved_model=resolved_model)
+    return PolicyResult(resolved_model=resolved_model, requested_model=requested_model)
 
 
 async def _resolve_byok(
@@ -474,6 +484,7 @@ async def _resolve_byok(
             body["api_base"] = user_model.api_base_url
 
         policy_result.user_model = user_model
+        policy_result.provider_model_id = user_model.litellm_model
         return policy_result
 
     # AI-120: no platform model fallback — user models only
@@ -508,7 +519,12 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
 
     # Streaming path
     if body.get("stream") is True:
-        return await _handle_streaming(settings, body, claims, resolved_model, delegation_id, policy_result.owner)
+        return await _handle_streaming(
+            settings, body, claims, resolved_model, delegation_id,
+            policy_result.owner,
+            requested_model=policy_result.requested_model,
+            provider_model_id=policy_result.provider_model_id,
+        )
 
     # Non-streaming path
     owner = policy_result.owner
@@ -532,6 +548,8 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
                 latency_ms=elapsed_ms,
                 delegation_id=delegation_id,
                 owner=owner,
+                requested_model=policy_result.requested_model,
+                provider_model_id=policy_result.provider_model_id,
             )
         logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
@@ -557,6 +575,8 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
                 cost_usd=result["cost_usd"],
                 delegation_id=delegation_id,
                 owner=owner,
+                requested_model=policy_result.requested_model,
+                provider_model_id=policy_result.provider_model_id,
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))
@@ -564,7 +584,7 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     return JSONResponse(content=result["body"], status_code=result["status_code"])
 
 
-async def _handle_streaming(settings, body, claims, requested_model, delegation_id=None, owner=None):
+async def _handle_streaming(settings, body, claims, resolved_model, delegation_id=None, owner=None, *, requested_model=None, provider_model_id=None):
     """Handle streaming chat completion with SSE passthrough and usage capture."""
 
     start = time.monotonic()
@@ -583,16 +603,18 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                 await log_usage(
                     conn=conn,
                     agent_id=claims.sub,
-                    model_name=requested_model,
+                    model_name=resolved_model,
                     request_type="chat.completion",
                     status="error",
                     latency_ms=elapsed_ms,
                     delegation_id=delegation_id,
                     owner=owner,
+                    requested_model=requested_model,
+                    provider_model_id=provider_model_id,
                 )
         except Exception as log_err:
             logger.warning("usage_log_failed", error=str(log_err))
-        logger.error("stream_open_error", agent_id=claims.sub, model=requested_model, error=str(e))
+        logger.error("stream_open_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
     finally:
         # Scrub BYOK key from request body
@@ -607,12 +629,14 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                 await log_usage(
                     conn=conn,
                     agent_id=claims.sub,
-                    model_name=requested_model,
+                    model_name=resolved_model,
                     request_type="chat.completion",
                     status="error",
                     latency_ms=elapsed_ms,
                     delegation_id=delegation_id,
                     owner=owner,
+                    requested_model=requested_model,
+                    provider_model_id=provider_model_id,
                 )
         except Exception as log_err:
             logger.warning("usage_log_failed", error=str(log_err))
@@ -647,7 +671,7 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                         await log_usage(
                             conn=conn,
                             agent_id=claims.sub,
-                            model_name=requested_model,
+                            model_name=resolved_model,
                             request_type="chat.completion",
                             status=status,
                             latency_ms=elapsed_ms,
@@ -656,6 +680,8 @@ async def _handle_streaming(settings, body, claims, requested_model, delegation_
                             cost_usd=0.0 if cancelled else streaming_result.cost_usd,
                             delegation_id=delegation_id,
                             owner=owner,
+                            requested_model=requested_model,
+                            provider_model_id=provider_model_id,
                         )
             except Exception as e:
                 logger.warning("usage_log_failed", error=str(e))
@@ -710,6 +736,8 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
                 latency_ms=elapsed_ms,
                 delegation_id=delegation_id,
                 owner=owner,
+                requested_model=policy_result.requested_model,
+                provider_model_id=policy_result.provider_model_id,
             )
         logger.error("proxy_error", agent_id=claims.sub, model=resolved_model, error=str(e))
         raise HTTPException(status_code=502, detail="LiteLLM proxy error")
@@ -734,6 +762,8 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
                 cost_usd=result["cost_usd"],
                 delegation_id=delegation_id,
                 owner=owner,
+                requested_model=policy_result.requested_model,
+                provider_model_id=policy_result.provider_model_id,
             )
     except Exception as e:
         logger.warning("usage_log_failed", error=str(e))

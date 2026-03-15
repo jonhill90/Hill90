@@ -1022,6 +1022,8 @@ interface InferenceRow {
   input_tokens: number | null;
   output_tokens: number | null;
   cost_usd: string | null; // Postgres numeric serializes as string
+  requested_model: string | null;
+  provider_model_id: string | null;
   created_at: Date;
 }
 
@@ -1038,6 +1040,8 @@ function mapInferenceToEvent(row: InferenceRow): Record<string, unknown> {
     success: row.status === 'success',
     metadata: {
       model_name: row.model_name,
+      requested_model: row.requested_model,
+      provider_model_id: row.provider_model_id,
       request_type: row.request_type,
       status: row.status,
       input_tokens: row.input_tokens ?? 0,
@@ -1066,7 +1070,8 @@ async function getRecentInference(
     params.push(limit);
     const { rows } = await getPool().query(
       `SELECT id, agent_id, model_name, request_type, status, latency_ms,
-              input_tokens, output_tokens, cost_usd, created_at
+              input_tokens, output_tokens, cost_usd,
+              requested_model, provider_model_id, created_at
        FROM model_usage
        WHERE ${conditions.join(' AND ')}
        ORDER BY created_at ASC, id ASC
@@ -1087,7 +1092,8 @@ async function getRecentInference(
   params.push(limit);
   const { rows } = await getPool().query(
     `SELECT id, agent_id, model_name, request_type, status, latency_ms,
-            input_tokens, output_tokens, cost_usd, created_at
+            input_tokens, output_tokens, cost_usd,
+            requested_model, provider_model_id, created_at
      FROM model_usage
      WHERE ${conditions.join(' AND ')}
      ORDER BY created_at DESC, id DESC
