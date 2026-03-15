@@ -87,32 +87,20 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 /**
  * Validate that each model in allowed_models exists in the user's own
- * user_models or in the active platform model_catalog.
- * Admins skip this check (platform policies can reference any model).
+ * user_models (active). No admin bypass — AI-120 enforcement.
  */
 async function validateAllowedModels(
   allowedModels: string[],
-  userSub: string,
-  admin: boolean
+  userSub: string
 ): Promise<string | null> {
-  if (admin) return null;
-
   for (const modelName of allowedModels) {
-    // Check user's own models
     const { rows: userRows } = await getPool().query(
-      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2`,
+      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2 AND is_active = true`,
       [modelName, userSub]
     );
     if (userRows.length > 0) continue;
 
-    // Check platform model catalog
-    const { rows: platformRows } = await getPool().query(
-      `SELECT name FROM model_catalog WHERE name = $1 AND is_active = true`,
-      [modelName]
-    );
-    if (platformRows.length > 0) continue;
-
-    return `Model '${modelName}' not found`;
+    return `Model '${modelName}' not found in user models for policy owner`;
   }
 
   return null;
@@ -153,8 +141,8 @@ router.post('/', async (req: Request, res: Response) => {
       }
     }
 
-    // Validate allowed_models exist (user-scoped check)
-    const modelError = await validateAllowedModels(allowed_models, user.sub, admin);
+    // Validate allowed_models exist (user-scoped check, no admin bypass — AI-120)
+    const modelError = await validateAllowedModels(allowed_models, user.sub);
     if (modelError) {
       res.status(400).json({ error: modelError });
       return;
@@ -243,9 +231,9 @@ router.put('/:id', async (req: Request, res: Response) => {
       }
     }
 
-    // Validate allowed_models if provided (user-scoped check)
+    // Validate allowed_models if provided (user-scoped check, no admin bypass — AI-120)
     if (allowed_models !== undefined) {
-      const modelError = await validateAllowedModels(allowed_models, user.sub, admin);
+      const modelError = await validateAllowedModels(allowed_models, user.sub);
       if (modelError) {
         res.status(400).json({ error: modelError });
         return;

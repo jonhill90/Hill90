@@ -476,16 +476,10 @@ async def _resolve_byok(
         policy_result.user_model = user_model
         return policy_result
 
-    # Try platform model catalog
-    async with get_db_conn() as conn:
-        if await is_platform_model(conn, resolved_model):
-            # Platform model — no key injection, existing LiteLLM config handles it
-            return policy_result
-
-    # Neither user model nor platform model
+    # AI-120: no platform model fallback — user models only
     raise HTTPException(
         status_code=403,
-        detail=f"Model '{resolved_model}' not found in user models or platform catalog",
+        detail=f"Model '{resolved_model}' not found in user models for agent owner",
     )
 
 

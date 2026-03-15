@@ -46,22 +46,42 @@ function isAutoAgentModelsPolicy(description: string | null): boolean {
   return (description || '').startsWith('[auto-agent-models]');
 }
 
-async function validateModelNames(modelNames: string[], userSub: string, admin: boolean): Promise<string | null> {
-  if (admin) return null;
+async function validateModelNames(modelNames: string[], ownerSub: string): Promise<string | null> {
   for (const modelName of modelNames) {
     const { rows: userRows } = await getPool().query(
-      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2`,
-      [modelName, userSub]
+      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2 AND is_active = true`,
+      [modelName, ownerSub]
     );
     if (userRows.length > 0) continue;
 
-    const { rows: platformRows } = await getPool().query(
-      `SELECT name FROM model_catalog WHERE name = $1 AND is_active = true`,
-      [modelName]
-    );
-    if (platformRows.length > 0) continue;
+    return `Model '${modelName}' not found in user models for agent owner`;
+  }
+  return null;
+}
 
-    return `Model '${modelName}' not found`;
+async function validatePolicyEligibility(
+  policyId: string,
+  agentOwnerSub: string
+): Promise<string | null> {
+  const { rows } = await getPool().query(
+    `SELECT allowed_models FROM model_policies WHERE id = $1`,
+    [policyId]
+  );
+  if (rows.length === 0) return null;
+
+  const allowedModels: string[] = rows[0].allowed_models || [];
+  const inaccessible: string[] = [];
+  for (const modelName of allowedModels) {
+    const { rows: userRows } = await getPool().query(
+      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2 AND is_active = true`,
+      [modelName, agentOwnerSub]
+    );
+    if (userRows.length === 0) {
+      inaccessible.push(modelName);
+    }
+  }
+  if (inaccessible.length > 0) {
+    return `Policy contains models not accessible to agent owner: ${inaccessible.join(', ')}`;
   }
   return null;
 }
@@ -194,7 +214,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
-    // Validate model_policy_id ownership (legacy/internal path)
+    // Validate model_policy_id ownership + eligibility
     let validatedPolicyId: string | null = null;
     if (model_policy_id) {
       const { rows: policyRows } = await getPool().query(
@@ -214,6 +234,12 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
           return;
         }
       }
+      // AI-120: validate all models in policy are accessible to agent owner
+      const eligibilityError = await validatePolicyEligibility(model_policy_id, user.sub);
+      if (eligibilityError) {
+        res.status(400).json({ error: eligibilityError });
+        return;
+      }
       validatedPolicyId = model_policy_id;
     }
 
@@ -221,9 +247,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
     let normalizedModelNames: string[] | undefined = undefined;
     if (model_names !== undefined) {
       normalizedModelNames = [...new Set((model_names as string[]).filter(Boolean))];
-      const roles: string[] = user.realm_roles || [];
-      const admin = roles.includes('admin');
-      const modelError = await validateModelNames(normalizedModelNames, user.sub, admin);
+      const modelError = await validateModelNames(normalizedModelNames, user.sub);
       if (modelError) {
         res.status(400).json({ error: modelError });
         return;
@@ -432,7 +456,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
-    // model_policy_id assignment: admins can assign any, users can assign own or platform
+    // model_policy_id assignment: ownership + eligibility check
     if (model_policy_id !== undefined) {
       const roles: string[] = user.realm_roles || [];
       const admin = roles.includes('admin');
@@ -456,6 +480,13 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
             return;
           }
         }
+
+        // AI-120: validate all models in policy are accessible to agent owner
+        const eligibilityError = await validatePolicyEligibility(model_policy_id, existing[0].created_by);
+        if (eligibilityError) {
+          res.status(400).json({ error: eligibilityError });
+          return;
+        }
       }
     }
 
@@ -471,12 +502,10 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       }
     }
 
-    const userRoles: string[] = user.realm_roles || [];
-    const admin = userRoles.includes('admin');
     let resolvedModelPolicyId: string | null | undefined = undefined;
     if (model_names !== undefined) {
       const normalizedModelNames = [...new Set((model_names as string[]).filter(Boolean))];
-      const modelError = await validateModelNames(normalizedModelNames, existing[0].created_by, admin);
+      const modelError = await validateModelNames(normalizedModelNames, existing[0].created_by);
       if (modelError) {
         res.status(400).json({ error: modelError });
         return;
