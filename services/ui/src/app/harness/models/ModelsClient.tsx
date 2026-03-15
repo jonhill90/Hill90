@@ -29,7 +29,7 @@ interface UserModel {
   detected_type: string | null
   capabilities: string[] | null
   routing_config: RoutingConfig | null
-  icon_emoji: string | null
+  icon_emoji: string | null  // deprecated — always null on new writes
   icon_url: string | null
   created_at: string
   updated_at: string
@@ -52,7 +52,6 @@ type ModelFormData = {
   name: string
   connection_id: string
   description: string
-  icon_emoji: string
   icon_url: string
   detected_type: string
   capabilities: string[]
@@ -85,7 +84,6 @@ export default function ModelsClient() {
     name: '',
     connection_id: '',
     description: '',
-    icon_emoji: '',
     icon_url: '',
     detected_type: '',
     capabilities: [],
@@ -255,7 +253,6 @@ export default function ModelsClient() {
     }
 
     if (formData.description.trim()) body.description = formData.description.trim()
-    if (formData.icon_emoji.trim()) body.icon_emoji = formData.icon_emoji.trim()
     if (formData.icon_url.trim()) body.icon_url = formData.icon_url.trim()
     if (formData.detected_type) body.detected_type = formData.detected_type
     if (formData.capabilities.length > 0) body.capabilities = formData.capabilities
@@ -295,7 +292,6 @@ export default function ModelsClient() {
         name: model.name,
         connection_id: primaryConnId,
         description: model.description || '',
-        icon_emoji: model.icon_emoji || '',
         icon_url: model.icon_url || '',
         detected_type: '',
         capabilities: [],
@@ -312,7 +308,6 @@ export default function ModelsClient() {
         name: model.name,
         connection_id: model.connection_id || '',
         description: model.description || '',
-        icon_emoji: model.icon_emoji || '',
         icon_url: model.icon_url || '',
         detected_type: model.detected_type || '',
         capabilities: model.capabilities || [],
@@ -619,41 +614,21 @@ export default function ModelsClient() {
             )}
 
             {/* Icon configuration */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-mountain-400 mb-1">
-                  Icon Emoji <span className="text-mountain-500">(optional)</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={formData.icon_emoji}
-                    onChange={(e) => setFormData({ ...formData, icon_emoji: e.target.value })}
-                    maxLength={8}
-                    className="w-20 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white text-center focus:border-brand-500 focus:outline-none"
-                    placeholder="🤖"
-                  />
-                  {formData.icon_emoji && (
-                    <span className="text-2xl">{formData.icon_emoji}</span>
-                  )}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm text-mountain-400 mb-1">
-                  Icon URL <span className="text-mountain-500">(optional)</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={formData.icon_url}
-                    onChange={(e) => setFormData({ ...formData, icon_url: e.target.value })}
-                    className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
-                    placeholder="https://example.com/icon.png"
-                  />
-                  {formData.icon_url && (
-                    <img src={formData.icon_url} alt="icon" className="h-8 w-8 rounded-md object-cover" />
-                  )}
-                </div>
+            <div>
+              <label className="block text-sm text-mountain-400 mb-1">
+                Icon URL <span className="text-mountain-500">(optional)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={formData.icon_url}
+                  onChange={(e) => setFormData({ ...formData, icon_url: e.target.value })}
+                  className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                  placeholder="https://example.com/icon.png"
+                />
+                {formData.icon_url && (
+                  <img src={formData.icon_url} alt="icon" className="h-8 w-8 rounded-md object-cover" />
+                )}
               </div>
             </div>
 
@@ -765,8 +740,13 @@ export default function ModelsClient() {
                 <tr key={model.id} className="bg-navy-900 hover:bg-navy-800 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      {model.icon_emoji && <span className="text-lg">{model.icon_emoji}</span>}
-                      {model.icon_url && <img src={model.icon_url} alt="" className="h-5 w-5 rounded object-cover" />}
+                      {model.icon_url ? (
+                        <img src={model.icon_url} alt="" className="h-6 w-6 rounded-full object-cover" />
+                      ) : (
+                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-navy-700 text-xs font-medium text-mountain-400">
+                          {model.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
                       <div>
                         <div className="text-white font-medium">{model.name}</div>
                         {model.description && (

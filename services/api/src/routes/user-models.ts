@@ -113,9 +113,10 @@ router.post('/', async (req: Request, res: Response) => {
   const user = (req as any).user;
   const {
     name, connection_id, litellm_model, description,
-    model_type, routing_config, icon_emoji, icon_url,
+    model_type, routing_config, icon_url,
     detected_type: overrideDetectedType, capabilities: overrideCapabilities,
   } = req.body;
+  // icon_emoji is deprecated — ignored on writes, retained in reads for compatibility
 
   const effectiveType = model_type || 'single';
 
@@ -159,10 +160,10 @@ router.post('/', async (req: Request, res: Response) => {
 
     try {
       const result = await pool.query(
-        `INSERT INTO user_models (name, model_type, routing_config, description, icon_emoji, icon_url, created_by)
-         VALUES ($1, 'router', $2, $3, $4, $5, $6)
+        `INSERT INTO user_models (name, model_type, routing_config, description, icon_url, created_by)
+         VALUES ($1, 'router', $2, $3, $4, $5)
          RETURNING ${RETURNING_COLS}`,
-        [name, JSON.stringify(enrichedConfig), description || '', icon_emoji || null, icon_url || null, user.sub]
+        [name, JSON.stringify(enrichedConfig), description || '', icon_url || null, user.sub]
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -210,10 +211,10 @@ router.post('/', async (req: Request, res: Response) => {
 
     try {
       const result = await pool.query(
-        `INSERT INTO user_models (name, connection_id, litellm_model, description, model_type, detected_type, capabilities, icon_emoji, icon_url, created_by)
-         VALUES ($1, $2, $3, $4, 'single', $5, $6, $7, $8, $9)
+        `INSERT INTO user_models (name, connection_id, litellm_model, description, model_type, detected_type, capabilities, icon_url, created_by)
+         VALUES ($1, $2, $3, $4, 'single', $5, $6, $7, $8)
          RETURNING ${RETURNING_COLS}`,
-        [name, connection_id, litellm_model, description || '', finalDetectedType, finalCapabilities, icon_emoji || null, icon_url || null, user.sub]
+        [name, connection_id, litellm_model, description || '', finalDetectedType, finalCapabilities, icon_url || null, user.sub]
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -238,7 +239,7 @@ router.put('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const {
     name, connection_id, litellm_model, description, is_active,
-    model_type, routing_config, icon_emoji, icon_url,
+    model_type, routing_config, icon_url,
     detected_type: overrideDetectedType, capabilities: overrideCapabilities,
   } = req.body;
 
@@ -346,10 +347,7 @@ router.put('/:id', async (req: Request, res: Response) => {
     setClauses.push(`capabilities = $${paramIdx++}`);
     params.push(overrideCapabilities);
   }
-  if ('icon_emoji' in req.body) {
-    setClauses.push(`icon_emoji = $${paramIdx++}`);
-    params.push(icon_emoji || null);
-  }
+  // icon_emoji is deprecated — ignored on writes, retained in reads for compatibility
   if ('icon_url' in req.body) {
     setClauses.push(`icon_url = $${paramIdx++}`);
     params.push(icon_url || null);
