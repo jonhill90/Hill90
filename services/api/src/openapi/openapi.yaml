@@ -2101,6 +2101,58 @@ paths:
         "404":
           description: Connection not found
 
+  /provider-connections/{id}/models:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: List provider models
+      description: >
+        Returns available models from the provider API for a given connection.
+        Each model includes auto-detected type and capabilities.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Provider model list (may include error field on failure)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: Provider-prefixed model ID (e.g., openai/gpt-4o)
+                        display_name:
+                          type: string
+                        detected_type:
+                          type: string
+                          enum: [chat, embedding, audio, image, transcription]
+                        capabilities:
+                          type: array
+                          items:
+                            type: string
+                  provider:
+                    type: string
+                  error:
+                    type: string
+                    description: Error message if model listing failed
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Connection not found
+
   /eligible-models:
     get:
       summary: List eligible models
@@ -2138,8 +2190,14 @@ paths:
                         connection_id:
                           type: string
                           format: uuid
+                          nullable: true
                         is_active:
                           type: boolean
+                        model_type:
+                          type: string
+                          enum: [single, router]
+                        detected_type:
+                          type: string
         "401":
           description: Unauthorized
         "403":
@@ -2150,7 +2208,7 @@ paths:
   /user-models:
     get:
       summary: List user models
-      description: Returns models defined by the authenticated user.
+      description: Returns models defined by the authenticated user, including single and router models.
       security:
         - bearerAuth: []
       responses:
@@ -2171,12 +2229,66 @@ paths:
                     connection_id:
                       type: string
                       format: uuid
+                      nullable: true
+                      description: Null for router models
                     litellm_model:
                       type: string
+                      nullable: true
+                      description: Null for router models
                     description:
                       type: string
                     is_active:
                       type: boolean
+                    model_type:
+                      type: string
+                      enum: [single, router]
+                    detected_type:
+                      type: string
+                      description: Auto-detected model type (chat, embedding, audio, image, transcription)
+                    capabilities:
+                      type: array
+                      items:
+                        type: string
+                    routing_config:
+                      type: object
+                      nullable: true
+                      description: Router configuration (null for single models)
+                      properties:
+                        strategy:
+                          type: string
+                          enum: [fallback, task_routing]
+                        default_route:
+                          type: string
+                        routes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              key:
+                                type: string
+                              connection_id:
+                                type: string
+                                format: uuid
+                              litellm_model:
+                                type: string
+                              detected_type:
+                                type: string
+                              capabilities:
+                                type: array
+                                items:
+                                  type: string
+                              task_types:
+                                type: array
+                                items:
+                                  type: string
+                              priority:
+                                type: integer
+                    icon_emoji:
+                      type: string
+                      nullable: true
+                    icon_url:
+                      type: string
+                      nullable: true
                     created_at:
                       type: string
                       format: date-time
@@ -2191,8 +2303,9 @@ paths:
     post:
       summary: Create user model
       description: >
-        Creates a user-defined model referencing a provider connection.
-        Name must not conflict with active platform models.
+        Creates a user-defined model. For single models, provide connection_id
+        and litellm_model. For router models, provide model_type='router' and
+        routing_config. Name must not conflict with active platform models.
       security:
         - bearerAuth: []
       requestBody:
@@ -2203,20 +2316,37 @@ paths:
               type: object
               required:
                 - name
-                - connection_id
-                - litellm_model
               properties:
                 name:
                   type: string
                   description: Friendly model name (unique per user)
+                model_type:
+                  type: string
+                  enum: [single, router]
+                  default: single
                 connection_id:
                   type: string
                   format: uuid
-                  description: Provider connection to use (must be owned by user)
+                  description: Required for single models (must be owned by user)
                 litellm_model:
                   type: string
-                  description: Provider-prefixed model string (e.g., openai/gpt-4o)
+                  description: Required for single models (e.g., openai/gpt-4o)
+                routing_config:
+                  type: object
+                  description: Required for router models
                 description:
+                  type: string
+                detected_type:
+                  type: string
+                  description: Manual override for auto-detected type
+                capabilities:
+                  type: array
+                  items:
+                    type: string
+                  description: Manual override for auto-detected capabilities
+                icon_emoji:
+                  type: string
+                icon_url:
                   type: string
       responses:
         "201":
@@ -2241,7 +2371,9 @@ paths:
 
     put:
       summary: Update user model
-      description: Updates a user-defined model. Name collision checks apply on rename.
+      description: >
+        Updates a user-defined model. Supports type transitions (single to
+        router and vice versa). Name collision checks apply on rename.
       security:
         - bearerAuth: []
       requestBody:
@@ -2253,15 +2385,30 @@ paths:
               properties:
                 name:
                   type: string
+                model_type:
+                  type: string
+                  enum: [single, router]
                 connection_id:
                   type: string
                   format: uuid
                 litellm_model:
                   type: string
+                routing_config:
+                  type: object
                 description:
                   type: string
                 is_active:
                   type: boolean
+                detected_type:
+                  type: string
+                capabilities:
+                  type: array
+                  items:
+                    type: string
+                icon_emoji:
+                  type: string
+                icon_url:
+                  type: string
       responses:
         "200":
           description: Model updated

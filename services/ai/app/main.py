@@ -32,7 +32,18 @@ from app.delegation import (
     validate_narrowing,
 )
 from app.limits import check_rate_limit, check_token_budget
-from app.models import get_agent_owner, is_platform_model, resolve_user_model, UserModelInfo
+from app.model_type_detect import detect_model_type
+from app.models import (
+    get_agent_owner,
+    get_fallback_route,
+    is_platform_model,
+    resolve_route_credentials,
+    resolve_router_model,
+    resolve_user_model,
+    RouterModelInfo,
+    select_route,
+    UserModelInfo,
+)
 from app.policy import resolve_agent_policy, resolve_alias, resolve_aliases_list, resolve_model_policy
 from app.proxy import StreamOpenResult, proxy_chat_completion, proxy_embeddings, stream_chat_completion
 from app.revocation import RevocationManager, revocation_manager
@@ -186,6 +197,7 @@ class PolicyResult:
     delegation_id: str | None = None
     # BYOK fields — populated when model resolves to a user-owned model
     user_model: UserModelInfo | None = None
+    router_model: RouterModelInfo | None = None
     owner: str | None = None
     # Resolution chain fields (AI-121)
     requested_model: str | None = None
@@ -436,13 +448,14 @@ async def _enforce_policy(
 
 
 async def _resolve_byok(
-    policy_result: PolicyResult, claims: AgentClaims, body: dict[str, Any]
+    policy_result: PolicyResult, claims: AgentClaims, body: dict[str, Any],
+    request: Request | None = None,
 ) -> PolicyResult:
     """Resolve BYOK model if applicable, mutating the request body for key injection.
 
     After alias resolution and policy check, determine if the resolved model is:
-    1. A user-owned model (BYOK) — decrypt key, inject into body, swap model name
-    2. A platform model — no changes
+    1. A user-owned single model (BYOK) — decrypt key, inject into body, swap model name
+    2. A router model — select route, decrypt route credentials, inject
     3. Neither — raise 403
 
     Mutates `body` in place (sets model name, api_key, api_base).
@@ -455,43 +468,69 @@ async def _resolve_byok(
         owner = await get_agent_owner(conn, claims.sub)
 
     if owner is None:
-        # Agent not in DB — shouldn't happen if JWT is valid, but be safe
         raise HTTPException(status_code=403, detail=f"Agent '{claims.sub}' not found")
 
     policy_result.owner = owner
 
-    # Try user model first (BYOK path)
+    # Try single user model first (BYOK path)
     async with get_db_conn() as conn:
         user_model = await resolve_user_model(conn, resolved_model, owner)
 
     if user_model is not None:
-        # BYOK: decrypt key and inject into request body
-        settings = get_settings()
-        try:
-            api_key = decrypt_provider_key(
-                user_model.api_key_encrypted,
-                user_model.api_key_nonce,
-                settings.provider_key_encryption_key,
-            )
-        except Exception as e:
-            logger.error("provider_key_decrypt_failed", agent_id=claims.sub, model=resolved_model, error=str(e))
-            raise HTTPException(status_code=500, detail="Failed to decrypt provider key")
-
-        # Swap model name to provider-prefixed form for LiteLLM wildcard matching
-        body["model"] = user_model.litellm_model
-        body["api_key"] = api_key
-        if user_model.api_base_url:
-            body["api_base"] = user_model.api_base_url
-
+        _inject_byok_credentials(user_model, body, claims, resolved_model)
         policy_result.user_model = user_model
         policy_result.provider_model_id = user_model.litellm_model
         return policy_result
 
-    # AI-120: no platform model fallback — user models only
+    # Try router model
+    async with get_db_conn() as conn:
+        router = await resolve_router_model(conn, resolved_model, owner)
+
+    if router is not None:
+        task_type = request.headers.get("x-task-type") if request else None
+        route = select_route(router, task_type)
+        if route is None:
+            raise HTTPException(status_code=403, detail=f"No route available for model '{resolved_model}'")
+
+        async with get_db_conn() as conn:
+            route_creds = await resolve_route_credentials(conn, route, owner)
+
+        if route_creds is None:
+            logger.error("route_credential_resolution_failed", agent_id=claims.sub, model=resolved_model, route_key=route.get("key"))
+            raise HTTPException(status_code=403, detail=f"Route credentials unavailable for model '{resolved_model}'")
+
+        _inject_byok_credentials(route_creds, body, claims, resolved_model)
+        policy_result.user_model = route_creds
+        policy_result.router_model = router
+        policy_result.provider_model_id = route_creds.litellm_model
+        return policy_result
+
     raise HTTPException(
         status_code=403,
         detail=f"Model '{resolved_model}' not found in user models for agent owner",
     )
+
+
+def _inject_byok_credentials(
+    model_info: UserModelInfo, body: dict[str, Any],
+    claims: AgentClaims, resolved_model: str,
+) -> None:
+    """Decrypt and inject BYOK credentials into the request body."""
+    settings = get_settings()
+    try:
+        api_key = decrypt_provider_key(
+            model_info.api_key_encrypted,
+            model_info.api_key_nonce,
+            settings.provider_key_encryption_key,
+        )
+    except Exception as e:
+        logger.error("provider_key_decrypt_failed", agent_id=claims.sub, model=resolved_model, error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to decrypt provider key")
+
+    body["model"] = model_info.litellm_model
+    body["api_key"] = api_key
+    if model_info.api_base_url:
+        body["api_base"] = model_info.api_base_url
 
 
 @app.post("/v1/chat/completions")
@@ -512,7 +551,7 @@ async def chat_completions(request: Request, claims: AgentClaims = Depends(requi
     body["model"] = resolved_model
 
     # BYOK model resolution — may inject api_key/api_base into body
-    policy_result = await _resolve_byok(policy_result, claims, body)
+    policy_result = await _resolve_byok(policy_result, claims, body, request)
 
     if _http_client is None:
         raise HTTPException(status_code=503, detail="HTTP client not initialized")
@@ -710,7 +749,7 @@ async def embeddings(request: Request, claims: AgentClaims = Depends(require_age
     body["model"] = resolved_model
 
     # BYOK model resolution
-    policy_result = await _resolve_byok(policy_result, claims, body)
+    policy_result = await _resolve_byok(policy_result, claims, body, request)
     owner = policy_result.owner
 
     if _http_client is None:
@@ -1064,3 +1103,105 @@ async def validate_provider(body: ValidateProviderRequest, authorization: str = 
         status_code=200,
         content={"valid": False, "error": error_msg},
     )
+
+
+@app.post("/internal/list-provider-models")
+async def list_provider_models(body: ValidateProviderRequest, authorization: str = Header(...)):
+    """List available models from a provider connection.
+
+    Same auth and key decryption as validate-provider, but returns the model list
+    with auto-detected type and capabilities per model.
+    """
+    settings = get_settings()
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=403, detail="Missing Bearer token")
+
+    token = authorization[7:]
+    if not hmac.compare_digest(token, settings.model_router_internal_service_token):
+        raise HTTPException(status_code=403, detail="Invalid service token")
+
+    try:
+        api_key = decrypt_provider_key(
+            bytes.fromhex(body.api_key_encrypted),
+            bytes.fromhex(body.api_key_nonce),
+            settings.provider_key_encryption_key,
+        )
+    except Exception as e:
+        logger.error("list_provider_models_decrypt_failed", error=str(e))
+        return JSONResponse(
+            status_code=200,
+            content={"models": [], "error": "Failed to decrypt provider key"},
+        )
+
+    if _http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    provider_endpoints: dict[str, str] = {
+        "openai": "https://api.openai.com/v1/models",
+        "anthropic": "https://api.anthropic.com/v1/models",
+    }
+
+    endpoint = provider_endpoints.get(body.provider)
+    if endpoint is None:
+        return JSONResponse(
+            status_code=200,
+            content={"models": [], "error": f"Unsupported provider for model listing: {body.provider}"},
+        )
+
+    if body.provider == "anthropic":
+        headers: dict[str, str] = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+    else:
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+    if body.api_base_url:
+        endpoint = f"{body.api_base_url.rstrip('/')}/v1/models"
+
+    try:
+        resp = await _http_client.get(endpoint, headers=headers, timeout=15.0)
+    except Exception as e:
+        logger.error("list_provider_models_request_failed", provider=body.provider, error=str(e))
+        return JSONResponse(
+            status_code=200,
+            content={"models": [], "error": f"Could not reach provider: {str(e)}"},
+        )
+
+    if resp.status_code != 200:
+        try:
+            error_body = resp.json()
+            error_msg = error_body.get("error", {}).get("message", resp.text[:500])
+        except Exception:
+            error_msg = resp.text[:500]
+        return JSONResponse(
+            status_code=200,
+            content={"models": [], "error": error_msg},
+        )
+
+    try:
+        data = resp.json()
+        raw_models = data.get("data", [])
+    except Exception:
+        return JSONResponse(
+            status_code=200,
+            content={"models": [], "error": "Failed to parse provider response"},
+        )
+
+    prefix = f"{body.provider}/"
+    models = []
+    for m in raw_models:
+        model_id = m.get("id", "")
+        prefixed_id = f"{prefix}{model_id}" if not model_id.startswith(prefix) else model_id
+        display_name = m.get("display_name") or model_id
+        detected = detect_model_type(prefixed_id)
+        models.append({
+            "id": prefixed_id,
+            "display_name": display_name,
+            "detected_type": detected.detected_type,
+            "capabilities": detected.capabilities,
+        })
+
+    models.sort(key=lambda x: x["id"])
+    return {"models": models}

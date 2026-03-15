@@ -201,6 +201,204 @@ describe('AgentFormClient', () => {
     expect(screen.queryByText('inactive-model')).not.toBeInTheDocument()
   })
 
+  // G1: Non-owner sees read-only model section
+  it('G1: non-owner sees read-only model section without checkboxes', async () => {
+    const initial = {
+      agent_id: 'other-agent',
+      name: 'Other Agent',
+      description: 'desc',
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      models: ['my-custom-model'],
+      skills: [{ id: 'skill-min', name: 'Minimal', scope: 'container_local' }],
+    }
+    render(
+      <AgentFormClient
+        initial={initial}
+        agentUuid="uuid-1"
+        agentOwner="other-user-id"
+        currentUserSub="current-user-id"
+      />
+    )
+    await waitFor(() => expect(screen.getByText('my-custom-model')).toBeInTheDocument())
+    // Model should appear as plain text, not as a checkbox in the models section
+    const modelsSection = screen.getByText('Assigned Models').closest('fieldset')!
+    const modelCheckboxes = modelsSection.querySelectorAll('input[type="checkbox"]')
+    expect(modelCheckboxes).toHaveLength(0)
+  })
+
+  // G2: Non-owner sees ownership banner
+  it('G2: non-owner sees ownership banner', async () => {
+    const initial = {
+      agent_id: 'other-agent',
+      name: 'Other Agent',
+      description: 'desc',
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      models: [],
+      skills: [{ id: 'skill-min', name: 'Minimal', scope: 'container_local' }],
+    }
+    render(
+      <AgentFormClient
+        initial={initial}
+        agentUuid="uuid-1"
+        agentOwner="other-user-id"
+        currentUserSub="current-user-id"
+      />
+    )
+    await waitFor(() => expect(screen.getByText(/model assignment is managed by the agent owner/i)).toBeInTheDocument())
+  })
+
+  // G3: Non-owner submit omits model_names from PUT body
+  it('G3: non-owner submit omits model_names from PUT body', async () => {
+    const initial = {
+      agent_id: 'other-agent',
+      name: 'Other Agent',
+      description: 'desc',
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      models: ['my-custom-model'],
+      skills: [{ id: 'skill-min', name: 'Minimal', scope: 'container_local' }],
+    }
+    render(
+      <AgentFormClient
+        initial={initial}
+        agentUuid="uuid-1"
+        agentOwner="other-user-id"
+        currentUserSub="current-user-id"
+      />
+    )
+    await waitFor(() => expect(screen.getByText('my-custom-model')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /update agent/i }))
+    await waitFor(() => {
+      const putCall = mockFetch.mock.calls.find(
+        (c: any[]) => typeof c[0] === 'string' && c[0].startsWith('/api/agents/') && c[1]?.method === 'PUT'
+      )
+      expect(putCall).toBeTruthy()
+      const body = JSON.parse(putCall[1].body)
+      expect(body).not.toHaveProperty('model_names')
+    })
+  })
+
+  // G4: Non-owner submit omits model_policy_id from PUT body
+  it('G4: non-owner submit omits model_policy_id from PUT body', async () => {
+    const initial = {
+      agent_id: 'other-agent',
+      name: 'Other Agent',
+      description: 'desc',
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      models: [],
+      skills: [{ id: 'skill-min', name: 'Minimal', scope: 'container_local' }],
+    }
+    render(
+      <AgentFormClient
+        initial={initial}
+        agentUuid="uuid-1"
+        agentOwner="other-user-id"
+        currentUserSub="current-user-id"
+      />
+    )
+    await waitFor(() => expect(screen.getByText(/model assignment is managed by the agent owner/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /update agent/i }))
+    await waitFor(() => {
+      const putCall = mockFetch.mock.calls.find(
+        (c: any[]) => typeof c[0] === 'string' && c[0].startsWith('/api/agents/') && c[1]?.method === 'PUT'
+      )
+      expect(putCall).toBeTruthy()
+      const body = JSON.parse(putCall[1].body)
+      expect(body).not.toHaveProperty('model_policy_id')
+    })
+  })
+
+  // G5: Non-owner edits name, model config unchanged
+  it('G5: non-owner edits name but model config is not sent', async () => {
+    const initial = {
+      agent_id: 'other-agent',
+      name: 'Other Agent',
+      description: 'desc',
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      models: ['existing-model'],
+      skills: [{ id: 'skill-min', name: 'Minimal', scope: 'container_local' }],
+    }
+    render(
+      <AgentFormClient
+        initial={initial}
+        agentUuid="uuid-1"
+        agentOwner="other-user-id"
+        currentUserSub="current-user-id"
+      />
+    )
+    await waitFor(() => expect(screen.getByText('existing-model')).toBeInTheDocument())
+    // Non-owner changes the name
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Updated Name' } })
+    fireEvent.click(screen.getByRole('button', { name: /update agent/i }))
+    await waitFor(() => {
+      const putCall = mockFetch.mock.calls.find(
+        (c: any[]) => typeof c[0] === 'string' && c[0].startsWith('/api/agents/') && c[1]?.method === 'PUT'
+      )
+      expect(putCall).toBeTruthy()
+      const body = JSON.parse(putCall[1].body)
+      expect(body.name).toBe('Updated Name')
+      expect(body).not.toHaveProperty('model_names')
+      expect(body).not.toHaveProperty('model_policy_id')
+    })
+  })
+
+  // G6: Owner sees normal editable model section
+  it('G6: owner sees normal editable model section with checkboxes', async () => {
+    const initial = {
+      agent_id: 'my-agent',
+      name: 'My Agent',
+      description: 'desc',
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      models: ['my-custom-model'],
+      skills: [{ id: 'skill-min', name: 'Minimal', scope: 'container_local' }],
+    }
+    render(
+      <AgentFormClient
+        initial={initial}
+        agentUuid="uuid-1"
+        agentOwner="user-123"
+        currentUserSub="user-123"
+      />
+    )
+    await waitFor(() => expect(screen.getByText('Assign Models')).toBeInTheDocument())
+    // Owner should see checkboxes in the models section
+    const modelsSection = screen.getByText('Assign Models').closest('fieldset')!
+    const modelCheckboxes = modelsSection.querySelectorAll('input[type="checkbox"]')
+    expect(modelCheckboxes.length).toBeGreaterThan(0)
+    // No ownership banner
+    expect(screen.queryByText(/model assignment is managed by the agent owner/i)).not.toBeInTheDocument()
+  })
+
+  // G7: Owner with no agentOwner prop sees editable (create flow)
+  it('G7: no agentOwner prop shows editable model section (create flow)', async () => {
+    render(<AgentFormClient />)
+    await waitFor(() => expect(screen.getByText('Assign Models')).toBeInTheDocument())
+    expect(screen.queryByText(/model assignment is managed by the agent owner/i)).not.toBeInTheDocument()
+  })
+
   it('edit mode pre-selects skills from initial props', async () => {
     const initial = {
       agent_id: 'existing-agent',
