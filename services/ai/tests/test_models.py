@@ -191,9 +191,9 @@ class TestUsageOwner:
         mock_conn.execute.assert_called_once()
         sql = mock_conn.execute.call_args[0][0]
         assert "owner" in sql
-        # owner should be the last positional param
+        # owner is param 10 (index 9)
         params = mock_conn.execute.call_args[0][1:]
-        assert params[-1] == "user-a"
+        assert params[9] == "user-a"
 
     @pytest.mark.asyncio
     async def test_usage_log_owner_defaults_to_none(self, mock_conn):

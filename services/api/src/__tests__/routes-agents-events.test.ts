@@ -706,4 +706,75 @@ describe('GET /agents/:id/events', () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/not running/i);
   });
+
+  // -------------------------------------------------------------------------
+  // AI-121: Resolution chain columns in agent events
+  // -------------------------------------------------------------------------
+
+  it('X1+X2: inference event metadata includes requested_model and provider_model_id', async () => {
+    mockRunningAgent();
+
+    const fakeStream = new Readable({ read() { this.push(null); } });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+
+    const row = makeInferenceRow({
+      model_name: 'gpt-4o-mini',
+      request_type: 'chat.completion',
+      status: 'success',
+    });
+    // Add the new resolution chain fields
+    (row as any).requested_model = 'fast';
+    (row as any).provider_model_id = 'openai/gpt-4o-mini';
+    mockInferenceRows([row]);
+
+    const res = await request(app)
+      .get(`/agents/${AGENT_UUID}/events?tail=50`)
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    const event = res.body[0];
+    expect(event.metadata).toBeDefined();
+    expect(event.metadata.requested_model).toBe('fast');
+    expect(event.metadata.provider_model_id).toBe('openai/gpt-4o-mini');
+  });
+
+  it('X2: inference event metadata handles null resolution chain fields', async () => {
+    mockRunningAgent();
+
+    const fakeStream = new Readable({ read() { this.push(null); } });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+
+    const row = makeInferenceRow({ status: 'rate_limited' });
+    // New fields are null (pre-BYOK denial path)
+    (row as any).requested_model = null;
+    (row as any).provider_model_id = null;
+    mockInferenceRows([row]);
+
+    const res = await request(app)
+      .get(`/agents/${AGENT_UUID}/events?tail=50`)
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    const event = res.body[0];
+    expect(event.metadata.requested_model).toBeNull();
+    expect(event.metadata.provider_model_id).toBeNull();
+  });
+
+  it('X3: getRecentInference SQL SELECT includes requested_model and provider_model_id', async () => {
+    mockRunningAgent();
+
+    const fakeStream = new Readable({ read() { this.push(null); } });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+    mockInferenceRows([]);
+
+    await request(app)
+      .get(`/agents/${AGENT_UUID}/events?tail=50`)
+      .set('Authorization', `Bearer ${userToken}`);
+
+    // The inference query is the second call
+    const inferenceCall = mockQuery.mock.calls[1];
+    const sql = inferenceCall[0] as string;
+    expect(sql).toContain('requested_model');
+    expect(sql).toContain('provider_model_id');
+  });
 });
