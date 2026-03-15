@@ -145,8 +145,11 @@ describe('Model Policy CRUD routes', () => {
     expect(call[0]).toContain('created_by = $2 OR created_by IS NULL');
   });
 
-  // Create — admin (platform policy, no model validation)
+  // Create — admin (validates allowed_models against admin's user_models)
   it('POST /model-policies creates platform policy for admin', async () => {
+    // validateAllowedModels: check user_models for "gpt-4o" (found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-admin-1' }] });
+    // INSERT
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'p2', name: 'premium', allowed_models: ['gpt-4o'], created_by: null }],
     });
@@ -157,17 +160,16 @@ describe('Model Policy CRUD routes', () => {
     expect(res.status).toBe(201);
     expect(res.body.name).toBe('premium');
     // Admin policies get created_by = null
-    const insertCall = mockQuery.mock.calls[0];
+    const insertCall = mockQuery.mock.calls[1];
     expect(insertCall[1][7]).toBeNull(); // created_by param
   });
 
-  // Create — user (validates allowed_models)
+  // Create — user (validates allowed_models against user_models only)
   it('POST /model-policies user creates own policy', async () => {
-    // First query: check user_models for "my-gpt4"
+    // validateAllowedModels: check user_models for "my-gpt4" (found)
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-1' }] });
-    // Second query: check model_catalog for "gpt-4o-mini"
-    mockQuery.mockResolvedValueOnce({ rows: [] }); // not a user model
-    mockQuery.mockResolvedValueOnce({ rows: [{ name: 'gpt-4o-mini' }] }); // is a platform model
+    // validateAllowedModels: check user_models for "gpt-4o-mini" (found)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-2' }] });
     // Insert
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'p3', name: 'my-policy', allowed_models: ['my-gpt4', 'gpt-4o-mini'], created_by: 'regular-user' }],
@@ -182,9 +184,7 @@ describe('Model Policy CRUD routes', () => {
   });
 
   it('POST /model-policies user policy rejects other users models', async () => {
-    // user_models check: not found for this user
-    mockQuery.mockResolvedValueOnce({ rows: [] });
-    // model_catalog check: not found
+    // validateAllowedModels: check user_models for "user-b-model" (not found)
     mockQuery.mockResolvedValueOnce({ rows: [] });
 
     const res = await request(app)
@@ -192,24 +192,19 @@ describe('Model Policy CRUD routes', () => {
       .set('Authorization', `Bearer ${userToken}`)
       .send({ name: 'bad-policy', allowed_models: ['user-b-model'] });
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain("Model 'user-b-model' not found");
+    expect(res.body.error).toContain("Model 'user-b-model' not found in user models for policy owner");
   });
 
-  it('POST /model-policies user policy accepts platform models', async () => {
-    // user_models check: not found
+  it('POST /model-policies user policy rejects platform-only models not in user_models', async () => {
+    // validateAllowedModels: check user_models for "gpt-4o-mini" (not found — platform models no longer accepted)
     mockQuery.mockResolvedValueOnce({ rows: [] });
-    // model_catalog check: found as platform model
-    mockQuery.mockResolvedValueOnce({ rows: [{ name: 'gpt-4o-mini' }] });
-    // Insert
-    mockQuery.mockResolvedValueOnce({
-      rows: [{ id: 'p4', name: 'platform-only', allowed_models: ['gpt-4o-mini'], created_by: 'regular-user' }],
-    });
 
     const res = await request(app)
       .post('/model-policies')
       .set('Authorization', `Bearer ${userToken}`)
       .send({ name: 'platform-only', allowed_models: ['gpt-4o-mini'] });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Model 'gpt-4o-mini' not found in user models for policy owner");
   });
 
   it('POST /model-policies rejects missing name', async () => {
@@ -239,13 +234,18 @@ describe('Model Policy CRUD routes', () => {
     expect(res.status).toBe(409);
   });
 
-  // Update — admin can update any
+  // Update — admin can update any (validates allowed_models against admin's user_models)
   it('PUT /model-policies/:id updates policy (admin)', async () => {
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini'] }] }) // existence check
-      .mockResolvedValueOnce({
-        rows: [{ id: 'p1', name: 'default', allowed_models: ['gpt-4o', 'gpt-4o-mini'], max_requests_per_minute: 20, max_tokens_per_day: null }],
-      });
+    // existence check
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini'] }] });
+    // validateAllowedModels: check user_models for "gpt-4o" (found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-a1' }] });
+    // validateAllowedModels: check user_models for "gpt-4o-mini" (found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-a2' }] });
+    // UPDATE
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'p1', name: 'default', allowed_models: ['gpt-4o', 'gpt-4o-mini'], max_requests_per_minute: 20, max_tokens_per_day: null }],
+    });
     const res = await request(app)
       .put('/model-policies/p1')
       .set('Authorization', `Bearer ${adminToken}`)
@@ -346,6 +346,11 @@ describe('Model Policy CRUD routes', () => {
   });
 
   it('POST /model-policies creates policy with aliases', async () => {
+    // validateAllowedModels: check user_models for "gpt-4o-mini" (found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-a1' }] });
+    // validateAllowedModels: check user_models for "gpt-4o" (found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-a2' }] });
+    // INSERT
     mockQuery.mockResolvedValueOnce({
       rows: [{ id: 'p3', name: 'aliased', allowed_models: ['gpt-4o-mini', 'gpt-4o'], model_aliases: { fast: 'gpt-4o-mini', smart: 'gpt-4o' } }],
     });
@@ -467,5 +472,49 @@ describe('Model Policy CRUD routes', () => {
       .delete('/model-policies/nonexistent')
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
+  });
+
+  // AI-120: admin model eligibility enforcement
+  it('POST /model-policies admin with model in own user_models passes', async () => {
+    // validateAllowedModels: check user_models for "gpt-4o" (found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-admin-1' }] });
+    // INSERT
+    mockQuery.mockResolvedValueOnce({
+      rows: [{ id: 'p5', name: 'admin-eligible', allowed_models: ['gpt-4o'], created_by: null }],
+    });
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'admin-eligible', allowed_models: ['gpt-4o'] });
+    expect(res.status).toBe(201);
+    expect(res.body.name).toBe('admin-eligible');
+  });
+
+  it('POST /model-policies admin with model NOT in own user_models is rejected', async () => {
+    // validateAllowedModels: check user_models for "unknown-model" (not found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/model-policies')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ name: 'admin-ineligible', allowed_models: ['unknown-model'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Model 'unknown-model' not found in user models for policy owner");
+  });
+
+  it('PUT /model-policies/:id admin update with new allowed_models validates each model', async () => {
+    // existence check
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'p1', allowed_models: ['gpt-4o-mini'] }] });
+    // validateAllowedModels: check user_models for "gpt-4o" (found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-a1' }] });
+    // validateAllowedModels: check user_models for "claude-3" (not found for admin-user)
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .put('/model-policies/p1')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ allowed_models: ['gpt-4o', 'claude-3'] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Model 'claude-3' not found in user models for policy owner");
   });
 });

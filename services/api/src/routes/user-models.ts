@@ -187,13 +187,25 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
 
   const result = await pool.query(
-    'DELETE FROM user_models WHERE id = $1 AND created_by = $2 RETURNING id',
+    'DELETE FROM user_models WHERE id = $1 AND created_by = $2 RETURNING id, name',
     [id, user.sub]
   );
 
   if (result.rows.length === 0) {
     res.status(404).json({ error: 'Model not found' });
     return;
+  }
+
+  // Best-effort stale cleanup: scrub deleted model name from owner's policies
+  const deletedModelName = result.rows[0].name;
+  try {
+    await pool.query(
+      `UPDATE model_policies SET allowed_models = allowed_models - $1, updated_at = NOW()
+       WHERE created_by = $2 AND allowed_models ? $1`,
+      [deletedModelName, user.sub]
+    );
+  } catch (err) {
+    console.error('[user-models] Stale policy cleanup failed (non-fatal):', err);
   }
 
   res.json({ deleted: true });

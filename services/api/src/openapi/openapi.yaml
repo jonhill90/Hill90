@@ -2095,6 +2095,52 @@ paths:
         "404":
           description: Connection not found
 
+  /eligible-models:
+    get:
+      summary: List eligible models
+      description: >
+        Returns the caller's own user_models that are eligible for use in
+        policies and agent assignments. Only active models are returned
+        by default. AI-120 enforcement — no platform models included.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: include_inactive
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["true", "false"]
+          description: Include inactive user models in the response.
+      responses:
+        "200":
+          description: Eligible models list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        connection_id:
+                          type: string
+                          format: uuid
+                        is_active:
+                          type: boolean
+        "401":
+          description: Unauthorized
+        "403":
+          description: Forbidden — requires user role
+        "503":
+          description: Database not configured
+
   /user-models:
     get:
       summary: List user models

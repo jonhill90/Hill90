@@ -217,4 +217,54 @@ describe('User Models CRUD', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('not owned by you');
   });
+
+  it('B1: DELETE scrubs model name from owner policies', async () => {
+    // Delete returns model with name
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4' }] });
+    // Stale cleanup updates 1 policy
+    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+
+    const res = await request(app)
+      .delete('/user-models/model-1')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: true });
+
+    // Verify stale cleanup query was called with correct params
+    const scrubCall = mockQuery.mock.calls[1];
+    expect(scrubCall[0]).toContain('allowed_models = allowed_models - $1');
+    expect(scrubCall[0]).toContain('allowed_models ? $1');
+    expect(scrubCall[1]).toEqual(['my-gpt4', 'regular-user']);
+  });
+
+  it('B2: DELETE does not modify other users policies', async () => {
+    // Delete returns model with name
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4' }] });
+    // Stale cleanup
+    mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+
+    await request(app)
+      .delete('/user-models/model-1')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    // Verify the scrub query WHERE clause scopes to the caller's sub only
+    const scrubCall = mockQuery.mock.calls[1];
+    expect(scrubCall[0]).toContain('created_by = $2');
+    expect(scrubCall[1][1]).toBe('regular-user');
+  });
+
+  it('B3: DELETE succeeds when no policies reference model', async () => {
+    // Delete returns model with name
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4' }] });
+    // Stale cleanup finds no matching policies
+    mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+
+    const res = await request(app)
+      .delete('/user-models/model-1')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ deleted: true });
+  });
 });

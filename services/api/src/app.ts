@@ -10,6 +10,7 @@ import toolsRouter from './routes/tools';
 import containerProfilesRouter from './routes/container-profiles';
 import providerConnectionsRouter from './routes/provider-connections';
 import userModelsRouter from './routes/user-models';
+import eligibleModelsRouter from './routes/eligible-models';
 import profileRouter from './routes/profile';
 import usageRouter from './routes/usage';
 import { requireRole } from './middleware/role';
@@ -69,6 +70,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // User-defined models (user-scoped BYOK model definitions)
   app.use('/user-models', requireAuth, userModelsRouter);
+
+  // Eligible models discovery (AI-120: user's own connection-derived models only)
+  app.use('/eligible-models', requireAuth, eligibleModelsRouter);
 
   // Usage query routes (enforced in router)
   app.use('/usage', requireAuth, usageRouter);
