@@ -22,6 +22,12 @@ const MOCK_MODELS = [
     litellm_model: 'gpt-4o-mini',
     description: 'Fast and cheap',
     is_active: true,
+    model_type: 'single',
+    detected_type: 'chat',
+    capabilities: ['chat', 'function_calling'],
+    routing_config: null,
+    icon_emoji: null,
+    icon_url: null,
     created_at: '2026-01-15T00:00:00Z',
     updated_at: '2026-01-15T00:00:00Z',
   },
@@ -32,18 +38,60 @@ const MOCK_MODELS = [
     litellm_model: 'claude-sonnet-4-5-20250929',
     description: '',
     is_active: true,
+    model_type: 'single',
+    detected_type: 'chat',
+    capabilities: ['chat', 'function_calling'],
+    routing_config: null,
+    icon_emoji: null,
+    icon_url: null,
     created_at: '2026-02-01T00:00:00Z',
     updated_at: '2026-02-01T00:00:00Z',
   },
 ]
 
+const MOCK_ROUTER_MODEL = {
+  id: 'model-router',
+  name: 'Multi Router',
+  connection_id: null,
+  litellm_model: null,
+  description: 'Routes between models',
+  is_active: true,
+  model_type: 'router',
+  detected_type: null,
+  capabilities: null,
+  routing_config: {
+    strategy: 'fallback',
+    default_route: 'primary',
+    routes: [
+      { key: 'primary', connection_id: 'conn-1', litellm_model: 'openai/gpt-4o', priority: 1 },
+      { key: 'secondary', connection_id: 'conn-2', litellm_model: 'anthropic/claude-sonnet-4-20250514', priority: 2 },
+    ],
+  },
+  icon_emoji: '🔀',
+  icon_url: null,
+  created_at: '2026-03-01T00:00:00Z',
+  updated_at: '2026-03-01T00:00:00Z',
+}
+
+const MOCK_PROVIDER_MODELS = [
+  { id: 'openai/gpt-4o', display_name: 'gpt-4o', detected_type: 'chat', capabilities: ['chat', 'function_calling', 'vision'] },
+  { id: 'openai/gpt-4o-mini', display_name: 'gpt-4o-mini', detected_type: 'chat', capabilities: ['chat', 'function_calling'] },
+  { id: 'openai/text-embedding-3-small', display_name: 'text-embedding-3-small', detected_type: 'embedding', capabilities: ['embedding'] },
+]
+
 function mockFetchResponses(models = MOCK_MODELS, connections = MOCK_CONNECTIONS) {
-  mockFetch.mockImplementation((url: string) => {
-    if (url === '/api/user-models') {
+  mockFetch.mockImplementation((url: string, options?: any) => {
+    if (url === '/api/user-models' && (!options || !options.method || options.method === 'GET')) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(models) })
     }
     if (url === '/api/provider-connections') {
       return Promise.resolve({ ok: true, json: () => Promise.resolve(connections) })
+    }
+    if (typeof url === 'string' && url.match(/\/api\/provider-connections\/[^/]+\/models$/)) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ models: MOCK_PROVIDER_MODELS, provider: 'openai' }) })
+    }
+    if (typeof url === 'string' && url.startsWith('/api/user-models')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'new-model' }) })
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
   })
@@ -126,34 +174,6 @@ describe('ModelsClient', () => {
 
     expect(screen.getByText('New Model')).toBeInTheDocument()
     expect(screen.getByText('Select a connection')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('GPT-4o Mini')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('gpt-4o-mini')).toBeInTheDocument()
-  })
-
-  it('submits create form with correct body', async () => {
-    render(<ModelsClient />)
-
-    await waitFor(() => {
-      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByText('Add Model'))
-
-    fireEvent.change(screen.getByPlaceholderText('GPT-4o Mini'), { target: { value: 'New Model' } })
-    fireEvent.change(screen.getByPlaceholderText('gpt-4o-mini'), { target: { value: 'gpt-4o' } })
-
-    // Select connection
-    const connectionSelect = screen.getByDisplayValue('Select a connection')
-    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
-
-    fireEvent.click(screen.getByText('Create'))
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('/api/user-models', expect.objectContaining({
-        method: 'POST',
-        body: expect.stringContaining('"name":"New Model"'),
-      }))
-    })
   })
 
   it('confirms before deleting', async () => {
@@ -170,5 +190,450 @@ describe('ModelsClient', () => {
 
     expect(confirmSpy).toHaveBeenCalled()
     confirmSpy.mockRestore()
+  })
+
+  // D1: Connection select fetches provider models
+  it('D1: connection select fetches provider models', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/provider-connections/conn-1/models')
+    })
+  })
+
+  // D2: Provider model multi-select shows models
+  it('D2: provider model multi-select shows models', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      // Provider models appear in the picker (may also appear in the table)
+      expect(screen.getAllByText('gpt-4o').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('gpt-4o-mini').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('text-embedding-3-small').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  // D3: Model fetch loading state
+  it('D3: model fetch loading state shows spinner', async () => {
+    // Make the models fetch hang
+    mockFetch.mockImplementation((url: string) => {
+      if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODELS) })
+      if (url === '/api/provider-connections') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
+      if (typeof url === 'string' && url.includes('/models')) return new Promise(() => {}) // never resolves
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Loading models from provider...')).toBeInTheDocument()
+    })
+  })
+
+  // D4: Model fetch error shows actionable error + retry
+  it('D4: model fetch error shows actionable error + retry', async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODELS) })
+      if (url === '/api/provider-connections') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
+      if (typeof url === 'string' && url.includes('/models')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ models: [], error: 'Invalid API key', provider: 'openai' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Could not fetch models from provider. Check your connection credentials.')).toBeInTheDocument()
+      expect(screen.getByText('Invalid API key')).toBeInTheDocument()
+      expect(screen.getByText('Retry')).toBeInTheDocument()
+    })
+  })
+
+  // D5: Model fetch empty (unsupported provider) shows message
+  it('D5: unsupported provider shows message + free-text input', async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODELS) })
+      if (url === '/api/provider-connections') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
+      if (typeof url === 'string' && url.includes('/models')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ models: [], provider: 'custom' }) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Model listing not supported for this provider')).toBeInTheDocument()
+    })
+  })
+
+  // D6: Selecting 1 model hides router panel
+  it('D6: selecting 1 model hides router panel', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+    })
+
+    // Select one model
+    const checkboxes = screen.getAllByRole('checkbox')
+    const gpt4oCheckbox = checkboxes.find(cb => {
+      const label = cb.closest('label')
+      return label?.textContent?.includes('gpt-4o') && !label?.textContent?.includes('mini')
+    })
+    if (gpt4oCheckbox) fireEvent.click(gpt4oCheckbox)
+
+    // Router panel should NOT be visible
+    expect(screen.queryByText('Router Configuration')).not.toBeInTheDocument()
+  })
+
+  // D7: Selecting 2+ models shows router panel automatically
+  it('D7: selecting 2+ models shows router panel', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+    })
+
+    // Select two models
+    const providerModelLabels = screen.getAllByRole('checkbox').filter(cb => {
+      const label = cb.closest('label')
+      return label?.textContent?.includes('gpt-4o') || label?.textContent?.includes('text-embedding')
+    })
+    if (providerModelLabels[0]) fireEvent.click(providerModelLabels[0])
+    if (providerModelLabels[1]) fireEvent.click(providerModelLabels[1])
+
+    await waitFor(() => {
+      expect(screen.getByText('Router Configuration')).toBeInTheDocument()
+    })
+  })
+
+  // D8: Strategy toggle works
+  it('D8: strategy toggle works', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+    })
+
+    // Select two models to get router panel
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[0])
+    fireEvent.click(checkboxes[1])
+
+    await waitFor(() => {
+      expect(screen.getByText('Router Configuration')).toBeInTheDocument()
+    })
+
+    const taskRoutingRadio = screen.getByLabelText('Task Routing')
+    fireEvent.click(taskRoutingRadio)
+
+    expect(taskRoutingRadio).toBeChecked()
+  })
+
+  // D9: Submit single sends connection_id+litellm_model
+  it('D9: submit single sends correct body', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+
+    // Fill name
+    fireEvent.change(screen.getByPlaceholderText('GPT-4o Mini'), { target: { value: 'Test Model' } })
+
+    // Select connection
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+    })
+
+    // Select ONE model
+    const gpt4oLabel = screen.getByText('gpt-4o').closest('label')
+    if (gpt4oLabel) {
+      const checkbox = gpt4oLabel.querySelector('input[type="checkbox"]')
+      if (checkbox) fireEvent.click(checkbox)
+    }
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        (call: any[]) => call[0] === '/api/user-models' && call[1]?.method === 'POST'
+      )
+      expect(postCall).toBeDefined()
+      const body = JSON.parse(postCall![1].body)
+      expect(body.connection_id).toBe('conn-1')
+      expect(body.litellm_model).toBe('openai/gpt-4o')
+      expect(body.model_type).toBeUndefined() // single is default, no need to send
+    })
+  })
+
+  // D10: Submit router sends routing_config
+  it('D10: submit router sends routing_config', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+
+    // Fill name
+    fireEvent.change(screen.getByPlaceholderText('GPT-4o Mini'), { target: { value: 'Router Model' } })
+
+    // Select connection
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+    })
+
+    // Select TWO models
+    const checkboxes = screen.getAllByRole('checkbox').filter(cb => {
+      const label = cb.closest('label')
+      return label?.textContent?.includes('gpt-4o') || label?.textContent?.includes('gpt-4o-mini')
+    })
+    if (checkboxes[0]) fireEvent.click(checkboxes[0])
+    if (checkboxes[1]) fireEvent.click(checkboxes[1])
+
+    await waitFor(() => {
+      expect(screen.getByText('Router Configuration')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        (call: any[]) => call[0] === '/api/user-models' && call[1]?.method === 'POST'
+      )
+      expect(postCall).toBeDefined()
+      const body = JSON.parse(postCall![1].body)
+      expect(body.model_type).toBe('router')
+      expect(body.routing_config).toBeDefined()
+      expect(body.routing_config.strategy).toBe('fallback')
+      expect(body.routing_config.routes.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  // D11: Table shows model type badge
+  it('D11: table shows model type badges', async () => {
+    mockFetchResponses([...MOCK_MODELS, MOCK_ROUTER_MODEL])
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Router')).toBeInTheDocument()
+      expect(screen.getAllByText('Single')).toHaveLength(2)
+    })
+  })
+
+  // D12: Icon emoji renders
+  it('D12: icon emoji renders', async () => {
+    mockFetchResponses([...MOCK_MODELS, MOCK_ROUTER_MODEL])
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('🔀')).toBeInTheDocument()
+    })
+  })
+
+  // D13: Icon URL renders thumbnail
+  it('D13: icon URL renders thumbnail', async () => {
+    const modelWithIcon = { ...MOCK_MODELS[0], icon_url: 'https://example.com/icon.png' }
+    mockFetchResponses([modelWithIcon])
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      const img = document.querySelector('img[src="https://example.com/icon.png"]')
+      expect(img).toBeInTheDocument()
+    })
+  })
+
+  // D14: Custom model ID fallback
+  it('D14: custom model ID fallback', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+
+    // Fill name
+    fireEvent.change(screen.getByPlaceholderText('GPT-4o Mini'), { target: { value: 'Custom' } })
+
+    // Select connection
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('Enter custom model ID')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Enter custom model ID'))
+
+    const customInput = screen.getByPlaceholderText('openai/gpt-4o-mini')
+    fireEvent.change(customInput, { target: { value: 'custom/my-model' } })
+
+    fireEvent.click(screen.getByText('Create'))
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        (call: any[]) => call[0] === '/api/user-models' && call[1]?.method === 'POST'
+      )
+      expect(postCall).toBeDefined()
+      const body = JSON.parse(postCall![1].body)
+      expect(body.litellm_model).toBe('custom/my-model')
+    })
+  })
+
+  // D16: Auto-detected type badge shown
+  it('D16: auto-detected type badge shown in table', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getAllByText('chat')).toHaveLength(2)
+    })
+  })
+
+  // D17: Manual type override dropdown
+  it('D17: manual type override dropdown present in form', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+
+    const typeSelect = screen.getByDisplayValue('Auto-detect')
+    expect(typeSelect).toBeInTheDocument()
+    fireEvent.change(typeSelect, { target: { value: 'embedding' } })
+
+    expect(typeSelect).toHaveValue('embedding')
+  })
+
+  // D18: Capabilities checkboxes reflect detection
+  it('D18: capabilities checkboxes present in form', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+
+    expect(screen.getByText('function_calling')).toBeInTheDocument()
+    expect(screen.getByText('vision')).toBeInTheDocument()
+    expect(screen.getByText('embedding')).toBeInTheDocument()
+  })
+
+  // D19: Add model from different connection
+  it('D19: add model from different connection adds cross-connection row', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+    })
+
+    // Select two models to trigger router panel
+    const checkboxes = screen.getAllByRole('checkbox').filter(cb => {
+      const label = cb.closest('label')
+      return label?.textContent?.includes('gpt-4o') || label?.textContent?.includes('gpt-4o-mini')
+    })
+    if (checkboxes[0]) fireEvent.click(checkboxes[0])
+    if (checkboxes[1]) fireEvent.click(checkboxes[1])
+
+    await waitFor(() => {
+      expect(screen.getByText('Add model from different connection')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add model from different connection'))
+
+    // A new select/input row should appear
+    await waitFor(() => {
+      expect(screen.getByText('Select connection')).toBeInTheDocument()
+    })
   })
 })

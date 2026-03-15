@@ -204,8 +204,8 @@ describe('User Models CRUD', () => {
   });
 
   it('PUT verifies ownership of new connection', async () => {
-    // Model ownership OK
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1' }] });
+    // Model ownership OK (includes model_type for router support)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', model_type: 'single' }] });
     // Connection ownership fails
     mockQuery.mockResolvedValueOnce({ rows: [] });
 

@@ -56,6 +56,7 @@ class TestResolveBYOK:
             patch(
                 "app.main.resolve_user_model", new_callable=AsyncMock, return_value=None
             ),
+            patch("app.main.resolve_router_model", new_callable=AsyncMock, return_value=None),
             patch("app.main.is_platform_model", new_callable=AsyncMock) as mock_is_platform,
         ):
             policy_result = PolicyResult(resolved_model="some-model")
@@ -115,6 +116,7 @@ class TestResolveBYOK:
             patch(
                 "app.main.resolve_user_model", new_callable=AsyncMock, return_value=None
             ),
+            patch("app.main.resolve_router_model", new_callable=AsyncMock, return_value=None),
             patch("app.main.is_platform_model", new_callable=AsyncMock) as mock_is_platform,
         ):
             policy_result = PolicyResult(resolved_model="unknown-model")
@@ -186,6 +188,7 @@ class TestResolveBYOK:
             patch(
                 "app.main.resolve_user_model", new_callable=AsyncMock, return_value=None
             ),
+            patch("app.main.resolve_router_model", new_callable=AsyncMock, return_value=None),
             patch("app.main.is_platform_model", new_callable=AsyncMock) as mock_is_platform,
         ):
             policy_result = PolicyResult(resolved_model="missing-model")

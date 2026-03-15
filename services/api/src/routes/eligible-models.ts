@@ -24,7 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     const activeClause = includeInactive ? '' : 'AND is_active = true';
     const { rows } = await getPool().query(
-      `SELECT name, description, connection_id, is_active
+      `SELECT name, description, connection_id, is_active, model_type, detected_type
        FROM user_models
        WHERE created_by = $1 ${activeClause}
        ORDER BY name ASC`,
