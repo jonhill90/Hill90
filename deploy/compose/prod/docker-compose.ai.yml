@@ -68,6 +68,7 @@ services:
       litellm:
         condition: service_healthy
     networks:
+      - edge
       - internal
       - agent_internal
       - agent_sandbox
