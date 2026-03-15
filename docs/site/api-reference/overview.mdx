@@ -113,6 +113,21 @@ Query model usage statistics with filtering and grouping options. Users see thei
 |----------|------|-------------|
 | `GET /usage` | Bearer | Query usage (filter by agent, model, date; group by agent, model, day) |
 
+### Model Naming & Resolution
+
+When an agent makes an inference request, the model name goes through a resolution chain:
+
+1. **Requested model** — the model name in the HTTP request body (`body.model`). May be an alias or a direct model name.
+2. **Resolved model** — after alias resolution. If the requested name is an alias defined in the agent's model policy, it resolves to the target model name. Otherwise, the requested name passes through unchanged. Alias resolution is single-pass (no recursion).
+3. **Provider model ID** — after BYOK resolution. If the resolved model matches a user model backed by a provider connection, the provider-prefixed model ID (e.g., `openai/gpt-4o-mini`) is sent to the provider. This is the actual model identifier used for inference.
+
+Usage records store all three values:
+- `model_name` — the resolved model name (step 2)
+- `requested_model` — the original request name (step 1, may equal `model_name` if no alias was used)
+- `provider_model_id` — the provider-side identifier (step 3, null for denial paths and pre-BYOK errors)
+
+Model aliases are defined per policy via `model_aliases` (a JSON object mapping alias to real model name). Alias targets must be in the policy's `allowed_models` list.
+
 ## Auto-Generated Documentation
 
 The endpoint pages in this section are auto-generated from the [OpenAPI specification](/openapi.yaml). Each endpoint page includes request/response schemas, parameter details, and example payloads.

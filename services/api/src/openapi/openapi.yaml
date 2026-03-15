@@ -352,6 +352,12 @@ components:
           type: integer
           nullable: true
           description: Daily token budget. NULL means unlimited.
+        model_aliases:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+          description: Alias map (alias name → real model name). Single-pass resolution.
         created_at:
           type: string
           format: date-time
