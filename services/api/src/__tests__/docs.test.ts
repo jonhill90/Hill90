@@ -156,6 +156,7 @@ const EXPECTED_PATHS = [
   '/provider-connections',
   '/provider-connections/{id}',
   '/provider-connections/{id}/validate',
+  '/eligible-models',
   '/user-models',
   '/user-models/{id}',
   '/usage',

@@ -70,6 +70,10 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
     // FK validation returns policy with created_by = user
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'regular-user' }] });
+    // validatePolicyEligibility: fetch allowed_models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
+    // validatePolicyEligibility: user_models check for each model
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-1' }] });
     // UPDATE
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] });
     // SELECT skills for response
@@ -91,6 +95,10 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
     // FK validation returns platform policy (created_by = null)
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'platform-policy', created_by: null }] });
+    // validatePolicyEligibility: fetch allowed_models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
+    // validatePolicyEligibility: user_models check for each model
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-1' }] });
     // UPDATE
     mockQuery.mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'platform-policy' }] });
     // SELECT skills for response
@@ -125,6 +133,8 @@ describe('Agent PUT model_policy_id behavior', () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
       .mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'someone' }] }) // FK validation
+      .mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] }) // validatePolicyEligibility: fetch allowed_models
+      .mockResolvedValueOnce({ rows: [{ id: 'um-1' }] }) // validatePolicyEligibility: user_models check
       .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] }) // UPDATE
       .mockResolvedValueOnce({ rows: [] }) // SELECT skills for response
       .mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] }); // Resolve models
@@ -136,7 +146,7 @@ describe('Agent PUT model_policy_id behavior', () => {
 
     expect(res.status).toBe(200);
     // Verify the CASE WHEN boolean flag is true (model_policy_id was provided)
-    const updateCall = mockQuery.mock.calls[2];
+    const updateCall = mockQuery.mock.calls[4];
     expect(updateCall[1][8]).toBe(true); // modelPolicyProvided flag
     expect(updateCall[1][9]).toBe('policy-1'); // model_policy_id value
   });
@@ -222,6 +232,10 @@ describe('Agent POST model_policy_id behavior', () => {
   it('POST /agents with model_policy_id assigns policy', async () => {
     // FK validation returns policy owned by user
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'regular-user' }] });
+    // validatePolicyEligibility: fetch allowed_models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
+    // validatePolicyEligibility: user_models check
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-1' }] });
     // INSERT
     mockQuery.mockResolvedValueOnce({
       rows: [{
@@ -262,6 +276,10 @@ describe('Agent POST model_policy_id behavior', () => {
   it('POST /agents admin can assign any policy', async () => {
     // FK validation returns policy owned by someone else
     mockQuery.mockResolvedValueOnce({ rows: [{ id: 'any-policy', created_by: 'someone' }] });
+    // validatePolicyEligibility: fetch allowed_models
+    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
+    // validatePolicyEligibility: user_models check (admin's own models)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-admin' }] });
     // INSERT
     mockQuery.mockResolvedValueOnce({
       rows: [{

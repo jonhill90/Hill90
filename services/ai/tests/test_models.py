@@ -213,3 +213,58 @@ class TestUsageOwner:
 
         params = mock_conn.execute.call_args[0][1:]
         assert params[-1] is None  # owner defaults to None
+
+
+class TestResolveUserModelOwnerScoping:
+    """E1-E4: Eligibility enforcement — owner-scoped model resolution."""
+
+    @pytest.mark.asyncio
+    async def test_e1_wrong_owner_returns_none(self, mock_conn):
+        """E1: Model owned by user-a, queried as user-b returns None."""
+        mock_conn.fetchrow.return_value = None
+
+        result = await resolve_user_model(mock_conn, "user-a-model", "user-b")
+
+        assert result is None
+        sql = mock_conn.fetchrow.call_args[0][0]
+        assert "created_by = $2" in sql
+        args = mock_conn.fetchrow.call_args[0][1:]
+        assert "user-b" in args
+
+    @pytest.mark.asyncio
+    async def test_e2_correct_owner_returns_model(self, mock_conn):
+        """E2: Model owned by user-a, queried as user-a returns UserModelInfo."""
+        mock_conn.fetchrow.return_value = {
+            "litellm_model": "openai/gpt-4o",
+            "api_key_encrypted": b"enc-key",
+            "api_key_nonce": b"nonce",
+            "api_base_url": None,
+        }
+
+        result = await resolve_user_model(mock_conn, "user-a-model", "user-a")
+
+        assert result is not None
+        assert result.litellm_model == "openai/gpt-4o"
+        args = mock_conn.fetchrow.call_args[0][1:]
+        assert "user-a" in args
+
+    @pytest.mark.asyncio
+    async def test_e3_inactive_model_returns_none(self, mock_conn):
+        """E3: Correct owner but is_active=false returns None."""
+        mock_conn.fetchrow.return_value = None
+
+        result = await resolve_user_model(mock_conn, "inactive-model", "user-a")
+
+        assert result is None
+        sql = mock_conn.fetchrow.call_args[0][0]
+        assert "is_active = true" in sql
+
+    @pytest.mark.asyncio
+    async def test_e4_sql_joins_provider_connections(self, mock_conn):
+        """E4: SQL query JOINs provider_connections table."""
+        mock_conn.fetchrow.return_value = None
+
+        await resolve_user_model(mock_conn, "test-model", "user-a")
+
+        sql = mock_conn.fetchrow.call_args[0][0]
+        assert "JOIN provider_connections" in sql
