@@ -67,7 +67,7 @@ const MOCK_ROUTER_MODEL = {
       { key: 'secondary', connection_id: 'conn-2', litellm_model: 'anthropic/claude-sonnet-4-20250514', priority: 2 },
     ],
   },
-  icon_emoji: '🔀',
+  icon_emoji: null,
   icon_url: null,
   created_at: '2026-03-01T00:00:00Z',
   updated_at: '2026-03-01T00:00:00Z',
@@ -498,15 +498,20 @@ describe('ModelsClient', () => {
     })
   })
 
-  // D12: Icon emoji renders
-  it('D12: icon emoji renders', async () => {
-    mockFetchResponses([...MOCK_MODELS, MOCK_ROUTER_MODEL])
+  // D12: Fallback avatar renders initials when no icon_url
+  it('D12: fallback avatar renders initials when no icon_url', async () => {
+    mockFetchResponses(MOCK_MODELS)
 
     render(<ModelsClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('🔀')).toBeInTheDocument()
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
     })
+
+    // Fallback avatar should show first letter of model name
+    const avatars = document.querySelectorAll('.rounded-full')
+    const gAvatar = Array.from(avatars).find(el => el.textContent === 'G')
+    expect(gAvatar).toBeInTheDocument()
   })
 
   // D13: Icon URL renders thumbnail

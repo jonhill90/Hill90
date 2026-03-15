@@ -2286,6 +2286,8 @@ paths:
                     icon_emoji:
                       type: string
                       nullable: true
+                      deprecated: true
+                      description: Deprecated — always null on new writes. Use icon_url instead.
                     icon_url:
                       type: string
                       nullable: true
@@ -2346,6 +2348,8 @@ paths:
                   description: Manual override for auto-detected capabilities
                 icon_emoji:
                   type: string
+                  deprecated: true
+                  description: Deprecated — ignored on writes. Use icon_url instead.
                 icon_url:
                   type: string
       responses:
@@ -2407,6 +2411,8 @@ paths:
                     type: string
                 icon_emoji:
                   type: string
+                  deprecated: true
+                  description: Deprecated — ignored on writes. Use icon_url instead.
                 icon_url:
                   type: string
       responses:
