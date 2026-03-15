@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import AgentFormClient from '../../new/AgentFormClient'
 
-export default function AgentEditClient({ agentId, isAdmin = false }: { agentId: string; isAdmin?: boolean }) {
+export default function AgentEditClient({ agentId, isAdmin = false, currentUserSub }: { agentId: string; isAdmin?: boolean; currentUserSub?: string }) {
   const router = useRouter()
   const [agent, setAgent] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -54,6 +54,8 @@ export default function AgentEditClient({ agentId, isAdmin = false }: { agentId:
       agentUuid={agent.id}
       disabled={agent.status === 'running'}
       isAdmin={isAdmin}
+      agentOwner={agent.created_by}
+      currentUserSub={currentUserSub}
     />
   )
 }

@@ -49,6 +49,8 @@ export default function AgentFormClient({
   agentUuid,
   disabled,
   isAdmin = false,
+  agentOwner,
+  currentUserSub,
 }: {
   initial?: {
     agent_id: string
@@ -67,9 +69,12 @@ export default function AgentFormClient({
   agentUuid?: string
   disabled?: boolean
   isAdmin?: boolean
+  agentOwner?: string
+  currentUserSub?: string
 }) {
   const router = useRouter()
   const isEdit = !!agentUuid
+  const isOwner = !agentOwner || !currentUserSub || agentOwner === currentUserSub
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [validationError, setValidationError] = useState('')
@@ -159,8 +164,12 @@ export default function AgentFormClient({
       pids_limit: pidsLimit,
       soul_md: soulMd,
       rules_md: rulesMd,
-      model_names: selectedModels,
       skill_ids: [...selectedSkillIds],
+    }
+    // D10: Non-owner must NOT include model_names key — not even as null/empty.
+    // The API's CASE WHEN flag pattern preserves existing values only when key is absent.
+    if (isOwner) {
+      body.model_names = selectedModels
     }
     if (selectedProfileId) {
       body.container_profile_id = selectedProfileId
@@ -342,36 +351,54 @@ export default function AgentFormClient({
       <fieldset disabled={disabled} className="space-y-4">
         <legend className="text-lg font-semibold text-white mb-4">Models</legend>
 
+        {!isOwner && (
+          <div className="rounded-lg border border-yellow-700 bg-yellow-900/30 p-4 text-sm text-yellow-400">
+            Model assignment is managed by the agent owner. You cannot change model configuration for agents you don&apos;t own.
+          </div>
+        )}
+
         <div>
           <label className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            Assign Models
+            {isOwner ? 'Assign Models' : 'Assigned Models'}
           </label>
           <div className="max-h-48 overflow-y-auto rounded-lg border border-navy-700 bg-navy-800 p-3 space-y-2">
-            {availableModels.length === 0 ? (
-              <p className="text-xs text-mountain-500">No models available. Add a provider connection and create a model first.</p>
+            {isOwner ? (
+              availableModels.length === 0 ? (
+                <p className="text-xs text-mountain-500">No models available. Add a provider connection and create a model first.</p>
+              ) : (
+                availableModels.map((m) => (
+                  <label key={m.name} className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedModels.includes(m.name)}
+                      onChange={() => {
+                        setSelectedModels((prev) => (
+                          prev.includes(m.name)
+                            ? prev.filter((v) => v !== m.name)
+                            : [...prev, m.name]
+                        ))
+                      }}
+                      className="rounded border-navy-600"
+                    />
+                    {m.name}
+                  </label>
+                ))
+              )
             ) : (
-              availableModels.map((m) => (
-                <label key={m.name} className="flex items-center gap-2 text-sm text-white cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedModels.includes(m.name)}
-                    onChange={() => {
-                      setSelectedModels((prev) => (
-                        prev.includes(m.name)
-                          ? prev.filter((v) => v !== m.name)
-                          : [...prev, m.name]
-                      ))
-                    }}
-                    className="rounded border-navy-600"
-                  />
-                  {m.name}
-                </label>
-              ))
+              selectedModels.length === 0 ? (
+                <p className="text-xs text-mountain-500">No models assigned</p>
+              ) : (
+                selectedModels.map((name) => (
+                  <div key={name} className="text-sm text-white py-1">{name}</div>
+                ))
+              )
             )}
           </div>
-          <p className="text-xs text-mountain-500 mt-1">
-            Select one or more models this agent can access.
-          </p>
+          {isOwner && (
+            <p className="text-xs text-mountain-500 mt-1">
+              Select one or more models this agent can access.
+            </p>
+          )}
         </div>
       </fieldset>
 

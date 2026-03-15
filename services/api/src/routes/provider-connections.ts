@@ -142,7 +142,8 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// DELETE /provider-connections/:id — delete own connection (cascades to user_models)
+// DELETE /provider-connections/:id — delete own connection
+// Cascade: single models via FK ON DELETE CASCADE, router models via JSONB route cleanup
 router.delete('/:id', async (req: Request, res: Response) => {
   const pool = getPool();
   if (!process.env.DATABASE_URL) {
@@ -163,7 +164,125 @@ router.delete('/:id', async (req: Request, res: Response) => {
     return;
   }
 
+  // JSONB-aware cascade: scrub deleted connection from router models' routing_config
+  try {
+    const routerModels = await pool.query(
+      `SELECT id, routing_config FROM user_models
+       WHERE model_type = 'router' AND created_by = $1
+         AND EXISTS (
+           SELECT 1 FROM jsonb_array_elements(routing_config->'routes') AS r
+           WHERE r->>'connection_id' = $2
+         )`,
+      [user.sub, id]
+    );
+
+    for (const row of routerModels.rows) {
+      const config = typeof row.routing_config === 'string'
+        ? JSON.parse(row.routing_config)
+        : row.routing_config;
+
+      const filteredRoutes = config.routes.filter(
+        (r: any) => r.connection_id !== id
+      );
+
+      if (filteredRoutes.length === 0) {
+        // No routes left — delete the router model
+        await pool.query('DELETE FROM user_models WHERE id = $1', [row.id]);
+      } else {
+        const defaultRouteRemoved = !filteredRoutes.some(
+          (r: any) => r.key === config.default_route
+        );
+        const updatedConfig = {
+          ...config,
+          routes: filteredRoutes,
+        };
+
+        if (defaultRouteRemoved) {
+          // Default route was removed — deactivate model
+          await pool.query(
+            `UPDATE user_models SET routing_config = $1, is_active = false, updated_at = NOW()
+             WHERE id = $2`,
+            [JSON.stringify(updatedConfig), row.id]
+          );
+        } else {
+          await pool.query(
+            `UPDATE user_models SET routing_config = $1, updated_at = NOW()
+             WHERE id = $2`,
+            [JSON.stringify(updatedConfig), row.id]
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[provider-connections] JSONB cascade cleanup failed (non-fatal):', err);
+  }
+
   res.json({ deleted: true });
+});
+
+// GET /provider-connections/:id/models — list available models from provider
+router.get('/:id/models', async (req: Request, res: Response) => {
+  const pool = getPool();
+  if (!process.env.DATABASE_URL) {
+    res.status(503).json({ error: 'Database not configured' });
+    return;
+  }
+
+  const user = (req as any).user;
+  const { id } = req.params;
+
+  // Fetch connection (owner-scoped)
+  const conn = await pool.query(
+    `SELECT id, provider, api_key_encrypted, api_key_nonce, api_base_url
+     FROM provider_connections
+     WHERE id = $1 AND created_by = $2`,
+    [id, user.sub]
+  );
+
+  if (conn.rows.length === 0) {
+    res.status(404).json({ error: 'Connection not found' });
+    return;
+  }
+
+  const row = conn.rows[0];
+  const aiServiceUrl = process.env.AI_SERVICE_URL || process.env.MODEL_ROUTER_URL || 'http://ai:8000';
+  const serviceToken = process.env.MODEL_ROUTER_INTERNAL_SERVICE_TOKEN;
+
+  if (!serviceToken) {
+    res.status(503).json({ error: 'Internal service token not configured' });
+    return;
+  }
+
+  try {
+    const response = await axios.post(
+      `${aiServiceUrl}/internal/list-provider-models`,
+      {
+        provider: row.provider,
+        api_key_encrypted: Buffer.from(row.api_key_encrypted).toString('hex'),
+        api_key_nonce: Buffer.from(row.api_key_nonce).toString('hex'),
+        api_base_url: row.api_base_url,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${serviceToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 15000,
+      }
+    );
+
+    res.json({
+      models: response.data?.models || [],
+      provider: row.provider,
+    });
+  } catch (err: any) {
+    const errorMsg = err.response?.data?.error || err.message;
+    res.json({
+      models: [],
+      error: errorMsg,
+      provider: row.provider,
+    });
+  }
 });
 
 // POST /provider-connections/:id/validate — validate connection via AI service
