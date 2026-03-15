@@ -118,7 +118,7 @@ describe('Agent PUT model_policy_id behavior', () => {
     // ownership check returns agent
     mockQuery.mockResolvedValueOnce({ rows: [agentRow] });
     // FK validation returns policy owned by user-b
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-b-policy', created_by: 'user-b' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-b-policy', created_by: 'user-b', allowed_models: [] }] });
 
     const res = await request(app)
       .put('/agents/uuid-1')
@@ -129,26 +129,18 @@ describe('Agent PUT model_policy_id behavior', () => {
     expect(res.body.error).toContain("another user's policy");
   });
 
-  it('allows model_policy_id from admin with valid FK', async () => {
+  it('admin cannot assign another users policy (no admin bypass)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [agentRow] }) // ownership check
-      .mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'someone' }] }) // FK validation
-      .mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] }) // validatePolicyEligibility: fetch allowed_models
-      .mockResolvedValueOnce({ rows: [{ id: 'um-1' }] }) // validatePolicyEligibility: user_models check
-      .mockResolvedValueOnce({ rows: [{ ...agentRow, model_policy_id: 'policy-1' }] }) // UPDATE
-      .mockResolvedValueOnce({ rows: [] }) // SELECT skills for response
-      .mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] }); // Resolve models
+      .mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'someone', allowed_models: [] }] }); // FK validation
 
     const res = await request(app)
       .put('/agents/uuid-1')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ model_policy_id: 'policy-1' });
 
-    expect(res.status).toBe(200);
-    // Verify the CASE WHEN boolean flag is true (model_policy_id was provided)
-    const updateCall = mockQuery.mock.calls[4];
-    expect(updateCall[1][8]).toBe(true); // modelPolicyProvided flag
-    expect(updateCall[1][9]).toBe('policy-1'); // model_policy_id value
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("another user's policy");
   });
 
   it('rejects invalid model_policy_id FK', async () => {
@@ -262,7 +254,7 @@ describe('Agent POST model_policy_id behavior', () => {
 
   it('POST /agents rejects other user policy for non-admin', async () => {
     // FK validation returns policy owned by user-b
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-b-policy', created_by: 'user-b' }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'user-b-policy', created_by: 'user-b', allowed_models: [] }] });
 
     const res = await request(app)
       .post('/agents')
@@ -273,35 +265,17 @@ describe('Agent POST model_policy_id behavior', () => {
     expect(res.body.error).toContain("another user's policy");
   });
 
-  it('POST /agents admin can assign any policy', async () => {
+  it('POST /agents admin cannot assign another users policy (no admin bypass)', async () => {
     // FK validation returns policy owned by someone else
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'any-policy', created_by: 'someone' }] });
-    // validatePolicyEligibility: fetch allowed_models
-    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
-    // validatePolicyEligibility: user_models check (admin's own models)
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'um-admin' }] });
-    // INSERT
-    mockQuery.mockResolvedValueOnce({
-      rows: [{
-        id: 'uuid-new',
-        agent_id: 'test-agent',
-        name: 'Test',
-        model_policy_id: 'any-policy',
-        created_by: 'admin-user',
-      }],
-    });
-    // SELECT skills for response
-    mockQuery.mockResolvedValueOnce({ rows: [] });
-    // Resolve models
-    mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o-mini'] }] });
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'any-policy', created_by: 'someone', allowed_models: [] }] });
 
     const res = await request(app)
       .post('/agents')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ agent_id: 'test-agent', name: 'Test', model_policy_id: 'any-policy' });
 
-    expect(res.status).toBe(201);
-    expect(res.body.model_policy_id).toBe('any-policy');
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("another user's policy");
   });
 
   it('POST /agents rejects invalid model_policy_id FK', async () => {

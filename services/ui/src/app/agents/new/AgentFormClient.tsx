@@ -94,19 +94,15 @@ export default function AgentFormClient({
   const [rulesPreview, setRulesPreview] = useState(false)
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/model-policies').then((res) => (res.ok ? res.json() : [])),
-      fetch('/api/user-models').then((res) => (res.ok ? res.json() : [])),
-    ])
-      .then(([policiesData, userModelsData]) => {
-        const names = new Set<string>()
-        for (const p of policiesData as Array<{ allowed_models?: string[] }>) {
-          for (const n of p.allowed_models || []) names.add(n)
-        }
-        for (const m of userModelsData as Array<{ name?: string }>) {
-          if (m.name) names.add(m.name)
-        }
-        setAvailableModels([...names].sort().map((name) => ({ name })))
+    fetch('/api/user-models')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: Array<{ name?: string; is_active?: boolean }>) => {
+        setAvailableModels(
+          data
+            .filter((m) => m.name && m.is_active === true)
+            .map((m) => ({ name: m.name! }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+        )
       })
       .catch(() => {})
     fetch('/api/skills')
@@ -352,7 +348,7 @@ export default function AgentFormClient({
           </label>
           <div className="max-h-48 overflow-y-auto rounded-lg border border-navy-700 bg-navy-800 p-3 space-y-2">
             {availableModels.length === 0 ? (
-              <p className="text-xs text-mountain-500">No models available yet</p>
+              <p className="text-xs text-mountain-500">No models available. Add a provider connection and create a model first.</p>
             ) : (
               availableModels.map((m) => (
                 <label key={m.name} className="flex items-center gap-2 text-sm text-white cursor-pointer">

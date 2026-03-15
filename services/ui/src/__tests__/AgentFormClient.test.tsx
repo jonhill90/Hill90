@@ -18,7 +18,7 @@ const MOCK_POLICIES = [
   { id: 'policy-1', name: 'Default Policy', allowed_models: ['gpt-4o-mini'] },
   { id: 'policy-2', name: 'Restricted Policy', allowed_models: ['claude-sonnet'] },
 ]
-const MOCK_USER_MODELS = [{ id: 'um-1', name: 'my-custom-model' }]
+const MOCK_USER_MODELS = [{ id: 'um-1', name: 'my-custom-model', is_active: true }]
 const MOCK_SKILLS = [
   { id: 'skill-min', name: 'Minimal', description: 'Min', scope: 'container_local', tools_config: {}, instructions_md: '', is_platform: true, tools: [] },
   { id: 'skill-dev', name: 'Developer', description: 'Dev', scope: 'container_local', tools_config: {}, instructions_md: '', is_platform: true, tools: [{ id: 'tool-git', name: 'git' }] },
@@ -113,6 +113,92 @@ describe('AgentFormClient', () => {
       const options = Array.from(select.options).map(o => o.text)
       expect(options).toContain('standard (platform) — hill90/agentbox:latest')
     })
+  })
+
+  // M1: Empty user-models → picker shows empty state
+  it('shows empty state when no user models available', async () => {
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+      if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
+      if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+    render(<AgentFormClient />)
+    await waitFor(() => expect(screen.getByText(/no models available/i)).toBeInTheDocument())
+    expect(screen.queryAllByRole('checkbox').filter(cb => cb.closest('label')?.closest('[class*="max-h-48"]'))).toHaveLength(0)
+  })
+
+  // M2: One owned active user-model → only that model appears
+  it('shows only owned active user models in picker', async () => {
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve([{ id: 'um-1', name: 'my-model', is_active: true }]) })
+      if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
+      if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+    render(<AgentFormClient />)
+    await waitFor(() => expect(screen.getByText('my-model')).toBeInTheDocument())
+  })
+
+  // M3: /api/model-policies data is NOT rendered as picker options
+  it('does not render model-policies data as picker options', async () => {
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === '/api/model-policies') return Promise.resolve({ ok: true, json: () => Promise.resolve([{ id: 'p1', allowed_models: ['policy-model'] }]) })
+      if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+      if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
+      if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+    render(<AgentFormClient />)
+    await waitFor(() => expect(screen.getByText(/no models available/i)).toBeInTheDocument())
+    expect(screen.queryByText('policy-model')).not.toBeInTheDocument()
+  })
+
+  // M4: Edit flow uses same picker source (regression)
+  it('edit flow sources models from user-models only', async () => {
+    const initial = {
+      agent_id: 'existing-agent',
+      name: 'Existing Agent',
+      description: 'desc',
+      cpus: '1.0',
+      mem_limit: '1g',
+      pids_limit: 200,
+      soul_md: '',
+      rules_md: '',
+      models: [],
+      skills: [{ id: 'skill-min', name: 'Minimal', scope: 'container_local' }],
+    }
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve([{ id: 'um-1', name: 'edit-model', is_active: true }]) })
+      if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
+      if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
+      if (typeof url === 'string' && url.startsWith('/api/agents/') && opts?.method === 'PUT') return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'existing-uuid' }) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+    render(<AgentFormClient initial={initial} agentUuid="uuid-1" />)
+    await waitFor(() => expect(screen.getByText('edit-model')).toBeInTheDocument())
+    // Verify no model-policies fetch was made
+    const fetchCalls = mockFetch.mock.calls.map((c: any[]) => c[0])
+    expect(fetchCalls).not.toContain('/api/model-policies')
+  })
+
+  // M5: Inactive owned model excluded from picker
+  it('excludes inactive user models from picker', async () => {
+    mockFetch.mockImplementation((url: string, opts?: any) => {
+      if (url === '/api/user-models') return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([
+          { id: 'um-1', name: 'active-model', is_active: true },
+          { id: 'um-2', name: 'inactive-model', is_active: false },
+        ])
+      })
+      if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
+      if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+    render(<AgentFormClient />)
+    await waitFor(() => expect(screen.getByText('active-model')).toBeInTheDocument())
+    expect(screen.queryByText('inactive-model')).not.toBeInTheDocument()
   })
 
   it('edit mode pre-selects skills from initial props', async () => {

@@ -218,21 +218,17 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
     let validatedPolicyId: string | null = null;
     if (model_policy_id) {
       const { rows: policyRows } = await getPool().query(
-        'SELECT id, created_by FROM model_policies WHERE id = $1',
+        'SELECT id, created_by, allowed_models FROM model_policies WHERE id = $1',
         [model_policy_id]
       );
       if (policyRows.length === 0) {
         res.status(400).json({ error: 'Model policy not found' });
         return;
       }
-      const roles: string[] = user.realm_roles || [];
-      const admin = roles.includes('admin');
-      if (!admin) {
-        const policyOwner = policyRows[0].created_by;
-        if (policyOwner !== null && policyOwner !== user.sub) {
-          res.status(403).json({ error: "Cannot assign another user's policy" });
-          return;
-        }
+      const policyOwner = policyRows[0].created_by;
+      if (policyOwner !== null && policyOwner !== user.sub) {
+        res.status(403).json({ error: "Cannot assign another user's policy" });
+        return;
       }
       // AI-120: validate all models in policy are accessible to agent owner
       const eligibilityError = await validatePolicyEligibility(model_policy_id, user.sub);
@@ -456,15 +452,12 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
       return;
     }
 
-    // model_policy_id assignment: ownership + eligibility check
+    // model_policy_id assignment: all callers subject to ownership + eligibility check
     if (model_policy_id !== undefined) {
-      const roles: string[] = user.realm_roles || [];
-      const admin = roles.includes('admin');
-
       // Validate FK if non-null
       if (model_policy_id !== null) {
         const { rows: policyRows } = await getPool().query(
-          'SELECT id, created_by FROM model_policies WHERE id = $1',
+          'SELECT id, created_by, allowed_models FROM model_policies WHERE id = $1',
           [model_policy_id]
         );
         if (policyRows.length === 0) {
@@ -472,15 +465,11 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
           return;
         }
 
-        // Non-admin users can only assign their own policies or platform policies
-        if (!admin) {
-          const policyOwner = policyRows[0].created_by;
-          if (policyOwner !== null && policyOwner !== user.sub) {
-            res.status(403).json({ error: "Cannot assign another user's policy" });
-            return;
-          }
+        const policyOwner = policyRows[0].created_by;
+        if (policyOwner !== null && policyOwner !== user.sub) {
+          res.status(403).json({ error: "Cannot assign another user's policy" });
+          return;
         }
-
         // AI-120: validate all models in policy are accessible to agent owner
         const eligibilityError = await validatePolicyEligibility(model_policy_id, existing[0].created_by);
         if (eligibilityError) {
