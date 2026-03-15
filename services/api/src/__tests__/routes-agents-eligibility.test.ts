@@ -168,10 +168,10 @@ describe('Agent eligibility enforcement (AI-120)', () => {
     expect(res.body.model_policy_id).toBe('policy-1');
   });
 
-  // D5: POST - admin caller: eligibility checked against user.sub (admin is owner on create)
+  // D5: POST - admin caller: eligibility checked against user.sub (admin is agent owner)
   it('D5: POST admin caller validates eligibility against admin sub (admin is agent owner)', async () => {
-    // 1. Policy lookup (admin skips ownership check but eligibility still runs)
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'someone-else' }] });
+    // 1. Policy lookup (platform policy passes ownership, eligibility still runs against admin sub)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: null }] });
     // 2. validatePolicyEligibility: SELECT allowed_models
     mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o'] }] });
     // 3. user_models check for 'gpt-4o' with ownerSub='admin-user' -> found
@@ -210,8 +210,8 @@ describe('Agent eligibility enforcement (AI-120)', () => {
         created_by: 'user-b', model_policy_id: null,
       }],
     });
-    // 2. Policy lookup
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: 'user-b' }] });
+    // 2. Policy lookup (platform policy passes ownership, eligibility runs against agent owner)
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'policy-1', created_by: null }] });
     // 3. validatePolicyEligibility: SELECT allowed_models
     mockQuery.mockResolvedValueOnce({ rows: [{ allowed_models: ['gpt-4o'] }] });
     // 4. user_models check for 'gpt-4o' with ownerSub='user-b' -> found
