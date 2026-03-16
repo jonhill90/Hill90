@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { ProviderIcon, CompositeProviderIcon } from './provider-icons'
 
 interface RouteEntry {
   key: string
@@ -459,6 +460,7 @@ export default function ModelsClient() {
                           onChange={() => handleModelToggle(pm.id)}
                           className="rounded border-navy-600"
                         />
+                        <ProviderIcon provider={connectionProvider(formData.connection_id)} className="h-4 w-4" />
                         <span className="font-mono text-xs">{pm.display_name}</span>
                         <span className={`px-1.5 py-0.5 text-xs rounded-md border ${typeBadgeColor(pm.detected_type)}`}>
                           {pm.detected_type}
@@ -740,8 +742,12 @@ export default function ModelsClient() {
                 <tr key={model.id} className="bg-navy-900 hover:bg-navy-800 transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      {model.icon_url ? (
-                        <img src={model.icon_url} alt="" className="h-6 w-6 rounded-full object-cover" />
+                      {model.model_type === 'router' && model.routing_config ? (
+                        <CompositeProviderIcon
+                          providers={model.routing_config.routes.map(r => connectionProvider(r.connection_id))}
+                        />
+                      ) : model.connection_id ? (
+                        <ProviderIcon provider={connectionProvider(model.connection_id)} />
                       ) : (
                         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-navy-700 text-xs font-medium text-mountain-400">
                           {model.name.charAt(0).toUpperCase()}
