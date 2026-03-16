@@ -498,8 +498,8 @@ describe('ModelsClient', () => {
     })
   })
 
-  // D12: Fallback avatar renders initials when no icon_url
-  it('D12: fallback avatar renders initials when no icon_url', async () => {
+  // D12: Provider icon shown for OpenAI single model
+  it('D12: provider icon shown for OpenAI single model', async () => {
     mockFetchResponses(MOCK_MODELS)
 
     render(<ModelsClient />)
@@ -508,23 +508,86 @@ describe('ModelsClient', () => {
       expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
     })
 
-    // Fallback avatar should show first letter of model name
-    const avatars = document.querySelectorAll('.rounded-full')
-    const gAvatar = Array.from(avatars).find(el => el.textContent === 'G')
-    expect(gAvatar).toBeInTheDocument()
+    const svg = document.querySelector('svg[data-testid="provider-icon-openai"]')
+    expect(svg).toBeInTheDocument()
+    expect(svg).toHaveAttribute('data-fallback', 'false')
   })
 
-  // D13: Icon URL renders thumbnail
-  it('D13: icon URL renders thumbnail', async () => {
+  // D13: icon_url ignored in table row rendering — provider SVG takes priority
+  it('D13: icon_url ignored in table row — provider SVG renders instead', async () => {
     const modelWithIcon = { ...MOCK_MODELS[0], icon_url: 'https://example.com/icon.png' }
     mockFetchResponses([modelWithIcon])
 
     render(<ModelsClient />)
 
     await waitFor(() => {
-      const img = document.querySelector('img[src="https://example.com/icon.png"]')
-      expect(img).toBeInTheDocument()
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
     })
+
+    // No <img> element in the table row for this model
+    const tableRows = document.querySelectorAll('tbody tr')
+    const firstRow = tableRows[0]
+    expect(firstRow.querySelector('img')).not.toBeInTheDocument()
+
+    // Provider SVG is rendered instead
+    const svg = firstRow.querySelector('svg[data-testid="provider-icon-openai"]')
+    expect(svg).toBeInTheDocument()
+  })
+
+  // D20: Provider icon shown for Anthropic single model
+  it('D20: provider icon shown for Anthropic single model', async () => {
+    mockFetchResponses(MOCK_MODELS)
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Claude Sonnet')).toBeInTheDocument()
+    })
+
+    const svg = document.querySelector('svg[data-testid="provider-icon-anthropic"]')
+    expect(svg).toBeInTheDocument()
+    expect(svg).toHaveAttribute('data-fallback', 'false')
+  })
+
+  // D21: Router with 2 mixed providers renders side-by-side composite
+  it('D21: router with 2 providers renders composite icon', async () => {
+    mockFetchResponses([...MOCK_MODELS, MOCK_ROUTER_MODEL])
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Multi Router')).toBeInTheDocument()
+    })
+
+    const composite = document.querySelector('[data-testid="composite-provider-icon"]')
+    expect(composite).toBeInTheDocument()
+    const svgs = composite!.querySelectorAll('svg')
+    expect(svgs).toHaveLength(2)
+  })
+
+  // D22: Unknown provider renders fallback icon
+  it('D22: unknown provider renders fallback icon', async () => {
+    const unknownModel = {
+      ...MOCK_MODELS[0],
+      id: 'model-xai',
+      name: 'Grok',
+      connection_id: 'conn-xai',
+    }
+    const connectionsWithXai = [
+      ...MOCK_CONNECTIONS,
+      { id: 'conn-xai', name: 'xAI Key', provider: 'xai' },
+    ]
+    mockFetchResponses([unknownModel], connectionsWithXai)
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Grok')).toBeInTheDocument()
+    })
+
+    const svg = document.querySelector('svg[data-testid="provider-icon-xai"]')
+    expect(svg).toBeInTheDocument()
+    expect(svg).toHaveAttribute('data-fallback', 'true')
   })
 
   // D14: Custom model ID fallback
