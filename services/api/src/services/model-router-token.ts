@@ -33,30 +33,66 @@ export interface ModelRouterTokenResult {
   expiresAt: number;
 }
 
+const WORKLOAD_V2 = process.env.WORKLOAD_PRINCIPAL_V2 === 'true';
+
+export interface ModelRouterTokenOptions {
+  agentSlug: string;
+  agentUuid: string;
+  owner: string;
+  scopes?: string[];
+  correlationId?: string;
+}
+
 /**
  * Generate an Ed25519 JWT for an agent to authenticate with the model-router.
- * JWT carries identity only: sub (agent_id), iss, aud, exp, iat, jti.
- * No model scopes — authorization is resolved server-side from DB policy.
+ * AI-115: Now emits WorkloadClaims (principal_type, scopes, agent_slug when V2).
  */
 export async function generateAgentModelRouterToken(
-  agentId: string,
-  owner: string,
+  agentIdOrOpts: string | ModelRouterTokenOptions,
+  owner?: string,
 ): Promise<ModelRouterTokenResult> {
+  let agentSlug: string;
+  let agentUuid: string;
+  let effectiveOwner: string;
+  let effectiveScopes: string[];
+  let correlationId: string | undefined;
+
+  if (typeof agentIdOrOpts === 'string') {
+    // Legacy call: generateAgentModelRouterToken(agentId, owner)
+    agentSlug = agentIdOrOpts;
+    agentUuid = agentIdOrOpts;
+    effectiveOwner = owner!;
+    effectiveScopes = [];
+  } else {
+    agentSlug = agentIdOrOpts.agentSlug;
+    agentUuid = agentIdOrOpts.agentUuid;
+    effectiveOwner = agentIdOrOpts.owner;
+    effectiveScopes = agentIdOrOpts.scopes || [];
+    correlationId = agentIdOrOpts.correlationId;
+  }
+
   const privateKey = getPrivateKey();
   const jti = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 3600; // 1 hour
 
-  const header = base64url(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }));
-  const payload = base64url(JSON.stringify({
-    sub: agentId,
+  // AI-115: WorkloadClaims — sub is UUID when V2, slug when V1
+  const claims: Record<string, unknown> = {
+    sub: WORKLOAD_V2 ? agentUuid : agentSlug,
+    principal_type: 'agent',
     iss: 'hill90-api',
     aud: 'hill90-model-router',
     exp: expiresAt,
     iat: now,
     jti,
-    owner,
-  }));
+    owner: effectiveOwner,
+    scopes: effectiveScopes,
+  };
+  if (WORKLOAD_V2) claims.agent_slug = agentSlug;
+  if (correlationId) claims.correlation_id = correlationId;
+
+  const header = base64url(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }));
+  const payload = base64url(JSON.stringify(claims));
 
   const signingInput = `${header}.${payload}`;
   const signature = crypto.sign(null, Buffer.from(signingInput), privateKey);

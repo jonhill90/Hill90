@@ -50,10 +50,12 @@ describe('generateAgentModelRouterToken', () => {
     expect(payload.sub).toBe('test-agent-1');
   });
 
-  it('JWT carries identity only — no model scopes in claims', async () => {
+  it('JWT carries WorkloadClaims with empty scopes (no model scopes)', async () => {
     const result = await generateAgentModelRouterToken('test-agent-1', 'test-owner');
     const { payload } = decodeJwt(result.token);
-    expect(payload.scopes).toBeUndefined();
+    // AI-115: scopes now always present (WorkloadClaims contract), but empty for legacy calls
+    expect(payload.scopes).toEqual([]);
+    expect(payload.principal_type).toBe('agent');
     expect(payload.models).toBeUndefined();
     expect(payload.allowed_models).toBeUndefined();
   });

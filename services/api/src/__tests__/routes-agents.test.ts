@@ -223,6 +223,7 @@ describe('Agent lifecycle routes', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] });
 
@@ -244,6 +245,7 @@ describe('Agent lifecycle routes', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] });
 
@@ -270,6 +272,7 @@ describe('Agent lifecycle routes', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
@@ -302,6 +305,7 @@ describe('Agent lifecycle routes', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
@@ -627,6 +631,7 @@ describe('Agent container profile wiring', () => {
         }],
       }) // SELECT agent
       .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [{ docker_image: 'custom-runtime:v2' }] }) // SELECT container_profiles (profile resolution)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
@@ -652,6 +657,7 @@ describe('Agent container profile wiring', () => {
         }],
       }) // SELECT agent
       .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills (skill instructions)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [] }) // SELECT DISTINCT s.scope (getAgentEffectiveScope)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
@@ -692,6 +698,7 @@ describe('Agent start — network resolution (S1-S4)', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [{ name: 'Shell', instructions_md: 'shell skill' }] }) // skill instructions
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [{ scope: 'container_local' }] }) // getAgentEffectiveScope
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
@@ -715,6 +722,7 @@ describe('Agent start — network resolution (S1-S4)', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [{ name: 'Docker', instructions_md: 'docker skill' }] }) // skill instructions
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] }) // getAgentEffectiveScope
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
@@ -738,6 +746,7 @@ describe('Agent start — network resolution (S1-S4)', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [{ name: 'System', instructions_md: 'system skill' }] }) // skill instructions
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [{ scope: 'vps_system' }] }) // getAgentEffectiveScope
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
@@ -761,6 +770,7 @@ describe('Agent start — network resolution (S1-S4)', () => {
         }],
       })
       .mockResolvedValueOnce({ rows: [] }) // skill instructions (no skills)
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope (AI-115 ceiling check)
       .mockResolvedValueOnce({ rows: [] }) // getAgentEffectiveScope (null — no skills)
       .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
 
