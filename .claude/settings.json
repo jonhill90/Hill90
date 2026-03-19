@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/hooks/shellcheck-on-edit.sh",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/hooks/shellcheck-on-edit.sh",
             "timeout": 30
           }
         ]
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/hooks/block-local-deploy.sh",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/hooks/block-local-deploy.sh",
             "timeout": 10
           }
         ]
@@ -41,7 +41,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/hooks/stop-gate.sh",
+            "command": "bash $CLAUDE_PROJECT_DIR/scripts/hooks/stop-gate.sh",
             "timeout": 30
           }
         ]

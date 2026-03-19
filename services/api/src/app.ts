@@ -1,5 +1,6 @@
 import express, { Application } from 'express';
 import { createRequireAuth, createJwksKeyResolver } from './middleware/auth';
+import { correlationId } from './middleware/correlation-id';
 import type { JwtHeader } from 'jsonwebtoken';
 import agentsRouter from './routes/agents';
 import knowledgeRouter from './routes/knowledge';
@@ -27,6 +28,7 @@ export function createApp(opts: AppOptions = {}): Application {
   const app = express();
 
   app.use(express.json());
+  app.use(correlationId);
 
   // Health check — public
   app.get('/health', (_req, res) => {
