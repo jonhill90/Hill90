@@ -34,31 +34,67 @@ export interface AkmTokenResult {
   expiresAt: number;
 }
 
+const WORKLOAD_V2 = process.env.WORKLOAD_PRINCIPAL_V2 === 'true';
+
+export interface AkmTokenOptions {
+  agentSlug: string;
+  agentUuid: string;
+  scopes?: string[];
+  owner: string;
+  correlationId?: string;
+}
+
 /**
  * Generate an Ed25519 JWT and refresh secret for an agent.
  */
 export async function generateAgentAkmToken(
-  agentId: string,
+  agentIdOrOpts: string | AkmTokenOptions,
   scopes: string[] = ['akm:read', 'akm:write'],
-  owner: string,
+  owner?: string,
 ): Promise<AkmTokenResult> {
+  // Support both old (positional) and new (options) calling conventions
+  let agentSlug: string;
+  let agentUuid: string;
+  let effectiveScopes: string[];
+  let effectiveOwner: string;
+  let correlationId: string | undefined;
+
+  if (typeof agentIdOrOpts === 'string') {
+    // Legacy call: generateAgentAkmToken(agentId, scopes, owner)
+    agentSlug = agentIdOrOpts;
+    agentUuid = agentIdOrOpts; // Legacy callers don't have UUID; use slug
+    effectiveScopes = scopes;
+    effectiveOwner = owner!;
+  } else {
+    agentSlug = agentIdOrOpts.agentSlug;
+    agentUuid = agentIdOrOpts.agentUuid;
+    effectiveScopes = agentIdOrOpts.scopes || scopes;
+    effectiveOwner = agentIdOrOpts.owner;
+    correlationId = agentIdOrOpts.correlationId;
+  }
+
   const privateKey = getPrivateKey();
   const jti = crypto.randomUUID();
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + 3600; // 1 hour
 
-  // Build JWT manually with Ed25519 signing
-  const header = base64url(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }));
-  const payload = base64url(JSON.stringify({
-    sub: agentId,
+  // AI-115: WorkloadClaims — sub is UUID when V2, slug when V1
+  const claims: Record<string, unknown> = {
+    sub: WORKLOAD_V2 ? agentUuid : agentSlug,
+    principal_type: 'agent',
     iss: 'hill90-api',
     aud: 'hill90-akm',
     exp: expiresAt,
     iat: now,
     jti,
-    scopes,
-    owner,
-  }));
+    scopes: effectiveScopes,
+    owner: effectiveOwner,
+  };
+  if (WORKLOAD_V2) claims.agent_slug = agentSlug;
+  if (correlationId) claims.correlation_id = correlationId;
+
+  const header = base64url(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }));
+  const payload = base64url(JSON.stringify(claims));
 
   const signingInput = `${header}.${payload}`;
   const signature = crypto.sign(null, Buffer.from(signingInput), privateKey);

@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
 import { scopeToOwner } from '../helpers/scope';
-import { ELEVATED_SCOPES, isAdmin, getAgentEffectiveScope } from '../helpers/elevated-scope';
+import { ELEVATED_SCOPES, isAdmin, getAgentElevatedScope, getAgentEffectiveScope } from '../helpers/elevated-scope';
 import { auditLog } from '../helpers/audit';
 import { writeAgentFiles, removeAgentFiles } from '../services/agent-files';
 import { mergeToolsConfigs, DEFAULT_TOOLS_CONFIG } from '../services/merge-tools-config';
@@ -160,8 +160,12 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
        ORDER BY a.created_at DESC`,
       scope.params
     );
-    // Attach container_profile object
+    // Attach container_profile object and principal identity fields
     for (const row of rows) {
+      // AI-115: Add principal identity fields
+      row.principal_id = row.id;
+      row.principal_type = row.principal_type || 'agent';
+
       row.container_profile = row.container_profile_id
         ? { id: row.container_profile_id, name: row.cp_name, docker_image: row.cp_docker_image }
         : null;
@@ -385,6 +389,10 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const agent = rows[0];
+    // AI-115: Add principal identity fields
+    agent.principal_id = agent.id;
+    agent.principal_type = agent.principal_type || 'agent';
+
     agent.container_profile = agent.container_profile_id
       ? { id: agent.container_profile_id, name: agent.cp_name, docker_image: agent.cp_docker_image }
       : null;
@@ -708,6 +716,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     }
 
     const agent = rows[0];
+    const correlationId = (req as any).correlationId;
 
     // Fetch skill instructions at start time (fresh-at-start, not resolve-on-save)
     // Multi-skill: compose all skill instructions with per-skill headers, ordered by assigned_at
@@ -729,31 +738,77 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     // Write config files to disk
     writeAgentFiles(agent, skillInstructions);
 
-    // Generate AKM token if configured
+    // AI-115: Owner role ceiling enforcement — re-derive at start time.
+    // Placed after skill instructions query to preserve mock call order in tests.
+    const elevatedScope = await getAgentElevatedScope(agent.id);
+    if (elevatedScope) {
+      const ownerRoles: string[] = user.sub === agent.created_by
+        ? (user.realm_roles || [])
+        : [];
+      if (user.sub === agent.created_by && !ownerRoles.includes('admin')) {
+        auditLog('principal_ceiling_denied', agent.agent_id, user.sub, 'human', {
+          principal_id: agent.id,
+          owner_sub: agent.created_by,
+          denied_scope: elevatedScope,
+          correlation_id: correlationId,
+        });
+        res.status(403).json({
+          error: 'Owner role ceiling exceeded',
+          detail: `Agent has elevated scope '${elevatedScope}' but owner lacks admin role`,
+        });
+        return;
+      }
+    }
+
+    // Generate AKM token if configured (AI-115: WorkloadClaims)
     let akmEnv: string[] = [];
     let akmJti: string | null = null;
     let akmExp: number | null = null;
     if (isAkmConfigured()) {
       try {
-        const akmToken = await generateAgentAkmToken(agent.agent_id, ['akm:read', 'akm:write'], agent.created_by);
+        const akmToken = await generateAgentAkmToken({
+          agentSlug: agent.agent_id,
+          agentUuid: agent.id,
+          scopes: ['akm:read', 'akm:write'],
+          owner: agent.created_by,
+          correlationId,
+        });
         akmEnv = getAkmEnvVars(akmToken);
         akmJti = akmToken.jti;
         akmExp = akmToken.expiresAt;
+        auditLog('token_issued', agent.agent_id, user.sub, 'human', {
+          principal_id: agent.id, principal_type: 'agent',
+          jti: akmToken.jti, owner_sub: agent.created_by,
+          scopes: ['akm:read', 'akm:write'], aud: 'hill90-akm',
+          correlation_id: correlationId,
+        });
       } catch (err) {
         console.error('[agents] AKM token generation failed (continuing without AKM):', err);
       }
     }
 
-    // Generate model-router token if configured
+    // Generate model-router token if configured (AI-115: WorkloadClaims)
     let modelRouterEnv: string[] = [];
     let modelRouterJti: string | null = null;
     let modelRouterExp: number | null = null;
     if (isModelRouterConfigured()) {
       try {
-        const mrToken = await generateAgentModelRouterToken(agent.agent_id, agent.created_by);
+        const mrToken = await generateAgentModelRouterToken({
+          agentSlug: agent.agent_id,
+          agentUuid: agent.id,
+          owner: agent.created_by,
+          scopes: [],
+          correlationId,
+        });
         modelRouterEnv = getModelRouterEnvVars(mrToken);
         modelRouterJti = mrToken.jti;
         modelRouterExp = mrToken.expiresAt;
+        auditLog('token_issued', agent.agent_id, user.sub, 'human', {
+          principal_id: agent.id, principal_type: 'agent',
+          jti: mrToken.jti, owner_sub: agent.created_by,
+          scopes: [], aud: 'hill90-model-router',
+          correlation_id: correlationId,
+        });
       } catch (err) {
         console.error('[agents] Model-router token generation failed (continuing without model-router):', err);
       }
@@ -827,8 +882,12 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       [containerId, workToken, req.params.id]
     );
 
-    auditLog('start', agent.agent_id, user.sub, 'human', { container_id: containerId, network, profile_image: profileImage || 'hill90/agentbox:latest', akm_jti: akmJti, model_router_jti: modelRouterJti });
-    res.json({ status: 'running', container_id: containerId });
+    auditLog('start', agent.agent_id, user.sub, 'human', {
+      principal_id: agent.id, owner_sub: agent.created_by, correlation_id: correlationId,
+      container_id: containerId, network, profile_image: profileImage || 'hill90/agentbox:latest',
+      akm_jti: akmJti, model_router_jti: modelRouterJti,
+    });
+    res.json({ status: 'running', container_id: containerId, principal_id: agent.id });
   } catch (err: any) {
     console.error('[agents] Start error:', err);
 
@@ -902,7 +961,23 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
       [req.params.id]
     );
 
-    auditLog('stop', agent.agent_id, user.sub, 'human');
+    const stopCorrelationId = (req as any).correlationId;
+    // AI-115: token_revoked audit events
+    if (agent.akm_jti) {
+      auditLog('token_revoked', agent.agent_id, user.sub, 'human', {
+        principal_id: agent.id, jti: agent.akm_jti, reason: 'stop',
+        owner_sub: agent.created_by, correlation_id: stopCorrelationId,
+      });
+    }
+    if (agent.model_router_jti) {
+      auditLog('token_revoked', agent.agent_id, user.sub, 'human', {
+        principal_id: agent.id, jti: agent.model_router_jti, reason: 'stop',
+        owner_sub: agent.created_by, correlation_id: stopCorrelationId,
+      });
+    }
+    auditLog('stop', agent.agent_id, user.sub, 'human', {
+      principal_id: agent.id, owner_sub: agent.created_by, correlation_id: stopCorrelationId,
+    });
     res.json({ status: 'stopped' });
   } catch (err: any) {
     console.error('[agents] Stop error:', err);
