@@ -704,4 +704,83 @@ describe('ModelsClient', () => {
       expect(screen.getByText('Select connection')).toBeInTheDocument()
     })
   })
+
+  // D23: Router submit with empty extra-route connection_id shows error
+  it('D23: router submit with empty extra-route connection_id shows error', async () => {
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Add Model'))
+
+    // Fill name
+    fireEvent.change(screen.getByPlaceholderText('GPT-4o Mini'), { target: { value: 'Router Test' } })
+
+    // Select connection
+    const connectionSelect = screen.getByDisplayValue('Select a connection')
+    fireEvent.change(connectionSelect, { target: { value: 'conn-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByText('gpt-4o')).toBeInTheDocument()
+    })
+
+    // Select TWO models to trigger router mode
+    const checkboxes = screen.getAllByRole('checkbox').filter(cb => {
+      const label = cb.closest('label')
+      return label?.textContent?.includes('gpt-4o') || label?.textContent?.includes('gpt-4o-mini')
+    })
+    if (checkboxes[0]) fireEvent.click(checkboxes[0])
+    if (checkboxes[1]) fireEvent.click(checkboxes[1])
+
+    await waitFor(() => {
+      expect(screen.getByText('Router Configuration')).toBeInTheDocument()
+    })
+
+    // Add extra route (empty connection_id)
+    fireEvent.click(screen.getByText('Add model from different connection'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Select connection')).toBeInTheDocument()
+    })
+
+    // Fill in the model ID for the extra route but leave connection empty
+    const modelInput = screen.getByPlaceholderText('provider/model-id')
+    fireEvent.change(modelInput, { target: { value: 'anthropic/claude-sonnet-4-20250514' } })
+
+    // Submit
+    fireEvent.click(screen.getByText('Create'))
+
+    // Should show validation error, no fetch call made
+    await waitFor(() => {
+      expect(screen.getByText('All routes must have a connection selected')).toBeInTheDocument()
+    })
+
+    // Verify no POST was made to user-models
+    const postCalls = mockFetch.mock.calls.filter(
+      (call: any[]) => call[0] === '/api/user-models' && call[1]?.method === 'POST'
+    )
+    expect(postCalls).toHaveLength(0)
+  })
+
+  // D24: Stale connection shows "Unknown connection" badge in table
+  it('D24: stale connection shows Unknown connection in table', async () => {
+    const modelWithStaleConn = {
+      ...MOCK_MODELS[0],
+      id: 'model-stale',
+      name: 'Stale Model',
+      connection_id: 'deleted-conn-id', // Not in MOCK_CONNECTIONS
+    }
+    mockFetchResponses([modelWithStaleConn])
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Stale Model')).toBeInTheDocument()
+    })
+
+    // Should show "Unknown connection" instead of the UUID prefix
+    expect(screen.getByText('Unknown connection')).toBeInTheDocument()
+  })
 })

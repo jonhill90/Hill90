@@ -12,8 +12,16 @@ const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
 const TEST_ISSUER = 'https://auth.hill90.com/realms/hill90';
 
 const mockQuery = jest.fn();
+const mockClientQuery = jest.fn();
+const mockClientRelease = jest.fn();
 jest.mock('../db/pool', () => ({
-  getPool: () => ({ query: mockQuery }),
+  getPool: () => ({
+    query: mockQuery,
+    connect: jest.fn().mockResolvedValue({
+      query: mockClientQuery,
+      release: mockClientRelease,
+    }),
+  }),
 }));
 
 // Mock services required by agents router (imported transitively via app.ts)
@@ -59,6 +67,8 @@ const userBToken = makeToken('user-b', ['user']);
 describe('Provider Connections CRUD', () => {
   beforeEach(() => {
     mockQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockReset();
     mockAxiosPost.mockReset();
     process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
     process.env.PROVIDER_KEY_ENCRYPTION_KEY = TEST_ENCRYPTION_KEY;
@@ -137,7 +147,10 @@ describe('Provider Connections CRUD', () => {
 
   it('delete cascades to user_models', async () => {
     // The CASCADE is DB-level via FK constraint; here we verify the delete query
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'uuid-1' }] });
+    mockClientQuery.mockResolvedValueOnce({}); // BEGIN
+    mockClientQuery.mockResolvedValueOnce({ rows: [{ id: 'uuid-1' }] }); // DELETE
+    mockClientQuery.mockResolvedValueOnce({ rows: [] }); // SELECT router models (none)
+    mockClientQuery.mockResolvedValueOnce({}); // COMMIT
 
     const res = await request(app)
       .delete('/provider-connections/uuid-1')
@@ -145,7 +158,8 @@ describe('Provider Connections CRUD', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.deleted).toBe(true);
-    const call = mockQuery.mock.calls[0];
+    // DELETE is the second client.query call (index 1, after BEGIN)
+    const call = mockClientQuery.mock.calls[1];
     expect(call[0]).toContain('DELETE FROM provider_connections');
     expect(call[0]).toContain('created_by = $2');
     expect(call[1]).toEqual(['uuid-1', 'regular-user']);
@@ -251,7 +265,10 @@ describe('Provider Connections CRUD', () => {
   });
 
   it('returns 404 for non-existent connection on delete', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockClientQuery.mockResolvedValueOnce({}); // BEGIN
+    mockClientQuery.mockResolvedValueOnce({ rows: [] }); // DELETE returns empty (not found)
+    mockClientQuery.mockResolvedValueOnce({}); // ROLLBACK
+
     const res = await request(app)
       .delete('/provider-connections/uuid-nonexistent')
       .set('Authorization', `Bearer ${userToken}`);
