@@ -197,3 +197,128 @@ class TestResolveBYOK:
             with pytest.raises(HTTPException):
                 await _resolve_byok(policy_result, claims, body)
             mock_is_platform.assert_not_called()
+
+
+class TestResolveBYOKRouterCredentials:
+    """E10-E11: Router model credential resolution for deleted/valid connections."""
+
+    @pytest.mark.asyncio
+    async def test_e10_router_deleted_connection_raises_403_with_route_key(self):
+        """E10: Router resolves, route selected, but connection deleted -> 403 with route key in detail."""
+        mock_conn = AsyncMock()
+
+        from app.models import RouterModelInfo
+
+        router_info = RouterModelInfo(
+            strategy="fallback",
+            default_route="primary",
+            routes=[
+                {
+                    "key": "primary",
+                    "connection_id": "deleted-conn-id",
+                    "litellm_model": "openai/gpt-4o",
+                    "priority": 1,
+                }
+            ],
+        )
+
+        with (
+            patch("app.main.get_db_conn", new=_make_mock_get_db_conn(mock_conn)),
+            patch(
+                "app.main.get_agent_owner",
+                new_callable=AsyncMock,
+                return_value="user-a",
+            ),
+            patch(
+                "app.main.resolve_user_model",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.main.resolve_router_model",
+                new_callable=AsyncMock,
+                return_value=router_info,
+            ),
+            patch(
+                "app.main.resolve_route_credentials",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            policy_result = PolicyResult(resolved_model="my-router")
+            claims = _make_claims(sub="test-agent-1")
+            body = {"model": "my-router"}
+
+            with pytest.raises(HTTPException) as exc_info:
+                await _resolve_byok(policy_result, claims, body)
+
+            assert exc_info.value.status_code == 403
+            assert "primary" in exc_info.value.detail
+            assert "connection may have been deleted" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_e11_router_valid_credentials_success(self):
+        """E11: Router resolves, route selected, credentials valid -> success with router_model set."""
+        mock_conn = AsyncMock()
+
+        from app.models import RouterModelInfo
+
+        router_info = RouterModelInfo(
+            strategy="fallback",
+            default_route="primary",
+            routes=[
+                {
+                    "key": "primary",
+                    "connection_id": "valid-conn-id",
+                    "litellm_model": "openai/gpt-4o",
+                    "priority": 1,
+                }
+            ],
+        )
+        route_creds = UserModelInfo(
+            litellm_model="openai/gpt-4o",
+            api_key_encrypted=b"encrypted-data",
+            api_key_nonce=b"nonce-data",
+            api_base_url=None,
+        )
+        mock_settings = MagicMock()
+        mock_settings.provider_key_encryption_key = "test-encryption-key"
+
+        with (
+            patch("app.main.get_db_conn", new=_make_mock_get_db_conn(mock_conn)),
+            patch(
+                "app.main.get_agent_owner",
+                new_callable=AsyncMock,
+                return_value="user-a",
+            ),
+            patch(
+                "app.main.resolve_user_model",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.main.resolve_router_model",
+                new_callable=AsyncMock,
+                return_value=router_info,
+            ),
+            patch(
+                "app.main.resolve_route_credentials",
+                new_callable=AsyncMock,
+                return_value=route_creds,
+            ),
+            patch("app.main.decrypt_provider_key", return_value="sk-test-key"),
+            patch("app.main.get_settings", return_value=mock_settings),
+        ):
+            policy_result = PolicyResult(resolved_model="my-router")
+            claims = _make_claims(sub="test-agent-1")
+            body = {"model": "my-router"}
+
+            result = await _resolve_byok(policy_result, claims, body)
+
+            assert result.router_model is not None
+            assert result.router_model.strategy == "fallback"
+            assert result.user_model is not None
+            assert result.owner == "user-a"
+            assert result.provider_model_id == "openai/gpt-4o"
+            assert body["model"] == "openai/gpt-4o"
+            assert body["api_key"] == "sk-test-key"
