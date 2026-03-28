@@ -2068,7 +2068,7 @@ paths:
 
     delete:
       summary: Delete provider connection
-      description: Deletes a provider connection. Cascades to user models referencing it.
+      description: Deletes a provider connection and atomically cascades to router models referencing it (JSONB route cleanup). Single models are cascaded via FK ON DELETE CASCADE.
       security:
         - bearerAuth: []
       responses:
@@ -2080,6 +2080,8 @@ paths:
           description: Requires user role
         "404":
           description: Connection not found
+        "500":
+          description: Cascade cleanup failed — connection delete rolled back
 
   /provider-connections/{id}/validate:
     parameters:

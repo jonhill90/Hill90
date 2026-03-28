@@ -496,8 +496,14 @@ async def _resolve_byok(
             route_creds = await resolve_route_credentials(conn, route, owner)
 
         if route_creds is None:
-            logger.error("route_credential_resolution_failed", agent_id=claims.sub, model=resolved_model, route_key=route.get("key"))
-            raise HTTPException(status_code=403, detail=f"Route credentials unavailable for model '{resolved_model}'")
+            route_key = route.get("key", "unknown")
+            logger.error("route_credential_resolution_failed",
+                         agent_id=claims.sub, model=resolved_model,
+                         route_key=route_key, connection_id=route.get("connection_id"))
+            raise HTTPException(
+                status_code=403,
+                detail=f"Route '{route_key}' credentials unavailable for model '{resolved_model}' — connection may have been deleted"
+            )
 
         _inject_byok_credentials(route_creds, body, claims, resolved_model)
         policy_result.user_model = route_creds

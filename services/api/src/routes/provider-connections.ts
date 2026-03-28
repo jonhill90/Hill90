@@ -144,6 +144,7 @@ router.put('/:id', async (req: Request, res: Response) => {
 
 // DELETE /provider-connections/:id — delete own connection
 // Cascade: single models via FK ON DELETE CASCADE, router models via JSONB route cleanup
+// Atomic: connection delete + JSONB cascade in single transaction — rolls back on any failure
 router.delete('/:id', async (req: Request, res: Response) => {
   const pool = getPool();
   if (!process.env.DATABASE_URL) {
@@ -154,19 +155,23 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const user = (req as any).user;
   const { id } = req.params;
 
-  const result = await pool.query(
-    'DELETE FROM provider_connections WHERE id = $1 AND created_by = $2 RETURNING id',
-    [id, user.sub]
-  );
-
-  if (result.rows.length === 0) {
-    res.status(404).json({ error: 'Connection not found' });
-    return;
-  }
-
-  // JSONB-aware cascade: scrub deleted connection from router models' routing_config
+  const client = await pool.connect();
   try {
-    const routerModels = await pool.query(
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      'DELETE FROM provider_connections WHERE id = $1 AND created_by = $2 RETURNING id',
+      [id, user.sub]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Connection not found' });
+      return;
+    }
+
+    // JSONB-aware cascade: scrub deleted connection from router models' routing_config
+    const routerModels = await client.query(
       `SELECT id, routing_config FROM user_models
        WHERE model_type = 'router' AND created_by = $1
          AND EXISTS (
@@ -186,8 +191,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
       );
 
       if (filteredRoutes.length === 0) {
-        // No routes left — delete the router model
-        await pool.query('DELETE FROM user_models WHERE id = $1', [row.id]);
+        await client.query('DELETE FROM user_models WHERE id = $1', [row.id]);
       } else {
         const defaultRouteRemoved = !filteredRoutes.some(
           (r: any) => r.key === config.default_route
@@ -198,14 +202,13 @@ router.delete('/:id', async (req: Request, res: Response) => {
         };
 
         if (defaultRouteRemoved) {
-          // Default route was removed — deactivate model
-          await pool.query(
+          await client.query(
             `UPDATE user_models SET routing_config = $1, is_active = false, updated_at = NOW()
              WHERE id = $2`,
             [JSON.stringify(updatedConfig), row.id]
           );
         } else {
-          await pool.query(
+          await client.query(
             `UPDATE user_models SET routing_config = $1, updated_at = NOW()
              WHERE id = $2`,
             [JSON.stringify(updatedConfig), row.id]
@@ -213,11 +216,16 @@ router.delete('/:id', async (req: Request, res: Response) => {
         }
       }
     }
-  } catch (err) {
-    console.error('[provider-connections] JSONB cascade cleanup failed (non-fatal):', err);
-  }
 
-  res.json({ deleted: true });
+    await client.query('COMMIT');
+    res.json({ deleted: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[provider-connections] DELETE failed (rolled back):', err);
+    res.status(500).json({ error: 'Failed to delete connection — cascade cleanup error' });
+  } finally {
+    client.release();
+  }
 });
 
 // GET /provider-connections/:id/models — list available models from provider

@@ -223,6 +223,12 @@ export default function ModelsClient() {
         })
       }
 
+      // Validate all routes have a connection selected
+      if (routes.some(r => !r.connection_id)) {
+        setFormError('All routes must have a connection selected')
+        return
+      }
+
       const defaultRoute = routes[0]?.key || ''
 
       body = {
@@ -792,10 +798,14 @@ export default function ModelsClient() {
                         {[...new Set(model.routing_config?.routes.map(r => connectionName(r.connection_id)) || [])].join(', ')}
                       </span>
                     ) : model.connection_id ? (
-                      <>
-                        <span className="text-mountain-300">{connectionName(model.connection_id)}</span>
-                        <span className="text-mountain-500 text-xs ml-1">({connectionProvider(model.connection_id)})</span>
-                      </>
+                      connections.find(c => c.id === model.connection_id) ? (
+                        <>
+                          <span className="text-mountain-300">{connectionName(model.connection_id)}</span>
+                          <span className="text-mountain-500 text-xs ml-1">({connectionProvider(model.connection_id)})</span>
+                        </>
+                      ) : (
+                        <span className="px-1.5 py-0.5 text-xs rounded-md border bg-red-900/30 text-red-400 border-red-700">Unknown connection</span>
+                      )
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-mountain-400">{new Date(model.created_at).toLocaleDateString()}</td>

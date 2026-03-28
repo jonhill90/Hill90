@@ -11,9 +11,19 @@ const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
 
 const TEST_ISSUER = 'https://auth.hill90.com/realms/hill90';
 
+// The DELETE handler uses pool.connect() → client.query() for transactions.
+// Other routes use pool.query() directly.
+const mockClientQuery = jest.fn();
+const mockClientRelease = jest.fn();
 const mockQuery = jest.fn();
 jest.mock('../db/pool', () => ({
-  getPool: () => ({ query: mockQuery }),
+  getPool: () => ({
+    query: mockQuery,
+    connect: jest.fn().mockResolvedValue({
+      query: mockClientQuery,
+      release: mockClientRelease,
+    }),
+  }),
 }));
 
 jest.mock('../services/docker', () => ({
@@ -50,6 +60,8 @@ const userToken = makeToken('regular-user', ['user']);
 describe('Provider Connections — JSONB Cascade', () => {
   beforeEach(() => {
     mockQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockReset();
     process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
   });
 
@@ -60,10 +72,12 @@ describe('Provider Connections — JSONB Cascade', () => {
   // F1: DELETE connection scrubs route from routing_config (JSONB)
   it('F1: DELETE scrubs route from routing_config', async () => {
     const deletedConnId = 'conn-deleted';
+    // BEGIN
+    mockClientQuery.mockResolvedValueOnce({});
     // DELETE returns success
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] });
+    mockClientQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] });
     // Find router models with routes referencing deleted connection
-    mockQuery.mockResolvedValueOnce({
+    mockClientQuery.mockResolvedValueOnce({
       rows: [{
         id: 'router-1',
         routing_config: {
@@ -77,7 +91,9 @@ describe('Provider Connections — JSONB Cascade', () => {
       }],
     });
     // Update with filtered routing_config
-    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    mockClientQuery.mockResolvedValueOnce({ rowCount: 1 });
+    // COMMIT
+    mockClientQuery.mockResolvedValueOnce({});
 
     const res = await request(app)
       .delete(`/provider-connections/${deletedConnId}`)
@@ -86,17 +102,20 @@ describe('Provider Connections — JSONB Cascade', () => {
     expect(res.status).toBe(200);
 
     // Verify update was called with filtered config (only 'keep' route remains)
-    const updateCall = mockQuery.mock.calls[2];
+    // Calls: BEGIN, DELETE, SELECT, UPDATE, COMMIT → UPDATE is index 3
+    const updateCall = mockClientQuery.mock.calls[3];
     const updatedConfig = JSON.parse(updateCall[1][0]);
     expect(updatedConfig.routes).toHaveLength(1);
     expect(updatedConfig.routes[0].key).toBe('keep');
+    expect(mockClientRelease).toHaveBeenCalled();
   });
 
   // F2: DELETE removes default_route → model deactivated
   it('F2: DELETE removes default_route → model deactivated', async () => {
     const deletedConnId = 'conn-default';
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] });
-    mockQuery.mockResolvedValueOnce({
+    mockClientQuery.mockResolvedValueOnce({}); // BEGIN
+    mockClientQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] }); // DELETE
+    mockClientQuery.mockResolvedValueOnce({
       rows: [{
         id: 'router-2',
         routing_config: {
@@ -108,9 +127,9 @@ describe('Provider Connections — JSONB Cascade', () => {
           ],
         },
       }],
-    });
-    // Update with is_active = false
-    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    }); // SELECT
+    mockClientQuery.mockResolvedValueOnce({ rowCount: 1 }); // UPDATE
+    mockClientQuery.mockResolvedValueOnce({}); // COMMIT
 
     const res = await request(app)
       .delete(`/provider-connections/${deletedConnId}`)
@@ -118,16 +137,18 @@ describe('Provider Connections — JSONB Cascade', () => {
 
     expect(res.status).toBe(200);
 
-    // Verify is_active = false was set
-    const updateCall = mockQuery.mock.calls[2];
+    // Verify is_active = false was set (UPDATE is index 3)
+    const updateCall = mockClientQuery.mock.calls[3];
     expect(updateCall[0]).toContain('is_active = false');
+    expect(mockClientRelease).toHaveBeenCalled();
   });
 
   // F3: DELETE removes last route → router deleted
   it('F3: DELETE removes last route → router deleted', async () => {
     const deletedConnId = 'conn-only';
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] });
-    mockQuery.mockResolvedValueOnce({
+    mockClientQuery.mockResolvedValueOnce({}); // BEGIN
+    mockClientQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] }); // DELETE conn
+    mockClientQuery.mockResolvedValueOnce({
       rows: [{
         id: 'router-3',
         routing_config: {
@@ -138,9 +159,9 @@ describe('Provider Connections — JSONB Cascade', () => {
           ],
         },
       }],
-    });
-    // DELETE the router model
-    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    }); // SELECT
+    mockClientQuery.mockResolvedValueOnce({ rowCount: 1 }); // DELETE router model
+    mockClientQuery.mockResolvedValueOnce({}); // COMMIT
 
     const res = await request(app)
       .delete(`/provider-connections/${deletedConnId}`)
@@ -148,17 +169,19 @@ describe('Provider Connections — JSONB Cascade', () => {
 
     expect(res.status).toBe(200);
 
-    // Verify DELETE was called on the router model
-    const deleteCall = mockQuery.mock.calls[2];
+    // Verify DELETE was called on the router model (index 3)
+    const deleteCall = mockClientQuery.mock.calls[3];
     expect(deleteCall[0]).toContain('DELETE FROM user_models');
     expect(deleteCall[1]).toEqual(['router-3']);
+    expect(mockClientRelease).toHaveBeenCalled();
   });
 
   // F4: DELETE with connection_id in 2 routes of same router
   it('F4: DELETE removes both routes referencing same connection', async () => {
     const deletedConnId = 'conn-multi';
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] });
-    mockQuery.mockResolvedValueOnce({
+    mockClientQuery.mockResolvedValueOnce({}); // BEGIN
+    mockClientQuery.mockResolvedValueOnce({ rows: [{ id: deletedConnId }] }); // DELETE
+    mockClientQuery.mockResolvedValueOnce({
       rows: [{
         id: 'router-4',
         routing_config: {
@@ -171,8 +194,9 @@ describe('Provider Connections — JSONB Cascade', () => {
           ],
         },
       }],
-    });
-    mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    }); // SELECT
+    mockClientQuery.mockResolvedValueOnce({ rowCount: 1 }); // UPDATE
+    mockClientQuery.mockResolvedValueOnce({}); // COMMIT
 
     const res = await request(app)
       .delete(`/provider-connections/${deletedConnId}`)
@@ -180,9 +204,36 @@ describe('Provider Connections — JSONB Cascade', () => {
 
     expect(res.status).toBe(200);
 
-    const updateCall = mockQuery.mock.calls[2];
+    const updateCall = mockClientQuery.mock.calls[3];
     const updatedConfig = JSON.parse(updateCall[1][0]);
     expect(updatedConfig.routes).toHaveLength(1);
     expect(updatedConfig.routes[0].key).toBe('keeper');
+    expect(mockClientRelease).toHaveBeenCalled();
+  });
+
+  // F5: DELETE connection with JSONB cascade failure → 500, connection NOT deleted (rolled back)
+  it('F5: DELETE with cascade failure returns 500 and rolls back', async () => {
+    const connId = 'conn-cascade-fail';
+    mockClientQuery.mockResolvedValueOnce({}); // BEGIN
+    mockClientQuery.mockResolvedValueOnce({ rows: [{ id: connId }] }); // DELETE
+    // Router model SELECT throws an error (cascade failure)
+    mockClientQuery.mockRejectedValueOnce(new Error('DB read failure'));
+    // ROLLBACK (called in catch)
+    mockClientQuery.mockResolvedValueOnce({});
+
+    const res = await request(app)
+      .delete(`/provider-connections/${connId}`)
+      .set('Authorization', `Bearer ${userToken}`);
+
+    // Should return 500, NOT 200 — the connection delete must be rolled back
+    expect(res.status).toBe(500);
+    expect(res.body.error).toMatch(/cascade/i);
+
+    // Verify ROLLBACK was called
+    const rollbackCall = mockClientQuery.mock.calls.find(
+      (call: any[]) => call[0] === 'ROLLBACK'
+    );
+    expect(rollbackCall).toBeDefined();
+    expect(mockClientRelease).toHaveBeenCalled();
   });
 });
