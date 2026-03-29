@@ -15,6 +15,12 @@ function getEncryptionKey(): string {
 // All routes require at least 'user' role
 router.use(requireRole('user'));
 
+function isAdmin(req: Request): boolean {
+  const user = (req as any).user;
+  const roles: string[] = user?.realm_roles || [];
+  return roles.includes('admin');
+}
+
 // GET /provider-connections — list own connections
 router.get('/', async (req: Request, res: Response) => {
   const pool = getPool();
@@ -43,12 +49,20 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   const user = (req as any).user;
-  const { name, provider, api_key, api_base_url } = req.body;
+  const { name, provider, api_key, api_base_url, platform } = req.body;
 
   if (!name || !provider || !api_key) {
     res.status(400).json({ error: 'name, provider, and api_key are required' });
     return;
   }
+
+  // Platform connections require admin role
+  if (platform && !isAdmin(req)) {
+    res.status(403).json({ error: 'Only admins can create platform connections' });
+    return;
+  }
+
+  const createdBy = platform && isAdmin(req) ? null : user.sub;
 
   try {
     const { encrypted, nonce } = encryptProviderKey(api_key, getEncryptionKey());
@@ -56,10 +70,11 @@ router.post('/', async (req: Request, res: Response) => {
     const result = await pool.query(
       `INSERT INTO provider_connections (name, provider, api_key_encrypted, api_key_nonce, api_base_url, created_by)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, provider, api_base_url, is_valid, created_at, updated_at`,
-      [name, provider, encrypted, nonce, api_base_url || null, user.sub]
+       RETURNING id, name, provider, api_base_url, is_valid, created_by, created_at, updated_at`,
+      [name, provider, encrypted, nonce, api_base_url || null, createdBy]
     );
-    res.status(201).json(result.rows[0]);
+    const row = result.rows[0];
+    res.status(201).json({ ...row, is_platform: row.created_by === null });
   } catch (err: any) {
     if (err.code === '23505') {
       res.status(409).json({ error: `Connection named '${name}' already exists` });
@@ -159,10 +174,18 @@ router.delete('/:id', async (req: Request, res: Response) => {
   try {
     await client.query('BEGIN');
 
-    const result = await client.query(
-      'DELETE FROM provider_connections WHERE id = $1 AND created_by = $2 RETURNING id',
-      [id, user.sub]
-    );
+    // Admin can delete platform connections (created_by IS NULL); users can only delete their own
+    let deleteQuery: string;
+    let deleteParams: any[];
+    if (isAdmin(req)) {
+      deleteQuery = 'DELETE FROM provider_connections WHERE id = $1 RETURNING id, created_by';
+      deleteParams = [id];
+    } else {
+      deleteQuery = 'DELETE FROM provider_connections WHERE id = $1 AND created_by = $2 RETURNING id, created_by';
+      deleteParams = [id, user.sub];
+    }
+
+    const result = await client.query(deleteQuery, deleteParams);
 
     if (result.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -170,16 +193,27 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
+    const deletedOwner = result.rows[0].created_by;
+
     // JSONB-aware cascade: scrub deleted connection from router models' routing_config
-    const routerModels = await client.query(
-      `SELECT id, routing_config FROM user_models
+    // Scope to the connection owner's router models (or all if platform)
+    let cascadeQuery: string;
+    let cascadeParams: any[];
+    if (deletedOwner === null) {
+      // Platform connection — no router models reference platform connections (platform models are single-type only)
+      cascadeQuery = `SELECT id, routing_config FROM user_models WHERE false`;
+      cascadeParams = [];
+    } else {
+      cascadeQuery = `SELECT id, routing_config FROM user_models
        WHERE model_type = 'router' AND created_by = $1
          AND EXISTS (
            SELECT 1 FROM jsonb_array_elements(routing_config->'routes') AS r
            WHERE r->>'connection_id' = $2
-         )`,
-      [user.sub, id]
-    );
+         )`;
+      cascadeParams = [deletedOwner, id];
+    }
+
+    const routerModels = await client.query(cascadeQuery, cascadeParams);
 
     for (const row of routerModels.rows) {
       const config = typeof row.routing_config === 'string'

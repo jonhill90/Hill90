@@ -783,4 +783,101 @@ describe('ModelsClient', () => {
     // Should show "Unknown connection" instead of the UUID prefix
     expect(screen.getByText('Unknown connection')).toBeInTheDocument()
   })
+
+  // D25: Platform models render with "Platform" badge in table
+  it('D25: platform model renders with Platform badge and no edit/delete buttons', async () => {
+    const platformModel = {
+      ...MOCK_MODELS[0],
+      id: 'model-platform-gpt4o',
+      name: 'GPT-4o (Platform)',
+      connection_id: null,
+      created_by: null,
+      is_platform: true,
+      litellm_model: 'openai/gpt-4o',
+      description: 'Platform-managed model',
+    }
+    const userModel = MOCK_MODELS[1] // Claude Sonnet — user-owned
+
+    mockFetchResponses([platformModel, userModel])
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('GPT-4o (Platform)')).toBeInTheDocument()
+      expect(screen.getByText('Claude Sonnet')).toBeInTheDocument()
+    })
+
+    // Platform badge should be visible for the platform model
+    expect(screen.getByText('Platform')).toBeInTheDocument()
+
+    // Find the platform model row and verify no Edit/Delete buttons
+    const rows = document.querySelectorAll('tbody tr')
+    const platformRow = Array.from(rows).find(row =>
+      row.textContent?.includes('GPT-4o (Platform)')
+    )!
+    expect(platformRow).toBeDefined()
+    expect(platformRow.querySelector('button')).toBeNull()
+
+    // The user model row should still have Edit and Delete buttons
+    const userRow = Array.from(rows).find(row =>
+      row.textContent?.includes('Claude Sonnet')
+    )!
+    expect(userRow).toBeDefined()
+    const userButtons = userRow.querySelectorAll('button')
+    const buttonTexts = Array.from(userButtons).map(b => b.textContent)
+    expect(buttonTexts).toContain('Edit')
+    expect(buttonTexts).toContain('Delete')
+  })
+
+  // D26: Platform models appear in eligible-models picker
+  it('D26: platform models appear in eligible-models picker on agent model selection', async () => {
+    const platformModel = {
+      id: 'model-platform-gpt4o',
+      name: 'GPT-4o (Platform)',
+      connection_id: null,
+      created_by: null,
+      is_platform: true,
+      is_active: true,
+      litellm_model: 'openai/gpt-4o',
+      description: 'Platform-managed model',
+      model_type: 'single',
+      detected_type: 'chat',
+      capabilities: ['chat', 'function_calling'],
+      routing_config: null,
+      icon_emoji: null,
+      icon_url: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    const userModel = {
+      ...MOCK_MODELS[0],
+      is_platform: false,
+      created_by: 'user-123',
+    }
+
+    // Mock the eligible-models API to return both platform and user models
+    mockFetch.mockImplementation((url: string, options?: any) => {
+      if (url === '/api/user-models' && (!options || !options.method || options.method === 'GET')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([platformModel, userModel]) })
+      }
+      if (url === '/api/provider-connections') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    })
+
+    render(<ModelsClient />)
+
+    await waitFor(() => {
+      // Both platform and user models should be visible in the table
+      expect(screen.getByText('GPT-4o (Platform)')).toBeInTheDocument()
+      expect(screen.getByText('GPT-4o Mini')).toBeInTheDocument()
+    })
+
+    // Platform model should have the Platform badge
+    expect(screen.getByText('Platform')).toBeInTheDocument()
+
+    // Verify the model count reflects both platform and user models
+    expect(screen.getByText('2 models')).toBeInTheDocument()
+  })
 })

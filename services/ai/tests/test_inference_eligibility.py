@@ -57,6 +57,7 @@ class TestResolveBYOK:
                 "app.main.resolve_user_model", new_callable=AsyncMock, return_value=None
             ),
             patch("app.main.resolve_router_model", new_callable=AsyncMock, return_value=None),
+            patch("app.main.resolve_platform_model", new_callable=AsyncMock, return_value=None),
             patch("app.main.is_platform_model", new_callable=AsyncMock) as mock_is_platform,
         ):
             policy_result = PolicyResult(resolved_model="some-model")
@@ -107,7 +108,7 @@ class TestResolveBYOK:
 
     @pytest.mark.asyncio
     async def test_e7_model_not_in_user_models_raises_403_no_platform_fallback(self):
-        """E7: Model not in any user_models -> 403 (no platform fallback)."""
+        """E7: Model not in user or platform models -> 403."""
         mock_conn = AsyncMock()
 
         with (
@@ -117,6 +118,7 @@ class TestResolveBYOK:
                 "app.main.resolve_user_model", new_callable=AsyncMock, return_value=None
             ),
             patch("app.main.resolve_router_model", new_callable=AsyncMock, return_value=None),
+            patch("app.main.resolve_platform_model", new_callable=AsyncMock, return_value=None),
             patch("app.main.is_platform_model", new_callable=AsyncMock) as mock_is_platform,
         ):
             policy_result = PolicyResult(resolved_model="unknown-model")
@@ -189,6 +191,7 @@ class TestResolveBYOK:
                 "app.main.resolve_user_model", new_callable=AsyncMock, return_value=None
             ),
             patch("app.main.resolve_router_model", new_callable=AsyncMock, return_value=None),
+            patch("app.main.resolve_platform_model", new_callable=AsyncMock, return_value=None),
             patch("app.main.is_platform_model", new_callable=AsyncMock) as mock_is_platform,
         ):
             policy_result = PolicyResult(resolved_model="missing-model")

@@ -16,7 +16,7 @@ function dbHealthCheck(_req: Request, res: Response, next: () => void) {
 
 router.use(dbHealthCheck);
 
-// GET /eligible-models — returns caller's own user_models only (AI-120)
+// GET /eligible-models — returns caller's own user_models + platform models (AI-123)
 router.get('/', async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
@@ -24,9 +24,10 @@ router.get('/', async (req: Request, res: Response) => {
 
     const activeClause = includeInactive ? '' : 'AND is_active = true';
     const { rows } = await getPool().query(
-      `SELECT name, description, connection_id, is_active, model_type, detected_type
+      `SELECT name, description, connection_id, is_active, model_type, detected_type,
+              CASE WHEN created_by IS NULL THEN true ELSE false END AS is_platform
        FROM user_models
-       WHERE created_by = $1 ${activeClause}
+       WHERE (created_by = $1 OR created_by IS NULL) ${activeClause}
        ORDER BY name ASC`,
       [user.sub]
     );
