@@ -12,6 +12,9 @@ ALLOWED_CMDS="${ALLOWED_CMDS:-codex-aarch64-a}"
 MIN_INPUT_CHARS="${MIN_INPUT_CHARS:-12}"
 REQUIRED_PREFIX="${REQUIRED_PREFIX:-UPPROMPT:}"
 HEARTBEAT_SECONDS="${HEARTBEAT_SECONDS:-30}"
+HEAL_CHECK_SECONDS="${HEAL_CHECK_SECONDS:-10}"
+CODEX_CMD="${CODEX_CMD:-codex}"
+CODEX_CWD="${CODEX_CWD:-/Users/jon/source/repos/Personal/Hill90}"
 
 touch "$LOG_FILE" "$STATE_FILE"
 
@@ -70,10 +73,43 @@ has_required_prefix() {
   [[ "$text" == "$REQUIRED_PREFIX"* ]]
 }
 
+ensure_lane_panes() {
+  local win="$1"
+  local target="$SESSION:$win"
+
+  # Ensure pane 1 exists (Claude lane). If window/pane is missing, skip.
+  tmux list-panes -t "$target" >/dev/null 2>&1 || return 0
+
+  # Ensure pane 2 exists and runs Codex.
+  if ! tmux list-panes -t "$target" -F '#{pane_index}' 2>/dev/null | grep -qx '2'; then
+    tmux split-window -v -t "$target.1" "cd $CODEX_CWD && $CODEX_CMD" >/dev/null 2>&1 || true
+    log "HEAL_CREATED_PANE $target.2"
+    return 0
+  fi
+
+  local pane_cmd
+  pane_cmd="$(tmux display-message -p -t "$target.2" '#{pane_current_command}' 2>/dev/null || true)"
+  if [[ "$pane_cmd" != "$ALLOWED_CMDS" ]]; then
+    tmux respawn-pane -k -t "$target.2" "cd $CODEX_CWD && $CODEX_CMD" >/dev/null 2>&1 || true
+    log "HEAL_RESPAWNED_PANE $target.2 old_cmd=${pane_cmd:-unknown}"
+  fi
+}
+
 log "START session=$SESSION interval=${INTERVAL_SECONDS}s"
 last_heartbeat_epoch="$(date +%s)"
+last_heal_epoch="$(date +%s)"
 
 while true; do
+  now_epoch="$(date +%s)"
+
+  if (( now_epoch - last_heal_epoch >= HEAL_CHECK_SECONDS )); then
+    IFS=',' read -r -a lanes <<<"$SUPERVISE_WINDOWS"
+    for lane in "${lanes[@]}"; do
+      ensure_lane_panes "$lane"
+    done
+    last_heal_epoch="$now_epoch"
+  fi
+
   while IFS='|' read -r pane_id pane_cmd; do
     # Skip this supervisor lane to avoid self-interaction.
     if [[ "$pane_id" == *":supervisor-loop."* ]]; then
@@ -133,7 +169,6 @@ while true; do
     fi
   done < <(tmux list-panes -a -t "$SESSION" -F '#{session_name}:#{window_name}.#{pane_index}|#{pane_current_command}' 2>/dev/null || true)
 
-  now_epoch="$(date +%s)"
   if (( now_epoch - last_heartbeat_epoch >= HEARTBEAT_SECONDS )); then
     log "HEARTBEAT session=$SESSION windows=$SUPERVISE_WINDOWS prefix=$REQUIRED_PREFIX"
     last_heartbeat_epoch="$now_epoch"
