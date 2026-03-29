@@ -37,6 +37,7 @@ from app.models import (
     get_agent_owner,
     get_fallback_route,
     is_platform_model,
+    resolve_platform_model,
     resolve_route_credentials,
     resolve_router_model,
     resolve_user_model,
@@ -509,6 +510,16 @@ async def _resolve_byok(
         policy_result.user_model = route_creds
         policy_result.router_model = router
         policy_result.provider_model_id = route_creds.litellm_model
+        return policy_result
+
+    # Try platform model (admin-managed, globally accessible — AI-123)
+    async with get_db_conn() as conn:
+        platform_model = await resolve_platform_model(conn, resolved_model)
+
+    if platform_model is not None:
+        _inject_byok_credentials(platform_model, body, claims, resolved_model)
+        policy_result.user_model = platform_model
+        policy_result.provider_model_id = platform_model.litellm_model
         return policy_result
 
     raise HTTPException(

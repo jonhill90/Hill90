@@ -49,7 +49,7 @@ function isAutoAgentModelsPolicy(description: string | null): boolean {
 async function validateModelNames(modelNames: string[], ownerSub: string): Promise<string | null> {
   for (const modelName of modelNames) {
     const { rows: userRows } = await getPool().query(
-      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2 AND is_active = true`,
+      `SELECT id FROM user_models WHERE name = $1 AND (created_by = $2 OR created_by IS NULL) AND is_active = true`,
       [modelName, ownerSub]
     );
     if (userRows.length > 0) continue;
@@ -73,7 +73,7 @@ async function validatePolicyEligibility(
   const inaccessible: string[] = [];
   for (const modelName of allowedModels) {
     const { rows: userRows } = await getPool().query(
-      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2 AND is_active = true`,
+      `SELECT id FROM user_models WHERE name = $1 AND (created_by = $2 OR created_by IS NULL) AND is_active = true`,
       [modelName, agentOwnerSub]
     );
     if (userRows.length === 0) {

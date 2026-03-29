@@ -219,8 +219,8 @@ describe('User Models CRUD', () => {
   });
 
   it('B1: DELETE scrubs model name from owner policies', async () => {
-    // Delete returns model with name
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4' }] });
+    // Delete returns model with name and owner
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4', created_by: 'regular-user' }] });
     // Stale cleanup updates 1 policy
     mockQuery.mockResolvedValueOnce({ rowCount: 1 });
 
@@ -239,8 +239,8 @@ describe('User Models CRUD', () => {
   });
 
   it('B2: DELETE does not modify other users policies', async () => {
-    // Delete returns model with name
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4' }] });
+    // Delete returns model with name and owner
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4', created_by: 'regular-user' }] });
     // Stale cleanup
     mockQuery.mockResolvedValueOnce({ rowCount: 0 });
 
@@ -255,8 +255,8 @@ describe('User Models CRUD', () => {
   });
 
   it('B3: DELETE succeeds when no policies reference model', async () => {
-    // Delete returns model with name
-    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4' }] });
+    // Delete returns model with name and owner
+    mockQuery.mockResolvedValueOnce({ rows: [{ id: 'model-1', name: 'my-gpt4', created_by: 'regular-user' }] });
     // Stale cleanup finds no matching policies
     mockQuery.mockResolvedValueOnce({ rowCount: 0 });
 

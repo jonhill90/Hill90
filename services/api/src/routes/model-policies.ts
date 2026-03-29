@@ -87,7 +87,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 /**
  * Validate that each model in allowed_models exists in the user's own
- * user_models (active). No admin bypass — AI-120 enforcement.
+ * user_models OR as a platform model (created_by IS NULL). AI-120 + AI-123.
  */
 async function validateAllowedModels(
   allowedModels: string[],
@@ -95,7 +95,7 @@ async function validateAllowedModels(
 ): Promise<string | null> {
   for (const modelName of allowedModels) {
     const { rows: userRows } = await getPool().query(
-      `SELECT id FROM user_models WHERE name = $1 AND created_by = $2 AND is_active = true`,
+      `SELECT id FROM user_models WHERE name = $1 AND (created_by = $2 OR created_by IS NULL) AND is_active = true`,
       [modelName, userSub]
     );
     if (userRows.length > 0) continue;

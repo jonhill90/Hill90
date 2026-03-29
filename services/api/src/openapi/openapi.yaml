@@ -1988,6 +1988,7 @@ paths:
       description: >
         Creates a new provider connection with an encrypted API key.
         The key is encrypted at rest and never returned in responses.
+        Admins can set platform=true to create a platform connection (created_by=NULL).
       security:
         - bearerAuth: []
       requestBody:
@@ -2012,6 +2013,9 @@ paths:
                 api_base_url:
                   type: string
                   description: Custom API base URL (optional)
+                platform:
+                  type: boolean
+                  description: Admin-only. If true, creates a platform connection (created_by=NULL) accessible to all platform models.
       responses:
         "201":
           description: Connection created
@@ -2177,9 +2181,9 @@ paths:
     get:
       summary: List eligible models
       description: >
-        Returns the caller's own user_models that are eligible for use in
-        policies and agent assignments. Only active models are returned
-        by default. AI-120 enforcement — no platform models included.
+        Returns the caller's own user_models plus platform models (created_by IS NULL)
+        that are eligible for use in policies and agent assignments. Only active
+        models are returned by default.
       security:
         - bearerAuth: []
       parameters:
@@ -2213,6 +2217,9 @@ paths:
                           nullable: true
                         is_active:
                           type: boolean
+                        is_platform:
+                          type: boolean
+                          description: True if this is a platform-managed model
                         model_type:
                           type: string
                           enum: [single, router]
@@ -2228,7 +2235,7 @@ paths:
   /user-models:
     get:
       summary: List user models
-      description: Returns models defined by the authenticated user, including single and router models.
+      description: Returns models owned by the authenticated user plus platform models (created_by IS NULL), including single and router models.
       security:
         - bearerAuth: []
       responses:
@@ -2259,6 +2266,9 @@ paths:
                       type: string
                     is_active:
                       type: boolean
+                    is_platform:
+                      type: boolean
+                      description: True if this is a platform-managed model (created_by IS NULL)
                     model_type:
                       type: string
                       enum: [single, router]
@@ -2328,6 +2338,7 @@ paths:
         Creates a user-defined model. For single models, provide connection_id
         and litellm_model. For router models, provide model_type='router' and
         routing_config. Name must not conflict with active platform models.
+        Admins can set platform=true to create a platform model (created_by=NULL).
       security:
         - bearerAuth: []
       requestBody:
@@ -2349,7 +2360,7 @@ paths:
                 connection_id:
                   type: string
                   format: uuid
-                  description: Required for single models (must be owned by user)
+                  description: Required for single models (must be owned by user, or platform connection for platform models)
                 litellm_model:
                   type: string
                   description: Required for single models (e.g., openai/gpt-4o)
@@ -2366,6 +2377,9 @@ paths:
                   items:
                     type: string
                   description: Manual override for auto-detected capabilities
+                platform:
+                  type: boolean
+                  description: Admin-only. If true, creates a platform model (created_by=NULL) using a platform connection.
                 icon_emoji:
                   type: string
                   deprecated: true
