@@ -26,6 +26,7 @@ interface UserModel {
   litellm_model: string | null
   description: string
   is_active: boolean
+  is_platform?: boolean
   model_type: 'single' | 'router'
   detected_type: string | null
   capabilities: string[] | null
@@ -760,7 +761,12 @@ export default function ModelsClient() {
                         </span>
                       )}
                       <div>
-                        <div className="text-white font-medium">{model.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-white font-medium">{model.name}</span>
+                          {model.is_platform && (
+                            <span className="px-1.5 py-0.5 text-xs rounded-md border bg-blue-900/50 text-blue-400 border-blue-700">Platform</span>
+                          )}
+                        </div>
                         {model.description && (
                           <div className="text-xs text-mountain-500 mt-0.5">{model.description}</div>
                         )}
@@ -810,21 +816,23 @@ export default function ModelsClient() {
                   </td>
                   <td className="px-4 py-3 text-mountain-400">{new Date(model.created_at).toLocaleDateString()}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2 justify-end">
-                      <button
-                        onClick={() => handleEdit(model)}
-                        className="px-2.5 py-1 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(model)}
-                        disabled={actionLoading === model.id}
-                        className="px-2.5 py-1 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    {!model.is_platform && (
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          onClick={() => handleEdit(model)}
+                          className="px-2.5 py-1 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(model)}
+                          disabled={actionLoading === model.id}
+                          className="px-2.5 py-1 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

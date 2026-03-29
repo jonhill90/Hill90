@@ -218,6 +218,40 @@ def get_fallback_route(router: RouterModelInfo, failed_route_key: str) -> dict |
     return min(candidates, key=lambda r: r.get("priority", 0))
 
 
+async def resolve_platform_model(
+    conn: Any, model_name: str
+) -> UserModelInfo | None:
+    """Look up a platform model (created_by IS NULL) by name.
+
+    Platform models are admin-managed and globally accessible.
+    Returns UserModelInfo with connection credentials if found, None otherwise.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT um.litellm_model,
+               pc.api_key_encrypted,
+               pc.api_key_nonce,
+               pc.api_base_url
+        FROM user_models um
+        JOIN provider_connections pc ON um.connection_id = pc.id
+        WHERE um.name = $1
+          AND um.created_by IS NULL
+          AND um.is_active = true
+          AND um.model_type = 'single'
+        """,
+        model_name,
+    )
+    if row is None:
+        return None
+
+    return UserModelInfo(
+        litellm_model=row["litellm_model"],
+        api_key_encrypted=bytes(row["api_key_encrypted"]),
+        api_key_nonce=bytes(row["api_key_nonce"]),
+        api_base_url=row["api_base_url"],
+    )
+
+
 async def is_platform_model(conn: Any, model_name: str) -> bool:
     """Check if a model name exists in the platform model catalog and is active."""
     row = await conn.fetchval(

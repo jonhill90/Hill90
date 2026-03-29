@@ -7,10 +7,20 @@ const router = Router();
 
 const RETURNING_COLS = `id, name, connection_id, litellm_model, description, is_active,
   model_type, detected_type, capabilities, routing_config, icon_emoji, icon_url,
-  created_at, updated_at`;
+  created_by, created_at, updated_at`;
 
 // All routes require at least 'user' role
 router.use(requireRole('user'));
+
+function isAdmin(req: Request): boolean {
+  const user = (req as any).user;
+  const roles: string[] = user?.realm_roles || [];
+  return roles.includes('admin');
+}
+
+function addPlatformFlag(row: any): any {
+  return { ...row, is_platform: row.created_by === null };
+}
 
 interface RouteEntry {
   key: string;
@@ -83,7 +93,7 @@ function enrichRoutesWithDetection(routes: RouteEntry[]): RouteEntry[] {
   });
 }
 
-// GET /user-models — list own models
+// GET /user-models — list own models + platform models (read-only)
 router.get('/', async (req: Request, res: Response) => {
   const pool = getPool();
   if (!process.env.DATABASE_URL) {
@@ -95,11 +105,11 @@ router.get('/', async (req: Request, res: Response) => {
   const result = await pool.query(
     `SELECT ${RETURNING_COLS}
      FROM user_models
-     WHERE created_by = $1
+     WHERE created_by = $1 OR created_by IS NULL
      ORDER BY created_at DESC`,
     [user.sub]
   );
-  res.json(result.rows);
+  res.json(result.rows.map(addPlatformFlag));
 });
 
 // POST /user-models — create user model (single or router)
@@ -113,11 +123,18 @@ router.post('/', async (req: Request, res: Response) => {
   const user = (req as any).user;
   const {
     name, connection_id, litellm_model, description,
-    model_type, routing_config, icon_url,
+    model_type, routing_config, icon_url, platform,
     detected_type: overrideDetectedType, capabilities: overrideCapabilities,
   } = req.body;
   // icon_emoji is deprecated — ignored on writes, retained in reads for compatibility
 
+  // Platform models require admin role
+  if (platform && !isAdmin(req)) {
+    res.status(403).json({ error: 'Only admins can create platform models' });
+    return;
+  }
+
+  const createdBy = platform && isAdmin(req) ? null : user.sub;
   const effectiveType = model_type || 'single';
 
   if (!name) {
@@ -163,9 +180,9 @@ router.post('/', async (req: Request, res: Response) => {
         `INSERT INTO user_models (name, model_type, routing_config, description, icon_url, created_by)
          VALUES ($1, 'router', $2, $3, $4, $5)
          RETURNING ${RETURNING_COLS}`,
-        [name, JSON.stringify(enrichedConfig), description || '', icon_url || null, user.sub]
+        [name, JSON.stringify(enrichedConfig), description || '', icon_url || null, createdBy]
       );
-      res.status(201).json(result.rows[0]);
+      res.status(201).json(addPlatformFlag(result.rows[0]));
     } catch (err: any) {
       if (err.code === '23505') {
         res.status(409).json({ error: `Model named '${name}' already exists` });
@@ -184,11 +201,18 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    // Verify connection ownership
-    const conn = await pool.query(
-      'SELECT id FROM provider_connections WHERE id = $1 AND created_by = $2',
-      [connection_id, user.sub]
-    );
+    // Verify connection ownership — platform models must use platform connections
+    let connQuery: string;
+    let connParams: any[];
+    if (createdBy === null) {
+      // Platform model: connection must also be platform-owned
+      connQuery = 'SELECT id FROM provider_connections WHERE id = $1 AND created_by IS NULL';
+      connParams = [connection_id];
+    } else {
+      connQuery = 'SELECT id FROM provider_connections WHERE id = $1 AND created_by = $2';
+      connParams = [connection_id, user.sub];
+    }
+    const conn = await pool.query(connQuery, connParams);
     if (conn.rows.length === 0) {
       res.status(400).json({ error: 'Connection not found or not owned by you' });
       return;
@@ -214,9 +238,9 @@ router.post('/', async (req: Request, res: Response) => {
         `INSERT INTO user_models (name, connection_id, litellm_model, description, model_type, detected_type, capabilities, icon_url, created_by)
          VALUES ($1, $2, $3, $4, 'single', $5, $6, $7, $8)
          RETURNING ${RETURNING_COLS}`,
-        [name, connection_id, litellm_model, description || '', finalDetectedType, finalCapabilities, icon_url || null, user.sub]
+        [name, connection_id, litellm_model, description || '', finalDetectedType, finalCapabilities, icon_url || null, createdBy]
       );
-      res.status(201).json(result.rows[0]);
+      res.status(201).json(addPlatformFlag(result.rows[0]));
     } catch (err: any) {
       if (err.code === '23505') {
         res.status(409).json({ error: `Model named '${name}' already exists` });
@@ -243,13 +267,25 @@ router.put('/:id', async (req: Request, res: Response) => {
     detected_type: overrideDetectedType, capabilities: overrideCapabilities,
   } = req.body;
 
-  // Verify ownership and get current model_type
-  const existing = await pool.query(
-    'SELECT id, model_type FROM user_models WHERE id = $1 AND created_by = $2',
-    [id, user.sub]
-  );
+  // Verify ownership — admins can edit platform models; users can only edit their own
+  let ownershipQuery: string;
+  let ownershipParams: any[];
+  if (isAdmin(req)) {
+    ownershipQuery = 'SELECT id, model_type, created_by FROM user_models WHERE id = $1';
+    ownershipParams = [id];
+  } else {
+    ownershipQuery = 'SELECT id, model_type, created_by FROM user_models WHERE id = $1 AND created_by = $2';
+    ownershipParams = [id, user.sub];
+  }
+  const existing = await pool.query(ownershipQuery, ownershipParams);
   if (existing.rows.length === 0) {
     res.status(404).json({ error: 'Model not found' });
+    return;
+  }
+
+  // Non-admin trying to edit platform model → 403
+  if (existing.rows[0].created_by === null && !isAdmin(req)) {
+    res.status(403).json({ error: 'Only admins can modify platform models' });
     return;
   }
 
@@ -378,7 +414,7 @@ router.put('/:id', async (req: Request, res: Response) => {
        RETURNING ${RETURNING_COLS}`,
       params
     );
-    res.json(result.rows[0]);
+    res.json(addPlatformFlag(result.rows[0]));
   } catch (err: any) {
     if (err.code === '23505') {
       res.status(409).json({ error: `Model named '${name}' already exists` });
@@ -399,10 +435,18 @@ router.delete('/:id', async (req: Request, res: Response) => {
   const user = (req as any).user;
   const { id } = req.params;
 
-  const result = await pool.query(
-    'DELETE FROM user_models WHERE id = $1 AND created_by = $2 RETURNING id, name',
-    [id, user.sub]
-  );
+  // Admin can delete platform models; users can only delete their own
+  let deleteQuery: string;
+  let deleteParams: any[];
+  if (isAdmin(req)) {
+    deleteQuery = 'DELETE FROM user_models WHERE id = $1 RETURNING id, name, created_by';
+    deleteParams = [id];
+  } else {
+    deleteQuery = 'DELETE FROM user_models WHERE id = $1 AND created_by = $2 RETURNING id, name, created_by';
+    deleteParams = [id, user.sub];
+  }
+
+  const result = await pool.query(deleteQuery, deleteParams);
 
   if (result.rows.length === 0) {
     res.status(404).json({ error: 'Model not found' });
@@ -411,14 +455,17 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
   // Best-effort stale cleanup: scrub deleted model name from owner's policies
   const deletedModelName = result.rows[0].name;
-  try {
-    await pool.query(
-      `UPDATE model_policies SET allowed_models = allowed_models - $1, updated_at = NOW()
-       WHERE created_by = $2 AND allowed_models ? $1`,
-      [deletedModelName, user.sub]
-    );
-  } catch (err) {
-    console.error('[user-models] Stale policy cleanup failed (non-fatal):', err);
+  const deletedOwner = result.rows[0].created_by;
+  if (deletedOwner) {
+    try {
+      await pool.query(
+        `UPDATE model_policies SET allowed_models = allowed_models - $1, updated_at = NOW()
+         WHERE created_by = $2 AND allowed_models ? $1`,
+        [deletedModelName, deletedOwner]
+      );
+    } catch (err) {
+      console.error('[user-models] Stale policy cleanup failed (non-fatal):', err);
+    }
   }
 
   res.json({ deleted: true });
