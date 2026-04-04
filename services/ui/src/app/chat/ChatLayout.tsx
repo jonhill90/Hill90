@@ -40,6 +40,7 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
   const [loading, setLoading] = useState(true)
   const [showNewThread, setShowNewThread] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchThreads = useCallback(async () => {
     try {
@@ -69,13 +70,18 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
     try {
       const res = await fetch(`/api/chat/${threadId}`, { method: 'DELETE' })
       if (res.ok) {
+        setError(null)
         fetchThreads()
         if (activeThreadId === threadId) {
           router.push('/chat')
         }
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || 'Failed to delete thread')
       }
     } catch (err) {
       console.error('Failed to delete thread:', err)
+      setError('Failed to delete thread')
     }
   }
 
@@ -153,6 +159,24 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
           </div>
         )}
       </div>
+
+      {/* Error toast */}
+      {error && (
+        <div
+          className="fixed bottom-4 right-4 z-50 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 text-sm"
+          role="alert"
+          data-testid="error-toast"
+        >
+          <span>{error}</span>
+          <button
+            onClick={() => setError(null)}
+            className="text-white/80 hover:text-white font-bold"
+            aria-label="Dismiss error"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* New thread dialog */}
       {showNewThread && (
