@@ -23,6 +23,9 @@ function makeMessage(overrides: Partial<Message> = {}): Message {
     duration_ms: null,
     error_message: null,
     reply_to: null,
+    chain_id: null,
+    chain_hop: null,
+    triggered_by: null,
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }
@@ -190,5 +193,51 @@ describe('ChatMessage', () => {
       />
     )
     expect(screen.getByText('WriterBot is thinking...')).toBeInTheDocument()
+  })
+
+  // T16: Chain provenance renders
+  it('ChatMessage renders triggered_by annotation', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          author_id: 'agent-2',
+          author_type: 'agent',
+          role: 'assistant',
+          content: 'Chained response',
+          triggered_by: 'trigger-msg-1',
+          chain_id: 'chain-uuid',
+          chain_hop: 1,
+        })}
+        isOwnMessage={false}
+        isGroup={true}
+        agents={MOCK_AGENTS}
+        triggerAgentName="ResearchBot"
+      />
+    )
+    expect(screen.getByTestId('chain-provenance')).toBeInTheDocument()
+    expect(screen.getByText('Triggered by @ResearchBot')).toBeInTheDocument()
+  })
+
+  // T17: Chain annotation shows agent name
+  it('chain provenance shows agent name', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          author_id: 'agent-1',
+          author_type: 'agent',
+          role: 'assistant',
+          content: 'Follow-up response',
+          triggered_by: 'trigger-msg-2',
+          chain_id: 'chain-uuid-2',
+          chain_hop: 2,
+        })}
+        isOwnMessage={false}
+        isGroup={true}
+        agents={MOCK_AGENTS}
+        triggerAgentName="WriterBot"
+      />
+    )
+    const provenance = screen.getByTestId('chain-provenance')
+    expect(provenance).toHaveTextContent('Triggered by @WriterBot')
   })
 })

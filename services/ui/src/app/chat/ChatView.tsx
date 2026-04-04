@@ -25,6 +25,9 @@ export interface Message {
   duration_ms: number | null
   error_message: string | null
   reply_to: string | null
+  chain_id: string | null
+  chain_hop: number | null
+  triggered_by: string | null
   created_at: string
 }
 
@@ -209,15 +212,26 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
               Send a message to begin the conversation.
             </div>
           )}
-          {messages.map(msg => (
-            <ChatMessage
-              key={msg.id}
-              message={msg}
-              isOwnMessage={msg.author_id === userId}
-              isGroup={isGroup}
-              agents={agents}
-            />
-          ))}
+          {messages.map(msg => {
+            // Compute trigger agent name for chain provenance
+            let triggerAgentName: string | undefined
+            if (msg.triggered_by) {
+              const triggerMsg = messages.find(m => m.id === msg.triggered_by)
+              if (triggerMsg) {
+                triggerAgentName = agents.find(a => a.id === triggerMsg.author_id)?.name
+              }
+            }
+            return (
+              <ChatMessage
+                key={msg.id}
+                message={msg}
+                isOwnMessage={msg.author_id === userId}
+                isGroup={isGroup}
+                agents={agents}
+                triggerAgentName={triggerAgentName}
+              />
+            )
+          })}
           <div ref={messagesEndRef} />
         </div>
 

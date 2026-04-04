@@ -806,6 +806,20 @@ components:
         error_message:
           type: string
           nullable: true
+        chain_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Shared identifier for agent-to-agent @mention chains
+        chain_hop:
+          type: integer
+          nullable: true
+          description: Hop number within a chain (0 = originator)
+        triggered_by:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of the message that triggered this chain dispatch
         created_at:
           type: string
           format: date-time

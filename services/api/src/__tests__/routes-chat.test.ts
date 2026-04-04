@@ -1092,6 +1092,421 @@ describe('Chat audit logging', () => {
   });
 });
 
+// ── Agent-to-agent @mention orchestration ──
+
+describe('Agent-to-agent @mention orchestration', () => {
+  let consoleSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockDispatchChatWork.mockReset();
+    mockDispatchChatWork.mockResolvedValue({ accepted: true, work_id: 'work-123' });
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+    process.env.CHAT_CALLBACK_TOKEN = 'test-callback-secret';
+    consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'info').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.CHAT_CALLBACK_TOKEN;
+    consoleSpy.mockRestore();
+    jest.restoreAllMocks();
+  });
+
+  function getAuditCalls(): any[] {
+    return consoleSpy.mock.calls
+      .map((c: any[]) => { try { return JSON.parse(c[0]); } catch { return null; } })
+      .filter((obj: any) => obj?.type === 'audit');
+  }
+
+  // T1: parseMentions works on agent content
+  it('parseMentions extracts mentions from agent response', async () => {
+    const { parseMentions } = await import('../routes/chat');
+    const result = parseMentions('Hey @agent-b check this out');
+    expect(result.slugs).toEqual(['agent-b']);
+  });
+
+  // T2: Callback triggers dispatch on @mention
+  it('callback dispatches to mentioned agent', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging query
+      .mockResolvedValueOnce({ rows: [] })       // getAgentElevatedScope (not elevated)
+      // Agent-to-agent orchestration:
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] }) // get triggering msg
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-b', participant_id: 'agent-b-uuid' }] }) // resolveAgentSlugs
+      .mockResolvedValueOnce({ rowCount: 1 })   // backfill chain_id on triggering msg
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] })  // time budget: MIN(created_at)
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // cycle detection
+      .mockResolvedValueOnce({ rows: [] })       // getAgentElevatedScope for target
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-b-uuid', agent_id: 'agent-b', name: 'Agent B', status: 'running', work_token: 'wt-b', models: ['gpt-4o-mini'] }] }) // getAgentForDispatch
+      .mockResolvedValueOnce({ rows: [] })       // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'Hello' }] }) // message history
+      .mockResolvedValueOnce({ rows: [{ id: 'chain-placeholder' }] }); // INSERT placeholder
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({
+        message_id: 'msg-from-agent-a',
+        content: 'I think @agent-b should handle this',
+        status: 'complete',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.updated).toBe(true);
+    expect(mockDispatchChatWork).toHaveBeenCalledTimes(1);
+    expect(mockDispatchChatWork).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'agent-b',
+    }));
+  });
+
+  // T3: Hop budget enforced
+  it('chain stops at MAX_CHAIN_HOPS', async () => {
+    process.env.MAX_CHAIN_HOPS = '5';
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
+      .mockResolvedValueOnce({ rows: [] })       // not elevated
+      // Orchestration:
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: 'existing-chain', chain_hop: 5 }] }) // at hop 5
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-b', participant_id: 'agent-b-uuid' }] }); // resolveAgentSlugs
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({
+        message_id: 'msg-hop5',
+        content: 'Hey @agent-b',
+        status: 'complete',
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+    delete process.env.MAX_CHAIN_HOPS;
+  });
+
+  // T4: Time budget enforced
+  it('chain stops when MAX_CHAIN_DURATION_MS exceeded', async () => {
+    process.env.MAX_CHAIN_DURATION_MS = '60000';
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
+      .mockResolvedValueOnce({ rows: [] })       // not elevated
+      // Orchestration:
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: 'old-chain', chain_hop: 2 }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-b', participant_id: 'agent-b-uuid' }] })
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date(Date.now() - 120000).toISOString() }] }); // 120s ago — exceeded
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({
+        message_id: 'msg-old-chain',
+        content: 'Hey @agent-b',
+        status: 'complete',
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+    delete process.env.MAX_CHAIN_DURATION_MS;
+  });
+
+  // T5: Self-mention blocked
+  it('agent cannot mention itself', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
+      .mockResolvedValueOnce({ rows: [] })       // not elevated
+      // Orchestration:
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-a', participant_id: 'agent-a-uuid' }] }); // resolves to self
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({
+        message_id: 'msg-self',
+        content: 'Let me ask @agent-a again',
+        status: 'complete',
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+  });
+
+  // T6: Cycle detection
+  it('agent already in chain cannot be re-triggered', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
+      .mockResolvedValueOnce({ rows: [] })       // not elevated
+      // Orchestration:
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: 'chain-1', chain_hop: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-b', participant_id: 'agent-b-uuid' }] })
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] }) // time budget OK
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }, { author_id: 'agent-b-uuid' }] }); // cycle: b already in chain
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({
+        message_id: 'msg-cycle',
+        content: 'Asking @agent-b again',
+        status: 'complete',
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+  });
+
+  // T7: Elevated scope blocked
+  it('elevated agent not dispatched by agent-to-agent', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
+      .mockResolvedValueOnce({ rows: [] })       // not elevated (author)
+      // Orchestration:
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'elevated-agent', participant_id: 'elevated-uuid' }] })
+      .mockResolvedValueOnce({ rowCount: 1 })   // backfill chain_id
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] }) // time OK
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // cycle check: only a
+      .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] }); // elevated scope on target!
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({
+        message_id: 'msg-elevated',
+        content: 'Ask @elevated-agent to do it',
+        status: 'complete',
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+
+    const audits = getAuditCalls();
+    const dispatchAudit = audits.find((a: any) => a.action === 'agent_to_agent_dispatch' && a.blocked === 'elevated_scope');
+    expect(dispatchAudit).toBeDefined();
+  });
+
+  // T8: chain_id propagated
+  it('chain messages share chain_id', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: 'shared-chain-id', chain_hop: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-c', participant_id: 'agent-c-uuid' }] })
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] }) // not elevated
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-c-uuid', agent_id: 'agent-c', name: 'Agent C', status: 'running', work_token: 'wt-c', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [] }) // concurrency
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'Hello' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-2' }] }); // placeholder
+
+    await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-chain', content: 'Ask @agent-c', status: 'complete' });
+
+    // Verify the INSERT placeholder includes chain_id
+    const insertCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('chain_id') && call[0].includes('INSERT')
+    );
+    expect(insertCall).toBeDefined();
+    expect(insertCall![1]).toContain('shared-chain-id');
+  });
+
+  // T9: chain_hop incremented
+  it('chain_hop increments per hop', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: 'chain-inc', chain_hop: 2 }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-d', participant_id: 'agent-d-uuid' }] })
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-d-uuid', agent_id: 'agent-d', name: 'Agent D', status: 'running', work_token: 'wt-d', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-3' }] });
+
+    await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-hop2', content: 'Ask @agent-d', status: 'complete' });
+
+    const insertCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('chain_hop') && call[0].includes('INSERT')
+    );
+    expect(insertCall).toBeDefined();
+    // chain_hop should be 3 (previous was 2, +1)
+    expect(insertCall![1]).toContain(3);
+  });
+
+  // T10: triggered_by set
+  it('triggered_by links to triggering message', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-e', participant_id: 'agent-e-uuid' }] })
+      .mockResolvedValueOnce({ rowCount: 1 }) // backfill chain_id
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-e-uuid', agent_id: 'agent-e', name: 'Agent E', status: 'running', work_token: 'wt-e', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-tb' }] });
+
+    await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'trigger-msg-id', content: 'Ask @agent-e', status: 'complete' });
+
+    const insertCall = mockQuery.mock.calls.find(
+      (call: any[]) => typeof call[0] === 'string' && call[0].includes('triggered_by') && call[0].includes('INSERT')
+    );
+    expect(insertCall).toBeDefined();
+    expect(insertCall![1]).toContain('trigger-msg-id');
+  });
+
+  // T11: Non-participant ignored
+  it('mention of non-participant agent is ignored', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
+      .mockResolvedValueOnce({ rows: [] }); // resolveAgentSlugs returns empty — not a participant
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-nonparticipant', content: 'Hey @stranger', status: 'complete' });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+  });
+
+  // T12: Audit emitted
+  it('agent_to_agent_dispatch audit entry', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-f', participant_id: 'agent-f-uuid' }] })
+      .mockResolvedValueOnce({ rowCount: 1 }) // backfill
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] }) // not elevated
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-f-uuid', agent_id: 'agent-f', name: 'Agent F', status: 'running', work_token: 'wt-f', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-audit' }] });
+
+    await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-audit', content: 'Ask @agent-f', status: 'complete' });
+
+    const audits = getAuditCalls();
+    const dispatchAudit = audits.find((a: any) => a.action === 'agent_to_agent_dispatch' && !a.blocked);
+    expect(dispatchAudit).toBeDefined();
+    expect(dispatchAudit.chain_hop).toBe(1);
+    expect(dispatchAudit.triggered_by).toBe('msg-audit');
+  });
+
+  // T13: Error callback skips parsing
+  it('error status callback skips mention parsing', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({
+        message_id: 'msg-error',
+        content: '@agent-b I failed',
+        status: 'error',
+        error_message: 'Inference error',
+      });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+  });
+
+  // T14: Offline agent skipped
+  it('chain dispatch skips offline agent', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-off', participant_id: 'agent-off-uuid' }] })
+      .mockResolvedValueOnce({ rowCount: 1 }) // backfill
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] }) // not elevated
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-off-uuid', agent_id: 'agent-off', name: 'Offline', status: 'stopped', work_token: null, models: [] }] }); // offline
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-offline', content: 'Ask @agent-off', status: 'complete' });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+  });
+
+  // T15: Concurrency guard in chain
+  it('chain dispatch skips agent with pending message', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
+      .mockResolvedValueOnce({ rows: [{ slug: 'agent-busy', participant_id: 'agent-busy-uuid' }] })
+      .mockResolvedValueOnce({ rowCount: 1 }) // backfill
+      .mockResolvedValueOnce({ rows: [{ chain_start: new Date().toISOString() }] })
+      .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
+      .mockResolvedValueOnce({ rows: [] }) // not elevated
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-busy-uuid', agent_id: 'agent-busy', name: 'Busy', status: 'running', work_token: 'wt-busy', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'pending-msg' }] }); // has pending!
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-busy', content: 'Ask @agent-busy', status: 'complete' });
+
+    expect(res.status).toBe(200);
+    expect(mockDispatchChatWork).not.toHaveBeenCalled();
+  });
+});
+
 // ── Stale sweeper ──
 
 describe('Chat stale sweeper', () => {
