@@ -69,7 +69,7 @@ services:
     image: grafana/tempo:2.7.2
     container_name: tempo
     restart: unless-stopped
-    mem_limit: 512m
+    mem_limit: 1g
     networks:
       - internal
     volumes:
