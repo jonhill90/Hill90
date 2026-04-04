@@ -28,7 +28,7 @@ export default function EditAgentPage({ params }: { params: Promise<{ id: string
     <AppShell>
       <main className="flex-1 px-6 py-12 max-w-3xl mx-auto w-full">
         <h1 className="text-2xl font-bold mb-8">Edit Agent</h1>
-        <AgentEditClient agentId={id} isAdmin={isAdmin} currentUserSub={currentUserSub} />
+        <AgentEditClient agentId={id} isAdmin={(session?.user as any)?.roles?.includes('admin') ?? false} currentUserSub={(session?.user as any)?.id || (session?.user as any)?.sub || ''} />
       </main>
     </AppShell>
   )
