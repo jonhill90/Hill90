@@ -42,6 +42,109 @@ describe('CreateAgentContainerOpts interface', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// T5/T6: createAndStartContainer applies profile metadata
+// ---------------------------------------------------------------------------
+
+describe('createAndStartContainer metadata application', () => {
+  const mockStart = jest.fn().mockResolvedValue(undefined);
+  const mockInspect = jest.fn().mockResolvedValue({ Id: 'container-id-abc' });
+  const mockCreateContainer = jest.fn().mockResolvedValue({ start: mockStart, inspect: mockInspect });
+  const mockGetContainer = jest.fn().mockImplementation(() => {
+    const err: any = new Error('not found');
+    err.statusCode = 404;
+    throw err;
+  });
+
+  beforeEach(() => {
+    jest.resetModules();
+    mockCreateContainer.mockClear();
+    mockStart.mockClear();
+    mockInspect.mockClear();
+    process.env.AGENTBOX_CONFIG_HOST_PATH = '/opt/hill90/agentbox-configs';
+
+    jest.doMock('dockerode', () => {
+      return jest.fn().mockImplementation(() => ({
+        createContainer: mockCreateContainer,
+        getContainer: mockGetContainer,
+      }));
+    });
+  });
+
+  afterEach(() => {
+    delete process.env.AGENTBOX_CONFIG_HOST_PATH;
+    jest.restoreAllMocks();
+  });
+
+  // T5: extra_env from metadata is appended to container Env
+  it('T5: applies extra_env from metadata to container Env array', async () => {
+    const { createAndStartContainer } = require('../services/docker');
+
+    await createAndStartContainer({
+      agentId: 'test-agent',
+      hostConfigPath: '/opt/hill90/agentbox-configs',
+      cpus: '2.0',
+      memLimit: '2g',
+      pidsLimit: 300,
+      env: ['WORK_TOKEN=abc'],
+      metadata: {
+        extra_env: ['PLAYWRIGHT_BROWSERS_PATH=/data/browsers', 'CUSTOM_VAR=hello'],
+      },
+    });
+
+    expect(mockCreateContainer).toHaveBeenCalledTimes(1);
+    const createOpts = mockCreateContainer.mock.calls[0][0];
+
+    // Verify extra_env entries are in the Env array
+    expect(createOpts.Env).toContain('PLAYWRIGHT_BROWSERS_PATH=/data/browsers');
+    expect(createOpts.Env).toContain('CUSTOM_VAR=hello');
+    // Standard env should also be present
+    expect(createOpts.Env).toContain('AGENT_ID=test-agent');
+    expect(createOpts.Env).toContain('WORK_TOKEN=abc');
+  });
+
+  // T6: shm_size from metadata is set on HostConfig.ShmSize
+  it('T6: applies shm_size from metadata to HostConfig.ShmSize', async () => {
+    const { createAndStartContainer } = require('../services/docker');
+
+    await createAndStartContainer({
+      agentId: 'test-agent',
+      hostConfigPath: '/opt/hill90/agentbox-configs',
+      cpus: '2.0',
+      memLimit: '2g',
+      pidsLimit: 300,
+      metadata: {
+        shm_size: '256m',
+      },
+    });
+
+    expect(mockCreateContainer).toHaveBeenCalledTimes(1);
+    const createOpts = mockCreateContainer.mock.calls[0][0];
+
+    // ShmSize should be 256 * 1024 * 1024 = 268435456 bytes
+    expect(createOpts.HostConfig.ShmSize).toBe(256 * 1024 * 1024);
+  });
+
+  // T5b: no metadata means no extra env or shm
+  it('no metadata produces no ShmSize and standard Env only', async () => {
+    const { createAndStartContainer } = require('../services/docker');
+
+    await createAndStartContainer({
+      agentId: 'test-agent',
+      hostConfigPath: '/opt/hill90/agentbox-configs',
+      cpus: '1.0',
+      memLimit: '1g',
+      pidsLimit: 200,
+    });
+
+    expect(mockCreateContainer).toHaveBeenCalledTimes(1);
+    const createOpts = mockCreateContainer.mock.calls[0][0];
+
+    expect(createOpts.HostConfig.ShmSize).toBeUndefined();
+    expect(createOpts.Env).not.toContain('PLAYWRIGHT_BROWSERS_PATH=/data/browsers');
+  });
+});
+
 describe('resolveAgentNetwork', () => {
   const { resolveAgentNetwork, AGENT_NETWORK, AGENT_SANDBOX_NETWORK } = require('../services/docker');
 
