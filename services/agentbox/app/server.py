@@ -8,9 +8,12 @@ from app.shell and app.filesystem — no MCP protocol involvement.
 import logging
 import os
 
+import asyncio
+
 import uvicorn
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from app import filesystem, shell
@@ -43,6 +46,7 @@ def create_app(
 
     if config.tools.filesystem.enabled:
         filesystem.configure(config.tools.filesystem, emitter)
+    terminal_log_path = os.path.join(config.state.logs, "terminal.jsonl")
 
     async def health_endpoint(request):
         return JSONResponse({"status": "healthy", "agent": config.id})
@@ -50,9 +54,83 @@ def create_app(
     async def work_endpoint(request):
         return await runtime.handle_work(request)
 
+    async def terminal_stream_endpoint(request: Request):
+        """SSE endpoint that streams terminal.jsonl for live command output."""
+        # Read cursor from Last-Event-ID header
+        cursor = 0
+        last_event_id = request.headers.get("last-event-id", "")
+        if last_event_id.isdigit():
+            cursor = int(last_event_id)
+
+        async def event_generator():
+            """Tail terminal.jsonl and yield SSE events."""
+            try:
+                # Wait for file to exist
+                for _ in range(50):
+                    if os.path.exists(terminal_log_path):
+                        break
+                    await asyncio.sleep(0.1)
+
+                if not os.path.exists(terminal_log_path):
+                    yield "event: error\ndata: terminal log not found\n\n"
+                    return
+
+                with open(terminal_log_path, "r") as f:
+                    # Backfill: read existing lines past cursor
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            event = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        seq = event.get("seq", 0)
+                        if seq <= cursor:
+                            continue
+                        event_type = event.get("type", "output")
+                        yield f"id: {seq}\nevent: {event_type}\ndata: {line}\n\n"
+
+                    # Live tail: poll for new lines
+                    heartbeat_counter = 0
+                    while True:
+                        line = f.readline()
+                        if line:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    event = json.loads(line)
+                                    seq = event.get("seq", 0)
+                                    event_type = event.get("type", "output")
+                                    yield f"id: {seq}\nevent: {event_type}\ndata: {line}\n\n"
+                                    if event_type == "command_exit":
+                                        yield "event: end\ndata: command finished\n\n"
+                                        return
+                                except json.JSONDecodeError:
+                                    pass
+                        else:
+                            await asyncio.sleep(0.2)
+                            heartbeat_counter += 1
+                            if heartbeat_counter >= 150:  # ~30s
+                                yield ": heartbeat\n\n"
+                                heartbeat_counter = 0
+            except asyncio.CancelledError:
+                return
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     return Starlette(routes=[
         Route("/health", health_endpoint, methods=["GET"]),
         Route("/work", work_endpoint, methods=["POST"]),
+        Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
     ])
 
 
