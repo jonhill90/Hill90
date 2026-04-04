@@ -62,7 +62,7 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
         const time = timeAgo(thread.updated_at || thread.created_at)
 
         return (
-          <div key={thread.id} className="relative">
+          <div key={thread.id} className="group relative">
             <Link
               href={`/chat/${thread.id}`}
               className={`block px-3 py-2.5 border-b border-navy-800 hover:bg-navy-800 transition-colors ${
