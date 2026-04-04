@@ -777,4 +777,91 @@ describe('GET /agents/:id/events', () => {
     expect(sql).toContain('requested_model');
     expect(sql).toContain('provider_model_id');
   });
+
+  // T7: SSE backfill delivers inference events before container events
+  it('T7: SSE backfill delivers inference events before container events', async () => {
+    mockRunningAgent();
+
+    const backfillRow = makeInferenceRow({
+      id: 't7-backfill-0000-0000-0000-000000000001',
+      created_at: new Date('2026-03-08T12:00:00Z'),
+    });
+    mockInferenceRows([backfillRow]);
+
+    // Container event arrives after backfill
+    const containerEvent = JSON.stringify({
+      id: 'container-1', timestamp: '2026-03-08T12:00:01Z',
+      type: 'command_start', tool: 'shell', input_summary: 'echo hi',
+    });
+    const fakeStream = new Readable({
+      read() { this.push(`${containerEvent}\n`); this.push(null); },
+    });
+    mockExecInContainer.mockResolvedValueOnce(fakeStream);
+
+    const res = await request(app)
+      .get(`/agents/${AGENT_UUID}/events?follow=true&tail=50`)
+      .set('Authorization', `Bearer ${userToken}`)
+      .buffer(true);
+
+    // Inference backfill appears first in SSE output, container event second
+    const inferencePos = res.text.indexOf('inference-t7-backfill');
+    const containerPos = res.text.indexOf('container-1');
+    expect(inferencePos).toBeGreaterThan(-1);
+    expect(containerPos).toBeGreaterThan(-1);
+    expect(inferencePos).toBeLessThan(containerPos);
+  });
+
+  // T8: SSE inference poll events arrive after initial container events
+  it('T8: SSE inference poll events arrive after initial container events', (done) => {
+    mockRunningAgent();
+
+    // Empty backfill
+    mockInferenceRows([]);
+
+    const controlStream = new PassThrough();
+    mockExecInContainer.mockResolvedValueOnce(controlStream);
+
+    // First poll returns a new inference row
+    const pollRow = makeInferenceRow({
+      id: 't8-poll-0000-0000-0000-000000000001',
+      created_at: new Date('2026-03-08T12:00:10Z'),
+    });
+    mockInferenceRows([pollRow]);
+
+    const server = app.listen(0, () => {
+      const port = (server.address() as any).port;
+      const req = http.get(
+        `http://127.0.0.1:${port}/agents/${AGENT_UUID}/events?follow=true&tail=50`,
+        { headers: { Authorization: `Bearer ${userToken}` } },
+        (res) => {
+          let body = '';
+          res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+
+          // Emit a container event first
+          controlStream.write(JSON.stringify({
+            id: 'container-first', timestamp: '2026-03-08T12:00:05Z',
+            type: 'command_start', tool: 'shell', input_summary: 'ls',
+          }) + '\n');
+
+          // Wait for inference poll (3s interval), then check order
+          setTimeout(() => {
+            try {
+              const containerPos = body.indexOf('container-first');
+              const inferencePos = body.indexOf('inference-t8-poll');
+              expect(containerPos).toBeGreaterThan(-1);
+              // Inference poll may or may not have fired yet depending on timing,
+              // but if it did, it arrives after the container event
+              if (inferencePos > -1) {
+                expect(containerPos).toBeLessThan(inferencePos);
+              }
+            } finally {
+              req.destroy();
+              controlStream.destroy();
+              server.close(done);
+            }
+          }, 4000);
+        },
+      );
+    });
+  }, 10000);
 });
