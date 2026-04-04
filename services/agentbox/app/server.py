@@ -17,6 +17,7 @@ from app import shell
 from app.config import AgentConfig
 from app.events import EventEmitter
 from app.runtime import AgentRuntime
+from app.token_refresh import start_model_router_refresh_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,6 +61,9 @@ if __name__ == "__main__":
     work_token = os.environ.get("WORK_TOKEN")
 
     app = create_app(config, emitter, work_token)
+
+    # Start background token refresh loops
+    start_model_router_refresh_loop()
 
     logger.info(f"Starting AgentBox-{config.id} server...")
     logger.info(f"  Runtime: /work endpoint {'enabled' if work_token else 'disabled (no WORK_TOKEN)'}")

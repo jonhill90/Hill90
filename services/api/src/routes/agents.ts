@@ -791,6 +791,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     let modelRouterEnv: string[] = [];
     let modelRouterJti: string | null = null;
     let modelRouterExp: number | null = null;
+    let modelRouterRefreshSecret: string | null = null;
     if (isModelRouterConfigured()) {
       try {
         const mrToken = await generateAgentModelRouterToken({
@@ -803,6 +804,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
         modelRouterEnv = getModelRouterEnvVars(mrToken);
         modelRouterJti = mrToken.jti;
         modelRouterExp = mrToken.expiresAt;
+        modelRouterRefreshSecret = mrToken.refreshSecret;
         auditLog('token_issued', agent.agent_id, user.sub, 'human', {
           principal_id: agent.id, principal_type: 'agent',
           jti: mrToken.jti, owner_sub: agent.created_by,
@@ -876,11 +878,14 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       );
     }
 
-    // Store model-router JTI + exp for revocation on stop
+    // Store model-router JTI + exp + refresh hash for revocation on stop and token refresh
     if (modelRouterJti) {
+      const mrRefreshHash = modelRouterRefreshSecret
+        ? crypto.createHash('sha256').update(modelRouterRefreshSecret).digest('hex')
+        : null;
       await getPool().query(
-        `UPDATE agents SET model_router_jti = $1, model_router_exp = $2, updated_at = NOW() WHERE id = $3`,
-        [modelRouterJti, modelRouterExp, req.params.id]
+        `UPDATE agents SET model_router_jti = $1, model_router_exp = $2, model_router_refresh_hash = $3, updated_at = NOW() WHERE id = $4`,
+        [modelRouterJti, modelRouterExp, mrRefreshHash, req.params.id]
       );
     }
 
@@ -965,7 +970,7 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
     }
 
     await getPool().query(
-      `UPDATE agents SET status = 'stopped', container_id = NULL, work_token = NULL, akm_jti = NULL, akm_exp = NULL, model_router_jti = NULL, model_router_exp = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
+      `UPDATE agents SET status = 'stopped', container_id = NULL, work_token = NULL, akm_jti = NULL, akm_exp = NULL, model_router_jti = NULL, model_router_exp = NULL, model_router_refresh_hash = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
 

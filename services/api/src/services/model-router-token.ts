@@ -30,6 +30,7 @@ function base64url(input: string | Buffer): string {
 export interface ModelRouterTokenResult {
   token: string;
   jti: string;
+  refreshSecret: string;
   expiresAt: number;
 }
 
@@ -98,16 +99,22 @@ export async function generateAgentModelRouterToken(
   const signature = crypto.sign(null, Buffer.from(signingInput), privateKey);
   const token = `${signingInput}.${signature.toString('base64url')}`;
 
-  return { token, jti, expiresAt };
+  const refreshSecret = crypto.randomUUID();
+
+  return { token, jti, refreshSecret, expiresAt };
 }
 
 /**
  * Get the model-router env vars to inject into an agent container.
+ * Includes refresh URL and secret for token renewal before expiry.
  */
 export function getModelRouterEnvVars(tokenResult: ModelRouterTokenResult): string[] {
+  const API_URL = process.env.API_INTERNAL_URL || 'http://api:3000';
   return [
     `MODEL_ROUTER_TOKEN=${tokenResult.token}`,
     `MODEL_ROUTER_URL=${MODEL_ROUTER_URL}`,
+    `MODEL_ROUTER_REFRESH_URL=${API_URL}/internal/model-router/refresh-token`,
+    `MODEL_ROUTER_REFRESH_SECRET=${tokenResult.refreshSecret}`,
   ];
 }
 

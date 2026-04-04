@@ -18,6 +18,7 @@ import { requireRole } from './middleware/role';
 import { docsRouter, specRouter } from './routes/docs';
 import { delegationTokenHandler } from './services/model-router-delegation';
 import chatRouter, { chatCallbackHandler, startStaleSweeper } from './routes/chat';
+import { modelRouterRefreshHandler } from './services/model-router-refresh';
 
 interface AppOptions {
   issuer?: string;
@@ -38,6 +39,7 @@ export function createApp(opts: AppOptions = {}): Application {
   // Internal service-to-service endpoints (service-token auth, not Keycloak)
   app.post('/internal/delegation-token', delegationTokenHandler);
   app.post('/internal/chat/callback', chatCallbackHandler);
+  app.post('/internal/model-router/refresh-token', modelRouterRefreshHandler);
 
   // Protected routes
   const issuer = opts.issuer || process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';
