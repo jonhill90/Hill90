@@ -192,6 +192,8 @@ const EXPECTED_PATHS = [
   '/tasks',
   '/tasks/{id}',
   '/tasks/{id}/transition',
+  '/admin/secrets',
+  '/admin/secrets/status',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token'];
