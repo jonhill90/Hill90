@@ -189,6 +189,9 @@ const EXPECTED_PATHS = [
   '/chat/threads/{id}/cancel',
   '/chat/threads/{id}/stream',
   '/chat/threads/{id}/events',
+  '/tasks',
+  '/tasks/{id}',
+  '/tasks/{id}/transition',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token'];
