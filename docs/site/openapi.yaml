@@ -1354,6 +1354,44 @@ paths:
         "409":
           description: Agent is not running
 
+  /agents/{id}/stats:
+    get:
+      summary: Get agent progression stats
+      tags: [Agents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Aggregate stats for agent progression
+        "404":
+          description: Agent not found
+
+  /agents/{id}/artifacts:
+    get:
+      summary: Get agent artifacts (badges)
+      tags: [Agents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of artifacts with earned/unearned status
+        "404":
+          description: Agent not found
+
   /agents/{id}/logs:
     parameters:
       - name: id

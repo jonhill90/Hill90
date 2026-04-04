@@ -7,6 +7,7 @@ import type { Session } from 'next-auth'
 import EventTimeline from './EventTimeline'
 import AgentMemory from './AgentMemory'
 import AgentNotebook from './AgentNotebook'
+import AgentProgression from './AgentProgression'
 
 interface Agent {
   id: string
@@ -616,6 +617,9 @@ export default function AgentDetailClient({
           <div className="text-xs text-mountain-500">
             Created {new Date(agent.created_at).toLocaleString()} by {agent.created_by}
           </div>
+
+          {/* Progression: Stats + Artifacts */}
+          <AgentProgression agentId={agent.id} />
         </div>
       )}
 

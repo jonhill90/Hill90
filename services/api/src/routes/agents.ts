@@ -895,6 +895,16 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       [containerId, workToken, req.params.id]
     );
 
+    // Track session for uptime progression
+    try {
+      await getPool().query(
+        `INSERT INTO agent_sessions (agent_id, started_at) VALUES ($1, NOW())`,
+        [agent.id]
+      );
+    } catch (err) {
+      console.error(`[agents] Session tracking insert failed for ${agent.agent_id}:`, err);
+    }
+
     auditLog('start', agent.agent_id, user.sub, 'human', {
       principal_id: agent.id, owner_sub: agent.created_by, correlation_id: correlationId,
       container_id: containerId, network, profile_image: profileImage || 'hill90/agentbox:latest',
@@ -967,6 +977,17 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
     } catch (err) {
       console.error(`[agents] Stale chat message cleanup failed for ${agent.agent_id}:`, err);
       // Continue with stop — clearing agent state is more important
+    }
+
+    // Close open session for uptime tracking
+    try {
+      await getPool().query(
+        `UPDATE agent_sessions SET stopped_at = NOW()
+         WHERE agent_id = $1 AND stopped_at IS NULL`,
+        [agent.id]
+      );
+    } catch (err) {
+      console.error(`[agents] Session tracking update failed for ${agent.agent_id}:`, err);
     }
 
     await getPool().query(
@@ -1606,5 +1627,168 @@ function stripDockerHeader(buf: Buffer): string[] {
   }
   return lines;
 }
+
+// Agent progression — stats (computed from existing data)
+router.get('/:id/stats', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const { rows } = await getPool().query(
+      `SELECT * FROM agents WHERE id = $1${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      scope.where === '1=1' ? [req.params.id] : [req.params.id, ...scope.params],
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const agent = rows[0];
+
+    // Parallel queries for stats
+    const [inferenceResult, chatResult, sessionResult, skillResult] = await Promise.all([
+      getPool().query(
+        `SELECT COUNT(*) AS total_inferences,
+                COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
+                COALESCE(SUM(cost_usd), 0) AS estimated_cost,
+                COUNT(DISTINCT model) AS distinct_models
+         FROM model_usage WHERE agent_id = $1`,
+        [agent.agent_id],
+      ),
+      getPool().query(
+        `SELECT COUNT(*) AS total_messages
+         FROM chat_messages WHERE author_id = $1 AND author_type = 'agent'`,
+        [agent.id],
+      ),
+      getPool().query(
+        `SELECT COALESCE(SUM(
+           EXTRACT(EPOCH FROM (COALESCE(stopped_at, NOW()) - started_at))
+         ), 0) AS total_uptime_seconds
+         FROM agent_sessions WHERE agent_id = $1`,
+        [agent.id],
+      ),
+      getPool().query(
+        `SELECT COUNT(*) AS skill_count FROM agent_skills WHERE agent_id = $1`,
+        [agent.id],
+      ),
+    ]);
+
+    const inf = inferenceResult.rows[0];
+    const chat = chatResult.rows[0];
+    const sess = sessionResult.rows[0];
+    const skill = skillResult.rows[0];
+
+    // Knowledge entries via AKM proxy (best-effort)
+    let knowledgeEntries = 0;
+    try {
+      const akmProxy = await import('../services/akm-proxy');
+      const akmResult = await akmProxy.listEntries(agent.agent_id);
+      if (akmResult.status === 200 && Array.isArray(akmResult.data)) {
+        knowledgeEntries = akmResult.data.length;
+      }
+    } catch { /* AKM unavailable */ }
+
+    res.json({
+      total_inferences: Number(inf.total_inferences),
+      total_tokens: Number(inf.total_tokens),
+      estimated_cost: Number(Number(inf.estimated_cost).toFixed(4)),
+      distinct_models: Number(inf.distinct_models),
+      knowledge_entries: knowledgeEntries,
+      chat_messages: Number(chat.total_messages),
+      total_uptime_seconds: Math.floor(Number(sess.total_uptime_seconds)),
+      skills_assigned: Number(skill.skill_count),
+      first_started: agent.created_at,
+    });
+  } catch (err: any) {
+    console.error('[agents] Stats error:', err);
+    res.status(500).json({ error: 'Failed to compute stats' });
+  }
+});
+
+// Agent progression — artifacts (computed on-demand from stats)
+const ARTIFACT_CATALOG = [
+  { id: 'first_light', name: 'First Light', icon: '⚡', description: 'Completed first model inference', check: (s: any) => s.total_inferences >= 1 },
+  { id: 'thousand_calls', name: 'Thousand Calls', icon: '🔥', description: '1,000 inferences completed', check: (s: any) => s.total_inferences >= 1000 },
+  { id: 'ten_thousand', name: 'Ten Thousand', icon: '💫', description: '10,000 inferences completed', check: (s: any) => s.total_inferences >= 10000 },
+  { id: 'first_plan', name: 'First Plan', icon: '🏗', description: 'Created first plan document', check: (s: any) => s.plan_entries >= 1 },
+  { id: 'decision_maker', name: 'Decision Maker', icon: '⚖️', description: 'Recorded first architecture decision', check: (s: any) => s.decision_entries >= 1 },
+  { id: 'deep_research', name: 'Deep Research', icon: '🔬', description: 'Conducted first research investigation', check: (s: any) => s.research_entries >= 1 },
+  { id: 'memory_keeper', name: 'Memory Keeper', icon: '🧠', description: 'Accumulated 100 knowledge entries', check: (s: any) => s.knowledge_entries >= 100 },
+  { id: 'chat_veteran', name: 'Chat Veteran', icon: '💬', description: 'Sent 100 chat messages', check: (s: any) => s.chat_messages >= 100 },
+  { id: 'polyglot', name: 'Polyglot', icon: '🌐', description: 'Used 2+ different models', check: (s: any) => s.distinct_models >= 2 },
+  { id: 'week_runner', name: 'Week Runner', icon: '⏱', description: '7 days cumulative uptime', check: (s: any) => s.total_uptime_seconds >= 7 * 86400 },
+  { id: 'month_runner', name: 'Month Runner', icon: '🏃', description: '30 days cumulative uptime', check: (s: any) => s.total_uptime_seconds >= 30 * 86400 },
+];
+
+router.get('/:id/artifacts', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const { rows } = await getPool().query(
+      `SELECT * FROM agents WHERE id = $1${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      scope.where === '1=1' ? [req.params.id] : [req.params.id, ...scope.params],
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const agent = rows[0];
+
+    // Gather signal data
+    const [infResult, chatResult, sessResult] = await Promise.all([
+      getPool().query(
+        `SELECT COUNT(*) AS total_inferences, COUNT(DISTINCT model) AS distinct_models
+         FROM model_usage WHERE agent_id = $1`,
+        [agent.agent_id],
+      ),
+      getPool().query(
+        `SELECT COUNT(*) AS total_messages
+         FROM chat_messages WHERE author_id = $1 AND author_type = 'agent'`,
+        [agent.id],
+      ),
+      getPool().query(
+        `SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(stopped_at, NOW()) - started_at))), 0) AS total_uptime_seconds
+         FROM agent_sessions WHERE agent_id = $1`,
+        [agent.id],
+      ),
+    ]);
+
+    // Knowledge entry type counts via AKM proxy
+    let knowledgeEntries = 0;
+    let planEntries = 0;
+    let decisionEntries = 0;
+    let researchEntries = 0;
+    try {
+      const akmProxy = await import('../services/akm-proxy');
+      const akmResult = await akmProxy.listEntries(agent.agent_id);
+      if (akmResult.status === 200 && Array.isArray(akmResult.data)) {
+        knowledgeEntries = akmResult.data.length;
+        planEntries = (akmResult.data as any[]).filter((e: any) => e.entry_type === 'plan').length;
+        decisionEntries = (akmResult.data as any[]).filter((e: any) => e.entry_type === 'decision').length;
+        researchEntries = (akmResult.data as any[]).filter((e: any) => e.entry_type === 'research').length;
+      }
+    } catch { /* AKM unavailable */ }
+
+    const signalData = {
+      total_inferences: Number(infResult.rows[0].total_inferences),
+      distinct_models: Number(infResult.rows[0].distinct_models),
+      chat_messages: Number(chatResult.rows[0].total_messages),
+      total_uptime_seconds: Math.floor(Number(sessResult.rows[0].total_uptime_seconds)),
+      knowledge_entries: knowledgeEntries,
+      plan_entries: planEntries,
+      decision_entries: decisionEntries,
+      research_entries: researchEntries,
+    };
+
+    const artifacts = ARTIFACT_CATALOG.map(a => ({
+      id: a.id,
+      name: a.name,
+      icon: a.icon,
+      description: a.description,
+      earned: a.check(signalData),
+    }));
+
+    res.json({ artifacts, earned_count: artifacts.filter(a => a.earned).length });
+  } catch (err: any) {
+    console.error('[agents] Artifacts error:', err);
+    res.status(500).json({ error: 'Failed to compute artifacts' });
+  }
+});
 
 export default router;
