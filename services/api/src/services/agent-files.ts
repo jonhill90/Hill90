@@ -29,6 +29,10 @@ export function writeAgentFiles(agent: AgentRow, skillInstructions?: string): st
     soul_path: 'SOUL.md',
     rules_path: 'RULES.md',
     tools: agent.tools_config,
+    tool_loop: {
+      max_iterations: 15,
+      iteration_timeout: 600,
+    },
     resources: {
       cpus: agent.cpus,
       mem_limit: agent.mem_limit,

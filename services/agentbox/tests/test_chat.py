@@ -1,4 +1,4 @@
-"""Tests for app.chat — chat work handler (inference + callback)."""
+"""Tests for app.chat — chat work handler (inference + callback + tool loop)."""
 
 import json
 import os
@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.chat import handle_chat, _deliver_callback
+from app.config import FilesystemConfig, ShellConfig, ToolLoopConfig, ToolsConfig
 from app.events import EventEmitter
 
 
@@ -349,3 +350,226 @@ class TestGroupChatContext:
         assert system_msg["role"] == "system"
         assert "Group Thread" not in system_msg["content"]
         assert "I am TestBot" in system_msg["content"]
+
+
+class TestToolLoop:
+    """AI-150: Tool-calling loop tests."""
+
+    @patch("app.chat.requests.post")
+    def test_single_shot_no_tools(self, mock_post, emitter, monkeypatch):
+        """When no tools are enabled, behavior is identical to pre-tool-loop."""
+        em, log_path = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        ai_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "Hello!"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                "model": "gpt-4o-mini",
+            },
+        )
+        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="", rules="", work_id="w1", emitter=em,
+            tools_config=ToolsConfig(),  # all disabled
+        )
+
+        # AI call should NOT include tools
+        ai_body = mock_post.call_args_list[0][1]["json"]
+        assert "tools" not in ai_body
+
+        cb_body = mock_post.call_args_list[1][1]["json"]
+        assert cb_body["status"] == "complete"
+        assert cb_body["content"] == "Hello!"
+
+    @patch("app.chat.execute_tool_call")
+    @patch("app.chat.requests.post")
+    def test_tool_loop_single_iteration(self, mock_post, mock_tool, emitter, monkeypatch):
+        """LLM calls one tool, gets result, then responds with text."""
+        em, log_path = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        # First LLM call: returns a tool call
+        tool_call_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{
+                    "message": {
+                        "content": "",
+                        "tool_calls": [{
+                            "id": "tc-1",
+                            "type": "function",
+                            "function": {
+                                "name": "execute_command",
+                                "arguments": '{"command": "ls /workspace"}',
+                            },
+                        }],
+                    },
+                    "finish_reason": "tool_calls",
+                }],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 10},
+                "model": "gpt-4o-mini",
+            },
+        )
+
+        # Second LLM call: final text response
+        final_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "I see files."}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 15},
+                "model": "gpt-4o-mini",
+            },
+        )
+
+        # Callback responses (thinking + final)
+        cb_ok = MagicMock(status_code=200, text="ok")
+        mock_post.side_effect = [tool_call_response, cb_ok, final_response, cb_ok]
+
+        # Mock tool execution — return a coroutine each time called
+        async def _fake_tool(*args, **kwargs):
+            return json.dumps({"success": True, "exit_code": 0, "stdout": "file1.txt\n", "stderr": ""})
+        mock_tool.side_effect = _fake_tool
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "List files"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="", rules="", work_id="w1", emitter=em,
+            tools_config=ToolsConfig(shell=ShellConfig(enabled=True)),
+        )
+
+        # Should have: AI call (tool) + thinking callback + AI call (final) + complete callback = 4 posts
+        assert mock_post.call_count == 4
+
+        # First AI call should include tools
+        ai_body_1 = mock_post.call_args_list[0][1]["json"]
+        assert "tools" in ai_body_1
+        assert any(t["function"]["name"] == "execute_command" for t in ai_body_1["tools"])
+
+        # Thinking callback
+        thinking_body = mock_post.call_args_list[1][1]["json"]
+        assert thinking_body["status"] == "thinking"
+        assert "execute_command" in thinking_body["content"]
+
+        # Final callback
+        final_body = mock_post.call_args_list[3][1]["json"]
+        assert final_body["status"] == "complete"
+        assert final_body["content"] == "I see files."
+        # Cumulative tokens
+        assert final_body["input_tokens"] == 70  # 20 + 50
+        assert final_body["output_tokens"] == 25  # 10 + 15
+
+    @patch("app.chat.execute_tool_call")
+    @patch("app.chat.requests.post")
+    def test_tool_loop_max_iterations(self, mock_post, mock_tool, emitter, monkeypatch):
+        """Loop stops at max_iterations even if LLM keeps requesting tools."""
+        em, log_path = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        # Always return tool calls
+        def make_tool_response():
+            return MagicMock(
+                status_code=200,
+                json=lambda: {
+                    "choices": [{
+                        "message": {
+                            "content": "",
+                            "tool_calls": [{
+                                "id": "tc-x",
+                                "type": "function",
+                                "function": {"name": "execute_command", "arguments": '{"command": "echo loop"}'},
+                            }],
+                        },
+                        "finish_reason": "tool_calls",
+                    }],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                    "model": "gpt-4o-mini",
+                },
+            )
+
+        cb_ok = MagicMock(status_code=200, text="ok")
+        # 3 iterations × (1 AI call + 1 thinking callback) + 1 final callback = 7
+        mock_post.side_effect = [
+            make_tool_response(), cb_ok,
+            make_tool_response(), cb_ok,
+            make_tool_response(), cb_ok,
+            cb_ok,  # final complete callback
+        ]
+
+        async def _fake_tool(*args, **kwargs):
+            return json.dumps({"success": True})
+        mock_tool.side_effect = _fake_tool
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "Loop test"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="", rules="", work_id="w1", emitter=em,
+            tools_config=ToolsConfig(shell=ShellConfig(enabled=True)),
+            tool_loop_config=ToolLoopConfig(max_iterations=3),
+        )
+
+        # Last callback should be complete (not error)
+        last_cb = None
+        for call in mock_post.call_args_list:
+            body = call[1].get("json", {})
+            if body.get("status") in ("complete", "error"):
+                last_cb = body
+        assert last_cb is not None
+        assert last_cb["status"] == "complete"
+
+    @patch("app.chat.requests.post")
+    def test_tools_included_when_enabled(self, mock_post, emitter, monkeypatch):
+        """Tool definitions are included in LLM request when shell/filesystem enabled."""
+        em, _ = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        ai_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {}, "model": "m",
+            },
+        )
+        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="", rules="", work_id="w1", emitter=em,
+            tools_config=ToolsConfig(
+                shell=ShellConfig(enabled=True),
+                filesystem=FilesystemConfig(enabled=True),
+            ),
+        )
+
+        ai_body = mock_post.call_args_list[0][1]["json"]
+        assert "tools" in ai_body
+        tool_names = [t["function"]["name"] for t in ai_body["tools"]]
+        assert "execute_command" in tool_names
+        assert "read_file" in tool_names
+        assert "write_file" in tool_names
+        assert "list_directory" in tool_names
