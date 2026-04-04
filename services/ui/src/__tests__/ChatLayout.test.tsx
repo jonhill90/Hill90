@@ -210,6 +210,207 @@ describe('ChatLayout', () => {
   })
 })
 
+describe('Thread Deletion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => MOCK_THREADS,
+    })
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('shows delete button on each thread', async () => {
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+      expect(screen.getAllByTestId('delete-thread-thread-2').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('shows confirmation dialog when delete button is clicked', async () => {
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-thread-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('confirm-delete-thread-1').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('Delete this thread?').length).toBeGreaterThan(0)
+    })
+  })
+
+  it('dismisses confirmation dialog on cancel', async () => {
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-thread-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('confirm-cancel-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('confirm-cancel-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('confirm-delete-thread-1')).not.toBeInTheDocument()
+    })
+  })
+
+  it('calls DELETE endpoint on confirm and refreshes thread list', async () => {
+    mockFetch.mockImplementation(async (url: string, opts?: any) => {
+      if (opts?.method === 'DELETE') {
+        return { ok: true, json: async () => ({ deleted: true }) }
+      }
+      return { ok: true, json: async () => MOCK_THREADS }
+    })
+
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-thread-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('confirm-yes-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('confirm-yes-thread-1')[0])
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/chat/thread-1', { method: 'DELETE' })
+    })
+  })
+
+  it('navigates to /chat when deleting the active thread', async () => {
+    mockFetch.mockImplementation(async (url: string, opts?: any) => {
+      if (opts?.method === 'DELETE') {
+        return { ok: true, json: async () => ({ deleted: true }) }
+      }
+      return { ok: true, json: async () => MOCK_THREADS }
+    })
+
+    render(<ChatLayout session={MOCK_SESSION as any} activeThreadId="thread-1" />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-thread-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('confirm-yes-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('confirm-yes-thread-1')[0])
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith('/chat')
+    })
+  })
+
+  it('shows error toast when delete fails', async () => {
+    mockFetch.mockImplementation(async (url: string, opts?: any) => {
+      if (opts?.method === 'DELETE') {
+        return { ok: false, json: async () => ({ error: 'Thread not found' }) }
+      }
+      return { ok: true, json: async () => MOCK_THREADS }
+    })
+
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-thread-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('confirm-yes-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('confirm-yes-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('error-toast')).toBeInTheDocument()
+      expect(screen.getByText('Thread not found')).toBeInTheDocument()
+    })
+  })
+
+  it('shows error toast on network failure', async () => {
+    mockFetch.mockImplementation(async (url: string, opts?: any) => {
+      if (opts?.method === 'DELETE') {
+        throw new Error('Network error')
+      }
+      return { ok: true, json: async () => MOCK_THREADS }
+    })
+
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-thread-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('confirm-yes-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('confirm-yes-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('error-toast')).toBeInTheDocument()
+      expect(screen.getByText('Failed to delete thread')).toBeInTheDocument()
+    })
+  })
+
+  it('dismisses error toast when close button is clicked', async () => {
+    mockFetch.mockImplementation(async (url: string, opts?: any) => {
+      if (opts?.method === 'DELETE') {
+        return { ok: false, json: async () => ({ error: 'Thread not found' }) }
+      }
+      return { ok: true, json: async () => MOCK_THREADS }
+    })
+
+    render(<ChatLayout session={MOCK_SESSION as any} />)
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('delete-thread-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('delete-thread-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('confirm-yes-thread-1').length).toBeGreaterThan(0)
+    })
+
+    fireEvent.click(screen.getAllByTestId('confirm-yes-thread-1')[0])
+
+    await waitFor(() => {
+      expect(screen.getByTestId('error-toast')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByLabelText('Dismiss error'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('error-toast')).not.toBeInTheDocument()
+    })
+  })
+})
+
 describe('ChatView via ChatLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks()
