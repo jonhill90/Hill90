@@ -20,7 +20,8 @@ storage:
 
 compactor:
   compaction:
-    block_retention: 168h
+    block_retention: 72h
+    compacted_block_retention: 1h
 
 metrics_generator:
   storage:
