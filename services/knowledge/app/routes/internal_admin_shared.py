@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app.services import shared_store
 from app.services.ingest import IngestError, ingest_source
+from app.services.quality import compute_quality_summary, enrich_results_with_quality
 
 
 def _validate_uuid(value: str, label: str = "id") -> None:
@@ -246,7 +247,15 @@ async def search_shared(
     )
     duration_ms = int((time.monotonic() - t0) * 1000)
 
+    results = enrich_results_with_quality(results)
+    quality_summary = compute_quality_summary(results)
+
     chunk_ids = [r["chunk_id"] for r in results]
+    # Use the explicit collection_id param, or infer from first result
+    resolved_collection_id = collection_id
+    if resolved_collection_id is None and results:
+        resolved_collection_id = results[0].get("collection_id")
+
     await shared_store.record_retrieval(
         pool,
         query=q,
@@ -255,6 +264,7 @@ async def search_shared(
         result_count=len(results),
         chunk_ids=chunk_ids,
         duration_ms=duration_ms,
+        collection_id=resolved_collection_id,
     )
 
     return {
@@ -263,6 +273,7 @@ async def search_shared(
         "count": len(results),
         "search_type": "fts",
         "score_type": "ts_rank",
+        "quality_summary": quality_summary,
     }
 
 

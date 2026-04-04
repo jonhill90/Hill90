@@ -638,6 +638,13 @@ components:
                 format: uuid
               collection_name:
                 type: string
+              quality_score:
+                type: number
+                description: Normalized quality score (0–1)
+              quality_label:
+                type: string
+                enum: [high, medium, low]
+                description: Quality classification
         count:
           type: integer
         search_type:
@@ -646,6 +653,24 @@ components:
         score_type:
           type: string
           example: ts_rank
+        quality_summary:
+          type: object
+          properties:
+            avg_score:
+              type: number
+            min_score:
+              type: number
+            max_score:
+              type: number
+            distribution:
+              type: object
+              properties:
+                high:
+                  type: integer
+                medium:
+                  type: integer
+                low:
+                  type: integer
 
     SharedKnowledgeStats:
       type: object
@@ -716,6 +741,35 @@ components:
               type: integer
             total_tokens:
               type: integer
+        usage:
+          type: object
+          properties:
+            top_collections:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: string
+                  retrieval_count:
+                    type: integer
+            top_sources:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  title:
+                    type: string
+                  collection_name:
+                    type: string
+                  retrieval_count:
+                    type: integer
         since:
           type: string
           nullable: true
