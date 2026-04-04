@@ -224,10 +224,15 @@ class TestShellCommandFunctional:
 
         # Patch cwd to tmp_path (default is /workspace which doesn't exist in tests)
         original_execute = shell._policy.execute
+        original_streaming = shell._policy.execute_streaming
 
         def patched_execute(command, timeout=30, cwd=str(tmp_path)):
             return original_execute(command, timeout=timeout, cwd=cwd)
         shell._policy.execute = patched_execute
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
 
         response = client.post(
             "/work",

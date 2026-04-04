@@ -666,6 +666,11 @@ class TestShellCommand:
         def patched_execute(command, timeout=30, cwd=str(tmp_path)):
             return original_execute(command, timeout=timeout, cwd=cwd)
         shell._policy.execute = patched_execute
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
 
         request = _MockRequest(
             headers={"authorization": "Bearer test-token-123"},
@@ -693,6 +698,11 @@ class TestShellCommand:
         def patched_execute(command, timeout=30, cwd=str(tmp_path)):
             return original_execute(command, timeout=timeout, cwd=cwd)
         shell._policy.execute = patched_execute
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
 
         request = _MockRequest(
             headers={"authorization": "Bearer test-token-123"},
@@ -721,6 +731,11 @@ class TestShellCommand:
         def patched_execute(command, timeout=30, cwd=str(tmp_path)):
             return original_execute(command, timeout=timeout, cwd=cwd)
         shell._policy.execute = patched_execute
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
 
         request = _MockRequest(
             headers={"authorization": "Bearer test-token-123"},
@@ -750,6 +765,11 @@ class TestShellCommand:
         def patched_execute(command, timeout=30, cwd=str(tmp_path)):
             return original_execute(command, timeout=timeout, cwd=cwd)
         shell._policy.execute = patched_execute
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
 
         request = _MockRequest(
             headers={"authorization": "Bearer test-token-123"},
@@ -806,6 +826,11 @@ class TestShellCommand:
         def patched_execute(command, timeout=30, cwd=str(tmp_path)):
             return original_execute(command, timeout=timeout, cwd=cwd)
         shell._policy.execute = patched_execute
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
 
         request = _MockRequest(
             headers={"authorization": "Bearer test-token-123"},

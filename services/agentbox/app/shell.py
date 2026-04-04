@@ -70,7 +70,24 @@ async def execute_command(
         )
 
     t0 = time.monotonic()
-    result = _policy.execute(command, timeout=timeout)
+
+    if _emitter:
+        # Streaming mode: emit command_output events per stdout line
+        def _on_output(line: str) -> None:
+            _emitter.emit(
+                type="command_output",
+                tool="shell",
+                input_summary=command,
+                output_summary=line,
+                duration_ms=None,
+                success=None,
+                metadata=meta or None,
+            )
+
+        result = _policy.execute_streaming(command, timeout=timeout, on_output=_on_output)
+    else:
+        result = _policy.execute(command, timeout=timeout)
+
     duration_ms = int((time.monotonic() - t0) * 1000)
 
     if _emitter:
