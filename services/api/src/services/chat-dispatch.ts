@@ -13,6 +13,8 @@ interface ChatDispatchParams {
   messages: Array<{ role: string; content: string }>;
   model: string;
   callbackUrl: string;
+  threadType?: string;   // 'direct' | 'group' — omitted for backward compat
+  participants?: Array<{ agent_id: string; name: string }>;  // group thread participant list
 }
 
 interface DispatchResult {
@@ -22,21 +24,25 @@ interface DispatchResult {
 }
 
 export async function dispatchChatWork(params: ChatDispatchParams): Promise<DispatchResult> {
-  const { agentId, workToken, threadId, messageId, messages, model, callbackUrl } = params;
+  const { agentId, workToken, threadId, messageId, messages, model, callbackUrl, threadType, participants } = params;
 
   const url = `http://agentbox-${agentId}:8054/work`;
 
   console.log(`[chat-dispatch] Dispatching to ${agentId}: thread_id=${threadId} message_id=${messageId} model=${model}`);
 
+  const payload: Record<string, unknown> = {
+    thread_id: threadId,
+    message_id: messageId,
+    messages,
+    model,
+    callback_url: callbackUrl,
+  };
+  if (threadType) payload.thread_type = threadType;
+  if (participants && participants.length > 0) payload.participants = participants;
+
   const body = {
     type: 'chat',
-    payload: {
-      thread_id: threadId,
-      message_id: messageId,
-      messages,
-      model,
-      callback_url: callbackUrl,
-    },
+    payload,
     correlation_id: messageId, // §8.5: correlation_id = message_id
   };
 

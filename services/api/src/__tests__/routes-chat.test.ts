@@ -868,7 +868,8 @@ describe('Chat callback', () => {
   it('POST /internal/chat/callback accepts valid token and updates message', async () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
-      .mockResolvedValueOnce({ rows: [] });     // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [] })      // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] });  // batch completion: direct, skip
 
     const res = await request(app)
       .post('/internal/chat/callback')
@@ -955,7 +956,8 @@ describe('Chat callback', () => {
   it('POST /internal/chat/callback handles error status', async () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] });  // batch completion: direct, skip
 
     const res = await request(app)
       .post('/internal/chat/callback')
@@ -979,6 +981,7 @@ describe('Chat callback', () => {
       mockQuery
         .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
         .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+        .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
         .mockResolvedValueOnce({ rows: [{ author_id: 'agent-uuid-1' }] }) // SELECT author_id
         .mockResolvedValueOnce({ rows: [{ scope: 'host_docker' }] }); // getAgentElevatedScope
 
@@ -1132,6 +1135,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
       .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging query
       .mockResolvedValueOnce({ rows: [] })       // getAgentElevatedScope (not elevated)
       // Agent-to-agent orchestration:
@@ -1143,6 +1147,7 @@ describe('Agent-to-agent @mention orchestration', () => {
       .mockResolvedValueOnce({ rows: [] })       // getAgentElevatedScope for target
       .mockResolvedValueOnce({ rows: [{ id: 'agent-b-uuid', agent_id: 'agent-b', name: 'Agent B', status: 'running', work_token: 'wt-b', models: ['gpt-4o-mini'] }] }) // getAgentForDispatch
       .mockResolvedValueOnce({ rows: [] })       // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // chain thread type for group context
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'Hello' }] }) // message history
       .mockResolvedValueOnce({ rows: [{ id: 'chain-placeholder' }] }); // INSERT placeholder
 
@@ -1169,6 +1174,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
       .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
       .mockResolvedValueOnce({ rows: [] })       // not elevated
       // Orchestration:
@@ -1195,6 +1201,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
       .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
       .mockResolvedValueOnce({ rows: [] })       // not elevated
       // Orchestration:
@@ -1221,6 +1228,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
       .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
       .mockResolvedValueOnce({ rows: [] })       // not elevated
       // Orchestration:
@@ -1245,6 +1253,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
       .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
       .mockResolvedValueOnce({ rows: [] })       // not elevated
       // Orchestration:
@@ -1271,6 +1280,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
       .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] }) // elevated tagging
       .mockResolvedValueOnce({ rows: [] })       // not elevated (author)
       // Orchestration:
@@ -1303,6 +1313,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: 'shared-chain-id', chain_hop: 1 }] })
@@ -1312,6 +1323,7 @@ describe('Agent-to-agent @mention orchestration', () => {
       .mockResolvedValueOnce({ rows: [] }) // not elevated
       .mockResolvedValueOnce({ rows: [{ id: 'agent-c-uuid', agent_id: 'agent-c', name: 'Agent C', status: 'running', work_token: 'wt-c', models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({ rows: [] }) // concurrency
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // chain thread type
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'Hello' }] })
       .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-2' }] }); // placeholder
 
@@ -1333,6 +1345,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: 'chain-inc', chain_hop: 2 }] })
@@ -1342,6 +1355,7 @@ describe('Agent-to-agent @mention orchestration', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'agent-d-uuid', agent_id: 'agent-d', name: 'Agent D', status: 'running', work_token: 'wt-d', models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // chain thread type
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-3' }] });
 
@@ -1363,6 +1377,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
@@ -1373,6 +1388,7 @@ describe('Agent-to-agent @mention orchestration', () => {
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'agent-e-uuid', agent_id: 'agent-e', name: 'Agent E', status: 'running', work_token: 'wt-e', models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // chain thread type
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-tb' }] });
 
@@ -1393,6 +1409,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
@@ -1412,6 +1429,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
@@ -1422,6 +1440,7 @@ describe('Agent-to-agent @mention orchestration', () => {
       .mockResolvedValueOnce({ rows: [] }) // not elevated
       .mockResolvedValueOnce({ rows: [{ id: 'agent-f-uuid', agent_id: 'agent-f', name: 'Agent F', status: 'running', work_token: 'wt-f', models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // chain thread type
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 'chain-ph-audit' }] });
 
@@ -1441,7 +1460,8 @@ describe('Agent-to-agent @mention orchestration', () => {
   it('error status callback skips mention parsing', async () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
-      .mockResolvedValueOnce({ rows: [] });
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] });  // batch completion: direct, skip
 
     const res = await request(app)
       .post('/internal/chat/callback')
@@ -1462,6 +1482,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
@@ -1486,6 +1507,7 @@ describe('Agent-to-agent @mention orchestration', () => {
     mockQuery
       .mockResolvedValueOnce({ rowCount: 1 })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ reply_to: null, thread_type: 'direct' }] })  // batch completion: direct, skip
       .mockResolvedValueOnce({ rows: [{ author_id: 'agent-a-uuid' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ thread_id: 'thread-1', author_id: 'agent-a-uuid', chain_id: null, chain_hop: null }] })
@@ -1696,6 +1718,251 @@ describe('parseMentions', () => {
 });
 
 // ── Thread events ──
+
+// ── Group broadcast dispatch (AI-146) ──
+
+describe('Group broadcast dispatch', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockDispatchChatWork.mockReset();
+    mockDispatchChatWork.mockResolvedValue({ accepted: true, work_id: 'work-123' });
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+  });
+
+  it('dispatches to all group agents in parallel (T1)', async () => {
+    // Track dispatch timing to verify parallel execution
+    const dispatchOrder: string[] = [];
+    mockDispatchChatWork.mockImplementation(async (params: any) => {
+      dispatchOrder.push(params.agentId);
+      return { accepted: true, work_id: `work-${params.agentId}` };
+    });
+
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'a1' }, { participant_id: 'a2' }, { participant_id: 'a3' }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: 'a1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt1', models: ['gpt-4o'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt2', models: ['gpt-4o'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a3', agent_id: 'gamma', name: 'Gamma', status: 'running', work_token: 'wt3', models: ['gpt-4o'] }] })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a1
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a2
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a3
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a1
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a2
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a3
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder a1
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] })  // placeholder a2
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-3' }] });  // placeholder a3
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello everyone' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(3);
+    // All 3 dispatches fired (parallel via Promise.allSettled)
+    expect(mockDispatchChatWork).toHaveBeenCalledTimes(3);
+    expect(dispatchOrder).toEqual(['alpha', 'beta', 'gamma']);
+  });
+
+  it('partial dispatch failure marks only failed placeholders as error (T2)', async () => {
+    mockDispatchChatWork
+      .mockResolvedValueOnce({ accepted: true, work_id: 'w1' })
+      .mockRejectedValueOnce(new Error('connection refused'))  // agent 2 fails
+      .mockResolvedValueOnce({ accepted: true, work_id: 'w3' });
+
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'a1' }, { participant_id: 'a2' }, { participant_id: 'a3' }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: 'a1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt1', models: [] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt2', models: [] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a3', agent_id: 'gamma', name: 'Gamma', status: 'running', work_token: 'wt3', models: [] }] })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a1
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a2
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a3
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a1
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a2
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a3
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder a1
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] })  // placeholder a2
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-3' }] })  // placeholder a3
+      .mockResolvedValueOnce({ rowCount: 1 });  // UPDATE ph-2 status=error
+
+    const res = await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello everyone' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.dispatched).toHaveLength(2);
+    expect(res.body.failed).toHaveLength(1);
+    expect(res.body.failed[0].agent_id).toBe('a2');
+  });
+
+  it('group dispatch payload includes thread_type and participants (T3)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'a1' }, { participant_id: 'a2' }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: 'a1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt1', models: [] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt2', models: [] }] })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a1
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope a2
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a1
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard a2
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder a1
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder a2
+
+    await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello' });
+
+    expect(mockDispatchChatWork).toHaveBeenCalledTimes(2);
+    const call1 = mockDispatchChatWork.mock.calls[0][0];
+    expect(call1.threadType).toBe('group');
+    expect(call1.participants).toEqual([
+      { agent_id: 'alpha', name: 'Alpha' },
+      { agent_id: 'beta', name: 'Beta' },
+    ]);
+  });
+
+  it('direct dispatch payload has no participants field (T4)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
+      .mockResolvedValueOnce({ rows: [{ type: 'direct' }] })  // getThreadType
+      .mockResolvedValueOnce({  // getThreadAgents
+        rows: [{ participant_id: 'a1' }],
+      })
+      .mockResolvedValueOnce({ rows: [{ id: 'a1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt1', models: [] }] })
+      .mockResolvedValueOnce({ rows: [] })  // elevated scope
+      .mockResolvedValueOnce({ rows: [] })  // concurrency guard
+      .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
+      .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
+      .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // history
+      .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });  // placeholder
+
+    await request(app)
+      .post('/chat/threads/thread-1/messages')
+      .set('Authorization', `Bearer ${userToken}`)
+      .send({ message: 'Hello' });
+
+    const call1 = mockDispatchChatWork.mock.calls[0][0];
+    expect(call1.threadType).toBe('direct');
+    expect(call1.participants).toBeUndefined();
+  });
+});
+
+// ── Batch completion (AI-146) ──
+
+describe('Batch completion', () => {
+  beforeEach(() => {
+    mockQuery.mockReset();
+    process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
+    process.env.CHAT_CALLBACK_TOKEN = 'test-callback-secret';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.CHAT_CALLBACK_TOKEN;
+  });
+
+  it('batch_complete emitted when all siblings terminal (T5)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      // batch completion: get reply_to + thread_type
+      .mockResolvedValueOnce({ rows: [{ reply_to: 'user-msg-1', thread_type: 'group' }] })
+      // sibling count: all 3 terminal
+      .mockResolvedValueOnce({ rows: [{ total: 3, terminal: 3 }] })
+      // UPDATE batch_complete = true
+      .mockResolvedValueOnce({ rowCount: 1 })
+      // elevated tagging (no agent match)
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-3', content: 'Last response', status: 'complete' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.updated).toBe(true);
+
+    // Verify batch_complete UPDATE was called
+    const batchUpdateCall = mockQuery.mock.calls[4];
+    expect(batchUpdateCall[0]).toContain('batch_complete = true');
+  });
+
+  it('no batch_complete when siblings still pending (T6)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      // batch completion: get reply_to + thread_type
+      .mockResolvedValueOnce({ rows: [{ reply_to: 'user-msg-1', thread_type: 'group' }] })
+      // sibling count: only 1 of 3 terminal
+      .mockResolvedValueOnce({ rows: [{ total: 3, terminal: 1 }] })
+      // elevated tagging
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-1', content: 'First response', status: 'complete' });
+
+    expect(res.status).toBe(200);
+    // Should NOT have a batch_complete UPDATE call
+    const batchCalls = mockQuery.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('batch_complete')
+    );
+    expect(batchCalls).toHaveLength(0);
+  });
+
+  it('batch_complete emitted even with error siblings (T7)', async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rowCount: 1 })  // guarded UPDATE
+      .mockResolvedValueOnce({ rows: [] })       // UPDATE thread timestamp
+      // batch completion: get reply_to + thread_type
+      .mockResolvedValueOnce({ rows: [{ reply_to: 'user-msg-1', thread_type: 'group' }] })
+      // sibling count: 2 complete + 1 error = 3 terminal out of 3 total
+      .mockResolvedValueOnce({ rows: [{ total: 3, terminal: 3 }] })
+      // UPDATE batch_complete = true
+      .mockResolvedValueOnce({ rowCount: 1 })
+      // elevated tagging
+      .mockResolvedValueOnce({ rows: [] });
+
+    const res = await request(app)
+      .post('/internal/chat/callback')
+      .set('Authorization', 'Bearer test-callback-secret')
+      .send({ message_id: 'msg-2', content: 'Second response', status: 'complete' });
+
+    expect(res.status).toBe(200);
+    const batchCalls = mockQuery.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('batch_complete')
+    );
+    expect(batchCalls).toHaveLength(1);
+  });
+});
 
 describe('Chat thread events', () => {
   beforeEach(() => {

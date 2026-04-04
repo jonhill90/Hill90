@@ -160,7 +160,7 @@ async function resolveAgentSlugs(threadId: string, slugs: string[]): Promise<Map
 
 /**
  * Dispatch chat work to a set of agents. Shared by human-send and agent-to-agent orchestration.
- * Creates assistant placeholder messages and fires dispatch calls.
+ * Creates assistant placeholder messages (sequential), then fires dispatch calls (parallel).
  */
 async function dispatchToAgents(opts: {
   threadId: string;
@@ -170,6 +170,8 @@ async function dispatchToAgents(opts: {
   chainId?: string | null;
   chainHop?: number | null;
   triggeredBy?: string | null;
+  threadType?: string;
+  participants?: { agent_id: string; name: string }[];
 }): Promise<{
   dispatched: { agent_id: string; message_id: string }[];
   failed: { agent_id: string; message_id: string; reason: string }[];
@@ -179,11 +181,12 @@ async function dispatchToAgents(opts: {
   const dispatched: { agent_id: string; message_id: string }[] = [];
   const failed: { agent_id: string; message_id: string; reason: string }[] = [];
 
+  // Phase 1: Create all placeholders sequentially (DB inserts are fast, seq ordering matters)
+  const placeholders: { agent: typeof opts.agents[0]; placeholderId: string; model: string }[] = [];
   for (const agent of opts.agents) {
     const models: string[] = Array.isArray(agent.models) ? agent.models : [];
     const model = models[0] || 'gpt-4o-mini';
 
-    // Build chain columns for the INSERT
     const chainCols = opts.chainId ? ', chain_id, chain_hop, triggered_by' : '';
     const chainPlaceholders = opts.chainId ? ', $4, $5, $6' : '';
     const chainParams = opts.chainId
@@ -197,30 +200,49 @@ async function dispatchToAgents(opts: {
       [opts.threadId, agent.id, opts.replyTo, ...chainParams]
     );
 
-    try {
-      await dispatchChatWork({
+    placeholders.push({ agent, placeholderId: placeholder.id, model });
+  }
+
+  // Phase 2: Dispatch all work items in parallel
+  const results = await Promise.allSettled(
+    placeholders.map(({ agent, placeholderId, model }) =>
+      dispatchChatWork({
         agentId: agent.agent_id,
         workToken: agent.work_token!,
         threadId: opts.threadId,
-        messageId: placeholder.id,
+        messageId: placeholderId,
         messages: opts.historyMessages,
         model,
         callbackUrl,
-      });
-      dispatched.push({ agent_id: agent.id, message_id: placeholder.id });
-    } catch (err) {
-      console.error(`[chat] Dispatch failed for agent=${agent.agent_id}:`, err);
+        threadType: opts.threadType,
+        participants: opts.participants,
+      })
+    )
+  );
+
+  // Phase 3: Map settled results to dispatched/failed
+  for (let i = 0; i < results.length; i++) {
+    const { agent, placeholderId } = placeholders[i];
+    const result = results[i];
+
+    if (result.status === 'fulfilled' && result.value.accepted) {
+      dispatched.push({ agent_id: agent.id, message_id: placeholderId });
+    } else {
+      const reason = result.status === 'rejected'
+        ? String(result.reason)
+        : (result.value.error || 'not accepted');
+      console.error(`[chat] Dispatch failed for agent=${agent.agent_id}: ${reason}`);
       try {
         await pool.query(
           `UPDATE chat_messages SET status = 'error', error_message = 'Dispatch failed',
            seq = nextval('chat_messages_seq')
            WHERE id = $1 AND status = 'pending'`,
-          [placeholder.id]
+          [placeholderId]
         );
       } catch (updateErr) {
         console.error(`[chat] Failed to mark dispatch error:`, updateErr);
       }
-      failed.push({ agent_id: agent.id, message_id: placeholder.id, reason: 'dispatch_failed' });
+      failed.push({ agent_id: agent.id, message_id: placeholderId, reason: 'dispatch_failed' });
     }
   }
 
@@ -413,58 +435,33 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
       [thread.id, user.sub, message.trim(), idempotency_key || null]
     );
 
-    // Dispatch to agents: placeholder-then-dispatch pattern (§7a)
-    const callbackUrl = 'http://api:3000/internal/chat/callback';
-    const messages = [{ role: 'user', content: message.trim() }];
-    const dispatched: { agent_id: string; message_id: string }[] = [];
+    // Classify agents for dispatch
+    const dispatchableAgents: NonNullable<Awaited<ReturnType<typeof getAgentForDispatch>>>[] = [];
     const skipped: { agent_id: string; reason: string }[] = [];
-    const failed: { agent_id: string; message_id: string; reason: string }[] = [];
 
     for (const agent of agents) {
       if (agent!.status !== 'running' || !agent!.work_token) {
         skipped.push({ agent_id: agent!.id, reason: 'not_running' });
-        continue;
-      }
-
-      const models: string[] = Array.isArray(agent!.models) ? agent!.models : [];
-      const model = models[0] || 'gpt-4o-mini';
-
-      // Create assistant placeholder
-      const { rows: [placeholder] } = await pool.query(
-        `INSERT INTO chat_messages (thread_id, author_id, author_type, role, content, status, reply_to)
-         VALUES ($1, $2, 'agent', 'assistant', '', 'pending', $3)
-         RETURNING id`,
-        [thread.id, agent!.id, userMsg.id]
-      );
-
-      // Fire-and-forget dispatch
-      try {
-        await dispatchChatWork({
-          agentId: agent!.agent_id,
-          workToken: agent!.work_token!,
-          threadId: thread.id,
-          messageId: placeholder.id,
-          messages,
-          model,
-          callbackUrl,
-        });
-        dispatched.push({ agent_id: agent!.id, message_id: placeholder.id });
-      } catch (err) {
-        console.error(`[chat] Dispatch failed for agent=${agent!.agent_id}:`, err);
-        // Mark placeholder as error immediately
-        try {
-          await pool.query(
-            `UPDATE chat_messages SET status = 'error', error_message = 'Dispatch failed',
-             seq = nextval('chat_messages_seq')
-             WHERE id = $1 AND status = 'pending'`,
-            [placeholder.id]
-          );
-        } catch (updateErr) {
-          console.error(`[chat] Failed to mark dispatch error:`, updateErr);
-        }
-        failed.push({ agent_id: agent!.id, message_id: placeholder.id, reason: 'dispatch_failed' });
+      } else {
+        dispatchableAgents.push(agent!);
       }
     }
+
+    // Build participant list for group context
+    const participantList = threadType === 'group'
+      ? agents.map(a => ({ agent_id: a!.agent_id, name: a!.name || a!.agent_id }))
+      : undefined;
+
+    // Dispatch via shared helper (parallel dispatch, §7a placeholder-then-dispatch pattern)
+    const historyMessages = [{ role: 'user', content: message.trim() }];
+    const { dispatched, failed } = await dispatchToAgents({
+      threadId: thread.id,
+      agents: dispatchableAgents,
+      replyTo: userMsg.id,
+      historyMessages,
+      threadType: threadType || undefined,
+      participants: participantList,
+    });
 
     // Direct thread backward compat response
     if (threadType === 'direct') {
@@ -889,12 +886,19 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
     );
     const historyMessages = history.reverse();
 
+    // Build participant list for group context
+    const participantList = threadType === 'group'
+      ? targetAgents.map(a => ({ agent_id: a.agent_id, name: a.name || a.agent_id }))
+      : undefined;
+
     // Dispatch to each dispatchable agent via shared helper
     const { dispatched, failed: failedArr } = await dispatchToAgents({
       threadId,
       agents: dispatchable,
       replyTo: userMsg.id,
       historyMessages,
+      threadType: threadType || undefined,
+      participants: participantList,
     });
 
     // Direct thread backward compat response
@@ -1294,6 +1298,38 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
     [message_id]
   );
 
+  // ── Batch completion detection for group threads ──
+  // Check if all sibling messages (same reply_to) are terminal
+  try {
+    const { rows: batchRows } = await pool.query(
+      `SELECT m.reply_to, t.type AS thread_type
+       FROM chat_messages m
+       JOIN chat_threads t ON t.id = m.thread_id
+       WHERE m.id = $1`,
+      [message_id]
+    );
+    if (batchRows.length > 0 && batchRows[0].thread_type === 'group' && batchRows[0].reply_to) {
+      const replyTo = batchRows[0].reply_to;
+      const { rows: siblingRows } = await pool.query(
+        `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE status IN ('complete', 'error'))::int AS terminal
+         FROM chat_messages
+         WHERE reply_to = $1 AND author_type = 'agent'`,
+        [replyTo]
+      );
+      if (siblingRows.length > 0 && siblingRows[0].total > 0 && siblingRows[0].terminal === siblingRows[0].total) {
+        await pool.query(
+          `UPDATE chat_messages SET batch_complete = true, seq = nextval('chat_messages_seq')
+           WHERE id = $1`,
+          [message_id]
+        );
+        console.info(`[chat-callback] Batch complete for reply_to=${replyTo} (${siblingRows[0].total} agents)`);
+      }
+    }
+  } catch (batchErr) {
+    console.error('[chat-callback] Batch completion check failed (non-blocking):', batchErr);
+  }
+
   // Elevated-agent response tagging (D6): informational audit only
   try {
     const { rows: msgRows } = await pool.query(
@@ -1408,6 +1444,22 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
                       );
                       const historyMessages = history.reverse();
 
+                      // Build participant list for group context in chain dispatch
+                      const { rows: threadInfoRows } = await pool.query(
+                        `SELECT t.type FROM chat_threads t WHERE t.id = $1`, [threadId]
+                      );
+                      const chainThreadType = threadInfoRows[0]?.type;
+                      let chainParticipantsList: { agent_id: string; name: string }[] | undefined;
+                      if (chainThreadType === 'group') {
+                        const { rows: pRows } = await pool.query(
+                          `SELECT a.agent_id, a.name FROM chat_participants cp
+                           JOIN agents a ON a.id = cp.participant_id::uuid
+                           WHERE cp.thread_id = $1 AND cp.participant_type = 'agent' AND cp.left_at IS NULL`,
+                          [threadId]
+                        );
+                        chainParticipantsList = pRows.map((r: any) => ({ agent_id: r.agent_id, name: r.name || r.agent_id }));
+                      }
+
                       const { dispatched: chainDispatched } = await dispatchToAgents({
                         threadId,
                         agents: eligibleAgents,
@@ -1416,6 +1468,8 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
                         chainId,
                         chainHop: newHop,
                         triggeredBy: message_id,
+                        threadType: chainThreadType || undefined,
+                        participants: chainParticipantsList,
                       });
 
                       for (const d of chainDispatched) {
