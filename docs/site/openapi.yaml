@@ -3838,3 +3838,94 @@ paths:
           description: Transitioned task
         "404":
           description: Task not found
+  # ── Admin: Secrets Vault Inventory (AI-147) ──
+
+  /admin/secrets:
+    get:
+      summary: List vault secrets inventory
+      description: >
+        Returns secrets schema grouped by vault path with key names and consumer
+        service mappings. Admin only. NEVER returns secret values.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Grouped secrets inventory
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  paths:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          example: secret/shared/database
+                        keys:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              key:
+                                type: string
+                                example: DB_PASSWORD
+                              consumers:
+                                type: array
+                                items:
+                                  type: string
+                                example: ["db", "api", "ai"]
+                        keyCount:
+                          type: integer
+                          example: 3
+                  totalPaths:
+                    type: integer
+                  totalKeys:
+                    type: integer
+                  approleServices:
+                    type: array
+                    items:
+                      type: string
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "503":
+          description: Failed to load secrets schema
+
+  /admin/secrets/status:
+    get:
+      summary: Vault seal status
+      description: >
+        Returns vault health status. Degrades gracefully if vault is unreachable.
+        Admin only.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Vault status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  sealed:
+                    type: boolean
+                    nullable: true
+                  initialized:
+                    type: boolean
+                    nullable: true
+                  version:
+                    type: string
+                    nullable: true
+                  cluster_name:
+                    type: string
+                    nullable: true
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role

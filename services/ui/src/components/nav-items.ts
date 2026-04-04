@@ -41,6 +41,7 @@ export const NAV_ITEMS: NavItem[] = [
       { type: 'link', id: 'dependencies', label: 'Dependencies', href: '/harness/tools', icon: Package, adminOnly: true },
       { type: 'link', id: 'usage', label: 'Usage', href: '/harness/usage', icon: BarChart3 },
       { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
+      { type: 'link', id: 'secrets', label: 'Secrets', href: '/harness/secrets', icon: KeyRound, adminOnly: true },
     ],
   },
   {
