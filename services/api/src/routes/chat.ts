@@ -35,6 +35,8 @@ const router = Router();
 const MESSAGE_HISTORY_LIMIT = 50;
 const STALE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const MAX_AGENTS_PER_GROUP = 8;
+const MAX_CHAIN_HOPS = parseInt(process.env.MAX_CHAIN_HOPS || '5', 10);
+const MAX_CHAIN_DURATION_MS = parseInt(process.env.MAX_CHAIN_DURATION_MS || '60000', 10);
 
 // ───────────────────────────────────────────────────────────────────
 // Helpers
@@ -154,6 +156,75 @@ async function resolveAgentSlugs(threadId: string, slugs: string[]): Promise<Map
     resolved.set(row.slug, row.participant_id);
   }
   return resolved;
+}
+
+/**
+ * Dispatch chat work to a set of agents. Shared by human-send and agent-to-agent orchestration.
+ * Creates assistant placeholder messages and fires dispatch calls.
+ */
+async function dispatchToAgents(opts: {
+  threadId: string;
+  agents: NonNullable<Awaited<ReturnType<typeof getAgentForDispatch>>>[];
+  replyTo: string;
+  historyMessages: { role: string; content: string }[];
+  chainId?: string | null;
+  chainHop?: number | null;
+  triggeredBy?: string | null;
+}): Promise<{
+  dispatched: { agent_id: string; message_id: string }[];
+  failed: { agent_id: string; message_id: string; reason: string }[];
+}> {
+  const pool = getPool();
+  const callbackUrl = 'http://api:3000/internal/chat/callback';
+  const dispatched: { agent_id: string; message_id: string }[] = [];
+  const failed: { agent_id: string; message_id: string; reason: string }[] = [];
+
+  for (const agent of opts.agents) {
+    const models: string[] = Array.isArray(agent.models) ? agent.models : [];
+    const model = models[0] || 'gpt-4o-mini';
+
+    // Build chain columns for the INSERT
+    const chainCols = opts.chainId ? ', chain_id, chain_hop, triggered_by' : '';
+    const chainPlaceholders = opts.chainId ? ', $4, $5, $6' : '';
+    const chainParams = opts.chainId
+      ? [opts.chainId, opts.chainHop ?? null, opts.triggeredBy ?? null]
+      : [];
+
+    const { rows: [placeholder] } = await pool.query(
+      `INSERT INTO chat_messages (thread_id, author_id, author_type, role, content, status, reply_to${chainCols})
+       VALUES ($1, $2, 'agent', 'assistant', '', 'pending', $3${chainPlaceholders})
+       RETURNING id`,
+      [opts.threadId, agent.id, opts.replyTo, ...chainParams]
+    );
+
+    try {
+      await dispatchChatWork({
+        agentId: agent.agent_id,
+        workToken: agent.work_token!,
+        threadId: opts.threadId,
+        messageId: placeholder.id,
+        messages: opts.historyMessages,
+        model,
+        callbackUrl,
+      });
+      dispatched.push({ agent_id: agent.id, message_id: placeholder.id });
+    } catch (err) {
+      console.error(`[chat] Dispatch failed for agent=${agent.agent_id}:`, err);
+      try {
+        await pool.query(
+          `UPDATE chat_messages SET status = 'error', error_message = 'Dispatch failed',
+           seq = nextval('chat_messages_seq')
+           WHERE id = $1 AND status = 'pending'`,
+          [placeholder.id]
+        );
+      } catch (updateErr) {
+        console.error(`[chat] Failed to mark dispatch error:`, updateErr);
+      }
+      failed.push({ agent_id: agent.id, message_id: placeholder.id, reason: 'dispatch_failed' });
+    }
+  }
+
+  return { dispatched, failed };
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -462,10 +533,11 @@ router.get('/threads/:id', requireRole('user'), async (req: Request, res: Respon
       [req.params.id]
     );
 
-    // Get messages (include reply_to and target_agents for group threads)
+    // Get messages (include reply_to, target_agents, chain columns for group threads)
     const { rows: messages } = await pool.query(
       `SELECT id, seq, author_id, author_type, role, content, status,
               reply_to, target_agents,
+              chain_id, chain_hop, triggered_by,
               model, input_tokens, output_tokens, duration_ms,
               error_message, created_at
        FROM chat_messages WHERE thread_id = $1
@@ -817,49 +889,13 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
     );
     const historyMessages = history.reverse();
 
-    // Dispatch to each dispatchable agent
-    const dispatched: { agent_id: string; message_id: string }[] = [];
-    const failedArr: { agent_id: string; message_id: string; reason: string }[] = [];
-
-    for (const agent of dispatchable) {
-      const models: string[] = Array.isArray(agent.models) ? agent.models : [];
-      const model = models[0] || 'gpt-4o-mini';
-      const callbackUrl = 'http://api:3000/internal/chat/callback';
-
-      // Create assistant placeholder
-      const { rows: [placeholder] } = await pool.query(
-        `INSERT INTO chat_messages (thread_id, author_id, author_type, role, content, status, reply_to)
-         VALUES ($1, $2, 'agent', 'assistant', '', 'pending', $3)
-         RETURNING id`,
-        [threadId, agent.id, userMsg.id]
-      );
-
-      try {
-        await dispatchChatWork({
-          agentId: agent.agent_id,
-          workToken: agent.work_token!,
-          threadId,
-          messageId: placeholder.id,
-          messages: historyMessages,
-          model,
-          callbackUrl,
-        });
-        dispatched.push({ agent_id: agent.id, message_id: placeholder.id });
-      } catch (err) {
-        console.error(`[chat] Dispatch failed for agent=${agent.agent_id}:`, err);
-        try {
-          await pool.query(
-            `UPDATE chat_messages SET status = 'error', error_message = 'Dispatch failed',
-             seq = nextval('chat_messages_seq')
-             WHERE id = $1 AND status = 'pending'`,
-            [placeholder.id]
-          );
-        } catch (updateErr) {
-          console.error(`[chat] Failed to mark dispatch error:`, updateErr);
-        }
-        failedArr.push({ agent_id: agent.id, message_id: placeholder.id, reason: 'dispatch_failed' });
-      }
-    }
+    // Dispatch to each dispatchable agent via shared helper
+    const { dispatched, failed: failedArr } = await dispatchToAgents({
+      threadId,
+      agents: dispatchable,
+      replyTo: userMsg.id,
+      historyMessages,
+    });
 
     // Direct thread backward compat response
     if (threadType === 'direct') {
@@ -950,6 +986,7 @@ router.get('/threads/:id/stream', requireRole('user'), async (req: Request, res:
         const { rows } = await getPool().query(
           `SELECT id, seq, author_id, author_type, role, content, status,
                   reply_to, target_agents,
+                  chain_id, chain_hop, triggered_by,
                   model, input_tokens, output_tokens, duration_ms,
                   error_message, created_at
            FROM chat_messages
@@ -1273,6 +1310,133 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
     console.error('[chat-callback] Elevated tagging failed (non-blocking):', tagErr);
   }
 
+  // ── Agent-to-agent @mention orchestration (fire-and-forget) ──
+  // Only on successful complete callbacks with non-empty content
+  if (finalStatus === 'complete' && content && typeof content === 'string' && content.trim()) {
+    try {
+      const { slugs } = parseMentions(content);
+      if (slugs.length > 0) {
+        // Get triggering message metadata
+        const { rows: trigRows } = await pool.query(
+          `SELECT thread_id, author_id, chain_id, chain_hop FROM chat_messages WHERE id = $1`,
+          [message_id]
+        );
+        if (trigRows.length > 0) {
+          const trigMsg = trigRows[0];
+          const threadId = trigMsg.thread_id;
+
+          // Resolve mentioned slugs to participants in this thread (unknown silently ignored)
+          const resolved = await resolveAgentSlugs(threadId, slugs);
+          if (resolved.size > 0) {
+            // Self-mention guard: remove the author from targets
+            const targetUuids = [...resolved.values()].filter(uuid => uuid !== trigMsg.author_id);
+
+            if (targetUuids.length > 0) {
+              // Chain_id: reuse from triggering message, or generate new
+              let chainId = trigMsg.chain_id;
+              const currentHop = trigMsg.chain_hop ?? 0;
+
+              if (!chainId) {
+                chainId = crypto.randomUUID();
+                // Backfill triggering message as hop 0
+                await pool.query(
+                  `UPDATE chat_messages SET chain_id = $1, chain_hop = 0 WHERE id = $2 AND chain_id IS NULL`,
+                  [chainId, message_id]
+                );
+              }
+
+              const newHop = currentHop + 1;
+
+              // Hop budget guard
+              if (newHop <= MAX_CHAIN_HOPS) {
+                // Time budget guard
+                const { rows: timeRows } = await pool.query(
+                  `SELECT MIN(created_at) AS chain_start FROM chat_messages WHERE chain_id = $1`,
+                  [chainId]
+                );
+                const chainStart = timeRows[0]?.chain_start ? new Date(timeRows[0].chain_start).getTime() : Date.now();
+                const elapsed = Date.now() - chainStart;
+
+                if (elapsed <= MAX_CHAIN_DURATION_MS) {
+                  // Cycle detection: find agents already participating in this chain
+                  const { rows: cycleRows } = await pool.query(
+                    `SELECT DISTINCT author_id FROM chat_messages
+                     WHERE chain_id = $1 AND author_type = 'agent' AND status IN ('complete', 'pending')`,
+                    [chainId]
+                  );
+                  const chainParticipants = new Set(cycleRows.map((r: any) => r.author_id));
+
+                  // Filter out agents already in the chain (cycle prevention)
+                  const freshTargets = targetUuids.filter(uuid => !chainParticipants.has(uuid));
+
+                  if (freshTargets.length > 0) {
+                    // Load agent info, apply elevated scope gate + concurrency guard
+                    const eligibleAgents: NonNullable<Awaited<ReturnType<typeof getAgentForDispatch>>>[] = [];
+
+                    for (const uuid of freshTargets) {
+                      // Elevated scope gate: agents cannot dispatch to elevated agents
+                      const elevatedScope = await getAgentElevatedScope(uuid);
+                      if (elevatedScope) {
+                        auditLog('agent_to_agent_dispatch', uuid, trigMsg.author_id, 'agent', {
+                          thread_id: threadId, chain_id: chainId, blocked: 'elevated_scope', scope: elevatedScope,
+                        });
+                        continue;
+                      }
+
+                      const agent = await getAgentForDispatch(uuid);
+                      if (!agent || agent.status !== 'running' || !agent.work_token) continue;
+
+                      // Per-agent concurrency guard
+                      const { rows: pendingRows } = await pool.query(
+                        `SELECT 1 FROM chat_messages
+                         WHERE thread_id = $1 AND author_id = $2 AND author_type = 'agent' AND status = 'pending'
+                         LIMIT 1`,
+                        [threadId, agent.id]
+                      );
+                      if (pendingRows.length > 0) continue;
+
+                      eligibleAgents.push(agent);
+                    }
+
+                    if (eligibleAgents.length > 0) {
+                      // Load message history
+                      const { rows: history } = await pool.query(
+                        `SELECT role, content FROM chat_messages
+                         WHERE thread_id = $1 AND status = 'complete'
+                         ORDER BY seq DESC LIMIT $2`,
+                        [threadId, MESSAGE_HISTORY_LIMIT]
+                      );
+                      const historyMessages = history.reverse();
+
+                      const { dispatched: chainDispatched } = await dispatchToAgents({
+                        threadId,
+                        agents: eligibleAgents,
+                        replyTo: message_id,
+                        historyMessages,
+                        chainId,
+                        chainHop: newHop,
+                        triggeredBy: message_id,
+                      });
+
+                      for (const d of chainDispatched) {
+                        auditLog('agent_to_agent_dispatch', d.agent_id, trigMsg.author_id, 'agent', {
+                          thread_id: threadId, chain_id: chainId, chain_hop: newHop,
+                          triggered_by: message_id, message_id: d.message_id,
+                        });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (orchErr) {
+      console.error('[chat-callback] Agent-to-agent orchestration error (non-blocking):', orchErr);
+    }
+  }
+
   res.json({ updated: true });
 }
 
@@ -1309,7 +1473,7 @@ export function stopStaleSweeper(): void {
   }
 }
 
-// Export parseMentions for testing
-export { parseMentions };
+// Export helpers for testing
+export { parseMentions, resolveAgentSlugs, dispatchToAgents };
 
 export default router;
