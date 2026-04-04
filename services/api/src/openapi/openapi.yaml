@@ -2129,6 +2129,16 @@ paths:
                     is_valid:
                       type: boolean
                       nullable: true
+                    last_validated_at:
+                      type: string
+                      format: date-time
+                      nullable: true
+                    last_validation_error:
+                      type: string
+                      nullable: true
+                    validation_latency_ms:
+                      type: integer
+                      nullable: true
                     created_at:
                       type: string
                       format: date-time
@@ -2272,6 +2282,9 @@ paths:
                     format: uuid
                   is_valid:
                     type: boolean
+                  validation_latency_ms:
+                    type: integer
+                    description: Round-trip validation time in milliseconds
                   error:
                     type: string
                     description: Error message if validation failed
@@ -2281,6 +2294,94 @@ paths:
           description: Requires user role
         "404":
           description: Connection not found
+
+  /provider-connections/health:
+    get:
+      summary: Connection health stats
+      description: >
+        Returns aggregate health statistics for the authenticated user's provider connections,
+        including overall counts and per-provider breakdown with average latency.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Health statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  valid:
+                    type: integer
+                  invalid:
+                    type: integer
+                  untested:
+                    type: integer
+                  avg_latency_ms:
+                    type: integer
+                    nullable: true
+                  by_provider:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        provider:
+                          type: string
+                        total:
+                          type: integer
+                        valid:
+                          type: integer
+                        invalid:
+                          type: integer
+                        untested:
+                          type: integer
+                        avg_latency_ms:
+                          type: integer
+                          nullable: true
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+
+  /provider-connections/validate-all:
+    post:
+      summary: Validate all connections
+      description: >
+        Validates all provider connections owned by the authenticated user sequentially.
+        Returns per-connection results with latency and error details.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                        is_valid:
+                          type: boolean
+                        validation_latency_ms:
+                          type: integer
+                        error:
+                          type: string
+                          description: Error message if validation failed
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
 
   /provider-connections/{id}/models:
     parameters:
