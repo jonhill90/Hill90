@@ -15,7 +15,7 @@ vi.mock('lucide-react', () => ({
   ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
 }))
 
-import EventTimeline, { computeGroups, deriveGroupStatus, computeGroupSpan } from '@/app/agents/[id]/EventTimeline'
+import EventTimeline, { computeGroups, deriveGroupStatus, computeGroupSpan, insertSorted } from '@/app/agents/[id]/EventTimeline'
 import EventCard, { getLifecycleInfo, parseExitCode, formatDuration } from '@/app/agents/[id]/EventCard'
 import type { AgentEvent } from '@/app/agents/[id]/EventCard'
 
@@ -1468,5 +1468,193 @@ describe('Signal C: command_id grouping', () => {
     expect(groups.get('b1')).toBe(groups.get('b2'))
     // Different groups
     expect(groups.get('a1')).not.toBe(groups.get('b1'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Sort + group-before-filter — T1-T6
+// ---------------------------------------------------------------------------
+describe('EventTimeline — sort + group-before-filter', () => {
+  function setupSSEAndSendEvents(events: AgentEvent[]) {
+    let capturedOnMessage: ((msg: MessageEvent) => void) | null = null
+    vi.stubGlobal('EventSource', vi.fn(() => {
+      const instance = {
+        onmessage: null as any,
+        addEventListener: vi.fn(),
+        close: vi.fn(),
+      }
+      setTimeout(() => { capturedOnMessage = instance.onmessage }, 0)
+      return instance
+    }))
+
+    render(<EventTimeline agentId="uuid-1" agentStatus="running" />)
+
+    return waitFor(() => expect(capturedOnMessage).toBeTruthy()).then(() => {
+      for (const e of events) {
+        capturedOnMessage!(new MessageEvent('message', { data: JSON.stringify(e) }))
+      }
+      return capturedOnMessage!
+    })
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    Element.prototype.scrollIntoView = vi.fn()
+  })
+  afterEach(() => cleanup())
+
+  it('T1: events are sorted by timestamp regardless of SSE delivery order', async () => {
+    // Deliver events out of order: t=200, t=0, t=100
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'sort-c', tool: 'shell', type: 'command_start', input_summary: 'THIRD_CMD' }, 200),
+      makeEvent({ id: 'sort-a', tool: 'shell', type: 'command_start', input_summary: 'FIRST_CMD' }, 0),
+      makeEvent({ id: 'sort-b', tool: 'shell', type: 'command_start', input_summary: 'SECOND_CMD' }, 100),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    const cards = screen.getAllByTestId('event-card')
+    expect(cards[0]).toHaveTextContent('FIRST_CMD')
+    expect(cards[1]).toHaveTextContent('SECOND_CMD')
+    expect(cards[2]).toHaveTextContent('THIRD_CMD')
+  })
+
+  it('T2: same-timestamp events sorted by id as tiebreaker', async () => {
+    // Both at t=0 but different ids
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'tiebreak-zzz', tool: 'shell', type: 'command_start', input_summary: 'ZZZ_CMD' }, 0),
+      makeEvent({ id: 'tiebreak-aaa', tool: 'shell', type: 'command_start', input_summary: 'AAA_CMD' }, 0),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    const cards = screen.getAllByTestId('event-card')
+    expect(cards[0]).toHaveTextContent('AAA_CMD')
+    expect(cards[1]).toHaveTextContent('ZZZ_CMD')
+  })
+
+  it('T3: Runtime filter shows grouped runtime events without inference', async () => {
+    // A group with shared work_id spanning inference + runtime
+    const workId = 'WK-1'
+    await setupSSEAndSendEvents([
+      wr('r1', 0, workId),
+      makeEvent({ id: 'i1', tool: 'inference', type: 'inference_complete', metadata: { work_id: workId } }, 100),
+      wc('r2', 200, workId),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    // Switch to Runtime filter
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      // Should show 2 runtime events, hiding the inference event
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    // Group spine should still be visible (group computed from all events)
+    expect(screen.queryByTestId('group-spine')).toBeInTheDocument()
+  })
+
+  it('T4: late SSE inference event sorted into correct chronological position', async () => {
+    const onMessage = await setupSSEAndSendEvents([
+      makeEvent({ id: 'late-first', tool: 'shell', type: 'command_start', input_summary: 'LATE_FIRST' }, 0),
+      makeEvent({ id: 'late-third', tool: 'shell', type: 'command_start', input_summary: 'LATE_THIRD' }, 200),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    // Late inference event arrives with t=100 (between the two)
+    onMessage(new MessageEvent('message', {
+      data: JSON.stringify(makeEvent({ id: 'late-middle', tool: 'inference', type: 'inference_complete', input_summary: 'LATE_MIDDLE' }, 100)),
+    }))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    const cards = screen.getAllByTestId('event-card')
+    expect(cards[0]).toHaveTextContent('LATE_FIRST')
+    expect(cards[1]).toHaveTextContent('LATE_MIDDLE')
+    expect(cards[2]).toHaveTextContent('LATE_THIRD')
+  })
+
+  it('T5: group spine visible under Runtime filter for work-step group', async () => {
+    const workId = 'WK-2'
+    await setupSSEAndSendEvents([
+      wr('r1', 0, workId),
+      wc('r2', 500, workId),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    // Under Runtime filter, these events should still be grouped
+    fireEvent.click(screen.getByText('Runtime'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+    })
+    expect(screen.getByTestId('group-spine')).toBeInTheDocument()
+    expect(screen.getByTestId('group-status-badge')).toBeInTheDocument()
+  })
+
+  it('T6: Inference filter shows chronologically sorted inference events', async () => {
+    // Deliver inference events out of order
+    await setupSSEAndSendEvents([
+      makeEvent({ id: 'inf-sort-c', tool: 'inference', type: 'inference_complete', input_summary: 'INF_THIRD' }, 300),
+      makeEvent({ id: 'inf-sort-shell', tool: 'shell', type: 'command_start', input_summary: 'NOISE_SHELL' }, 0),
+      makeEvent({ id: 'inf-sort-a', tool: 'inference', type: 'inference_complete', input_summary: 'INF_FIRST' }, 100),
+      makeEvent({ id: 'inf-sort-b', tool: 'inference', type: 'inference_complete', input_summary: 'INF_SECOND' }, 200),
+    ])
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(4)
+    })
+    fireEvent.click(screen.getByText('Inference'))
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+    })
+    const cards = screen.getAllByTestId('event-card')
+    expect(cards[0]).toHaveTextContent('INF_FIRST')
+    expect(cards[1]).toHaveTextContent('INF_SECOND')
+    expect(cards[2]).toHaveTextContent('INF_THIRD')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// insertSorted unit tests
+// ---------------------------------------------------------------------------
+describe('insertSorted', () => {
+  it('inserts event in correct chronological position', () => {
+    const events = [
+      makeEvent({ id: 'a', tool: 'shell', type: 'command_start' }, 0),
+      makeEvent({ id: 'c', tool: 'shell', type: 'command_start' }, 200),
+    ]
+    const newEvent = makeEvent({ id: 'b', tool: 'shell', type: 'command_start' }, 100)
+    const result = insertSorted(events, newEvent)
+    expect(result).toHaveLength(3)
+    expect(result[0].id).toBe('a')
+    expect(result[1].id).toBe('b')
+    expect(result[2].id).toBe('c')
+  })
+
+  it('appends event with latest timestamp', () => {
+    const events = [
+      makeEvent({ id: 'a', tool: 'shell', type: 'command_start' }, 0),
+    ]
+    const newEvent = makeEvent({ id: 'b', tool: 'shell', type: 'command_start' }, 100)
+    const result = insertSorted(events, newEvent)
+    expect(result).toHaveLength(2)
+    expect(result[1].id).toBe('b')
+  })
+
+  it('uses id as tiebreaker for same timestamp', () => {
+    const events = [
+      makeEvent({ id: 'b', tool: 'shell', type: 'command_start' }, 0),
+    ]
+    const newEvent = makeEvent({ id: 'a', tool: 'shell', type: 'command_start' }, 0)
+    const result = insertSorted(events, newEvent)
+    expect(result[0].id).toBe('a')
+    expect(result[1].id).toBe('b')
+  })
+
+  it('handles empty array', () => {
+    const result = insertSorted([], makeEvent({ id: 'a', tool: 'shell', type: 'command_start' }, 0))
+    expect(result).toHaveLength(1)
+    expect(result[0].id).toBe('a')
   })
 })
