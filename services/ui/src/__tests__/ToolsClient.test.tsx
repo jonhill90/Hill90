@@ -73,17 +73,27 @@ describe('ToolsClient', () => {
     cleanup()
   })
 
-  it('shows Tools page title and fetched tools', async () => {
+  it('shows Dependencies page title and fetched tools', async () => {
     render(<ToolsClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Tools')).toBeInTheDocument()
+      expect(screen.getByText('Dependencies')).toBeInTheDocument()
     })
 
     expect(screen.getByText('bash')).toBeInTheDocument()
     expect(screen.getByText('gh')).toBeInTheDocument()
     expect(screen.getByText('Builtin')).toBeInTheDocument()
     expect(screen.getByText('Binary')).toBeInTheDocument()
+  })
+
+  it('T6: renders dependency catalog subtitle', async () => {
+    render(<ToolsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Dependencies')).toBeInTheDocument()
+    })
+
+    expect(screen.getByText('CLI tools and packages available to agent skills.')).toBeInTheDocument()
   })
 
   it('allows editing seeded tools', async () => {
@@ -124,13 +134,13 @@ describe('ToolsClient', () => {
     })
   })
 
-  it('nav items include Tools entry', () => {
+  it('nav items include Dependencies entry', () => {
     const harness = NAV_ITEMS.find((item) => item.type === 'group' && item.id === 'harness') as NavGroup
     expect(harness).toBeDefined()
-    const tools = harness.children.find((c) => c.id === 'tools')
-    expect(tools).toBeDefined()
-    expect(tools!.label).toBe('Tools')
-    expect(tools!.href).toBe('/harness/tools')
-    expect(tools!.adminOnly).toBe(true)
+    const deps = harness.children.find((c) => c.id === 'dependencies')
+    expect(deps).toBeDefined()
+    expect(deps!.label).toBe('Dependencies')
+    expect(deps!.href).toBe('/harness/tools')
+    expect(deps!.adminOnly).toBe(true)
   })
 })

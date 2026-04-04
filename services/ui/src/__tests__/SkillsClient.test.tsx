@@ -379,4 +379,29 @@ describe('SkillsClient', () => {
     expect(skills!.label).toBe('Skills')
     expect(skills!.href).toBe('/harness/skills')
   })
+
+  // T7: Skill card shows tool dependency count badge
+  it('T7: skill card shows tool dependency count', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    })
+
+    // CI Runner has 2 tools — should show "2 deps" badge
+    expect(screen.getByTestId('tool-count-badge')).toHaveTextContent('2 deps')
+  })
+
+  // T8: Elevated scope shows warning indicator
+  it('T8: elevated scope shows warning indicator', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    })
+
+    // CI Runner has vps_system scope, Developer has host_docker — both elevated
+    const warnings = screen.getAllByTestId('elevated-warning')
+    expect(warnings.length).toBeGreaterThanOrEqual(2)
+  })
 })
