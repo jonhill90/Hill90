@@ -191,7 +191,7 @@ const EXPECTED_PATHS = [
   '/chat/threads/{id}/events',
 ];
 
-const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback'];
+const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token'];
 
 // Compat alias paths — same handler as canonical /skills routes, not in OpenAPI spec
 const COMPAT_PATHS: string[] = [];
