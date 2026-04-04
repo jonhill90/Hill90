@@ -569,6 +569,11 @@ router.delete('/threads/:id', requireRole('user'), async (req: Request, res: Res
       return;
     }
 
+    auditLog('chat_thread_delete', req.params.id, user.sub, 'human', {
+      thread_id: req.params.id,
+      admin_override: admin && !(await isThreadOwner(req.params.id, user.sub, false)),
+    });
+
     res.json({ deleted: true });
   } catch (err) {
     console.error('[chat] Delete thread error:', err);
