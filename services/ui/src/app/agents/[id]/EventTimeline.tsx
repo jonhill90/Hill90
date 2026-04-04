@@ -192,6 +192,25 @@ export function computeGroupSpan(groupEvents: AgentEvent[]): number | null {
   return Math.max(0, maxTs - minTs)
 }
 
+/**
+ * Insert an event into a sorted array by (timestamp, id), maintaining order.
+ * Binary search for O(log n) position lookup.
+ */
+export function insertSorted(events: AgentEvent[], event: AgentEvent): AgentEvent[] {
+  const key = event.timestamp + '\0' + event.id
+  let lo = 0
+  let hi = events.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    const midKey = events[mid].timestamp + '\0' + events[mid].id
+    if (midKey <= key) lo = mid + 1
+    else hi = mid
+  }
+  const next = [...events]
+  next.splice(lo, 0, event)
+  return next
+}
+
 // Local icon map — duplicated from EventCard to avoid coupling
 const BANNER_ICONS: Record<string, typeof Terminal> = {
   shell: Terminal,
@@ -239,7 +258,7 @@ export default function EventTimeline({
       try {
         const event: AgentEvent = JSON.parse(msg.data)
         setEvents((prev) => {
-          const next = [...prev, event]
+          const next = insertSorted(prev, event)
           return next.length > MAX_EVENTS ? next.slice(next.length - MAX_EVENTS) : next
         })
       } catch {
@@ -268,6 +287,9 @@ export default function EventTimeline({
     )
   }
 
+  // Compute groups on ALL events so group structure is preserved across filters
+  const groups = useMemo(() => computeGroups(events), [events])
+
   const filtered =
     filter === 'All'
       ? events
@@ -275,7 +297,6 @@ export default function EventTimeline({
         ? events.filter((e) => e.tool !== 'inference')
         : events.filter((e) => e.tool === filter.toLowerCase())
 
-  const groups = useMemo(() => computeGroups(filtered), [filtered])
   const segments = useMemo(() => buildSegments(filtered, groups), [filtered, groups])
 
   return (
@@ -328,7 +349,7 @@ export default function EventTimeline({
           </p>
         ) : (
           segments.map((seg) =>
-            seg.groupId !== null ? (
+            seg.groupId !== null && seg.events.length >= 2 ? (
               <div key={seg.groupId} className="relative pl-3">
                 {(() => {
                   const status = deriveGroupStatus(seg.events)
