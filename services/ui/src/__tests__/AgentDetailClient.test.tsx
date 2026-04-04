@@ -257,28 +257,19 @@ describe('AgentDetailClient', () => {
     })
   })
 
-  it('fetches knowledge entries only when Knowledge tab clicked', async () => {
+  it('Memory tab renders AgentMemory component', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
       expect(screen.getByText('ResearchBot')).toBeInTheDocument()
     })
 
-    // Knowledge should NOT be fetched on initial load
-    const knowledgeCalls = mockFetch.mock.calls.filter(
-      (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/knowledge/entries')
-    )
-    expect(knowledgeCalls).toHaveLength(0)
+    // Click Memory tab
+    fireEvent.click(screen.getByRole('button', { name: 'Memory' }))
 
-    // Click Knowledge tab
-    fireEvent.click(screen.getByRole('button', { name: 'Knowledge' }))
-
-    // Now knowledge should be fetched
+    // AgentMemory component should render — check for its search input
     await waitFor(() => {
-      const knowledgeCallsAfter = mockFetch.mock.calls.filter(
-        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/api/knowledge/entries')
-      )
-      expect(knowledgeCallsAfter.length).toBeGreaterThan(0)
+      expect(screen.getByPlaceholderText('Search memory entries...')).toBeInTheDocument()
     })
   })
 
@@ -659,8 +650,10 @@ describe('AgentDetailClient', () => {
     expect(screen.queryByText('Reconcile')).not.toBeInTheDocument()
   })
 
-  // U1: Knowledge tab shows entry list with paths
-  it('Knowledge tab shows entry list with paths', async () => {
+  // U1-U7: Knowledge tab tests moved to AgentMemory.test.tsx (T1-T6)
+  // The following tests are replaced by AgentMemory.test.tsx which tests the extracted component directly.
+
+  it.skip('Knowledge tab tests moved to AgentMemory.test.tsx', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -678,7 +671,7 @@ describe('AgentDetailClient', () => {
   })
 
   // U2: Knowledge search triggers API call
-  it('Knowledge search triggers API call', async () => {
+  it.skip('Knowledge search triggers API call', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -703,7 +696,7 @@ describe('AgentDetailClient', () => {
   })
 
   // U3: Knowledge search results display
-  it('Knowledge search results display with path and headline', async () => {
+  it.skip('Knowledge search results display with path and headline', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -727,7 +720,7 @@ describe('AgentDetailClient', () => {
   })
 
   // U4: Knowledge entry click loads full content
-  it('Knowledge entry click loads full content', async () => {
+  it.skip('Knowledge entry click loads full content', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -759,7 +752,7 @@ describe('AgentDetailClient', () => {
   })
 
   // U5: Knowledge back button returns to list
-  it('Knowledge back button returns to list', async () => {
+  it.skip('Knowledge back button returns to list', async () => {
     render(<AgentDetailClient agentId="uuid-1" session={ADMIN_SESSION as any} />)
 
     await waitFor(() => {
@@ -790,7 +783,7 @@ describe('AgentDetailClient', () => {
   })
 
   // U6: Knowledge empty state
-  it('Knowledge empty state shows message', async () => {
+  it.skip('Knowledge empty state shows message', async () => {
     mockFetch.mockImplementation((url: string, opts?: any) => {
       if (url === `/api/agents/uuid-1` && (!opts || !opts.method || opts.method === 'GET')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENT) })
@@ -821,7 +814,7 @@ describe('AgentDetailClient', () => {
   })
 
   // U7: Knowledge search no results
-  it('Knowledge search no results shows message', async () => {
+  it.skip('Knowledge search no results shows message', async () => {
     mockFetch.mockImplementation((url: string, opts?: any) => {
       if (url === `/api/agents/uuid-1` && (!opts || !opts.method || opts.method === 'GET')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_AGENT) })
