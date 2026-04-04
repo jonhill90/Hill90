@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import { auth } from '@/auth';
 import Providers from '@/components/Providers';
 import './globals.css';
 
@@ -8,17 +7,15 @@ export const metadata: Metadata = {
   description: 'Hill90 Microservices Platform',
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
-
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body className="bg-navy-900 text-white antialiased">
-        <Providers session={session ? JSON.parse(JSON.stringify(session)) : null}>{children}</Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
