@@ -12,20 +12,27 @@ import time
 from app.config import ShellConfig
 from app.events import EventEmitter
 from app.policy import CommandPolicy
+from app.terminal_log import TerminalLogger
 
 _policy: CommandPolicy | None = None
 _emitter: EventEmitter | None = None
+_terminal: TerminalLogger | None = None
 
 
-def configure(config: ShellConfig, emitter: EventEmitter | None = None) -> None:
+def configure(
+    config: ShellConfig,
+    emitter: EventEmitter | None = None,
+    log_dir: str = "/var/log/agentbox",
+) -> None:
     """Configure shell execution with policy and optional event emitter."""
-    global _policy, _emitter
+    global _policy, _emitter, _terminal
     _policy = CommandPolicy(
         allowed_binaries=config.allowed_binaries,
         denied_patterns=config.denied_patterns,
         max_timeout=config.max_timeout,
     )
     _emitter = emitter
+    _terminal = TerminalLogger(log_dir)
 
 
 async def execute_command(
@@ -103,6 +110,45 @@ async def execute_command(
         )
 
     return json.dumps(result)
+
+
+async def execute_command_pty(
+    command: str,
+    timeout: int = 30,
+    *,
+    command_id: str | None = None,
+    work_id: str | None = None,
+) -> str:
+    """Execute a shell command via PTY with streaming output to terminal.jsonl.
+
+    Same interface as execute_command() but uses PTY for real-time output.
+    Falls back to regular execute_command() if PTY is unavailable.
+    """
+    if _policy is None or _terminal is None:
+        return json.dumps({"success": False, "error": "Shell tools not configured"})
+
+    # Validate and build argv/env
+    result = _policy.build_argv_and_env(command)
+    if result[0] is None:
+        return json.dumps({"success": False, "error": result[1]})
+
+    (argv, env), _ = result
+    timeout = min(max(timeout, 1), _policy.max_timeout)
+
+    cmd_id = command_id or "unknown"
+
+    shell_result = _terminal.execute_and_log(
+        command=command,
+        argv=argv,
+        env=env,
+        cwd="/workspace",
+        timeout=timeout,
+        command_id=cmd_id,
+        emitter=_emitter,
+        work_id=work_id,
+    )
+
+    return json.dumps(shell_result)
 
 
 async def check_command(command: str) -> str:
