@@ -64,6 +64,7 @@ const standardProfile = {
   default_mem_limit: '1g',
   default_pids_limit: 200,
   is_platform: true,
+  metadata: {},
   created_at: '2026-03-14T00:00:00Z',
   updated_at: '2026-03-14T00:00:00Z',
 };
@@ -77,8 +78,23 @@ const customProfile = {
   default_mem_limit: '4g',
   default_pids_limit: 400,
   is_platform: false,
+  metadata: {},
   created_at: '2026-03-14T00:00:00Z',
   updated_at: '2026-03-14T00:00:00Z',
+};
+
+const browserProfile = {
+  id: 'profile-uuid-browser',
+  name: 'browser',
+  description: 'Agentbox with Playwright and Chromium',
+  docker_image: 'hill90/agentbox-browser:latest',
+  default_cpus: '2.0',
+  default_mem_limit: '2g',
+  default_pids_limit: 300,
+  is_platform: true,
+  metadata: { extra_env: ['PLAYWRIGHT_BROWSERS_PATH=/data/browsers'], shm_size: '256m' },
+  created_at: '2026-04-04T00:00:00Z',
+  updated_at: '2026-04-04T00:00:00Z',
 };
 
 describe('Container Profiles routes', () => {
@@ -317,6 +333,69 @@ describe('Container Profiles routes', () => {
 
     expect(res.status).toBe(403);
   });
+
+  // ---------------------------------------------------------------------------
+  // Phase 2: metadata support (T1-T3)
+  // ---------------------------------------------------------------------------
+
+  // T1: GET returns metadata field
+  it('T1: GET /container-profiles returns metadata field', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [standardProfile, browserProfile] });
+
+    const res = await request(app)
+      .get('/container-profiles')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0].metadata).toEqual({});
+    expect(res.body[1].metadata).toEqual({
+      extra_env: ['PLAYWRIGHT_BROWSERS_PATH=/data/browsers'],
+      shm_size: '256m',
+    });
+  });
+
+  // T2: GET single profile returns metadata
+  it('T2: GET /container-profiles/:id returns metadata', async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [browserProfile] });
+
+    const res = await request(app)
+      .get('/container-profiles/profile-uuid-browser')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.metadata.shm_size).toBe('256m');
+    expect(res.body.metadata.extra_env).toContain('PLAYWRIGHT_BROWSERS_PATH=/data/browsers');
+  });
+
+  // T3: POST accepts metadata
+  it('T3: POST /container-profiles accepts metadata', async () => {
+    const newProfile = {
+      ...customProfile,
+      metadata: { extra_env: ['MY_VAR=1'], shm_size: '128m' },
+    };
+    mockQuery.mockResolvedValueOnce({ rows: [newProfile] });
+
+    const res = await request(app)
+      .post('/container-profiles')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        name: 'custom-profile',
+        docker_image: 'hill90/agentbox-custom:latest',
+        metadata: { extra_env: ['MY_VAR=1'], shm_size: '128m' },
+      });
+
+    expect(res.status).toBe(201);
+    // Verify metadata was passed in the INSERT query
+    const insertCall = mockQuery.mock.calls[0];
+    const sql = insertCall[0] as string;
+    expect(sql).toContain('metadata');
+    // 7th param is the serialized metadata
+    expect(insertCall[1][6]).toContain('MY_VAR=1');
+  });
+
+  // T5/T6: Verify createAndStartContainer interface accepts metadata
+  // (Integration tested via T4 in routes-agents.test.ts — these verify the API layer passes metadata through)
 
   // ---------------------------------------------------------------------------
   // Audit emission tests

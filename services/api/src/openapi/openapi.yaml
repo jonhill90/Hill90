@@ -160,6 +160,18 @@ components:
         is_platform:
           type: boolean
           description: Platform profiles are managed by admins and cannot be deleted by users.
+        metadata:
+          type: object
+          description: Profile-specific container configuration (extra_env, shm_size)
+          properties:
+            extra_env:
+              type: array
+              items:
+                type: string
+              description: Additional environment variables injected into the container
+            shm_size:
+              type: string
+              description: Shared memory size for the container (e.g. "256m")
         created_at:
           type: string
           format: date-time
@@ -187,6 +199,9 @@ components:
           type: string
         default_pids_limit:
           type: integer
+        metadata:
+          type: object
+          description: Profile-specific container configuration
 
     ContainerProfileUpdate:
       type: object
@@ -203,6 +218,9 @@ components:
           type: string
         default_pids_limit:
           type: integer
+        metadata:
+          type: object
+          description: Profile-specific container configuration
 
     AgentStatus:
       type: object
