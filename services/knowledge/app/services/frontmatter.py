@@ -9,7 +9,7 @@ class FrontmatterError(Exception):
     """Raised when frontmatter parsing or validation fails."""
 
 
-VALID_TYPES = frozenset({"plan", "decision", "journal", "research", "context", "note"})
+VALID_TYPES = frozenset({"plan", "decision", "journal", "research", "context", "note", "notebook"})
 REQUIRED_FIELDS = ("title", "type")
 
 

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
 import EventTimeline from './EventTimeline'
 import AgentMemory from './AgentMemory'
+import AgentNotebook from './AgentNotebook'
 
 interface Agent {
   id: string
@@ -62,7 +63,7 @@ function scopeBadge(scope: string): { label: string; colorClasses: string } {
   }
 }
 
-type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'activity'
+type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'activity'
 
 export default function AgentDetailClient({
   agentId,
@@ -322,6 +323,7 @@ export default function AgentDetailClient({
     { id: 'configuration', label: 'Configuration' },
     { id: 'model-access', label: 'Model Access' },
     { id: 'memory', label: 'Memory' },
+    { id: 'notebook', label: 'Notebook' },
     { id: 'activity', label: 'Activity' },
   ]
 
@@ -751,6 +753,10 @@ export default function AgentDetailClient({
 
       {activeTab === 'memory' && agent && (
         <AgentMemory agentId={agent.agent_id} />
+      )}
+
+      {activeTab === 'notebook' && agent && (
+        <AgentNotebook agentId={agent.agent_id} />
       )}
 
       {activeTab === 'activity' && (
