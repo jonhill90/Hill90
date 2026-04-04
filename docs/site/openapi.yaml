@@ -26,6 +26,39 @@ components:
       bearerFormat: JWT
 
   schemas:
+    AgentTask:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [backlog, todo, in_progress, review, done, cancelled]
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 4
+        sort_order:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     Agent:
       type: object
       properties:
@@ -3631,3 +3664,177 @@ paths:
           description: Thread not found or not a participant
         "409":
           description: No running agents in thread
+
+  # Task management
+  /tasks:
+    get:
+      summary: List tasks
+      tags: [Tasks]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: agent_id
+          in: query
+          schema:
+            type: string
+          description: Optional agent ID filter
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [backlog, todo, in_progress, review, done, cancelled]
+          description: Optional status filter
+      responses:
+        "200":
+          description: Task list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentTask'
+    post:
+      summary: Create task
+      tags: [Tasks]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id, title]
+              properties:
+                agent_id:
+                  type: string
+                title:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                  enum: [backlog, todo, in_progress, review, done, cancelled]
+                priority:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTask'
+
+  /tasks/{id}:
+    get:
+      summary: Get task
+      tags: [Tasks]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Task detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTask'
+        "404":
+          description: Task not found
+    put:
+      summary: Update task
+      tags: [Tasks]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                  enum: [backlog, todo, in_progress, review, done, cancelled]
+                priority:
+                  type: integer
+                  minimum: 1
+                  maximum: 4
+                tags:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Updated task
+        "404":
+          description: Task not found
+    delete:
+      summary: Cancel task
+      tags: [Tasks]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Cancelled task
+        "404":
+          description: Task not found
+
+  /tasks/{id}/transition:
+    patch:
+      summary: Transition task status
+      tags: [Tasks]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [backlog, todo, in_progress, review, done, cancelled]
+      responses:
+        "200":
+          description: Transitioned task
+        "404":
+          description: Task not found
