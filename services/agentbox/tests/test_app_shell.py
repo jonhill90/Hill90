@@ -22,11 +22,16 @@ def configure_shell(tmp_path):
     shell.configure(config)
     # Override the policy's default cwd for local testing
     original_execute = shell._policy.execute
+    original_streaming = shell._policy.execute_streaming
 
     def patched_execute(command, timeout=30, cwd=str(tmp_path)):
         return original_execute(command, timeout=timeout, cwd=cwd)
 
+    def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+        return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+
     shell._policy.execute = patched_execute
+    shell._policy.execute_streaming = patched_streaming
 
 
 class TestExecuteCommand:
@@ -56,11 +61,12 @@ class TestEventEmission:
         emitter = MagicMock()
         shell._emitter = emitter
         await shell.execute_command("echo hello")
-        assert emitter.emit.call_count == 2
+        # With streaming: command_start + N command_output + command_complete
+        assert emitter.emit.call_count >= 2
         start_call = emitter.emit.call_args_list[0]
         assert start_call.kwargs["type"] == "command_start"
         assert start_call.kwargs["tool"] == "shell"
-        complete_call = emitter.emit.call_args_list[1]
+        complete_call = emitter.emit.call_args_list[-1]
         assert complete_call.kwargs["type"] == "command_complete"
         assert complete_call.kwargs["tool"] == "shell"
         assert complete_call.kwargs["success"] is True
@@ -72,7 +78,7 @@ class TestEventEmission:
         emitter = MagicMock()
         shell._emitter = emitter
         await shell.execute_command("echo hello")
-        complete_call = emitter.emit.call_args_list[1]
+        complete_call = emitter.emit.call_args_list[-1]
         output = complete_call.kwargs["output_summary"]
         # Must match "exit N, M bytes stdout" — no actual stdout content
         assert re.match(r"^exit \d+, \d+ bytes stdout$", output)
@@ -162,12 +168,12 @@ class TestMetadataPropagation:
 
     @pytest.mark.asyncio
     async def test_execute_with_command_id_metadata(self):
-        """SM1: command_id kwarg propagates to both emit calls as metadata."""
+        """SM1: command_id kwarg propagates to all emit calls as metadata."""
         emitter = MagicMock()
         shell._emitter = emitter
         try:
             await shell.execute_command("echo test", command_id="CID-1")
-            assert emitter.emit.call_count == 2
+            assert emitter.emit.call_count >= 2
             for call in emitter.emit.call_args_list:
                 assert call.kwargs["metadata"]["command_id"] == "CID-1"
         finally:
@@ -175,16 +181,108 @@ class TestMetadataPropagation:
 
     @pytest.mark.asyncio
     async def test_execute_with_work_id_metadata(self):
-        """SM2: work_id kwarg propagates to both emit calls as metadata."""
+        """SM2: work_id kwarg propagates to all emit calls as metadata."""
         emitter = MagicMock()
         shell._emitter = emitter
         try:
             await shell.execute_command("echo test", work_id="WID-1")
-            assert emitter.emit.call_count == 2
+            assert emitter.emit.call_count >= 2
             for call in emitter.emit.call_args_list:
                 assert call.kwargs["metadata"]["work_id"] == "WID-1"
         finally:
             shell._emitter = None
+
+
+class TestStreamingExecution:
+    """AI-151: Tests for execute_streaming and command_output events."""
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_emits_output_events(self, tmp_path):
+        """T1: execute_streaming emits command_output events per stdout line."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+
+        # Also patch execute_streaming cwd
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
+
+        try:
+            result = json.loads(await shell.execute_command("printf 'line1\nline2\nline3\n'"))
+            assert result["success"] is True
+
+            # Should have: command_start, 3x command_output, command_complete
+            types = [c.kwargs["type"] for c in emitter.emit.call_args_list]
+            assert types[0] == "command_start"
+            assert types[-1] == "command_complete"
+            output_events = [c for c in emitter.emit.call_args_list if c.kwargs["type"] == "command_output"]
+            assert len(output_events) == 3
+            lines = [c.kwargs["output_summary"] for c in output_events]
+            assert lines == ["line1", "line2", "line3"]
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_returns_result(self, tmp_path):
+        """T2: execute_streaming still returns final result dict."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
+
+        try:
+            result = json.loads(await shell.execute_command("echo streaming-ok"))
+            assert result["success"] is True
+            assert result["exit_code"] == 0
+            assert "streaming-ok" in result["stdout"]
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_command_output_has_command_id(self, tmp_path):
+        """T3: command_output events carry command_id in metadata."""
+        emitter = MagicMock()
+        shell._emitter = emitter
+
+        original_streaming = shell._policy.execute_streaming
+
+        def patched_streaming(command, timeout=30, cwd=str(tmp_path), **kwargs):
+            return original_streaming(command, timeout=timeout, cwd=cwd, **kwargs)
+        shell._policy.execute_streaming = patched_streaming
+
+        try:
+            await shell.execute_command("echo test", command_id="CMD-123")
+            output_events = [c for c in emitter.emit.call_args_list if c.kwargs["type"] == "command_output"]
+            assert len(output_events) > 0
+            for event in output_events:
+                assert event.kwargs["metadata"]["command_id"] == "CMD-123"
+        finally:
+            shell._emitter = None
+
+    @pytest.mark.asyncio
+    async def test_streaming_truncates_long_lines(self, tmp_path):
+        """T4: Individual output lines are truncated to max_line_len."""
+        from app.policy import CommandPolicy
+
+        policy = CommandPolicy(allowed_binaries=[], denied_patterns=[], max_timeout=10)
+        lines_received: list[str] = []
+        # Generate a 10KB line
+        result = policy.execute_streaming(
+            "python3 -c \"print('A' * 10000)\"",
+            timeout=5,
+            cwd=str(tmp_path),
+            on_output=lambda line: lines_received.append(line),
+            max_line_len=4096,
+        )
+        assert result["success"] is True
+        assert len(lines_received) == 1
+        assert len(lines_received[0]) == 4096
 
     @pytest.mark.asyncio
     async def test_execute_with_both_ids(self):
@@ -193,7 +291,7 @@ class TestMetadataPropagation:
         shell._emitter = emitter
         try:
             await shell.execute_command("echo test", command_id="CID-2", work_id="WID-2")
-            assert emitter.emit.call_count == 2
+            assert emitter.emit.call_count >= 2
             for call in emitter.emit.call_args_list:
                 meta = call.kwargs["metadata"]
                 assert meta["command_id"] == "CID-2"
@@ -203,13 +301,16 @@ class TestMetadataPropagation:
 
     @pytest.mark.asyncio
     async def test_execute_no_kwargs_no_metadata(self):
-        """SM4: No command_id/work_id kwargs results in metadata=None (backward compat)."""
+        """SM4: No command_id/work_id kwargs results in metadata=None on start/complete (backward compat)."""
         emitter = MagicMock()
         shell._emitter = emitter
         try:
             await shell.execute_command("echo test")
-            assert emitter.emit.call_count == 2
-            for call in emitter.emit.call_args_list:
-                assert call.kwargs["metadata"] is None
+            assert emitter.emit.call_count >= 2
+            # Check start and complete have metadata=None
+            start = emitter.emit.call_args_list[0]
+            complete = emitter.emit.call_args_list[-1]
+            assert start.kwargs["metadata"] is None
+            assert complete.kwargs["metadata"] is None
         finally:
             shell._emitter = None

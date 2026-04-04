@@ -7,6 +7,8 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
+from typing import Callable
 
 
 class CommandPolicy:
@@ -100,6 +102,95 @@ class CommandPolicy:
             }
         except subprocess.TimeoutExpired:
             return {"success": False, "error": f"Timed out after {timeout}s"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def execute_streaming(
+        self,
+        command: str,
+        timeout: int = 30,
+        cwd: str = "/workspace",
+        on_output: Callable[[str], None] | None = None,
+        max_line_len: int = 4096,
+        max_lines: int = 1000,
+    ) -> dict:
+        """Execute command with line-by-line stdout streaming via on_output callback.
+
+        Stdout lines are delivered to on_output as they're produced. The final
+        result dict (same shape as execute()) is returned after the process exits.
+
+        Args:
+            command: Shell command string.
+            timeout: Max seconds before kill.
+            cwd: Working directory.
+            on_output: Called with each stdout line (stripped). None to skip streaming.
+            max_line_len: Truncate individual lines to this length.
+            max_lines: Stop emitting after this many lines (process continues).
+        """
+        allowed, reason = self.check(command)
+        if not allowed:
+            return {"success": False, "error": reason}
+
+        argv = shlex.split(command)
+        timeout = min(max(timeout, 1), self.max_timeout)
+
+        safe_env = {
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            "HOME": cwd,
+            "LANG": "C.UTF-8",
+            "TERM": "xterm",
+        }
+
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=cwd,
+                env=safe_env,
+                shell=False,
+            )
+
+            # Timeout via timer
+            timed_out = threading.Event()
+
+            def _kill():
+                timed_out.set()
+                proc.kill()
+
+            timer = threading.Timer(timeout, _kill)
+            timer.start()
+
+            # Stream stdout line-by-line
+            stdout_parts: list[str] = []
+            lines_emitted = 0
+            try:
+                for raw_line in proc.stdout:  # type: ignore[union-attr]
+                    line = raw_line.rstrip("\n")
+                    if len(line) > max_line_len:
+                        line = line[:max_line_len]
+                    stdout_parts.append(raw_line)
+                    if on_output and lines_emitted < max_lines:
+                        on_output(line)
+                        lines_emitted += 1
+            except ValueError:
+                pass  # stdout closed
+
+            stderr = proc.stderr.read() if proc.stderr else ""  # type: ignore[union-attr]
+            proc.wait()
+            timer.cancel()
+
+            if timed_out.is_set():
+                return {"success": False, "error": f"Timed out after {timeout}s"}
+
+            stdout = "".join(stdout_parts)
+            return {
+                "success": proc.returncode == 0,
+                "exit_code": proc.returncode,
+                "stdout": stdout[:100_000],
+                "stderr": stderr[:10_000],
+            }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
