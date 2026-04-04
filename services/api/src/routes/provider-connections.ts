@@ -31,13 +31,58 @@ router.get('/', async (req: Request, res: Response) => {
 
   const user = (req as any).user;
   const result = await pool.query(
-    `SELECT id, name, provider, api_base_url, is_valid, created_at, updated_at
+    `SELECT id, name, provider, api_base_url, is_valid,
+            last_validated_at, last_validation_error, validation_latency_ms,
+            created_at, updated_at
      FROM provider_connections
      WHERE created_by = $1
      ORDER BY created_at DESC`,
     [user.sub]
   );
   res.json(result.rows);
+});
+
+// GET /provider-connections/health — aggregate health stats for own connections
+router.get('/health', async (req: Request, res: Response) => {
+  const pool = getPool();
+  if (!process.env.DATABASE_URL) {
+    res.status(503).json({ error: 'Database not configured' });
+    return;
+  }
+
+  const user = (req as any).user;
+
+  const overall = await pool.query(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE is_valid = true)::int AS valid,
+       COUNT(*) FILTER (WHERE is_valid = false)::int AS invalid,
+       COUNT(*) FILTER (WHERE is_valid IS NULL)::int AS untested,
+       ROUND(AVG(validation_latency_ms) FILTER (WHERE validation_latency_ms IS NOT NULL))::int AS avg_latency_ms
+     FROM provider_connections
+     WHERE created_by = $1`,
+    [user.sub]
+  );
+
+  const byProvider = await pool.query(
+    `SELECT
+       provider,
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE is_valid = true)::int AS valid,
+       COUNT(*) FILTER (WHERE is_valid = false)::int AS invalid,
+       COUNT(*) FILTER (WHERE is_valid IS NULL)::int AS untested,
+       ROUND(AVG(validation_latency_ms) FILTER (WHERE validation_latency_ms IS NOT NULL))::int AS avg_latency_ms
+     FROM provider_connections
+     WHERE created_by = $1
+     GROUP BY provider
+     ORDER BY provider`,
+    [user.sub]
+  );
+
+  res.json({
+    ...overall.rows[0],
+    by_provider: byProvider.rows,
+  });
 });
 
 // POST /provider-connections — create connection with encrypted key
@@ -82,6 +127,80 @@ router.post('/', async (req: Request, res: Response) => {
     }
     throw err;
   }
+});
+
+// POST /provider-connections/validate-all — bulk validate all own connections
+router.post('/validate-all', async (req: Request, res: Response) => {
+  const pool = getPool();
+  if (!process.env.DATABASE_URL) {
+    res.status(503).json({ error: 'Database not configured' });
+    return;
+  }
+
+  const user = (req as any).user;
+  const aiServiceUrl = process.env.AI_SERVICE_URL || process.env.MODEL_ROUTER_URL || 'http://ai:8000';
+  const serviceToken = process.env.MODEL_ROUTER_INTERNAL_SERVICE_TOKEN;
+
+  if (!serviceToken) {
+    res.status(503).json({ error: 'Internal service token not configured' });
+    return;
+  }
+
+  const conns = await pool.query(
+    `SELECT id, name, provider, api_key_encrypted, api_key_nonce, api_base_url
+     FROM provider_connections
+     WHERE created_by = $1
+     ORDER BY created_at DESC`,
+    [user.sub]
+  );
+
+  const results: any[] = [];
+
+  for (const row of conns.rows) {
+    const startTime = Date.now();
+    try {
+      const response = await axios.post(
+        `${aiServiceUrl}/internal/validate-provider`,
+        {
+          provider: row.provider,
+          api_key_encrypted: Buffer.from(row.api_key_encrypted).toString('hex'),
+          api_key_nonce: Buffer.from(row.api_key_nonce).toString('hex'),
+          api_base_url: row.api_base_url,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${serviceToken}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        }
+      );
+
+      const latencyMs = Date.now() - startTime;
+      const isValid = response.data?.valid === true;
+      await pool.query(
+        `UPDATE provider_connections
+         SET is_valid = $1, last_validated_at = NOW(), validation_latency_ms = $2,
+             last_validation_error = NULL, updated_at = NOW()
+         WHERE id = $3`,
+        [isValid, latencyMs, row.id]
+      );
+      results.push({ id: row.id, name: row.name, is_valid: isValid, validation_latency_ms: latencyMs });
+    } catch (err: any) {
+      const latencyMs = Date.now() - startTime;
+      const errorMsg = (err.response?.data?.error || err.message || '').slice(0, 500);
+      await pool.query(
+        `UPDATE provider_connections
+         SET is_valid = false, last_validated_at = NOW(), validation_latency_ms = $1,
+             last_validation_error = $2, updated_at = NOW()
+         WHERE id = $3`,
+        [latencyMs, errorMsg, row.id]
+      );
+      results.push({ id: row.id, name: row.name, is_valid: false, validation_latency_ms: latencyMs, error: errorMsg });
+    }
+  }
+
+  res.json({ results });
 });
 
 // PUT /provider-connections/:id — update own connection
@@ -360,6 +479,7 @@ router.post('/:id/validate', async (req: Request, res: Response) => {
     return;
   }
 
+  const startTime = Date.now();
   try {
     const response = await axios.post(
       `${aiServiceUrl}/internal/validate-provider`,
@@ -378,20 +498,27 @@ router.post('/:id/validate', async (req: Request, res: Response) => {
       }
     );
 
+    const latencyMs = Date.now() - startTime;
     const isValid = response.data?.valid === true;
     await pool.query(
-      'UPDATE provider_connections SET is_valid = $1, updated_at = NOW() WHERE id = $2',
-      [isValid, id]
+      `UPDATE provider_connections
+       SET is_valid = $1, last_validated_at = NOW(), validation_latency_ms = $2,
+           last_validation_error = NULL, updated_at = NOW()
+       WHERE id = $3`,
+      [isValid, latencyMs, id]
     );
-    res.json({ id, is_valid: isValid });
+    res.json({ id, is_valid: isValid, validation_latency_ms: latencyMs });
   } catch (err: any) {
-    // AI service returned an error or was unreachable
-    const errorMsg = err.response?.data?.error || err.message;
+    const latencyMs = Date.now() - startTime;
+    const errorMsg = (err.response?.data?.error || err.message || '').slice(0, 500);
     await pool.query(
-      'UPDATE provider_connections SET is_valid = false, updated_at = NOW() WHERE id = $1',
-      [id]
+      `UPDATE provider_connections
+       SET is_valid = false, last_validated_at = NOW(), validation_latency_ms = $1,
+           last_validation_error = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [latencyMs, errorMsg, id]
     );
-    res.json({ id, is_valid: false, error: errorMsg });
+    res.json({ id, is_valid: false, validation_latency_ms: latencyMs, error: errorMsg });
   }
 });
 
