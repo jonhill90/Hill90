@@ -18,6 +18,7 @@ import { requireRole } from './middleware/role';
 import { docsRouter, specRouter } from './routes/docs';
 import { delegationTokenHandler } from './services/model-router-delegation';
 import chatRouter, { chatCallbackHandler, startStaleSweeper } from './routes/chat';
+import tasksRouter from './routes/tasks';
 import { modelRouterRefreshHandler } from './services/model-router-refresh';
 
 interface AppOptions {
@@ -86,6 +87,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Shared knowledge proxy routes (user-scoped CRUD)
   app.use('/shared-knowledge', requireAuth, sharedKnowledgeRouter);
+
+  // Task management routes (user-scoped Kanban)
+  app.use('/tasks', requireAuth, tasksRouter);
 
   // Chat routes (user-scoped, participant-enforced in router)
   app.use('/chat', requireAuth, chatRouter);
