@@ -29,10 +29,27 @@ interface SearchResult {
   content: string
   headline: string
   score: number
+  quality_score: number
+  quality_label: 'high' | 'medium' | 'low'
   chunk_index: number
   source_title: string
   source_url: string | null
   collection_name: string
+}
+
+interface QualitySummary {
+  avg_score: number
+  min_score: number
+  max_score: number
+  distribution: { high: number; medium: number; low: number }
+}
+
+interface UsageEntry {
+  id: string
+  name?: string
+  title?: string
+  collection_name?: string
+  retrieval_count: number
 }
 
 interface RequesterTypeStats {
@@ -69,6 +86,10 @@ interface SharedStats {
     total_chunks: number
     total_tokens: number
   }
+  usage: {
+    top_collections: UsageEntry[]
+    top_sources: UsageEntry[]
+  }
   since: string | null
 }
 
@@ -80,6 +101,7 @@ export default function SharedKnowledgeClient() {
   const [sources, setSources] = useState<Source[]>([])
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null)
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [qualitySummary, setQualitySummary] = useState<QualitySummary | null>(null)
 
   // UI state
   const [loading, setLoading] = useState(true)
@@ -318,6 +340,7 @@ export default function SharedKnowledgeClient() {
       if (res.ok) {
         const data = await res.json()
         setSearchResults(data.results || [])
+        setQualitySummary(data.quality_summary || null)
       }
     } catch {
       // silent
@@ -703,6 +726,14 @@ export default function SharedKnowledgeClient() {
             </div>
           ) : (
             <div className="space-y-3">
+              {qualitySummary && (
+                <div className="flex items-center gap-4 rounded-lg border border-navy-700 bg-navy-800 px-4 py-2 text-xs text-mountain-400" data-testid="quality-summary">
+                  <span>Avg: {Number(qualitySummary.avg_score).toFixed(2)}</span>
+                  <span className="text-green-400">{qualitySummary.distribution.high} high</span>
+                  <span className="text-yellow-400">{qualitySummary.distribution.medium} medium</span>
+                  <span className="text-red-400">{qualitySummary.distribution.low} low</span>
+                </div>
+              )}
               {searchResults.map((r, i) => (
                 <div key={`${r.chunk_id}-${i}`} className="rounded-lg border border-navy-700 bg-navy-800 p-4">
                   <div className="flex items-center gap-2 mb-2">
@@ -713,8 +744,15 @@ export default function SharedKnowledgeClient() {
                         Source
                       </a>
                     )}
+                    <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
+                      r.quality_label === 'high' ? 'bg-green-900/40 text-green-400 border border-green-700'
+                        : r.quality_label === 'medium' ? 'bg-yellow-900/40 text-yellow-400 border border-yellow-700'
+                        : 'bg-red-900/40 text-red-400 border border-red-700'
+                    }`} data-testid="quality-badge">
+                      {r.quality_label}
+                    </span>
                     <span className="text-xs text-mountain-500 ml-auto">
-                      Score: {Number(r.score).toFixed(4)}
+                      Score: {Number(r.quality_score ?? r.score).toFixed(4)}
                     </span>
                   </div>
                   <p
@@ -853,6 +891,63 @@ export default function SharedKnowledgeClient() {
                   ~{Math.round(Number(stats.corpus.total_tokens) / 1000).toLocaleString()}k tokens
                 </p>
               </div>
+
+              {/* Usage Rankings */}
+              {stats.usage && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Top Collections */}
+                  <div className="rounded-lg border border-navy-700 bg-navy-800 p-5" data-testid="top-collections">
+                    <h3 className="text-sm font-semibold text-white mb-3">Most Accessed Collections</h3>
+                    {stats.usage.top_collections.length === 0 ? (
+                      <p className="text-xs text-mountain-500">No collection usage data yet</p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-mountain-500">
+                            <th className="pb-2 font-medium">Collection</th>
+                            <th className="pb-2 font-medium text-right">Retrievals</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-navy-700">
+                          {stats.usage.top_collections.map(c => (
+                            <tr key={c.id}>
+                              <td className="py-1.5 text-mountain-300">{c.name}</td>
+                              <td className="py-1.5 text-mountain-300 text-right">{Number(c.retrieval_count).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Top Sources */}
+                  <div className="rounded-lg border border-navy-700 bg-navy-800 p-5" data-testid="top-sources">
+                    <h3 className="text-sm font-semibold text-white mb-3">Most Accessed Sources</h3>
+                    {stats.usage.top_sources.length === 0 ? (
+                      <p className="text-xs text-mountain-500">No source usage data yet</p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-xs text-mountain-500">
+                            <th className="pb-2 font-medium">Source</th>
+                            <th className="pb-2 font-medium">Collection</th>
+                            <th className="pb-2 font-medium text-right">Retrievals</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-navy-700">
+                          {stats.usage.top_sources.map(s => (
+                            <tr key={s.id}>
+                              <td className="py-1.5 text-mountain-300">{s.title}</td>
+                              <td className="py-1.5 text-mountain-500 text-xs">{s.collection_name}</td>
+                              <td className="py-1.5 text-mountain-300 text-right">{Number(s.retrieval_count).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
