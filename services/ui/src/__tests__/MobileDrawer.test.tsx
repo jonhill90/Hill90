@@ -143,4 +143,12 @@ describe('MobileDrawer', () => {
 
     expect(screen.getByRole('link', { name: /api docs/i })).toBeInTheDocument()
   })
+
+  it('T6: renders nothing when logged out', () => {
+    mockSession = { data: null, status: 'unauthenticated' }
+
+    const { container } = render(<MobileDrawer open={true} onClose={vi.fn()} />)
+
+    expect(container.innerHTML).toBe('')
+  })
 })

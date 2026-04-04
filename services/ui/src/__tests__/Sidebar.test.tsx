@@ -162,4 +162,24 @@ describe('Sidebar', () => {
     const label = homeLink.querySelector('[data-sidebar-label]')
     expect(label).toHaveClass('sr-only')
   })
+
+  it('T4: renders nothing when logged out', () => {
+    mockSession = { data: null, status: 'unauthenticated' }
+
+    const { container } = render(<Sidebar />)
+
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('T5: renders nav items when logged in', () => {
+    mockSession = {
+      data: { user: { roles: ['user'] } },
+      status: 'authenticated',
+    }
+
+    render(<Sidebar />)
+
+    expect(screen.getByRole('link', { name: /home/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument()
+  })
 })
