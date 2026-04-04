@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare } from 'lucide-react'
+import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavLink {
@@ -27,6 +27,7 @@ export const NAV_ITEMS: NavItem[] = [
   { type: 'link', id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { type: 'link', id: 'agents', label: 'Agents', href: '/agents', icon: Bot },
   { type: 'link', id: 'chat', label: 'Chat', href: '/chat', icon: MessageSquare },
+  { type: 'link', id: 'knowledge', label: 'Knowledge', href: '/harness/knowledge', icon: BookOpen },
   {
     type: 'group',
     id: 'harness',
@@ -36,10 +37,9 @@ export const NAV_ITEMS: NavItem[] = [
       { type: 'link', id: 'connections', label: 'Connections', href: '/harness/connections', icon: KeyRound },
       { type: 'link', id: 'models', label: 'Models', href: '/harness/models', icon: Cpu },
       { type: 'link', id: 'skills', label: 'Skills', href: '/harness/skills', icon: Wrench },
-      { type: 'link', id: 'tools', label: 'Tools', href: '/harness/tools', icon: Settings, adminOnly: true },
+      { type: 'link', id: 'dependencies', label: 'Dependencies', href: '/harness/tools', icon: Package, adminOnly: true },
       { type: 'link', id: 'usage', label: 'Usage', href: '/harness/usage', icon: BarChart3 },
-      { type: 'link', id: 'knowledge', label: 'Knowledge', href: '/harness/knowledge', icon: BookOpen },
-      { type: 'link', id: 'shared-knowledge', label: 'Shared Knowledge', href: '/harness/shared-knowledge', icon: Library },
+      { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
     ],
   },
   {

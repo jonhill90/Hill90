@@ -122,7 +122,7 @@ describe('SharedKnowledgeClient', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     expect(screen.getByText('Collections & Sources')).toBeInTheDocument()
@@ -340,7 +340,7 @@ describe('SharedKnowledgeClient', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     // Switch to search tab
@@ -366,7 +366,7 @@ describe('SharedKnowledgeClient', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Search'))
@@ -384,7 +384,7 @@ describe('SharedKnowledgeClient', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Search'))
@@ -404,7 +404,7 @@ describe('SharedKnowledgeClient', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Search'))
@@ -431,7 +431,7 @@ describe('SharedKnowledgeClient', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Search'))

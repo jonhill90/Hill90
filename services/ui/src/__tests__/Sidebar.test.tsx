@@ -40,6 +40,8 @@ describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorageMock.clear()
+    // Reset getItem to default after any mockReturnValue overrides (e.g. collapsed test)
+    localStorageMock.getItem.mockImplementation((key: string) => null)
     mockPathname = '/'
     mockSession = { data: null, status: 'unauthenticated' }
   })
@@ -129,7 +131,7 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /models/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /usage/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^knowledge$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /shared knowledge/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^library$/i })).toBeInTheDocument()
   })
 
   it('highlights active harness route', () => {
@@ -161,6 +163,48 @@ describe('Sidebar', () => {
     const homeLink = screen.getByRole('link', { name: /home/i })
     const label = homeLink.querySelector('[data-sidebar-label]')
     expect(label).toHaveClass('sr-only')
+  })
+
+  it('T1: nav shows Library label in Harness group', () => {
+    mockSession = {
+      data: { user: { roles: ['user'] } },
+      status: 'authenticated',
+    }
+
+    render(<Sidebar />)
+
+    // Verify sidebar rendered with content (not null)
+    expect(screen.getByRole('link', { name: /home/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /harness/i }))
+
+    expect(screen.getByText('Library')).toBeInTheDocument()
+    expect(screen.queryByText('Shared Knowledge')).not.toBeInTheDocument()
+  })
+
+  it('T2: nav shows Dependencies label for admin in Harness group', () => {
+    mockSession = {
+      data: { user: { roles: ['admin'] } },
+      status: 'authenticated',
+    }
+
+    render(<Sidebar />)
+    fireEvent.click(screen.getByRole('button', { name: /harness/i }))
+
+    expect(screen.getByText('Connections')).toBeInTheDocument()
+    expect(screen.getByText('Dependencies')).toBeInTheDocument()
+  })
+
+  it('T3: nav shows Knowledge outside Harness group', () => {
+    mockSession = {
+      data: { user: { roles: ['user'] } },
+      status: 'authenticated',
+    }
+
+    render(<Sidebar />)
+
+    // Knowledge should be visible without expanding Harness
+    expect(screen.getByRole('link', { name: /knowledge/i })).toBeInTheDocument()
   })
 
   it('T4: renders nothing when logged out', () => {

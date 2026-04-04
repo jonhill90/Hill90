@@ -77,7 +77,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     expect(screen.getByText('Quality')).toBeInTheDocument()
@@ -87,7 +87,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
@@ -101,7 +101,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
@@ -121,7 +121,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
@@ -135,7 +135,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
@@ -150,7 +150,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
@@ -167,7 +167,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
@@ -186,7 +186,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
@@ -251,7 +251,7 @@ describe('SharedKnowledgeQuality', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Shared Knowledge')).toBeInTheDocument()
+      expect(screen.getByText('Library')).toBeInTheDocument()
     })
 
     fireEvent.click(screen.getByText('Quality'))
