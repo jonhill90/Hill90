@@ -66,9 +66,22 @@ describe('TopBar', () => {
     expect(screen.getByText('Profile / Edit')).toBeInTheDocument()
   })
 
-  it('renders hamburger menu button', () => {
+  it('renders hamburger menu button when authenticated', () => {
+    mockSession = {
+      data: { user: { roles: ['user'] } },
+      status: 'authenticated',
+    }
+
     render(<TopBar />)
 
     expect(screen.getByRole('button', { name: /open menu/i })).toBeInTheDocument()
+  })
+
+  it('T7: hides hamburger menu when logged out', () => {
+    mockSession = { data: null, status: 'unauthenticated' }
+
+    render(<TopBar />)
+
+    expect(screen.queryByRole('button', { name: /open menu/i })).not.toBeInTheDocument()
   })
 })

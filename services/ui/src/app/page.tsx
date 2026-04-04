@@ -1,4 +1,8 @@
-import AppShell from '@/components/AppShell';
+'use client'
+
+import { useSession } from 'next-auth/react'
+import AppShell from '@/components/AppShell'
+import LandingHero from '@/components/LandingHero'
 
 const services = [
   {
@@ -21,9 +25,23 @@ const services = [
     description: 'Model Context Protocol server for AI tool integrations.',
     endpoint: 'ai.hill90.com/mcp',
   },
-];
+]
 
 export default function Home() {
+  const { data: session, status } = useSession()
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-navy-900">
+        <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  if (!session) {
+    return <LandingHero />
+  }
+
   return (
     <AppShell>
       {/* Hero */}
@@ -51,5 +69,5 @@ export default function Home() {
         </div>
       </main>
     </AppShell>
-  );
+  )
 }

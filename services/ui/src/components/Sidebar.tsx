@@ -35,6 +35,8 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [expanded, setExpanded] = useState(readExpandState)
 
+  if (!session) return null
+
   const roles: string[] = (session?.user as any)?.roles ?? []
   const isAdmin = roles.includes('admin')
 
