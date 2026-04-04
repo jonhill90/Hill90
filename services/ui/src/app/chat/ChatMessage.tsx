@@ -9,6 +9,7 @@ interface Props {
   isOwnMessage: boolean
   isGroup?: boolean
   agents?: ChatAgent[]
+  triggerAgentName?: string
 }
 
 // Stable color set for agent badges
@@ -28,7 +29,7 @@ function getAgentColor(agentId: string, agents: ChatAgent[]): string {
   return AGENT_COLORS[idx >= 0 ? idx % AGENT_COLORS.length : 0]
 }
 
-export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [] }: Props) {
+export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [], triggerAgentName }: Props) {
   const isUser = message.role === 'user'
   const isPending = message.status === 'pending'
   const isError = message.status === 'error'
@@ -73,6 +74,13 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
             >
               {agentName}
             </span>
+          </div>
+        )}
+
+        {/* Chain provenance annotation */}
+        {message.triggered_by && (
+          <div className="mb-1 text-[10px] text-mountain-500 italic" data-testid="chain-provenance">
+            Triggered by @{triggerAgentName || 'agent'}
           </div>
         )}
 
