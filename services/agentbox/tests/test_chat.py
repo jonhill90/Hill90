@@ -270,3 +270,82 @@ class TestSystemPromptAssembly:
         ai_body = mock_post.call_args_list[0][1]["json"]
         # No system message when both soul and rules are empty
         assert ai_body["messages"][0]["role"] == "user"
+
+
+class TestGroupChatContext:
+    """AI-146: Group thread context in system prompt."""
+
+    @patch("app.chat.requests.post")
+    def test_group_chat_includes_participants(self, mock_post, emitter, monkeypatch):
+        """T8: Group payload injects participant names into system prompt."""
+        em, _ = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        ai_response = MagicMock(
+            status_code=200,
+            json=lambda: {"choices": [{"message": {"content": "ok"}}], "usage": {}, "model": "m"},
+        )
+        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "Hi all"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+                "thread_type": "group",
+                "participants": [
+                    {"agent_id": "alpha", "name": "Alpha"},
+                    {"agent_id": "beta", "name": "Beta"},
+                ],
+            },
+            soul="I am TestBot",
+            rules="Rule 1: Be nice",
+            work_id="w1",
+            emitter=em,
+        )
+
+        ai_body = mock_post.call_args_list[0][1]["json"]
+        system_msg = ai_body["messages"][0]
+        assert system_msg["role"] == "system"
+        assert "Group Thread" in system_msg["content"]
+        assert "@alpha" in system_msg["content"]
+        assert "@beta" in system_msg["content"]
+        assert "@slug" in system_msg["content"]
+        # Original soul + rules still present
+        assert "I am TestBot" in system_msg["content"]
+        assert "Rule 1: Be nice" in system_msg["content"]
+
+    @patch("app.chat.requests.post")
+    def test_direct_chat_no_participant_context(self, mock_post, emitter, monkeypatch):
+        """T9: Direct payload does not alter system prompt."""
+        em, _ = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        ai_response = MagicMock(
+            status_code=200,
+            json=lambda: {"choices": [{"message": {"content": "ok"}}], "usage": {}, "model": "m"},
+        )
+        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+                # No thread_type or participants — direct thread
+            },
+            soul="I am TestBot",
+            rules="Rule 1: Be nice",
+            work_id="w1",
+            emitter=em,
+        )
+
+        ai_body = mock_post.call_args_list[0][1]["json"]
+        system_msg = ai_body["messages"][0]
+        assert system_msg["role"] == "system"
+        assert "Group Thread" not in system_msg["content"]
+        assert "I am TestBot" in system_msg["content"]
