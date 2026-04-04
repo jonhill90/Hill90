@@ -1,10 +1,20 @@
+'use client'
+
+import { useSession } from 'next-auth/react'
 import { redirect } from 'next/navigation'
-import { auth } from '@/auth'
 import AppShell from '@/components/AppShell'
 import ModelsClient from './ModelsClient'
 
-export default async function ModelsPage() {
-  const session = await auth()
+export default function ModelsPage() {
+  const { data: session, status } = useSession()
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-navy-900">
+        <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
 
   if (!session) {
     redirect('/api/auth/signin')
