@@ -229,6 +229,8 @@ class AgentRuntime:
                 rules=self.rules,
                 work_id=work_id,
                 emitter=self._emitter,
+                tools_config=self._config.tools,
+                tool_loop_config=self._config.tool_loop,
             )
             self._emitter.emit(
                 type="work_completed",

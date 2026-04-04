@@ -1253,18 +1253,56 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
     return;
   }
 
-  const finalStatus = status === 'error' ? 'error' : 'complete';
-
   const pool = getPool();
 
-  // Guarded UPDATE: only pending → terminal (§7.5 idempotency rules)
+  // Thinking callbacks are intermediate progress updates during tool loops.
+  // They update content + advance seq (so SSE picks up) but stay non-terminal.
+  if (status === 'thinking') {
+    const { rowCount } = await pool.query(
+      `UPDATE chat_messages
+       SET content = $2, status = 'thinking', model = $3,
+           input_tokens = $4, output_tokens = $5, duration_ms = $6,
+           seq = nextval('chat_messages_seq')
+       WHERE id = $1 AND status IN ('pending', 'thinking')`,
+      [message_id, content || '', model || null,
+       input_tokens || null, output_tokens || null, duration_ms || null]
+    );
+
+    if (rowCount === 0) {
+      const { rows } = await pool.query(
+        `SELECT status FROM chat_messages WHERE id = $1`,
+        [message_id]
+      );
+      if (rows.length === 0) {
+        res.status(404).json({ error: 'unknown_message' });
+        return;
+      }
+      // Already terminal — ignore thinking update
+      res.json({ updated: false });
+      return;
+    }
+
+    console.info(`[chat-callback] Thinking update for message ${message_id}`);
+    // Update thread timestamp for thinking updates too
+    await pool.query(
+      `UPDATE chat_threads SET updated_at = NOW()
+       WHERE id = (SELECT thread_id FROM chat_messages WHERE id = $1)`,
+      [message_id]
+    );
+    res.json({ updated: true });
+    return;
+  }
+
+  const finalStatus = status === 'error' ? 'error' : 'complete';
+
+  // Guarded UPDATE: only non-terminal → terminal (§7.5 idempotency rules)
   // Advances seq so SSE cursor picks up the state transition
   const { rowCount } = await pool.query(
     `UPDATE chat_messages
      SET content = $2, status = $3, model = $4,
          input_tokens = $5, output_tokens = $6, duration_ms = $7,
          error_message = $8, seq = nextval('chat_messages_seq')
-     WHERE id = $1 AND status = 'pending'`,
+     WHERE id = $1 AND status IN ('pending', 'thinking')`,
     [message_id, content || '', finalStatus, model || null,
      input_tokens || null, output_tokens || null, duration_ms || null,
      error_message || null]

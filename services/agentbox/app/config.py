@@ -30,6 +30,11 @@ class HealthConfig(BaseModel):
     enabled: bool = True
 
 
+class ToolLoopConfig(BaseModel):
+    max_iterations: int = 15
+    iteration_timeout: int = 600
+
+
 class ToolsConfig(BaseModel):
     shell: ShellConfig = Field(default_factory=ShellConfig)
     filesystem: FilesystemConfig = Field(default_factory=FilesystemConfig)
@@ -56,6 +61,7 @@ class AgentConfig(BaseModel):
     soul_path: str = "SOUL.md"
     rules_path: str = "RULES.md"
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    tool_loop: ToolLoopConfig = Field(default_factory=ToolLoopConfig)
     resources: ResourcesConfig = Field(default_factory=ResourcesConfig)
     state: StateConfig = Field(default_factory=StateConfig)
 

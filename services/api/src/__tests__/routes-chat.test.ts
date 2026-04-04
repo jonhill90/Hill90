@@ -889,7 +889,7 @@ describe('Chat callback', () => {
     // Verify guarded UPDATE uses nextval
     const sql = mockQuery.mock.calls[0][0];
     expect(sql).toContain('nextval');
-    expect(sql).toContain("status = 'pending'");
+    expect(sql).toContain("status IN ('pending', 'thinking')");
   });
 
   it('POST /internal/chat/callback rejects invalid token (401)', async () => {
