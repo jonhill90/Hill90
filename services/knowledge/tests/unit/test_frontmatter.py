@@ -51,7 +51,7 @@ Body.
 
     def test_parse_valid_types(self) -> None:
         """All known types should be accepted."""
-        for entry_type in ["plan", "decision", "journal", "research", "context", "note"]:
+        for entry_type in ["plan", "decision", "journal", "research", "context", "note", "notebook"]:
             content = f"""---
 title: Test {entry_type}
 type: {entry_type}
