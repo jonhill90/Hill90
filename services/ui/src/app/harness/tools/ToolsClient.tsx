@@ -141,9 +141,9 @@ export default function ToolsClient() {
     <>
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">Tools</h1>
+          <h1 className="text-2xl font-bold">Dependencies</h1>
           <p className="text-sm text-mountain-400 mt-1">
-            Tools are dependencies that skills can reference.
+            CLI tools and packages available to agent skills.
           </p>
         </div>
         {isAdmin && (

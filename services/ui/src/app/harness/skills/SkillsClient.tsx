@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
+import { AlertTriangle } from 'lucide-react'
 
 interface Tool {
   id: string
@@ -333,8 +334,16 @@ export default function SkillsClient() {
                         </span>
                       )}
                       {skill.scope && (
-                        <span className={`px-2 py-0.5 text-xs rounded-md ${scopeBadge(skill.scope).colorClasses}`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md ${scopeBadge(skill.scope).colorClasses}`}>
+                          {(skill.scope === 'host_docker' || skill.scope === 'vps_system') && (
+                            <AlertTriangle size={12} aria-hidden="true" data-testid="elevated-warning" />
+                          )}
                           {scopeBadge(skill.scope).label}
+                        </span>
+                      )}
+                      {skill.tools && skill.tools.length > 0 && (
+                        <span className="px-2 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-400 border border-navy-700" data-testid="tool-count-badge">
+                          {skill.tools.length} {skill.tools.length === 1 ? 'dep' : 'deps'}
                         </span>
                       )}
                     </div>

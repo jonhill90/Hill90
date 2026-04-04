@@ -362,7 +362,7 @@ export default function SharedKnowledgeClient() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">Shared Knowledge</h1>
+          <h1 className="text-2xl font-bold">Library</h1>
           <p className="text-sm text-mountain-400 mt-1">Manage collections, sources, and search across shared knowledge</p>
         </div>
       </div>
