@@ -1,0 +1,42 @@
+# Hill90 AgentBox Monitor Profile
+# Minimal runtime for monitoring/health-only agents. No git, curl, jq, etc.
+# Build: docker build -f Dockerfile.monitor -t hill90/agentbox-monitor:latest .
+
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+COPY pyproject.toml poetry.lock ./
+
+RUN pip install --no-cache-dir poetry==1.8.5 && \
+    poetry config virtualenvs.create false && \
+    poetry install --only main --no-interaction --no-ansi
+
+# Production stage
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Minimal runtime — only bash for health checks
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+
+RUN useradd -m -u 1000 agentuser
+
+RUN mkdir -p /etc/agentbox /workspace /var/log/agentbox /data && \
+    chown -R agentuser:agentuser /workspace /var/log/agentbox /data
+
+COPY app ./app
+
+USER agentuser
+
+EXPOSE 8054
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -sf http://localhost:8054/health || exit 1
+
+CMD ["python", "-m", "app.server"]

@@ -20,7 +20,7 @@ router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
       `SELECT id, name, description, docker_image, default_cpus, default_mem_limit,
-              default_pids_limit, is_platform, created_at, updated_at
+              default_pids_limit, is_platform, metadata, created_at, updated_at
        FROM container_profiles
        ORDER BY is_platform DESC, name ASC`
     );
@@ -36,7 +36,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const { rows } = await getPool().query(
       `SELECT id, name, description, docker_image, default_cpus, default_mem_limit,
-              default_pids_limit, is_platform, created_at, updated_at
+              default_pids_limit, is_platform, metadata, created_at, updated_at
        FROM container_profiles WHERE id = $1`,
       [req.params.id]
     );
@@ -54,7 +54,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
 // Create container profile — admin only
 router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
   try {
-    const { name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit } = req.body;
+    const { name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit, metadata } = req.body;
 
     if (!name) {
       res.status(400).json({ error: 'name is required' });
@@ -66,10 +66,10 @@ router.post('/', requireRole('admin'), async (req: Request, res: Response) => {
     }
 
     const { rows } = await getPool().query(
-      `INSERT INTO container_profiles (name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit, is_platform)
-       VALUES ($1, $2, $3, $4, $5, $6, false)
+      `INSERT INTO container_profiles (name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit, metadata, is_platform)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, false)
        RETURNING *`,
-      [name, description || '', docker_image, default_cpus || '1.0', default_mem_limit || '1g', default_pids_limit || 200]
+      [name, description || '', docker_image, default_cpus || '1.0', default_mem_limit || '1g', default_pids_limit || 200, JSON.stringify(metadata || {})]
     );
 
     const profile = rows[0];
@@ -99,7 +99,7 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
       return;
     }
 
-    const { name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit } = req.body;
+    const { name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit, metadata } = req.body;
 
     const { rows } = await getPool().query(
       `UPDATE container_profiles SET
@@ -109,10 +109,11 @@ router.put('/:id', requireRole('admin'), async (req: Request, res: Response) => 
          default_cpus = COALESCE($5, default_cpus),
          default_mem_limit = COALESCE($6, default_mem_limit),
          default_pids_limit = COALESCE($7, default_pids_limit),
+         metadata = COALESCE($8, metadata),
          updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [req.params.id, name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit]
+      [req.params.id, name, description, docker_image, default_cpus, default_mem_limit, default_pids_limit, metadata !== undefined ? JSON.stringify(metadata) : null]
     );
 
     const profile = rows[0];

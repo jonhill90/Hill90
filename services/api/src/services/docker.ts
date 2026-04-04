@@ -59,6 +59,11 @@ function assertAgentboxVolume(volumeName: string, agentId: string): void {
   }
 }
 
+export interface ProfileMetadata {
+  extra_env?: string[];
+  shm_size?: string;
+}
+
 export interface CreateAgentContainerOpts {
   agentId: string;
   hostConfigPath: string;
@@ -68,6 +73,7 @@ export interface CreateAgentContainerOpts {
   env?: string[];
   network?: string;
   image?: string;
+  metadata?: ProfileMetadata;
 }
 
 export async function createAndStartContainer(opts: CreateAgentContainerOpts): Promise<string> {
@@ -95,37 +101,48 @@ export async function createAndStartContainer(opts: CreateAgentContainerOpts): P
   const nanoCpus = Math.round(parseFloat(opts.cpus) * 1e9);
   const memoryBytes = parseMemLimit(opts.memLimit);
 
+  // Build env array with optional profile extra_env
+  const envVars = [
+    `AGENT_ID=${opts.agentId}`,
+    `AGENT_CONFIG=/etc/agentbox/agent.yml`,
+    'PATH=/data/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    ...(opts.env || []),
+    ...(opts.metadata?.extra_env || []),
+  ];
+
+  // Build HostConfig with optional profile metadata
+  const hostConfig: Record<string, any> = {
+    Binds: [
+      `${configMount}:/etc/agentbox:ro`,
+    ],
+    Mounts: VOLUME_SUFFIXES.map(suffix => ({
+      Type: 'volume' as const,
+      Source: `${CONTAINER_PREFIX}${opts.agentId}-${suffix}`,
+      Target: suffix === 'workspace' ? '/workspace'
+        : suffix === 'logs' ? '/var/log/agentbox'
+        : '/data',
+      ReadOnly: false,
+    })),
+    NanoCpus: nanoCpus,
+    Memory: memoryBytes,
+    PidsLimit: opts.pidsLimit,
+    RestartPolicy: { Name: 'unless-stopped' },
+    NetworkMode: opts.network || AGENT_SANDBOX_NETWORK,
+  };
+
+  if (opts.metadata?.shm_size) {
+    hostConfig.ShmSize = parseMemLimit(opts.metadata.shm_size);
+  }
+
   const container = await docker.createContainer({
     Image: opts.image || 'hill90/agentbox:latest',
     name: containerName,
-    Env: [
-      `AGENT_ID=${opts.agentId}`,
-      `AGENT_CONFIG=/etc/agentbox/agent.yml`,
-      'PATH=/data/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-      ...(opts.env || []),
-    ],
+    Env: envVars,
     Labels: {
       [MANAGED_LABEL]: MANAGED_VALUE,
       'traefik.enable': 'false',
     },
-    HostConfig: {
-      Binds: [
-        `${configMount}:/etc/agentbox:ro`,
-      ],
-      Mounts: VOLUME_SUFFIXES.map(suffix => ({
-        Type: 'volume' as const,
-        Source: `${CONTAINER_PREFIX}${opts.agentId}-${suffix}`,
-        Target: suffix === 'workspace' ? '/workspace'
-          : suffix === 'logs' ? '/var/log/agentbox'
-          : '/data',
-        ReadOnly: false,
-      })),
-      NanoCpus: nanoCpus,
-      Memory: memoryBytes,
-      PidsLimit: opts.pidsLimit,
-      RestartPolicy: { Name: 'unless-stopped' },
-      NetworkMode: opts.network || AGENT_SANDBOX_NETWORK,
-    },
+    HostConfig: hostConfig,
   });
 
   await container.start();

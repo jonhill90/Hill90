@@ -825,14 +825,21 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     const effectiveScope = await getAgentEffectiveScope(agent.id);
     const network = resolveAgentNetwork(effectiveScope);
 
-    // Resolve container profile image
+    // Resolve container profile image + metadata
     let profileImage: string | undefined;
+    let profileMetadata: Record<string, any> | undefined;
     if (agent.container_profile_id) {
       const { rows: profileRows } = await getPool().query(
-        'SELECT docker_image FROM container_profiles WHERE id = $1',
+        'SELECT docker_image, metadata FROM container_profiles WHERE id = $1',
         [agent.container_profile_id]
       );
-      if (profileRows.length > 0) profileImage = profileRows[0].docker_image;
+      if (profileRows.length > 0) {
+        profileImage = profileRows[0].docker_image;
+        const meta = profileRows[0].metadata;
+        if (meta && typeof meta === 'object' && Object.keys(meta).length > 0) {
+          profileMetadata = meta;
+        }
+      }
     }
 
     // Create and start container
@@ -845,6 +852,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       env: [...akmEnv, ...modelRouterEnv, ...chatEnv, `WORK_TOKEN=${workToken}`],
       network,
       image: profileImage,
+      metadata: profileMetadata,
     });
 
     // Phase 6B: ensure required tools are installed for assigned skills.

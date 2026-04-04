@@ -1,0 +1,28 @@
+# Build targets for all agentbox image variants.
+# Usage: docker compose -f deploy/compose/prod/docker-compose.agentbox-images.yml build
+#
+# Build order matters: standard must be built first (browser extends it).
+#   docker compose -f ... build agentbox
+#   docker compose -f ... build agentbox-browser
+#   docker compose -f ... build agentbox-monitor
+
+services:
+  agentbox:
+    build:
+      context: ../../../services/agentbox
+      dockerfile: Dockerfile
+    image: hill90/agentbox:latest
+
+  agentbox-browser:
+    build:
+      context: ../../../services/agentbox
+      dockerfile: Dockerfile.browser
+    image: hill90/agentbox-browser:latest
+    depends_on:
+      - agentbox
+
+  agentbox-monitor:
+    build:
+      context: ../../../services/agentbox
+      dockerfile: Dockerfile.monitor
+    image: hill90/agentbox-monitor:latest

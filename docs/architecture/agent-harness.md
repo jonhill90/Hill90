@@ -146,6 +146,50 @@ state:
   data: /data
 ```
 
+### Container Profiles
+
+Container profiles decouple image selection and resource defaults from individual agent configuration. Each profile defines a Docker image, default resource limits, and optional metadata for container-specific settings.
+
+**Schema** (`container_profiles` table):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `name` | VARCHAR(64) | Unique profile name |
+| `description` | TEXT | User-facing description |
+| `docker_image` | VARCHAR(255) | Docker image URI |
+| `default_cpus` | VARCHAR(10) | Default CPU allocation (e.g., "1.0") |
+| `default_mem_limit` | VARCHAR(10) | Default memory limit (e.g., "1g") |
+| `default_pids_limit` | INT | Default max PIDs |
+| `metadata` | JSONB | Profile-specific container config |
+| `is_platform` | BOOLEAN | Platform profiles cannot be deleted |
+
+**Platform profiles**:
+
+| Profile | Image | CPUs | Memory | PIDs | Purpose |
+|---------|-------|------|--------|------|---------|
+| `standard` | `hill90/agentbox:latest` | 1.0 | 1g | 200 | General-purpose agent with Python, bash, git, curl, jq, and CLI tools |
+| `browser` | `hill90/agentbox-browser:latest` | 2.0 | 2g | 300 | Playwright + Chromium for web browsing, scraping, and testing |
+| `monitor` | `hill90/agentbox-monitor:latest` | 0.5 | 256m | 100 | Minimal footprint for monitoring and health-only agents |
+
+**Metadata contract**: The `metadata` JSONB column supports these typed keys:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `extra_env` | string[] | Additional environment variables injected into the container |
+| `shm_size` | string | Shared memory size (e.g., "256m") — required for Chromium |
+
+**Assignment**: Agents reference a profile via `container_profile_id` (FK, nullable). When an agent starts, the API resolves the profile's `docker_image` and `metadata` from the database and passes them to the Docker container creation call. If no profile is assigned, the default `hill90/agentbox:latest` image is used.
+
+**Custom profiles**: Admins can create custom profiles via `POST /container-profiles` with any Docker image URI. The image must already be available on the VPS (pulled or built locally). Custom profiles have `is_platform=false` and can be deleted when no agents reference them.
+
+**Building specialized images**: Dockerfiles for each variant live in `services/agentbox/`:
+- `Dockerfile` — standard profile
+- `Dockerfile.browser` — extends standard with Playwright + Chromium
+- `Dockerfile.monitor` — minimal Python-only runtime
+
+Build all variants: `docker compose -f deploy/compose/prod/docker-compose.agentbox-images.yml build`
+
 ### Container Resources
 
 Docker enforces resource limits from agent configuration:

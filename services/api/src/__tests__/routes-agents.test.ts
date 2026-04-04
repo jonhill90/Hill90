@@ -669,6 +669,40 @@ describe('Agent container profile wiring', () => {
     const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
     expect(callArgs.image).toBeUndefined();
   });
+
+  // T4: Agent start with browser profile passes metadata to docker
+  it('T4: Agent start passes profile metadata to docker', async () => {
+    mockQuery
+      .mockResolvedValueOnce({
+        rows: [{
+          id: 'uuid-1', agent_id: 'test-agent', name: 'Test',
+          tools_config: {}, cpus: '2.0', mem_limit: '2g', pids_limit: 300,
+          soul_md: '', rules_md: '', description: '',
+          container_profile_id: 'browser-profile-uuid',
+        }],
+      }) // SELECT agent
+      .mockResolvedValueOnce({ rows: [] }) // SELECT agent_skills
+      .mockResolvedValueOnce({ rows: [] }) // getAgentElevatedScope
+      .mockResolvedValueOnce({ rows: [] }) // getAgentEffectiveScope
+      .mockResolvedValueOnce({
+        rows: [{
+          docker_image: 'hill90/agentbox-browser:latest',
+          metadata: { extra_env: ['PLAYWRIGHT_BROWSERS_PATH=/data/browsers'], shm_size: '256m' },
+        }],
+      }) // SELECT container_profiles (profile resolution with metadata)
+      .mockResolvedValueOnce({ rows: [] }); // UPDATE agents
+
+    const res = await request(app)
+      .post('/agents/uuid-1/start')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const callArgs = mockCreateAndStartContainer.mock.calls[0][0];
+    expect(callArgs.image).toBe('hill90/agentbox-browser:latest');
+    expect(callArgs.metadata).toBeDefined();
+    expect(callArgs.metadata.shm_size).toBe('256m');
+    expect(callArgs.metadata.extra_env).toContain('PLAYWRIGHT_BROWSERS_PATH=/data/browsers');
+  });
 });
 
 describe('Agent start — network resolution (S1-S4)', () => {
