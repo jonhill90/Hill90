@@ -287,7 +287,7 @@ components:
           type: string
         entry_type:
           type: string
-          enum: [note, plan, decision, journal, research]
+          enum: [note, plan, decision, journal, research, notebook]
         content:
           type: string
           description: Full markdown content (only included in single-entry reads)
@@ -1567,7 +1567,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [note, plan, decision, journal, research]
+            enum: [note, plan, decision, journal, research, notebook]
           description: Optional entry type filter
       responses:
         "200":
