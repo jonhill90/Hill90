@@ -67,6 +67,21 @@ class CommandPolicy:
 
         return True, "ok"
 
+    def build_argv_and_env(self, command: str, cwd: str = "/workspace") -> tuple[list[str], dict[str, str]] | tuple[None, str]:
+        """Validate command and return (argv, env) or (None, error_reason)."""
+        allowed, reason = self.check(command)
+        if not allowed:
+            return None, reason
+
+        argv = shlex.split(command)
+        safe_env = {
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            "HOME": cwd,
+            "LANG": "C.UTF-8",
+            "TERM": "xterm-256color",
+        }
+        return (argv, safe_env), ""
+
     def execute(self, command: str, timeout: int = 30, cwd: str = "/workspace") -> dict:
         """Execute command with shell=False, explicit argv, restricted env, pinned cwd."""
         allowed, reason = self.check(command)
