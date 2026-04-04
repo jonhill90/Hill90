@@ -569,23 +569,23 @@ describe('ModelsClient', () => {
   it('D22: unknown provider renders fallback icon', async () => {
     const unknownModel = {
       ...MOCK_MODELS[0],
-      id: 'model-xai',
-      name: 'Grok',
-      connection_id: 'conn-xai',
+      id: 'model-deepseek',
+      name: 'DeepSeek',
+      connection_id: 'conn-deepseek',
     }
-    const connectionsWithXai = [
+    const connectionsWithDeepseek = [
       ...MOCK_CONNECTIONS,
-      { id: 'conn-xai', name: 'xAI Key', provider: 'xai' },
+      { id: 'conn-deepseek', name: 'DeepSeek Key', provider: 'deepseek' },
     ]
-    mockFetchResponses([unknownModel], connectionsWithXai)
+    mockFetchResponses([unknownModel], connectionsWithDeepseek)
 
     render(<ModelsClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Grok')).toBeInTheDocument()
+      expect(screen.getByText('DeepSeek')).toBeInTheDocument()
     })
 
-    const svg = document.querySelector('svg[data-testid="provider-icon-xai"]')
+    const svg = document.querySelector('svg[data-testid="provider-icon-deepseek"]')
     expect(svg).toBeInTheDocument()
     expect(svg).toHaveAttribute('data-fallback', 'true')
   })

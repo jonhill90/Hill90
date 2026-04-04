@@ -34,8 +34,8 @@ describe('ProviderIcon', () => {
 
   // P3: ProviderIcon renders fallback for unknown provider
   it('P3: renders fallback for unknown provider with circle elements', () => {
-    const { container } = render(<ProviderIcon provider="xai" />)
-    const svg = container.querySelector('svg[data-testid="provider-icon-xai"]')
+    const { container } = render(<ProviderIcon provider="unknown-provider" />)
+    const svg = container.querySelector('svg[data-testid="provider-icon-unknown-provider"]')
     expect(svg).toBeInTheDocument()
     expect(svg).toHaveAttribute('data-fallback', 'true')
     // Fallback uses <circle> elements, not <path>
@@ -43,9 +43,9 @@ describe('ProviderIcon', () => {
     expect(svg!.querySelector('path')).not.toBeInTheDocument()
   })
 
-  // P4: All 6 known providers render without fallback
-  it('P4: all 6 known providers render without fallback', () => {
-    const providers = ['openai', 'anthropic', 'google', 'mistral', 'cohere', 'azure']
+  // P4: All 7 known providers render without fallback
+  it('P4: all 7 known providers render without fallback', () => {
+    const providers = ['openai', 'anthropic', 'google', 'mistral', 'cohere', 'xai', 'azure']
     for (const p of providers) {
       const { container, unmount } = render(<ProviderIcon provider={p} />)
       const svg = container.querySelector(`svg[data-testid="provider-icon-${p}"]`)
