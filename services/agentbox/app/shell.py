@@ -32,7 +32,10 @@ def configure(
         max_timeout=config.max_timeout,
     )
     _emitter = emitter
-    _terminal = TerminalLogger(log_dir)
+    try:
+        _terminal = TerminalLogger(log_dir)
+    except OSError:
+        _terminal = None
 
 
 async def execute_command(
