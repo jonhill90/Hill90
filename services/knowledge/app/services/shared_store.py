@@ -401,11 +401,12 @@ async def record_retrieval(
     result_count: int,
     chunk_ids: list[str],
     duration_ms: int | None = None,
+    collection_id: str | None = None,
 ) -> dict[str, Any]:
     row = await pool.fetchrow(
         """INSERT INTO shared_retrievals
-           (query, requester_type, requester_id, agent_owner, result_count, chunk_ids, duration_ms)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           (query, requester_type, requester_id, agent_owner, result_count, chunk_ids, duration_ms, collection_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING *""",
         query,
         requester_type,
@@ -414,6 +415,7 @@ async def record_retrieval(
         result_count,
         [UUID(cid) for cid in chunk_ids],
         duration_ms,
+        UUID(collection_id) if collection_id else None,
     )
     return _serialize(dict(row))
 
@@ -501,6 +503,34 @@ async def get_shared_stats(
                   (SELECT COALESCE(SUM(token_estimate), 0) FROM shared_chunks) AS total_tokens"""
     )
 
+    # Usage analytics — top collections and sources by retrieval count
+    top_collections = await pool.fetch(
+        """SELECT sc.id, sc.name, COUNT(*) AS retrieval_count
+           FROM shared_retrievals sr
+           JOIN shared_collections sc ON sr.collection_id = sc.id
+           WHERE ($1::timestamptz IS NULL OR sr.created_at >= $1)
+             AND sr.collection_id IS NOT NULL
+           GROUP BY sc.id, sc.name
+           ORDER BY retrieval_count DESC
+           LIMIT 10""",
+        since,
+    )
+
+    top_sources = await pool.fetch(
+        """SELECT ss.id, ss.title, sc.name AS collection_name, COUNT(*) AS retrieval_count
+           FROM shared_retrievals sr,
+                LATERAL unnest(sr.chunk_ids) AS cid
+           JOIN shared_chunks sch ON sch.id = cid
+           JOIN shared_documents sd ON sch.document_id = sd.id
+           JOIN shared_sources ss ON sd.source_id = ss.id
+           JOIN shared_collections sc ON ss.collection_id = sc.id
+           WHERE ($1::timestamptz IS NULL OR sr.created_at >= $1)
+           GROUP BY ss.id, ss.title, sc.name
+           ORDER BY retrieval_count DESC
+           LIMIT 10""",
+        since,
+    )
+
     return {
         "search": {
             "total": total,
@@ -527,6 +557,21 @@ async def get_shared_stats(
             "total_sources": corpus_row["total_sources"],
             "total_chunks": corpus_row["total_chunks"],
             "total_tokens": corpus_row["total_tokens"],
+        },
+        "usage": {
+            "top_collections": [
+                {"id": str(r["id"]), "name": r["name"], "retrieval_count": r["retrieval_count"]}
+                for r in top_collections
+            ],
+            "top_sources": [
+                {
+                    "id": str(r["id"]),
+                    "title": r["title"],
+                    "collection_name": r["collection_name"],
+                    "retrieval_count": r["retrieval_count"],
+                }
+                for r in top_sources
+            ],
         },
         "since": since,
     }
