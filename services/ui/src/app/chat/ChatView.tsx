@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Send, Terminal } from 'lucide-react'
+import { ArrowLeft, Send, Terminal, Users } from 'lucide-react'
 import type { Session } from 'next-auth'
 import type { ChatThread } from './ChatLayout'
 import ChatMessage from './ChatMessage'
 import AgentStatusBar from './AgentStatusBar'
 import CancelButton from './CancelButton'
 import SessionPane from './SessionPane'
+import MentionInput from './MentionInput'
+import ParticipantPanel from './ParticipantPanel'
 
 export interface Message {
   id: string
@@ -45,6 +47,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessionPaneOpen, setSessionPaneOpen] = useState(false)
+  const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
 
@@ -127,13 +130,6 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
-  }
-
   const hasPending = messages.some(m => m.status === 'pending')
   const anyAgentRunning = agents.some(a => a.status === 'running')
   const agentName = thread?.agent?.name || 'Agent'
@@ -190,6 +186,20 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
               hasPending={hasPending}
               onCancelled={onThreadUpdated}
             />
+            {isGroup && (
+              <button
+                onClick={() => setParticipantPanelOpen(prev => !prev)}
+                className={`p-1.5 rounded transition-colors ${
+                  participantPanelOpen
+                    ? 'bg-brand-600/20 text-brand-400'
+                    : 'text-mountain-400 hover:text-gray-200 hover:bg-navy-700'
+                }`}
+                title="Manage Participants"
+                data-testid="participants-toggle"
+              >
+                <Users size={18} />
+              </button>
+            )}
             <button
               onClick={() => setSessionPaneOpen(prev => !prev)}
               className={`p-1.5 rounded transition-colors ${
@@ -245,14 +255,13 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
         {/* Input */}
         <div className="px-4 py-3 border-t border-navy-700 bg-navy-900/50">
           <div className="flex gap-2 items-end">
-            <textarea
+            <MentionInput
+              agents={agents}
               value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={getPlaceholder()}
+              onChange={setInput}
+              onSubmit={handleSend}
               disabled={sending || !anyAgentRunning}
-              rows={1}
-              className="flex-1 bg-navy-800 border border-navy-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-mountain-500 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none disabled:opacity-50"
+              placeholder={getPlaceholder()}
             />
             <button
               onClick={handleSend}
@@ -264,6 +273,18 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
           </div>
         </div>
       </div>
+
+      {/* Participant panel (collapsible, group threads only) */}
+      {participantPanelOpen && isGroup && (
+        <div className="hidden xl:flex w-[300px] flex-shrink-0 border-l border-navy-700 bg-navy-900">
+          <ParticipantPanel
+            threadId={threadId}
+            currentAgents={agents}
+            onUpdated={onThreadUpdated}
+            onClose={() => setParticipantPanelOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Session pane (collapsible) */}
       {sessionPaneOpen && (
