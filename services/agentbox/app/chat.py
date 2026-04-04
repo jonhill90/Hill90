@@ -89,6 +89,22 @@ def handle_chat(
     if rules:
         system_content = f"{system_content}\n\n{rules}" if system_content else rules
 
+    # Append group context if this is a group thread
+    thread_type = payload.get("thread_type")
+    participants = payload.get("participants")
+    if thread_type == "group" and participants and isinstance(participants, list):
+        agent_lines = "\n".join(
+            f"- @{p['agent_id']}" for p in participants if isinstance(p, dict) and "agent_id" in p
+        )
+        if agent_lines:
+            group_block = (
+                "\n\n## Group Thread\n"
+                "You are in a group conversation with these agents:\n"
+                f"{agent_lines}\n"
+                "Address other agents with @slug if you need their input."
+            )
+            system_content = f"{system_content}{group_block}" if system_content else group_block
+
     # Build final messages: system prompt + API-provided history
     final_messages = []
     if system_content:
