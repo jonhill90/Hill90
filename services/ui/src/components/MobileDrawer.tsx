@@ -19,6 +19,8 @@ export default function MobileDrawer({ open, onClose }: MobileDrawerProps) {
   const prevPathname = useRef(pathname)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
+  if (!session) return null
+
   const roles: string[] = (session?.user as any)?.roles ?? []
   const isAdmin = roles.includes('admin')
 
