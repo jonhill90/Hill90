@@ -25,7 +25,8 @@ interface Props {
   agentId: string
 }
 
-function formatUptime(seconds: number): string {
+function formatUptime(seconds: number | undefined | null): string {
+  if (seconds == null || seconds === 0) return '0m'
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
   const days = Math.floor(seconds / 86400)
@@ -33,7 +34,8 @@ function formatUptime(seconds: number): string {
   return `${days}d ${hours}h`
 }
 
-function formatNumber(n: number): string {
+function formatNumber(n: number | undefined | null): string {
+  if (n == null) return '0'
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
   return n.toLocaleString()
@@ -86,7 +88,7 @@ export default function AgentProgression({ agentId }: Props) {
   const statCards = [
     { label: 'Inferences', value: formatNumber(stats.total_inferences) },
     { label: 'Tokens', value: formatNumber(stats.total_tokens) },
-    { label: 'Est. Cost', value: `$${Number(stats.estimated_cost).toFixed(2)}` },
+    { label: 'Est. Cost', value: `$${Number(stats.estimated_cost || 0).toFixed(2)}` },
     { label: 'Knowledge', value: formatNumber(stats.knowledge_entries) },
     { label: 'Messages', value: formatNumber(stats.chat_messages) },
     { label: 'Uptime', value: formatUptime(stats.total_uptime_seconds) },
