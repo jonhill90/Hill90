@@ -119,14 +119,7 @@ def handle_chat(
     # Inject tool-use instruction so the LLM knows to call tools
     if tool_defs:
         tool_names = ", ".join(t["function"]["name"] for t in tool_defs)
-        tool_instruction = (
-            "\n\n## Tools\n"
-            f"You have access to these tools: {tool_names}.\n"
-            "When the user asks you to run a command, read a file, write a file, "
-            "or list a directory, you MUST use the appropriate tool — do not just "
-            "describe what the command would do or output what you think the result is. "
-            "Always use the tool and show the actual output."
-        )
+        tool_instruction = _build_tool_instruction(tool_names, tool_defs)
         if final_messages and final_messages[0].get("role") == "system":
             final_messages[0]["content"] += tool_instruction
         else:
@@ -148,6 +141,55 @@ def handle_chat(
         work_id=work_id,
         emitter=emitter,
     )
+
+
+def _build_tool_instruction(tool_names: str, tool_defs: list[dict]) -> str:
+    """Build the tool-use system prompt section.
+
+    Includes multi-step workflow guidance so the LLM plans before coding,
+    verifies results, and iterates on failures instead of giving up.
+    """
+    has_shell = any(t["function"]["name"] == "execute_command" for t in tool_defs)
+    has_write = any(t["function"]["name"] == "write_file" for t in tool_defs)
+    has_read = any(t["function"]["name"] == "read_file" for t in tool_defs)
+
+    parts = [
+        f"\n\n## Tools\nYou have access to these tools: {tool_names}.",
+        "",
+        "When asked to run a command, read a file, write a file, or list a "
+        "directory, you MUST use the appropriate tool. Do not guess outputs — "
+        "always call the tool and show the real result.",
+    ]
+
+    # Only inject workflow guidance when the agent has coding-capable tools
+    if has_shell and has_write and has_read:
+        parts.append("")
+        parts.append(
+            "## Multi-Step Task Workflow\n"
+            "For coding tasks (new features, bug fixes, refactors), follow this workflow:\n"
+            "\n"
+            "1. **Understand** — Read relevant files and explore the codebase before "
+            "changing anything. Identify which files need edits and how they connect.\n"
+            "2. **Plan** — State your approach in 2-3 sentences before writing code. "
+            "If the task is ambiguous, ask the user to clarify.\n"
+            "3. **Implement** — Make changes one file at a time. Write complete, "
+            "working code — do not leave placeholder comments like `// TODO` or "
+            "`# implement later`.\n"
+            "4. **Verify** — After writing code, run the relevant test or validation "
+            "command (e.g. `npm test`, `pytest`, `go test`, type-checking). If no "
+            "test exists and the change is non-trivial, write one.\n"
+            "5. **Iterate** — If tests fail, read the error output carefully, fix the "
+            "issue, and re-run. Do not give up after one failure — keep going until "
+            "tests pass or you hit a blocker you cannot resolve.\n"
+            "\n"
+            "Key principles:\n"
+            "- Read before you write. Understand existing patterns and follow them.\n"
+            "- Run commands to verify — do not assume your code is correct.\n"
+            "- When a command fails, read the full error output before attempting a fix.\n"
+            "- Keep changes minimal and focused on the task at hand."
+        )
+
+    return "\n".join(parts)
 
 
 def _run_tool_loop(
