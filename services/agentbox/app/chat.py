@@ -1,14 +1,14 @@
-"""Chat work handler — dispatches tasks to Claude Code CLI in tmux.
+"""Chat work handler — dispatches tasks to the visible tmux terminal.
 
 Agentbox is the sole owner of system prompt assembly (§7.5).
 API sends only structured data: messages array, model, callback info.
 Agentbox reads identity from mounted files (SOUL.md + RULES.md with
 baked-in skill instructions) and prepends the system prompt.
 
-Primary path (AI-181): writes the user's task to /workspace/current-task.md,
-then runs `claude` in the tmux session so all work is visible in the
-live terminal (xterm.js). Falls back to the legacy tool-use loop when
-claude CLI is not available or AGENT_USE_TERMINAL is not set.
+Terminal dispatch (AI-181): classifies user messages as either direct
+shell commands or complex tasks. Direct commands run in tmux via
+send-keys. Complex tasks use Claude Code CLI (if available) or the
+legacy tool-use loop. ALL execution is visible in xterm.js.
 """
 
 from __future__ import annotations
@@ -185,8 +185,77 @@ def _should_use_terminal() -> bool:
         return False
     if not shutil.which("tmux"):
         return False
-    # Claude Code is optional — terminal dispatch works with any tools
     return True
+
+
+# Shell commands the agent can run directly in the terminal.
+# Anything not matching gets routed to Claude Code CLI (if available)
+# or the legacy tool-use loop.
+_DIRECT_COMMAND_PREFIXES = frozenset((
+    "ls", "cd", "pwd", "cat", "echo", "mkdir", "rm", "cp", "mv",
+    "grep", "find", "head", "tail", "wc", "sort", "uniq", "diff",
+    "chmod", "chown", "touch", "which", "whoami", "hostname",
+    "date", "uptime", "df", "du", "free", "ps", "top", "htop",
+    "git", "docker", "npm", "node", "python", "python3", "pip",
+    "curl", "wget", "ssh", "scp", "tar", "zip", "unzip", "gzip",
+    "make", "cmake", "cargo", "go", "ruby", "perl",
+    "apt", "apt-get", "pip3", "yarn", "pnpm",
+    "sed", "awk", "tr", "cut", "xargs", "tee",
+    "env", "export", "source", "tree", "file", "stat", "readlink",
+    "tmux", "screen", "clear", "reset", "history",
+    "claude", "jq", "rg", "fd", "bat", "less", "more", "vi", "vim", "nano",
+))
+
+# Natural-language markers that indicate a task, not a command
+_TASK_MARKERS = (
+    "please", "can you", "help me", "i want", "i need",
+    "could you", "would you", "write a", "create a", "build a",
+    "fix the", "debug the", "explain", "refactor", "implement",
+    "what is", "what are", "how do", "how to", "why does",
+)
+
+
+def _classify_message(message: str) -> str:
+    """Classify a user message as 'command' or 'task'.
+
+    'command' — direct shell command, run via tmux send-keys
+    'task'    — complex request needing LLM reasoning (Claude Code or tool loop)
+    """
+    stripped = message.strip()
+    if not stripped:
+        return "task"
+
+    # Strip leading prompt characters ($ > #)
+    clean = stripped.lstrip("$>#").strip()
+    if not clean:
+        return "task"
+
+    lower = clean.lower()
+
+    # Natural-language markers → always a task
+    for marker in _TASK_MARKERS:
+        if marker in lower:
+            return "task"
+
+    # First word check against known commands
+    first_word = clean.split()[0]
+    # Handle path-style execution (./script.sh, /usr/bin/foo)
+    if first_word.startswith("./") or first_word.startswith("/"):
+        return "command"
+
+    if first_word in _DIRECT_COMMAND_PREFIXES:
+        return "command"
+
+    # Pipe chains without natural language → command
+    if "|" in clean and len(clean.split()) < 20:
+        return "command"
+
+    return "task"
+
+
+SENTINEL = "___AGENT_DONE___"
+# Shorter timeout for direct commands (they shouldn't take 10 min)
+COMMAND_TIMEOUT = 60
 
 
 def _run_terminal_task(
@@ -202,16 +271,17 @@ def _run_terminal_task(
     emitter: EventEmitter,
     correlation_id: str | None = None,
 ) -> None:
-    """Dispatch a chat task to Claude Code CLI running in the tmux session.
+    """Dispatch a chat task to the visible tmux terminal.
 
-    1. Extract the user's latest message as the task
-    2. Write it to /workspace/current-task.md with system context
-    3. Run `claude --print` in tmux so work is visible in xterm.js
-    4. Poll for completion, then send result back via callback
+    Classification:
+      - Direct commands (ls, git status, etc.) → tmux send-keys directly
+      - Complex tasks → Claude Code CLI (if available) or legacy tool loop fallback
+
+    All execution is visible in xterm.js — no hidden subprocess calls.
     """
     start_time = time.monotonic()
 
-    # Extract the last user message as the task
+    # Extract the last user message
     user_message = ""
     for msg in reversed(api_messages):
         if msg.get("role") == "user" and msg.get("content"):
@@ -226,79 +296,39 @@ def _run_terminal_task(
         )
         return
 
+    msg_type = _classify_message(user_message)
+
     emitter.emit(
         type="terminal_task_start",
         tool="chat",
-        input_summary=f"thread={thread_id} task={user_message[:150]}",
+        input_summary=f"thread={thread_id} type={msg_type} task={user_message[:150]}",
         output_summary=None,
         duration_ms=None,
         success=None,
         correlation_id=correlation_id,
-        metadata={"work_id": work_id, "message_id": message_id},
+        metadata={"work_id": work_id, "message_id": message_id, "dispatch": msg_type},
     )
 
-    # Send thinking callback so the UI shows progress
     _deliver_callback(
         callback_url, chat_callback_token, message_id,
         status="thinking",
-        content="Running in terminal...",
-        model="claude-code",
+        content=f"Running {'command' if msg_type == 'command' else 'task'} in terminal...",
+        model="terminal" if msg_type == "command" else "claude-code",
         emitter=emitter, work_id=work_id, correlation_id=correlation_id,
     )
 
-    # Build the task file content with system context
-    task_parts = []
-    if soul:
-        task_parts.append(soul)
-    if rules:
-        task_parts.append(rules)
-    task_parts.append(f"## Task\n\n{user_message}")
-    task_content = "\n\n".join(task_parts)
-
     try:
-        # Write the task file
-        with open(TASK_FILE, "w") as f:
-            f.write(task_content)
-
-        # Clean up any previous result
-        if os.path.exists(RESULT_FILE):
-            os.unlink(RESULT_FILE)
-
-        # Build the claude command that runs in tmux.
-        # --print: output result to stdout (no interactive TUI)
-        # Redirect stdout to result file so we can capture it.
-        # The command runs IN the visible tmux session so xterm.js shows everything.
-        claude_cmd = (
-            f"claude --print < {TASK_FILE} 2>&1 | tee {RESULT_FILE}; "
-            f"echo '___CLAUDE_DONE___' >> {RESULT_FILE}"
-        )
-
-        # Send the command to the tmux session
-        subprocess.run(
-            ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],
-            timeout=5,
-            capture_output=True,
-        )
-
-        logger.info("[terminal-task] Dispatched to tmux: %s", user_message[:100])
-
-        # Poll for completion
-        result_content = _poll_for_result(
-            emitter=emitter,
-            work_id=work_id,
-            correlation_id=correlation_id,
-            thread_id=thread_id,
-            message_id=message_id,
-            callback_url=callback_url,
-            chat_callback_token=chat_callback_token,
-        )
+        if msg_type == "command":
+            result_content = _run_direct_command(user_message)
+        else:
+            result_content = _run_claude_task(user_message, soul, rules)
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         emitter.emit(
             type="terminal_task_complete",
             tool="chat",
-            input_summary=f"thread={thread_id}",
+            input_summary=f"thread={thread_id} type={msg_type}",
             output_summary=f"duration={duration_ms}ms result_len={len(result_content)}",
             duration_ms=duration_ms,
             success=True,
@@ -310,7 +340,7 @@ def _run_terminal_task(
             callback_url, chat_callback_token, message_id,
             status="complete",
             content=result_content,
-            model="claude-code",
+            model="terminal" if msg_type == "command" else "claude-code",
             duration_ms=duration_ms,
             emitter=emitter, work_id=work_id, correlation_id=correlation_id,
         )
@@ -321,7 +351,7 @@ def _run_terminal_task(
         emitter.emit(
             type="terminal_task_failed",
             tool="chat",
-            input_summary=f"thread={thread_id}",
+            input_summary=f"thread={thread_id} type={msg_type}",
             output_summary=f"error={str(exc)[:200]}",
             duration_ms=duration_ms,
             success=False,
@@ -337,25 +367,89 @@ def _run_terminal_task(
         )
 
 
-def _poll_for_result(
-    *,
-    emitter: EventEmitter,
-    work_id: str,
-    correlation_id: str | None,
-    thread_id: str,
-    message_id: str,
-    callback_url: str,
-    chat_callback_token: str,
-) -> str:
-    """Poll the result file until Claude finishes or timeout.
+def _run_direct_command(user_message: str) -> str:
+    """Run a shell command directly in tmux and capture output.
 
-    Returns the captured output (with the sentinel line stripped).
+    The command is visible in xterm.js — no hidden execution.
     """
-    deadline = time.monotonic() + CLAUDE_TIMEOUT
-    last_thinking_update = 0.0
+    # Strip prompt characters from the message
+    cmd = user_message.strip().lstrip("$>#").strip()
+
+    # Clean up previous result
+    if os.path.exists(RESULT_FILE):
+        os.unlink(RESULT_FILE)
+
+    # Build the command: run user's command, tee output to result file,
+    # then write sentinel so we know it's done
+    shell_cmd = (
+        f"{{ {cmd} ; }} 2>&1 | tee {RESULT_FILE}; "
+        f"echo '{SENTINEL}' >> {RESULT_FILE}"
+    )
+
+    subprocess.run(
+        ["tmux", "send-keys", "-t", TMUX_SESSION, shell_cmd, "Enter"],
+        timeout=5,
+        capture_output=True,
+    )
+
+    logger.info("[terminal-cmd] Direct command in tmux: %s", cmd[:100])
+
+    return _poll_for_result_file(timeout=COMMAND_TIMEOUT)
+
+
+def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
+    """Run a complex task via Claude Code CLI in tmux.
+
+    Falls back to returning an error if claude is not available.
+    """
+    has_claude = shutil.which("claude")
+
+    if not has_claude:
+        # No Claude Code — run as a direct command anyway (best effort)
+        logger.warning("[terminal-task] Claude Code not available, running as direct command")
+        return _run_direct_command(user_message)
+
+    # Build the task file with context
+    task_parts = []
+    if soul:
+        task_parts.append(soul)
+    if rules:
+        task_parts.append(rules)
+    task_parts.append(f"## Task\n\n{user_message}")
+    task_content = "\n\n".join(task_parts)
+
+    with open(TASK_FILE, "w") as f:
+        f.write(task_content)
+
+    if os.path.exists(RESULT_FILE):
+        os.unlink(RESULT_FILE)
+
+    # Run claude --print in tmux (visible in xterm.js)
+    claude_cmd = (
+        f"claude --print < {TASK_FILE} 2>&1 | tee {RESULT_FILE}; "
+        f"echo '{SENTINEL}' >> {RESULT_FILE}"
+    )
+
+    subprocess.run(
+        ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],
+        timeout=5,
+        capture_output=True,
+    )
+
+    logger.info("[terminal-task] Claude Code task in tmux: %s", user_message[:100])
+
+    return _poll_for_result_file(timeout=CLAUDE_TIMEOUT)
+
+
+def _poll_for_result_file(*, timeout: int) -> str:
+    """Poll the result file until the sentinel appears or timeout.
+
+    Returns the captured output with sentinel stripped.
+    """
+    deadline = time.monotonic() + timeout
 
     while time.monotonic() < deadline:
-        time.sleep(2)
+        time.sleep(1)
 
         if not os.path.exists(RESULT_FILE):
             continue
@@ -363,32 +457,17 @@ def _poll_for_result(
         with open(RESULT_FILE) as f:
             content = f.read()
 
-        if "___CLAUDE_DONE___" in content:
-            # Strip the sentinel and trailing whitespace
-            result = content.replace("___CLAUDE_DONE___", "").strip()
-            return result if result else "Task completed (no output captured)."
+        if SENTINEL in content:
+            result = content.replace(SENTINEL, "").strip()
+            return result if result else "Command completed (no output)."
 
-        # Send periodic thinking updates (every 15s)
-        now = time.monotonic()
-        if now - last_thinking_update > 15:
-            last_thinking_update = now
-            lines = content.strip().splitlines()
-            last_line = lines[-1] if lines else "Working..."
-            _deliver_callback(
-                callback_url, chat_callback_token, message_id,
-                status="thinking",
-                content=f"Working in terminal... ({len(lines)} lines so far)",
-                model="claude-code",
-                emitter=emitter, work_id=work_id, correlation_id=correlation_id,
-            )
-
-    # Timeout — return whatever we have
+    # Timeout
     if os.path.exists(RESULT_FILE):
         with open(RESULT_FILE) as f:
-            content = f.read().replace("___CLAUDE_DONE___", "").strip()
+            content = f.read().replace(SENTINEL, "").strip()
         if content:
-            return f"{content}\n\n(Timed out after {CLAUDE_TIMEOUT}s)"
-    return f"Task timed out after {CLAUDE_TIMEOUT}s with no output."
+            return f"{content}\n\n(Timed out after {timeout}s)"
+    return f"Timed out after {timeout}s with no output."
 
 
 # ─────────────────────────────────────────────────────────────────────
