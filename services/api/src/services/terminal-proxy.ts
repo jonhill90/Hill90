@@ -76,10 +76,12 @@ export function attachTerminalProxy(
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', async (req: IncomingMessage, socket, head) => {
+    console.log(`[terminal-proxy] Upgrade request: ${req.url} from ${req.headers['x-forwarded-for'] || req.socket.remoteAddress}`);
+
     const threadId = parseThreadId(req.url);
     if (!threadId) {
+      console.log('[terminal-proxy] No threadId in path, ignoring upgrade');
       // Not our path — let other handlers deal with it
-      socket.destroy();
       return;
     }
 
@@ -115,6 +117,7 @@ export function attachTerminalProxy(
 
       // Resolve agentbox WebSocket URL
       const agentWsUrl = await resolveAgentWsUrl(threadId, '');
+      console.log(`[terminal-proxy] Resolved agentbox URL for thread=${threadId}: ${agentWsUrl ? 'found' : 'not found'}`);
       if (!agentWsUrl) {
         socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
         socket.destroy();
@@ -127,7 +130,12 @@ export function attachTerminalProxy(
         const agentWs = new WebSocket(agentWsUrl);
 
         agentWs.on('open', () => {
-          console.log(`[terminal-proxy] Connected to agentbox for thread=${threadId}`);
+          console.log(`[terminal-proxy] Connected to agentbox for thread=${threadId} url=${agentWsUrl}`);
+        });
+
+        agentWs.on('unexpected-response', (_req: any, res: any) => {
+          console.error(`[terminal-proxy] Agentbox unexpected response: ${res.statusCode} for thread=${threadId}`);
+          if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011, 'upstream error');
         });
 
         // Relay: agentbox → client
