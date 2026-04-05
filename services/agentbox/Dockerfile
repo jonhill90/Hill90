@@ -42,6 +42,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     ca-certificates \
     gnupg \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20 LTS via NodeSource
@@ -58,10 +59,24 @@ COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 # Create non-root user with zsh as default shell
 RUN useradd -m -u 1000 -s /usr/bin/zsh agentuser
 
-# Install oh-my-zsh for agentuser (non-interactive)
-# Theme: bira — two-line, colorful, shows git branch, no powerline fonts needed
-RUN su - agentuser -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended' && \
-    sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="bira"/' /home/agentuser/.zshrc
+# Install Powerlevel10k (system-wide, no git clone per user)
+RUN git clone --depth=1 https://github.com/romkatv/powerlevel10k.git /usr/share/powerlevel10k
+
+# Install FiraCode Nerd Font (for terminal rendering in xterm.js)
+RUN mkdir -p /usr/share/fonts/nerd-fonts && \
+    curl -fsSL -o /tmp/firacode.tar.xz https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.tar.xz && \
+    tar -xf /tmp/firacode.tar.xz -C /usr/share/fonts/nerd-fonts && \
+    rm /tmp/firacode.tar.xz && \
+    fc-cache -f 2>/dev/null || true
+
+# Install oh-my-zsh for agentuser
+RUN su - agentuser -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
+
+# Copy theme config files (Tokyo Night tmux + Powerlevel10k zsh)
+COPY theme/tmux.conf /home/agentuser/.tmux.conf
+COPY theme/zshrc /home/agentuser/.zshrc
+COPY theme/p10k.zsh /home/agentuser/.p10k.zsh
+RUN chown agentuser:agentuser /home/agentuser/.tmux.conf /home/agentuser/.zshrc /home/agentuser/.p10k.zsh
 
 # Install Claude Code CLI (native binary) for agentuser
 # Installs to ~/.local/bin/claude with auto-updates disabled (container is ephemeral)
