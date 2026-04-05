@@ -1,0 +1,23 @@
+# Agentbox zsh config — Powerlevel10k with Tokyo Night colors
+# Matches Jon's dotfiles theme
+
+# Enable Powerlevel10k instant prompt
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
+fi
+
+# Oh My Zsh
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"  # Overridden by p10k below
+plugins=(git)
+source $ZSH/oh-my-zsh.sh
+
+# Powerlevel10k
+source /usr/share/powerlevel10k/powerlevel10k.zsh-theme
+[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+# PATH
+export PATH="$HOME/.local/bin:/data/tools/bin:$PATH"
+
+# Agent workspace
+cd /workspace 2>/dev/null || true
