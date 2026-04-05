@@ -99,7 +99,7 @@ export default function SessionPane({ threadId }: Props) {
   }, [])
 
   useEffect(() => {
-    const es = new EventSource(`/api/chat/${threadId}/events?follow=true&tail=20`)
+    const es = new EventSource(`/api/chat/threads/${threadId}/events?follow=true&tail=20`)
 
     es.onmessage = (msg) => {
       try {
