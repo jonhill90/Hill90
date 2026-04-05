@@ -115,6 +115,22 @@ def handle_chat(
 
     # Build tool definitions from config
     tool_defs = build_tool_definitions(tools_config) if tools_config else []
+
+    # Inject tool-use instruction so the LLM knows to call tools
+    if tool_defs:
+        tool_names = ", ".join(t["function"]["name"] for t in tool_defs)
+        tool_instruction = (
+            "\n\n## Tools\n"
+            f"You have access to these tools: {tool_names}.\n"
+            "When the user asks you to run a command, read a file, write a file, "
+            "or list a directory, you MUST use the appropriate tool — do not just "
+            "describe what the command would do or output what you think the result is. "
+            "Always use the tool and show the actual output."
+        )
+        if final_messages and final_messages[0].get("role") == "system":
+            final_messages[0]["content"] += tool_instruction
+        else:
+            final_messages.insert(0, {"role": "system", "content": tool_instruction})
     loop_config = tool_loop_config or ToolLoopConfig()
 
     # Run the tool-calling loop
