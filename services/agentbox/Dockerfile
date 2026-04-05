@@ -62,6 +62,12 @@ RUN useradd -m -u 1000 -s /usr/bin/zsh agentuser
 RUN su - agentuser -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended' && \
     sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' /home/agentuser/.zshrc
 
+# Install Claude Code CLI (native binary) for agentuser
+# Installs to ~/.local/bin/claude with auto-updates disabled (container is ephemeral)
+RUN su - agentuser -c 'curl -fsSL https://claude.ai/install.sh | bash' && \
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> /home/agentuser/.zshrc && \
+    echo 'export PATH="$HOME/.local/bin:$PATH"' >> /home/agentuser/.bashrc
+
 # Create required directories
 RUN mkdir -p /etc/agentbox /workspace /var/log/agentbox /data && \
     chown -R agentuser:agentuser /workspace /var/log/agentbox /data
