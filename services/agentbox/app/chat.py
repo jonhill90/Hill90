@@ -39,6 +39,7 @@ def handle_chat(
     emitter: EventEmitter,
     tools_config: ToolsConfig | None = None,
     tool_loop_config: ToolLoopConfig | None = None,
+    correlation_id: str | None = None,
 ) -> None:
     """Handle a chat work item: build prompt, run tool loop, deliver callback."""
     thread_id = payload.get("thread_id", "unknown")
@@ -60,6 +61,7 @@ def handle_chat(
             output_summary="Missing callback_url in payload",
             duration_ms=0,
             success=False,
+            correlation_id=correlation_id,
             metadata={"work_id": work_id},
         )
         return
@@ -72,6 +74,7 @@ def handle_chat(
             output_summary="CHAT_CALLBACK_TOKEN not configured",
             duration_ms=0,
             success=False,
+            correlation_id=correlation_id,
             metadata={"work_id": work_id},
         )
         return
@@ -80,7 +83,7 @@ def handle_chat(
         _deliver_callback(
             callback_url, chat_callback_token, message_id,
             status="error", error_message="MODEL_ROUTER_TOKEN not configured",
-            emitter=emitter, work_id=work_id,
+            emitter=emitter, work_id=work_id, correlation_id=correlation_id,
         )
         return
 
@@ -140,6 +143,7 @@ def handle_chat(
         thread_id=thread_id,
         work_id=work_id,
         emitter=emitter,
+        correlation_id=correlation_id,
     )
 
 
@@ -206,6 +210,7 @@ def _run_tool_loop(
     thread_id: str,
     work_id: str,
     emitter: EventEmitter,
+    correlation_id: str | None = None,
 ) -> None:
     """Iterative tool-calling loop. Calls LLM, executes tools, repeats."""
     inference_url = f"{ai_service_url}/v1/chat/completions"
@@ -227,7 +232,7 @@ def _run_tool_loop(
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
                 duration_ms=int(elapsed * 1000),
-                emitter=emitter, work_id=work_id,
+                emitter=emitter, work_id=work_id, correlation_id=correlation_id,
             )
             return
 
@@ -238,6 +243,7 @@ def _run_tool_loop(
             output_summary=None,
             duration_ms=None,
             success=None,
+            correlation_id=correlation_id,
             metadata={"work_id": work_id, "message_id": message_id},
         )
 
@@ -271,7 +277,7 @@ def _run_tool_loop(
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
                 duration_ms=duration_ms,
-                emitter=emitter, work_id=work_id,
+                emitter=emitter, work_id=work_id, correlation_id=correlation_id,
             )
             return
         except Exception as exc:
@@ -284,7 +290,7 @@ def _run_tool_loop(
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
                 duration_ms=duration_ms,
-                emitter=emitter, work_id=work_id,
+                emitter=emitter, work_id=work_id, correlation_id=correlation_id,
             )
             return
 
@@ -300,7 +306,7 @@ def _run_tool_loop(
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
                 duration_ms=int((time.monotonic() - loop_start) * 1000),
-                emitter=emitter, work_id=work_id,
+                emitter=emitter, work_id=work_id, correlation_id=correlation_id,
             )
             return
 
@@ -324,6 +330,7 @@ def _run_tool_loop(
             output_summary=f"tokens_in={usage.get('prompt_tokens')} tokens_out={usage.get('completion_tokens')} finish={finish_reason}",
             duration_ms=call_duration,
             success=True,
+            correlation_id=correlation_id,
             metadata={"work_id": work_id, "message_id": message_id},
         )
 
@@ -338,7 +345,7 @@ def _run_tool_loop(
                 input_tokens=total_input_tokens,
                 output_tokens=total_output_tokens,
                 duration_ms=total_duration,
-                emitter=emitter, work_id=work_id,
+                emitter=emitter, work_id=work_id, correlation_id=correlation_id,
             )
             return
 
@@ -370,6 +377,7 @@ def _run_tool_loop(
                 output_summary=None,
                 duration_ms=None,
                 success=None,
+                correlation_id=correlation_id,
                 metadata={"work_id": work_id, "tool_call_id": tc_id},
             )
 
@@ -391,6 +399,7 @@ def _run_tool_loop(
                 output_summary=f"duration={tool_duration}ms result_len={len(tool_result)}",
                 duration_ms=tool_duration,
                 success=True,
+                correlation_id=correlation_id,
                 metadata={"work_id": work_id, "tool_call_id": tc_id},
             )
 
@@ -413,7 +422,7 @@ def _run_tool_loop(
             input_tokens=total_input_tokens,
             output_tokens=total_output_tokens,
             duration_ms=int((time.monotonic() - loop_start) * 1000),
-            emitter=emitter, work_id=work_id,
+            emitter=emitter, work_id=work_id, correlation_id=correlation_id,
         )
 
     # Exhausted iterations — deliver whatever content we have
@@ -427,7 +436,7 @@ def _run_tool_loop(
         input_tokens=total_input_tokens,
         output_tokens=total_output_tokens,
         duration_ms=total_duration,
-        emitter=emitter, work_id=work_id,
+        emitter=emitter, work_id=work_id, correlation_id=correlation_id,
     )
 
 
@@ -445,6 +454,7 @@ def _deliver_callback(
     error_message: str | None = None,
     emitter: EventEmitter,
     work_id: str,
+    correlation_id: str | None = None,
 ) -> None:
     """POST callback to API. Fire-and-forget — logs but does not retry."""
     body = {
@@ -482,6 +492,7 @@ def _deliver_callback(
             output_summary=f"callback_status={resp.status_code}",
             duration_ms=None,
             success=resp.status_code == 200,
+            correlation_id=correlation_id,
             metadata={"work_id": work_id, "message_id": message_id},
         )
 
@@ -494,5 +505,6 @@ def _deliver_callback(
             output_summary=f"error={str(exc)[:100]}",
             duration_ms=None,
             success=False,
+            correlation_id=correlation_id,
             metadata={"work_id": work_id, "message_id": message_id},
         )

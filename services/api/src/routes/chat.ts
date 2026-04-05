@@ -1103,9 +1103,10 @@ router.get('/threads/:id/events', requireRole('user'), async (req: Request, res:
             stream.on('error', reject);
           });
 
-          // Correlation filter
+          // Correlation filter: match on top-level correlation_id or metadata.message_id
           for (const event of events) {
-            if (event.correlation_id && threadMessageIds.has(event.correlation_id)) {
+            const cid = event.correlation_id || event.metadata?.message_id;
+            if (cid && threadMessageIds.has(cid)) {
               allEvents.push(event);
             }
           }
@@ -1148,8 +1149,9 @@ router.get('/threads/:id/events', requireRole('user'), async (req: Request, res:
             if (!trimmed) continue;
             let event: any;
             try { event = JSON.parse(trimmed); } catch { continue; }
-            // Correlation filter
-            if (event.correlation_id && threadMessageIds.has(event.correlation_id)) {
+            // Correlation filter: match on top-level correlation_id or metadata.message_id
+            const cid = event.correlation_id || event.metadata?.message_id;
+            if (cid && threadMessageIds.has(cid)) {
               res.write(`data: ${JSON.stringify(event)}\n\n`);
             }
           }
@@ -1161,7 +1163,8 @@ router.get('/threads/:id/events', requireRole('user'), async (req: Request, res:
           if (remaining) {
             try {
               const event = JSON.parse(remaining);
-              if (event.correlation_id && threadMessageIds.has(event.correlation_id)) {
+              const cid = event.correlation_id || event.metadata?.message_id;
+              if (cid && threadMessageIds.has(cid)) {
                 res.write(`data: ${JSON.stringify(event)}\n\n`);
               }
             } catch { /* skip */ }

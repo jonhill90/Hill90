@@ -129,6 +129,7 @@ class AgentRuntime:
             output_summary=None,
             duration_ms=None,
             success=None,
+            correlation_id=correlation_id,
             metadata={"work_id": work_id},
         )
 
@@ -137,7 +138,7 @@ class AgentRuntime:
             # Run chat handler in background thread (uses blocking requests lib)
             thread = threading.Thread(
                 target=self._run_chat,
-                args=(payload, work_id, summary),
+                args=(payload, work_id, summary, correlation_id),
                 daemon=True,
             )
             thread.start()
@@ -220,7 +221,7 @@ class AgentRuntime:
             "type": work_type,
         })
 
-    def _run_chat(self, payload: dict, work_id: str, summary: str) -> None:
+    def _run_chat(self, payload: dict, work_id: str, summary: str, correlation_id: str | None = None) -> None:
         """Execute chat handler in background thread."""
         try:
             handle_chat(
@@ -231,6 +232,7 @@ class AgentRuntime:
                 emitter=self._emitter,
                 tools_config=self._config.tools,
                 tool_loop_config=self._config.tool_loop,
+                correlation_id=correlation_id,
             )
             self._emitter.emit(
                 type="work_completed",
@@ -239,6 +241,7 @@ class AgentRuntime:
                 output_summary=f"work_id={work_id}",
                 duration_ms=None,
                 success=True,
+                correlation_id=correlation_id,
                 metadata={"work_id": work_id},
             )
         except Exception as exc:
@@ -250,6 +253,7 @@ class AgentRuntime:
                 output_summary=f"error={str(exc)[:200]}",
                 duration_ms=None,
                 success=False,
+                correlation_id=correlation_id,
                 metadata={"work_id": work_id},
             )
 

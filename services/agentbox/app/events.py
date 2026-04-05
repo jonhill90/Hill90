@@ -33,6 +33,7 @@ class EventEmitter:
         output_summary: str | None,
         duration_ms: int | None,
         success: bool | None,
+        correlation_id: str | None = None,
         metadata: dict | None = None,
     ) -> None:
         """Write a single event as a JSON line to the log file.
@@ -44,6 +45,7 @@ class EventEmitter:
             output_summary: Metadata-only result summary, or None for start events.
             duration_ms: Execution time in milliseconds, or None for start events.
             success: Whether the operation succeeded, or None for start events.
+            correlation_id: Work-item correlation ID (message UUID) for SSE filtering.
             metadata: Optional tool-specific extra data.
         """
         event = {
@@ -56,6 +58,8 @@ class EventEmitter:
             "duration_ms": duration_ms,
             "success": success,
         }
+        if correlation_id:
+            event["correlation_id"] = correlation_id
         if metadata:
             event["metadata"] = metadata
 

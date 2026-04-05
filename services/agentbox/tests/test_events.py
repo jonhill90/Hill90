@@ -138,3 +138,40 @@ class TestEventEmitter:
         EventEmitter(str(log_path))
 
         assert log_path.read_text() == existing_line  # preserved
+
+    def test_emit_correlation_id_top_level(self, tmp_path):
+        """AI-171: correlation_id is written as a top-level field for SSE filtering."""
+        log_path = tmp_path / "events.jsonl"
+        emitter = EventEmitter(str(log_path))
+
+        emitter.emit(
+            type="chat_inference_start",
+            tool="chat",
+            input_summary="thread=t1 model=gpt-4o-mini",
+            output_summary=None,
+            duration_ms=None,
+            success=None,
+            correlation_id="msg-uuid-123",
+            metadata={"work_id": "w1"},
+        )
+
+        event = json.loads(log_path.read_text().strip())
+        assert event["correlation_id"] == "msg-uuid-123"
+        assert event["metadata"]["work_id"] == "w1"
+
+    def test_emit_no_correlation_id_when_none(self, tmp_path):
+        """correlation_id field is omitted (not null) when not provided."""
+        log_path = tmp_path / "events.jsonl"
+        emitter = EventEmitter(str(log_path))
+
+        emitter.emit(
+            type="command_start",
+            tool="shell",
+            input_summary="ls",
+            output_summary=None,
+            duration_ms=None,
+            success=None,
+        )
+
+        event = json.loads(log_path.read_text().strip())
+        assert "correlation_id" not in event
