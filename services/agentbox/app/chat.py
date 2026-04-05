@@ -254,25 +254,37 @@ def _classify_message(message: str) -> str:
 
 
 SENTINEL = "___AGENT_DONE___"
-RUNNER_SCRIPT = "/tmp/.agent-cmd.sh"
 # Shorter timeout for direct commands (they shouldn't take 10 min)
 COMMAND_TIMEOUT = 60
 
 
-def _write_runner_script(cmd: str) -> None:
-    """Write a wrapper script that runs a command, captures output, and signals done.
+def _start_capture() -> None:
+    """Start silently capturing tmux pane output to the result file.
 
-    The terminal shows `.agent-cmd.sh` instead of raw tee/sentinel plumbing.
+    Uses tmux pipe-pane so the capture is invisible — the user sees
+    only the command and its output, no tee/redirect plumbing.
     """
-    script = (
-        f"#!/bin/sh\n"
-        f"# {cmd}\n"
-        f"{{ {cmd} ; }} 2>&1 | tee {RESULT_FILE}\n"
-        f"echo '{SENTINEL}' >> {RESULT_FILE}\n"
+    # Clear any previous result
+    if os.path.exists(RESULT_FILE):
+        os.unlink(RESULT_FILE)
+
+    subprocess.run(
+        ["tmux", "pipe-pane", "-t", TMUX_SESSION, f"cat >> {RESULT_FILE}"],
+        timeout=5,
+        capture_output=True,
     )
-    with open(RUNNER_SCRIPT, "w") as f:
-        f.write(script)
-    os.chmod(RUNNER_SCRIPT, 0o755)
+
+
+def _stop_capture_and_signal() -> None:
+    """Stop tmux pipe-pane capture and write the sentinel."""
+    subprocess.run(
+        ["tmux", "pipe-pane", "-t", TMUX_SESSION],
+        timeout=5,
+        capture_output=True,
+    )
+    # Write sentinel so polling knows the command finished
+    with open(RESULT_FILE, "a") as f:
+        f.write(f"\n{SENTINEL}\n")
 
 
 def _run_terminal_task(
@@ -387,28 +399,28 @@ def _run_terminal_task(
 def _run_direct_command(user_message: str) -> str:
     """Run a shell command directly in tmux and capture output.
 
-    The command is visible in xterm.js — no hidden execution.
+    The terminal shows only the command and its output — no plumbing.
+    Capture is done via tmux pipe-pane (invisible to the viewer).
     """
     # Strip prompt characters from the message
     cmd = user_message.strip().lstrip("$>#").strip()
 
-    # Clean up previous result
-    if os.path.exists(RESULT_FILE):
-        os.unlink(RESULT_FILE)
-
-    # Write a runner script so the terminal shows a clean command line
-    # instead of the raw tee/sentinel plumbing
-    _write_runner_script(cmd)
+    # Start invisible capture, run the command, then stop capture
+    _start_capture()
 
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, RUNNER_SCRIPT, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, cmd, "Enter"],
         timeout=5,
         capture_output=True,
     )
 
     logger.info("[terminal-cmd] Direct command in tmux: %s", cmd[:100])
 
-    return _poll_for_result_file(timeout=COMMAND_TIMEOUT)
+    # Wait for prompt to return (command finished), then stop capture
+    result = _poll_for_prompt(timeout=COMMAND_TIMEOUT)
+    _stop_capture_and_signal()
+
+    return _poll_for_result_file(timeout=5)  # sentinel already written
 
 
 def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
@@ -435,21 +447,65 @@ def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
     with open(TASK_FILE, "w") as f:
         f.write(task_content)
 
-    if os.path.exists(RESULT_FILE):
-        os.unlink(RESULT_FILE)
+    # Start invisible capture, run claude in tmux, wait for completion
+    _start_capture()
 
-    # Run claude --print in tmux (visible in xterm.js)
-    _write_runner_script(f"claude --print < {TASK_FILE}")
-
+    claude_cmd = f"claude --print < {TASK_FILE}"
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, RUNNER_SCRIPT, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],
         timeout=5,
         capture_output=True,
     )
 
     logger.info("[terminal-task] Claude Code task in tmux: %s", user_message[:100])
 
-    return _poll_for_result_file(timeout=CLAUDE_TIMEOUT)
+    # Wait for prompt to return, then stop capture
+    result = _poll_for_prompt(timeout=CLAUDE_TIMEOUT)
+    _stop_capture_and_signal()
+
+    return _poll_for_result_file(timeout=5)  # sentinel already written
+
+
+def _poll_for_prompt(*, timeout: int) -> str:
+    """Wait for the shell prompt to return in the tmux pane.
+
+    Detects completion by checking if the last line of the pane
+    ends with the shell prompt character ($ or #). Returns the
+    pane content when the prompt is detected or on timeout.
+    """
+    deadline = time.monotonic() + timeout
+    # Give the command a moment to start
+    time.sleep(0.5)
+
+    while time.monotonic() < deadline:
+        time.sleep(1)
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", TMUX_SESSION, "-p"],
+                timeout=5,
+                capture_output=True,
+                text=True,
+            )
+            pane_content = result.stdout.rstrip()
+            if not pane_content:
+                continue
+
+            last_line = pane_content.splitlines()[-1].strip()
+            # Detect common shell prompts (zsh/bash: ends with $ or #, or ❯)
+            if last_line.endswith("$") or last_line.endswith("#") or last_line.endswith("❯"):
+                return pane_content
+        except Exception:
+            continue
+
+    # Timeout — return whatever we have
+    try:
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", TMUX_SESSION, "-p"],
+            timeout=5, capture_output=True, text=True,
+        )
+        return result.stdout.rstrip()
+    except Exception:
+        return ""
 
 
 def _poll_for_result_file(*, timeout: int) -> str:
