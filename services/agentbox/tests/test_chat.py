@@ -634,11 +634,11 @@ class TestTerminalDispatch:
         assert _should_use_terminal() is True
 
     @patch("app.chat.shutil.which")
-    def test_should_use_terminal_no_claude(self, mock_which, monkeypatch):
-        """Terminal dispatch is off when claude CLI is missing."""
+    def test_should_use_terminal_no_claude_still_works(self, mock_which, monkeypatch):
+        """Terminal dispatch is ON even without claude — it's just one tool."""
         monkeypatch.setenv("AGENT_USE_TERMINAL", "1")
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}" if cmd == "tmux" else None
-        assert _should_use_terminal() is False
+        assert _should_use_terminal() is True
 
     @patch("app.chat.shutil.which")
     def test_should_use_terminal_no_tmux(self, mock_which, monkeypatch):
@@ -647,14 +647,15 @@ class TestTerminalDispatch:
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}" if cmd == "claude" else None
         assert _should_use_terminal() is False
 
-    @patch("app.chat._poll_for_result")
+    @patch("app.chat._poll_for_result_file")
     @patch("app.chat.subprocess.run")
+    @patch("app.chat.shutil.which", return_value="/usr/bin/claude")
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
-    def test_terminal_dispatch_writes_task_and_sends_keys(
-        self, mock_post, mock_terminal, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
+    def test_terminal_dispatch_complex_task_uses_claude(
+        self, mock_post, mock_terminal, mock_which, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
     ):
-        """Terminal mode writes task file and sends claude command to tmux."""
+        """Complex tasks (natural language) use Claude Code CLI in tmux."""
         em, log_path = emitter
         monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
         monkeypatch.setattr("app.chat.TASK_FILE", str(tmp_path / "task.md"))
@@ -681,7 +682,7 @@ class TestTerminalDispatch:
         assert "Be concise." in task_content
         assert "Create a hello.py file" in task_content
 
-        # tmux send-keys was called
+        # tmux send-keys was called with claude command
         assert mock_subprocess.called
         send_keys_call = mock_subprocess.call_args
         assert "tmux" in send_keys_call[0][0]
@@ -695,6 +696,45 @@ class TestTerminalDispatch:
                 last_callback = body
         assert last_callback is not None
         assert last_callback["content"] == "Task completed successfully."
+
+    @patch("app.chat._poll_for_result_file")
+    @patch("app.chat.subprocess.run")
+    @patch("app.chat._should_use_terminal", return_value=True)
+    @patch("app.chat.requests.post")
+    def test_terminal_dispatch_direct_command_skips_claude(
+        self, mock_post, mock_terminal, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
+    ):
+        """Direct shell commands (ls, git, etc.) run directly in tmux without Claude."""
+        em, log_path = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setattr("app.chat.RESULT_FILE", str(tmp_path / "result"))
+
+        mock_post.return_value = MagicMock(status_code=200)
+        mock_subprocess.return_value = MagicMock(returncode=0)
+        mock_poll.return_value = "file1.txt\nfile2.py\n"
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "ls -a"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="You are an agent.", rules="",
+            work_id="w1", emitter=em,
+        )
+
+        # tmux send-keys was called with the actual command (not claude)
+        assert mock_subprocess.called
+        send_keys_call = mock_subprocess.call_args
+        cmd_args = send_keys_call[0][0]
+        assert "tmux" in cmd_args
+        assert "send-keys" in cmd_args
+        # Args: ["tmux", "send-keys", "-t", "agent", <shell_cmd>, "Enter"]
+        # The shell command is the second-to-last arg (before "Enter")
+        tmux_cmd = cmd_args[-2]
+        assert "ls -a" in tmux_cmd
+        assert "claude" not in tmux_cmd
 
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
