@@ -140,7 +140,7 @@ export default function TaskBoardClient() {
 
   // Task detail panel
   if (selectedTask) {
-    const nextStatuses = COLUMNS.map(c => c.id).filter(s => s !== selectedTask.status && s !== 'cancelled')
+    const nextStatuses = COLUMNS.map(c => c.id).filter(s => s !== selectedTask.status)
     return (
       <div>
         <div className="mb-4">
