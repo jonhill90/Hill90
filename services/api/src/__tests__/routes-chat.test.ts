@@ -381,9 +381,11 @@ describe('Chat participant management', () => {
   it('PUT /chat/threads/:id/participants adds agent (I5)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isThreadOwner
-      .mockResolvedValueOnce({ rows: ['agent-1'] })  // getThreadAgents
+      .mockResolvedValueOnce({ rows: ['agent-1'] })  // getThreadAgents (count check)
       .mockResolvedValueOnce({ rows: [] })  // elevated scope check
       .mockResolvedValueOnce({ rows: [] })  // INSERT participant
+      .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }] })  // getThreadAgents (auto-promote)
+      .mockResolvedValueOnce({ rowCount: 1 })  // UPDATE type = 'group'
       .mockResolvedValueOnce({ rows: [  // return participants
         { participant_id: 'agent-1', participant_type: 'agent', role: 'member',
           joined_at: new Date(), left_at: null, agent_id: 'alpha', agent_name: 'Alpha', agent_status: 'running' },

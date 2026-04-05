@@ -702,6 +702,15 @@ router.put('/threads/:id/participants', requireRole('user'), async (req: Request
           [threadId, agentUuid]
         );
       }
+
+      // Auto-promote direct → group when more than 1 agent
+      const postAddAgents = await getThreadAgents(threadId);
+      if (postAddAgents.length > 1) {
+        await pool.query(
+          `UPDATE chat_threads SET type = 'group' WHERE id = $1 AND type = 'direct'`,
+          [threadId]
+        );
+      }
     }
 
     // Process removals
