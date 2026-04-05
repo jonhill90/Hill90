@@ -87,25 +87,34 @@ def handle_chat(
         )
         return
 
-    # Decide dispatch mode: terminal (claude CLI) vs legacy (tool-use loop)
+    # Dispatch: direct commands go to tmux, everything else goes through
+    # the tool-use loop (LLM reasoning with tool calls visible in terminal)
     use_terminal = _should_use_terminal()
 
     if use_terminal:
-        _run_terminal_task(
-            api_messages=api_messages,
-            soul=soul,
-            rules=rules,
-            callback_url=callback_url,
-            chat_callback_token=chat_callback_token,
-            message_id=message_id,
-            thread_id=thread_id,
-            work_id=work_id,
-            emitter=emitter,
-            correlation_id=correlation_id,
-        )
-        return
+        # Check if this is a direct shell command
+        user_message = ""
+        for msg in reversed(api_messages):
+            if msg.get("role") == "user" and msg.get("content"):
+                user_message = msg["content"]
+                break
 
-    # ── Legacy tool-use loop path ──
+        if user_message and _classify_message(user_message) == "command":
+            _run_terminal_task(
+                api_messages=api_messages,
+                soul=soul,
+                rules=rules,
+                callback_url=callback_url,
+                chat_callback_token=chat_callback_token,
+                message_id=message_id,
+                thread_id=thread_id,
+                work_id=work_id,
+                emitter=emitter,
+                correlation_id=correlation_id,
+            )
+            return
+
+    # ── Tool-use loop: LLM reasons and executes via tools ──
     if not model_router_token:
         _deliver_callback(
             callback_url, chat_callback_token, message_id,
@@ -297,13 +306,10 @@ def _run_terminal_task(
     emitter: EventEmitter,
     correlation_id: str | None = None,
 ) -> None:
-    """Dispatch a chat task to the visible tmux terminal.
+    """Run a direct shell command in the visible tmux terminal.
 
-    Classification:
-      - Direct commands (ls, git status, etc.) → tmux send-keys directly
-      - Complex tasks → Claude Code CLI (if available) or legacy tool loop fallback
-
-    All execution is visible in xterm.js — no hidden subprocess calls.
+    Only called for messages classified as 'command' (ls, git, etc.).
+    Complex tasks go through the tool-use loop instead.
     """
     start_time = time.monotonic()
 
@@ -322,39 +328,34 @@ def _run_terminal_task(
         )
         return
 
-    msg_type = _classify_message(user_message)
-
     emitter.emit(
         type="terminal_task_start",
         tool="chat",
-        input_summary=f"thread={thread_id} type={msg_type} task={user_message[:150]}",
+        input_summary=f"thread={thread_id} type=command task={user_message[:150]}",
         output_summary=None,
         duration_ms=None,
         success=None,
         correlation_id=correlation_id,
-        metadata={"work_id": work_id, "message_id": message_id, "dispatch": msg_type},
+        metadata={"work_id": work_id, "message_id": message_id, "dispatch": "command"},
     )
 
     _deliver_callback(
         callback_url, chat_callback_token, message_id,
         status="thinking",
-        content=f"Running {'command' if msg_type == 'command' else 'task'} in terminal...",
-        model="terminal" if msg_type == "command" else "claude-code",
+        content="Running command in terminal...",
+        model="terminal",
         emitter=emitter, work_id=work_id, correlation_id=correlation_id,
     )
 
     try:
-        if msg_type == "command":
-            result_content = _run_direct_command(user_message)
-        else:
-            result_content = _run_claude_task(user_message, soul, rules)
+        result_content = _run_direct_command(user_message)
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
 
         emitter.emit(
             type="terminal_task_complete",
             tool="chat",
-            input_summary=f"thread={thread_id} type={msg_type}",
+            input_summary=f"thread={thread_id} type=command",
             output_summary=f"duration={duration_ms}ms result_len={len(result_content)}",
             duration_ms=duration_ms,
             success=True,
@@ -366,7 +367,7 @@ def _run_terminal_task(
             callback_url, chat_callback_token, message_id,
             status="complete",
             content=result_content,
-            model="terminal" if msg_type == "command" else "claude-code",
+            model="terminal",
             duration_ms=duration_ms,
             emitter=emitter, work_id=work_id, correlation_id=correlation_id,
         )
@@ -377,7 +378,7 @@ def _run_terminal_task(
         emitter.emit(
             type="terminal_task_failed",
             tool="chat",
-            input_summary=f"thread={thread_id} type={msg_type}",
+            input_summary=f"thread={thread_id} type=command",
             output_summary=f"error={str(exc)[:200]}",
             duration_ms=duration_ms,
             success=False,
@@ -423,47 +424,28 @@ def _run_direct_command(user_message: str) -> str:
     return _poll_for_result_file(timeout=COMMAND_TIMEOUT)
 
 
-def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
-    """Run a complex task via Claude Code CLI in tmux.
+def _run_visible_command(cmd: str) -> str:
+    """Run a command in tmux (visible to terminal viewer) and return result as JSON.
 
-    Falls back to returning an error if claude is not available.
+    Used by the tool-use loop to make execute_command calls visible
+    in the terminal instead of running them in a hidden subprocess.
     """
-    has_claude = shutil.which("claude")
-
-    if not has_claude:
-        # No Claude Code — run as a direct command anyway (best effort)
-        logger.warning("[terminal-task] Claude Code not available, running as direct command")
-        return _run_direct_command(user_message)
-
     _ensure_tmux_session()
-
-    # Build the task file with context
-    task_parts = []
-    if soul:
-        task_parts.append(soul)
-    if rules:
-        task_parts.append(rules)
-    task_parts.append(f"## Task\n\n{user_message}")
-    task_content = "\n\n".join(task_parts)
-
-    with open(TASK_FILE, "w") as f:
-        f.write(task_content)
 
     if os.path.exists(RESULT_FILE):
         os.unlink(RESULT_FILE)
 
-    # Use _r shell function to capture output invisibly
-    claude_cmd = f'_r "claude --print < {TASK_FILE}"'
-
+    shell_cmd = f'_r "{cmd}"'
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, shell_cmd, "Enter"],
         timeout=5,
         capture_output=True,
     )
 
-    logger.info("[terminal-task] Claude Code task in tmux: %s", user_message[:100])
+    logger.info("[terminal-visible] Command in tmux: %s", cmd[:100])
 
-    return _poll_for_result_file(timeout=CLAUDE_TIMEOUT)
+    output = _poll_for_result_file(timeout=COMMAND_TIMEOUT)
+    return json.dumps({"success": True, "output": output, "exit_code": 0})
 
 
 def _poll_for_result_file(*, timeout: int) -> str:
@@ -736,9 +718,17 @@ def _run_tool_loop(
 
             tool_start = time.monotonic()
             try:
-                tool_result = asyncio.run(
-                    execute_tool_call(func_name, func_args, work_id=work_id, emitter=emitter)
-                )
+                # Route shell commands through tmux so they're visible
+                if func_name == "execute_command" and _should_use_terminal():
+                    cmd = func_args.get("command", "")
+                    if cmd:
+                        tool_result = _run_visible_command(cmd)
+                    else:
+                        tool_result = json.dumps({"success": False, "error": "No command provided"})
+                else:
+                    tool_result = asyncio.run(
+                        execute_tool_call(func_name, func_args, work_id=work_id, emitter=emitter)
+                    )
             except Exception as exc:
                 tool_result = json.dumps({"success": False, "error": str(exc)[:500]})
                 logger.error("Tool call %s failed: %s", func_name, exc, exc_info=True)

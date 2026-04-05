@@ -647,23 +647,25 @@ class TestTerminalDispatch:
         mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}" if cmd == "claude" else None
         assert _should_use_terminal() is False
 
-    @patch("app.chat._poll_for_result_file")
-    @patch("app.chat.subprocess.run")
-    @patch("app.chat.shutil.which", return_value="/usr/bin/claude")
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
-    def test_terminal_dispatch_complex_task_uses_claude(
-        self, mock_post, mock_terminal, mock_which, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
+    def test_complex_task_goes_to_tool_loop_not_terminal(
+        self, mock_post, mock_terminal, emitter, monkeypatch
     ):
-        """Complex tasks (natural language) use Claude Code CLI in tmux."""
+        """Complex tasks (natural language) go through tool-use loop, not terminal dispatch."""
         em, log_path = emitter
         monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
-        monkeypatch.setattr("app.chat.TASK_FILE", str(tmp_path / "task.md"))
-        monkeypatch.setattr("app.chat.RESULT_FILE", str(tmp_path / "result"))
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
 
-        mock_post.return_value = MagicMock(status_code=200)
-        mock_subprocess.return_value = MagicMock(returncode=0)
-        mock_poll.return_value = "Task completed successfully."
+        # Mock LLM response (no tool calls = final response)
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "I'll create that file.", "tool_calls": None}, "finish_reason": "stop"}],
+                "model": "gpt-4o-mini",
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+            },
+        )
 
         handle_chat(
             {
@@ -676,27 +678,10 @@ class TestTerminalDispatch:
             work_id="w1", emitter=em,
         )
 
-        # Task file was written with soul + rules + task
-        task_content = (tmp_path / "task.md").read_text()
-        assert "You are a coding agent." in task_content
-        assert "Be concise." in task_content
-        assert "Create a hello.py file" in task_content
-
-        # Check subprocess calls include send-keys with claude command
-        all_calls = [c[0][0] for c in mock_subprocess.call_args_list]
-        send_keys_calls = [c for c in all_calls if "send-keys" in c]
-        assert len(send_keys_calls) >= 1, "Expected send-keys call for claude"
-        claude_cmd = send_keys_calls[0][-2]
-        assert "claude" in claude_cmd
-
-        # Callback was sent with complete status
-        last_callback = None
-        for call in mock_post.call_args_list:
-            body = call[1].get("json") or call[0][1] if len(call[0]) > 1 else call[1].get("json", {})
-            if isinstance(body, dict) and body.get("status") == "complete":
-                last_callback = body
-        assert last_callback is not None
-        assert last_callback["content"] == "Task completed successfully."
+        # Should have called the LLM (inference endpoint), not tmux
+        inference_calls = [c for c in mock_post.call_args_list
+                          if "chat/completions" in str(c)]
+        assert len(inference_calls) >= 1, "Expected LLM inference call for complex task"
 
     @patch("app.chat._poll_for_result_file")
     @patch("app.chat.subprocess.run")
@@ -738,10 +723,12 @@ class TestTerminalDispatch:
 
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
-    def test_terminal_dispatch_no_user_message(self, mock_post, mock_terminal, emitter, monkeypatch):
-        """Terminal mode returns error when no user message is found."""
+    def test_no_user_message_falls_to_tool_loop(self, mock_post, mock_terminal, emitter, monkeypatch):
+        """No user message with terminal on falls to tool loop (needs MODEL_ROUTER_TOKEN)."""
         em, _ = emitter
         monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        # No MODEL_ROUTER_TOKEN → tool loop returns error
+        monkeypatch.delenv("MODEL_ROUTER_TOKEN", raising=False)
 
         mock_post.return_value = MagicMock(status_code=200)
 
@@ -755,10 +742,9 @@ class TestTerminalDispatch:
             soul="", rules="", work_id="w1", emitter=em,
         )
 
-        # Should have sent error callback
+        # Should have sent error callback about missing token
         cb_body = mock_post.call_args[1]["json"]
         assert cb_body["status"] == "error"
-        assert "No user message" in cb_body["error_message"]
 
     @patch("app.chat._should_use_terminal", return_value=False)
     @patch("app.chat.requests.post")
