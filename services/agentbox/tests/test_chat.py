@@ -648,12 +648,13 @@ class TestTerminalDispatch:
         assert _should_use_terminal() is False
 
     @patch("app.chat._poll_for_result_file")
+    @patch("app.chat._poll_for_prompt")
     @patch("app.chat.subprocess.run")
     @patch("app.chat.shutil.which", return_value="/usr/bin/claude")
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
     def test_terminal_dispatch_complex_task_uses_claude(
-        self, mock_post, mock_terminal, mock_which, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
+        self, mock_post, mock_terminal, mock_which, mock_subprocess, mock_prompt_poll, mock_poll, emitter, monkeypatch, tmp_path
     ):
         """Complex tasks (natural language) use Claude Code CLI in tmux."""
         em, log_path = emitter
@@ -662,7 +663,8 @@ class TestTerminalDispatch:
         monkeypatch.setattr("app.chat.RESULT_FILE", str(tmp_path / "result"))
 
         mock_post.return_value = MagicMock(status_code=200)
-        mock_subprocess.return_value = MagicMock(returncode=0)
+        mock_subprocess.return_value = MagicMock(returncode=0, stdout="")
+        mock_prompt_poll.return_value = "agentuser@host /workspace\n$"
         mock_poll.return_value = "Task completed successfully."
 
         handle_chat(
@@ -682,11 +684,12 @@ class TestTerminalDispatch:
         assert "Be concise." in task_content
         assert "Create a hello.py file" in task_content
 
-        # tmux send-keys was called with claude command
-        assert mock_subprocess.called
-        send_keys_call = mock_subprocess.call_args
-        assert "tmux" in send_keys_call[0][0]
-        assert "send-keys" in send_keys_call[0][0]
+        # Check subprocess calls include send-keys with claude command
+        all_calls = [c[0][0] for c in mock_subprocess.call_args_list]
+        send_keys_calls = [c for c in all_calls if "send-keys" in c]
+        assert len(send_keys_calls) >= 1, "Expected send-keys call for claude"
+        claude_cmd = send_keys_calls[0][-2]
+        assert "claude" in claude_cmd
 
         # Callback was sent with complete status
         last_callback = None
@@ -698,11 +701,12 @@ class TestTerminalDispatch:
         assert last_callback["content"] == "Task completed successfully."
 
     @patch("app.chat._poll_for_result_file")
+    @patch("app.chat._poll_for_prompt")
     @patch("app.chat.subprocess.run")
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
     def test_terminal_dispatch_direct_command_skips_claude(
-        self, mock_post, mock_terminal, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
+        self, mock_post, mock_terminal, mock_subprocess, mock_prompt_poll, mock_poll, emitter, monkeypatch, tmp_path
     ):
         """Direct shell commands (ls, git, etc.) run directly in tmux without Claude."""
         em, log_path = emitter
@@ -710,7 +714,8 @@ class TestTerminalDispatch:
         monkeypatch.setattr("app.chat.RESULT_FILE", str(tmp_path / "result"))
 
         mock_post.return_value = MagicMock(status_code=200)
-        mock_subprocess.return_value = MagicMock(returncode=0)
+        mock_subprocess.return_value = MagicMock(returncode=0, stdout="")
+        mock_prompt_poll.return_value = "agentuser@host /workspace\n$"
         mock_poll.return_value = "file1.txt\nfile2.py\n"
 
         handle_chat(
@@ -724,20 +729,18 @@ class TestTerminalDispatch:
             work_id="w1", emitter=em,
         )
 
-        # tmux send-keys was called with the runner script (not claude)
-        assert mock_subprocess.called
-        send_keys_call = mock_subprocess.call_args
-        cmd_args = send_keys_call[0][0]
-        assert "tmux" in cmd_args
-        assert "send-keys" in cmd_args
-        # Args: ["tmux", "send-keys", "-t", "agent", RUNNER_SCRIPT, "Enter"]
-        tmux_cmd = cmd_args[-2]
-        assert ".agent-cmd.sh" in tmux_cmd
-        assert "claude" not in tmux_cmd
-        # Verify the runner script contains the actual command
-        with open(tmux_cmd) as f:
-            script_content = f.read()
-        assert "ls -a" in script_content
+        # Check all subprocess calls — should have pipe-pane start, send-keys, pipe-pane stop
+        all_calls = [c[0][0] for c in mock_subprocess.call_args_list]
+        send_keys_calls = [c for c in all_calls if "send-keys" in c]
+        pipe_pane_calls = [c for c in all_calls if "pipe-pane" in c]
+
+        assert len(send_keys_calls) >= 1, "Expected at least one send-keys call"
+        assert len(pipe_pane_calls) >= 1, "Expected at least one pipe-pane call"
+
+        # The send-keys call should contain the actual command, not claude
+        cmd_sent = send_keys_calls[0][-2]  # command is before "Enter"
+        assert "ls -a" in cmd_sent
+        assert "claude" not in cmd_sent
 
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
