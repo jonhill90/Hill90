@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.chat import handle_chat, _deliver_callback
+from app.chat import handle_chat, _build_tool_instruction, _deliver_callback
 from app.config import FilesystemConfig, ShellConfig, ToolLoopConfig, ToolsConfig
 from app.events import EventEmitter
 
@@ -573,3 +573,122 @@ class TestToolLoop:
         assert "read_file" in tool_names
         assert "write_file" in tool_names
         assert "list_directory" in tool_names
+
+
+class TestBuildToolInstruction:
+    """AI-169: Multi-step task workflow in tool instruction."""
+
+    def test_includes_tool_names(self):
+        tool_defs = [
+            {"function": {"name": "execute_command"}},
+            {"function": {"name": "read_file"}},
+        ]
+        result = _build_tool_instruction("execute_command, read_file", tool_defs)
+        assert "execute_command, read_file" in result
+
+    def test_multistep_workflow_with_full_tools(self):
+        """Workflow section appears when shell + read + write are all enabled."""
+        tool_defs = [
+            {"function": {"name": "execute_command"}},
+            {"function": {"name": "read_file"}},
+            {"function": {"name": "write_file"}},
+            {"function": {"name": "list_directory"}},
+        ]
+        result = _build_tool_instruction(
+            "execute_command, read_file, write_file, list_directory", tool_defs,
+        )
+        assert "Multi-Step Task Workflow" in result
+        assert "Understand" in result
+        assert "Plan" in result
+        assert "Implement" in result
+        assert "Verify" in result
+        assert "Iterate" in result
+
+    def test_no_multistep_without_write(self):
+        """Read-only agents should not get the coding workflow."""
+        tool_defs = [
+            {"function": {"name": "execute_command"}},
+            {"function": {"name": "read_file"}},
+            {"function": {"name": "list_directory"}},
+        ]
+        result = _build_tool_instruction(
+            "execute_command, read_file, list_directory", tool_defs,
+        )
+        assert "Multi-Step Task Workflow" not in result
+
+    def test_no_multistep_shell_only(self):
+        """Shell-only agents should not get the coding workflow."""
+        tool_defs = [{"function": {"name": "execute_command"}}]
+        result = _build_tool_instruction("execute_command", tool_defs)
+        assert "Multi-Step Task Workflow" not in result
+
+    @patch("app.chat.requests.post")
+    def test_multistep_prompt_in_system_message(self, mock_post, emitter, monkeypatch):
+        """End-to-end: multi-step workflow appears in the system message sent to LLM."""
+        em, _ = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        ai_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {}, "model": "m",
+            },
+        )
+        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "Fix the bug"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="I am CodeBot", rules="", work_id="w1", emitter=em,
+            tools_config=ToolsConfig(
+                shell=ShellConfig(enabled=True),
+                filesystem=FilesystemConfig(enabled=True),
+            ),
+        )
+
+        ai_body = mock_post.call_args_list[0][1]["json"]
+        system_msg = ai_body["messages"][0]
+        assert system_msg["role"] == "system"
+        assert "I am CodeBot" in system_msg["content"]
+        assert "Multi-Step Task Workflow" in system_msg["content"]
+        assert "Verify" in system_msg["content"]
+
+    @patch("app.chat.requests.post")
+    def test_readonly_no_multistep_in_system(self, mock_post, emitter, monkeypatch):
+        """Read-only filesystem does not inject multi-step workflow."""
+        em, _ = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        ai_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {}, "model": "m",
+            },
+        )
+        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "What files?"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="", rules="", work_id="w1", emitter=em,
+            tools_config=ToolsConfig(
+                shell=ShellConfig(enabled=True),
+                filesystem=FilesystemConfig(enabled=True, read_only=True),
+            ),
+        )
+
+        ai_body = mock_post.call_args_list[0][1]["json"]
+        system_msg = ai_body["messages"][0]
+        assert "Multi-Step Task Workflow" not in system_msg["content"]
