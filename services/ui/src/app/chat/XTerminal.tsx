@@ -67,6 +67,10 @@ export default function XTerminal({ threadId }: Props) {
 
     // Connect WebSocket directly to API service (Next.js doesn't proxy WS)
     const accessToken = (session as any).accessToken
+    if (!accessToken) {
+      term.write('\x1b[31m No access token — session may have expired. Try refreshing. \x1b[0m\r\n')
+      return
+    }
     const wsUrl = `wss://api.hill90.com/chat/threads/${threadId}/terminal?token=${encodeURIComponent(accessToken)}`
 
     const ws = new WebSocket(wsUrl)
