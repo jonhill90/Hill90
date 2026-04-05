@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useSession } from 'next-auth/react'
+import { MousePointer, Eye } from 'lucide-react'
 
 interface Props {
   threadId: string
@@ -12,7 +13,10 @@ export default function XTerminal({ threadId }: Props) {
   const termRef = useRef<any>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<any>(null)
+  const dataListenerRef = useRef<any>(null)
   const { data: session } = useSession()
+  const [controlling, setControlling] = useState(false)
+  const [connected, setConnected] = useState(false)
 
   const connect = useCallback(async () => {
     if (!containerRef.current || !session) return
@@ -79,7 +83,7 @@ export default function XTerminal({ threadId }: Props) {
     wsRef.current = ws
 
     ws.onopen = () => {
-      term.write('\x1b[2m Connected to agent terminal \x1b[0m\r\n')
+      setConnected(true)
       // Send initial terminal size
       const dims = fitAddon.proposeDimensions()
       if (dims) {
@@ -95,8 +99,9 @@ export default function XTerminal({ threadId }: Props) {
       }
     }
 
-    ws.onclose = (event) => {
-      term.write(`\r\n\x1b[2m Terminal disconnected (${event.code}) \x1b[0m\r\n`)
+    ws.onclose = () => {
+      setConnected(false)
+      setControlling(false)
     }
 
     ws.onerror = () => {
@@ -122,6 +127,34 @@ export default function XTerminal({ threadId }: Props) {
     }
   }, [threadId, session])
 
+  // Toggle control mode — enable/disable stdin and attach/detach data listener
+  const toggleControl = useCallback(() => {
+    const term = termRef.current
+    const ws = wsRef.current
+    if (!term || !ws || ws.readyState !== WebSocket.OPEN) return
+
+    if (controlling) {
+      // Release control
+      term.options.disableStdin = true
+      if (dataListenerRef.current) {
+        dataListenerRef.current.dispose()
+        dataListenerRef.current = null
+      }
+      setControlling(false)
+    } else {
+      // Take control — enable stdin, relay keystrokes to agentbox PTY
+      term.options.disableStdin = false
+      term.focus()
+      dataListenerRef.current = term.onData((data: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          // Send as binary (raw terminal input)
+          ws.send(new TextEncoder().encode(data))
+        }
+      })
+      setControlling(true)
+    }
+  }, [controlling])
+
   useEffect(() => {
     let cleanup: (() => void) | undefined
 
@@ -138,9 +171,36 @@ export default function XTerminal({ threadId }: Props) {
     <div className="flex flex-col h-full" data-testid="terminal-pane">
       <div className="px-3 py-2 border-b border-[#292e42] bg-[#1a1b26] flex items-center justify-between">
         <h3 className="text-sm font-semibold text-[#a9b1d6]">Terminal</h3>
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[#9ece6a] animate-pulse" />
-          <span className="text-xs text-[#565f89]">Observer</span>
+        <div className="flex items-center gap-3">
+          {connected && (
+            <button
+              onClick={toggleControl}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-all ${
+                controlling
+                  ? 'bg-[#f7768e]/20 text-[#f7768e] border border-[#f7768e]/30 hover:bg-[#f7768e]/30'
+                  : 'bg-[#7aa2f7]/10 text-[#7aa2f7] border border-[#7aa2f7]/20 hover:bg-[#7aa2f7]/20'
+              }`}
+              data-testid="control-toggle"
+            >
+              {controlling ? (
+                <>
+                  <MousePointer className="w-3 h-3" />
+                  Release
+                </>
+              ) : (
+                <>
+                  <MousePointer className="w-3 h-3" />
+                  Take Control
+                </>
+              )}
+            </button>
+          )}
+          <div className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-[#9ece6a] animate-pulse' : 'bg-[#414868]'}`} />
+            <span className="text-xs text-[#565f89]">
+              {controlling ? 'Controlling' : connected ? 'Observing' : 'Disconnected'}
+            </span>
+          </div>
         </div>
       </div>
       <div
