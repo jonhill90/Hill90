@@ -1,13 +1,14 @@
-"""Chat work handler — inference call + tool-calling loop + callback delivery.
+"""Chat work handler — dispatches tasks to Claude Code CLI in tmux.
 
 Agentbox is the sole owner of system prompt assembly (§7.5).
 API sends only structured data: messages array, model, callback info.
 Agentbox reads identity from mounted files (SOUL.md + RULES.md with
 baked-in skill instructions) and prepends the system prompt.
 
-When tools are enabled, the handler runs an iterative loop: call LLM,
-execute any requested tool calls, feed results back, repeat until the
-LLM produces a final text response or the iteration limit is reached.
+Primary path (AI-181): writes the user's task to /workspace/current-task.md,
+then runs `claude` in the tmux session so all work is visible in the
+live terminal (xterm.js). Falls back to the legacy tool-use loop when
+claude CLI is not available or AGENT_USE_TERMINAL is not set.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import subprocess
 import time
 from typing import TYPE_CHECKING
 
@@ -29,6 +32,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+TMUX_SESSION = "agent"
+TASK_FILE = "/workspace/current-task.md"
+RESULT_FILE = "/workspace/.claude-result"
+CLAUDE_TIMEOUT = 600  # 10 minutes max per task
+
 
 def handle_chat(
     payload: dict,
@@ -41,7 +49,7 @@ def handle_chat(
     tool_loop_config: ToolLoopConfig | None = None,
     correlation_id: str | None = None,
 ) -> None:
-    """Handle a chat work item: build prompt, run tool loop, deliver callback."""
+    """Handle a chat work item: dispatch to terminal or legacy tool loop."""
     thread_id = payload.get("thread_id", "unknown")
     message_id = payload.get("message_id", "unknown")
     model = payload.get("model", "gpt-4o-mini")
@@ -79,6 +87,25 @@ def handle_chat(
         )
         return
 
+    # Decide dispatch mode: terminal (claude CLI) vs legacy (tool-use loop)
+    use_terminal = _should_use_terminal()
+
+    if use_terminal:
+        _run_terminal_task(
+            api_messages=api_messages,
+            soul=soul,
+            rules=rules,
+            callback_url=callback_url,
+            chat_callback_token=chat_callback_token,
+            message_id=message_id,
+            thread_id=thread_id,
+            work_id=work_id,
+            emitter=emitter,
+            correlation_id=correlation_id,
+        )
+        return
+
+    # ── Legacy tool-use loop path ──
     if not model_router_token:
         _deliver_callback(
             callback_url, chat_callback_token, message_id,
@@ -145,6 +172,229 @@ def handle_chat(
         emitter=emitter,
         correlation_id=correlation_id,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Terminal dispatch (AI-181)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _should_use_terminal() -> bool:
+    """Check if terminal dispatch is available and enabled."""
+    if not os.environ.get("AGENT_USE_TERMINAL"):
+        return False
+    if not shutil.which("tmux"):
+        return False
+    if not shutil.which("claude"):
+        return False
+    return True
+
+
+def _run_terminal_task(
+    *,
+    api_messages: list[dict],
+    soul: str,
+    rules: str,
+    callback_url: str,
+    chat_callback_token: str,
+    message_id: str,
+    thread_id: str,
+    work_id: str,
+    emitter: EventEmitter,
+    correlation_id: str | None = None,
+) -> None:
+    """Dispatch a chat task to Claude Code CLI running in the tmux session.
+
+    1. Extract the user's latest message as the task
+    2. Write it to /workspace/current-task.md with system context
+    3. Run `claude --print` in tmux so work is visible in xterm.js
+    4. Poll for completion, then send result back via callback
+    """
+    start_time = time.monotonic()
+
+    # Extract the last user message as the task
+    user_message = ""
+    for msg in reversed(api_messages):
+        if msg.get("role") == "user" and msg.get("content"):
+            user_message = msg["content"]
+            break
+
+    if not user_message:
+        _deliver_callback(
+            callback_url, chat_callback_token, message_id,
+            status="error", error_message="No user message found",
+            emitter=emitter, work_id=work_id, correlation_id=correlation_id,
+        )
+        return
+
+    emitter.emit(
+        type="terminal_task_start",
+        tool="chat",
+        input_summary=f"thread={thread_id} task={user_message[:150]}",
+        output_summary=None,
+        duration_ms=None,
+        success=None,
+        correlation_id=correlation_id,
+        metadata={"work_id": work_id, "message_id": message_id},
+    )
+
+    # Send thinking callback so the UI shows progress
+    _deliver_callback(
+        callback_url, chat_callback_token, message_id,
+        status="thinking",
+        content="Running in terminal...",
+        model="claude-code",
+        emitter=emitter, work_id=work_id, correlation_id=correlation_id,
+    )
+
+    # Build the task file content with system context
+    task_parts = []
+    if soul:
+        task_parts.append(soul)
+    if rules:
+        task_parts.append(rules)
+    task_parts.append(f"## Task\n\n{user_message}")
+    task_content = "\n\n".join(task_parts)
+
+    try:
+        # Write the task file
+        with open(TASK_FILE, "w") as f:
+            f.write(task_content)
+
+        # Clean up any previous result
+        if os.path.exists(RESULT_FILE):
+            os.unlink(RESULT_FILE)
+
+        # Build the claude command that runs in tmux.
+        # --print: output result to stdout (no interactive TUI)
+        # Redirect stdout to result file so we can capture it.
+        # The command runs IN the visible tmux session so xterm.js shows everything.
+        claude_cmd = (
+            f"claude --print < {TASK_FILE} 2>&1 | tee {RESULT_FILE}; "
+            f"echo '___CLAUDE_DONE___' >> {RESULT_FILE}"
+        )
+
+        # Send the command to the tmux session
+        subprocess.run(
+            ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],
+            timeout=5,
+            capture_output=True,
+        )
+
+        logger.info("[terminal-task] Dispatched to tmux: %s", user_message[:100])
+
+        # Poll for completion
+        result_content = _poll_for_result(
+            emitter=emitter,
+            work_id=work_id,
+            correlation_id=correlation_id,
+            thread_id=thread_id,
+            message_id=message_id,
+            callback_url=callback_url,
+            chat_callback_token=chat_callback_token,
+        )
+
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+
+        emitter.emit(
+            type="terminal_task_complete",
+            tool="chat",
+            input_summary=f"thread={thread_id}",
+            output_summary=f"duration={duration_ms}ms result_len={len(result_content)}",
+            duration_ms=duration_ms,
+            success=True,
+            correlation_id=correlation_id,
+            metadata={"work_id": work_id, "message_id": message_id},
+        )
+
+        _deliver_callback(
+            callback_url, chat_callback_token, message_id,
+            status="complete",
+            content=result_content,
+            model="claude-code",
+            duration_ms=duration_ms,
+            emitter=emitter, work_id=work_id, correlation_id=correlation_id,
+        )
+
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - start_time) * 1000)
+        logger.error("[terminal-task] Failed: %s", exc, exc_info=True)
+        emitter.emit(
+            type="terminal_task_failed",
+            tool="chat",
+            input_summary=f"thread={thread_id}",
+            output_summary=f"error={str(exc)[:200]}",
+            duration_ms=duration_ms,
+            success=False,
+            correlation_id=correlation_id,
+            metadata={"work_id": work_id, "message_id": message_id},
+        )
+        _deliver_callback(
+            callback_url, chat_callback_token, message_id,
+            status="error",
+            error_message=f"Terminal task failed: {str(exc)[:200]}",
+            duration_ms=duration_ms,
+            emitter=emitter, work_id=work_id, correlation_id=correlation_id,
+        )
+
+
+def _poll_for_result(
+    *,
+    emitter: EventEmitter,
+    work_id: str,
+    correlation_id: str | None,
+    thread_id: str,
+    message_id: str,
+    callback_url: str,
+    chat_callback_token: str,
+) -> str:
+    """Poll the result file until Claude finishes or timeout.
+
+    Returns the captured output (with the sentinel line stripped).
+    """
+    deadline = time.monotonic() + CLAUDE_TIMEOUT
+    last_thinking_update = 0.0
+
+    while time.monotonic() < deadline:
+        time.sleep(2)
+
+        if not os.path.exists(RESULT_FILE):
+            continue
+
+        with open(RESULT_FILE) as f:
+            content = f.read()
+
+        if "___CLAUDE_DONE___" in content:
+            # Strip the sentinel and trailing whitespace
+            result = content.replace("___CLAUDE_DONE___", "").strip()
+            return result if result else "Task completed (no output captured)."
+
+        # Send periodic thinking updates (every 15s)
+        now = time.monotonic()
+        if now - last_thinking_update > 15:
+            last_thinking_update = now
+            lines = content.strip().splitlines()
+            last_line = lines[-1] if lines else "Working..."
+            _deliver_callback(
+                callback_url, chat_callback_token, message_id,
+                status="thinking",
+                content=f"Working in terminal... ({len(lines)} lines so far)",
+                model="claude-code",
+                emitter=emitter, work_id=work_id, correlation_id=correlation_id,
+            )
+
+    # Timeout — return whatever we have
+    if os.path.exists(RESULT_FILE):
+        with open(RESULT_FILE) as f:
+            content = f.read().replace("___CLAUDE_DONE___", "").strip()
+        if content:
+            return f"{content}\n\n(Timed out after {CLAUDE_TIMEOUT}s)"
+    return f"Task timed out after {CLAUDE_TIMEOUT}s with no output."
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Legacy tool-use loop (preserved for agents without terminal)
+# ─────────────────────────────────────────────────────────────────────
 
 
 def _build_tool_instruction(tool_names: str, tool_defs: list[dict]) -> str:
@@ -438,6 +688,11 @@ def _run_tool_loop(
         duration_ms=total_duration,
         emitter=emitter, work_id=work_id, correlation_id=correlation_id,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Callback delivery (shared by both paths)
+# ─────────────────────────────────────────────────────────────────────
 
 
 def _deliver_callback(
