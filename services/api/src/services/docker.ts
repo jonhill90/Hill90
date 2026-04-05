@@ -105,7 +105,7 @@ export async function createAndStartContainer(opts: CreateAgentContainerOpts): P
   const envVars = [
     `AGENT_ID=${opts.agentId}`,
     `AGENT_CONFIG=/etc/agentbox/agent.yml`,
-    'PATH=/data/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    'PATH=/home/agentuser/.local/bin:/data/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     ...(opts.env || []),
     ...(opts.metadata?.extra_env || []),
   ];

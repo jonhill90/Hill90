@@ -185,8 +185,7 @@ def _should_use_terminal() -> bool:
         return False
     if not shutil.which("tmux"):
         return False
-    if not shutil.which("claude"):
-        return False
+    # Claude Code is optional — terminal dispatch works with any tools
     return True
 
 
