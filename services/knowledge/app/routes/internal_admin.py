@@ -1,4 +1,4 @@
-"""Internal admin read-only endpoints for the API proxy layer.
+"""Internal admin endpoints for the API proxy layer.
 
 Authenticated with AKM_INTERNAL_SERVICE_TOKEN only. The API service
 enforces user-level authorization (ownership/admin scoping) before
@@ -8,9 +8,14 @@ to pass the correct agent_id filters.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
+
+from app.services import knowledge_store
 
 router = APIRouter(prefix="/internal/admin", tags=["internal-admin"])
 
@@ -163,3 +168,62 @@ async def search_entries(
         "search_type": "fts",
         "score_type": "ts_rank",
     }
+
+
+# ── Journal append (service-to-service) ──────────────────────────────
+
+
+@dataclass
+class _ServiceClaims:
+    """Minimal AgentClaims-compatible struct for service-to-service calls."""
+
+    sub: str
+
+
+class JournalAppendBody(BaseModel):
+    content: str
+
+
+@router.post("/journal/{agent_id}", status_code=201)
+async def append_journal(
+    agent_id: str,
+    body: JournalAppendBody,
+    request: Request,
+) -> dict[str, Any]:
+    """Append to an agent's daily journal (service-to-service).
+
+    Reuses the same date-based, timestamp-batched logic as the
+    agent-facing ``POST /api/v1/journal`` endpoint.
+    """
+    _verify_service_token(request)
+    pool = request.app.state.pool
+    data_dir = request.app.state.settings.data_dir
+
+    claims = _ServiceClaims(sub=agent_id)
+    today = date.today().isoformat()
+    journal_path = f"journal/{today}.md"
+    now_ts = datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
+
+    existing = await knowledge_store.read_entry(pool, claims, journal_path)
+
+    if existing is not None:
+        existing_content = existing["content"]
+        new_content = f"{existing_content}\n\n## {now_ts}\n\n{body.content}"
+        entry = await knowledge_store.update_entry(
+            pool, data_dir, claims, journal_path, new_content
+        )
+        if entry is None:
+            raise HTTPException(status_code=500, detail="failed to update journal")
+    else:
+        frontmatter = (
+            f"---\ntitle: Journal {today}\ntype: journal\n---\n\n"
+            f"## {now_ts}\n\n{body.content}"
+        )
+        try:
+            entry = await knowledge_store.create_entry(
+                pool, data_dir, claims, journal_path, frontmatter
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    return _serialize(entry)
