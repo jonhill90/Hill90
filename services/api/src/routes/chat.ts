@@ -25,6 +25,7 @@ import { isAdmin, getAgentElevatedScope } from '../helpers/elevated-scope';
 import { auditLog } from '../helpers/audit';
 import { dispatchChatWork } from '../services/chat-dispatch';
 import { execInContainer } from '../services/docker';
+import { appendJournal } from '../services/akm-proxy';
 
 const router = Router();
 
@@ -1338,6 +1339,33 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
      WHERE id = (SELECT thread_id FROM chat_messages WHERE id = $1)`,
     [message_id]
   );
+
+  // ── Auto-journal: persist interaction to agent memory (fire-and-forget) ──
+  if (finalStatus === 'complete' && content && process.env.AKM_INTERNAL_SERVICE_TOKEN) {
+    try {
+      const { rows: journalRows } = await pool.query(
+        `SELECT m.author_id, a.agent_id AS agent_slug
+         FROM chat_messages m
+         JOIN agents a ON a.id = m.author_id
+         WHERE m.id = $1 AND m.author_type = 'agent'`,
+        [message_id]
+      );
+      if (journalRows.length > 0) {
+        const agentSlug = journalRows[0].agent_slug;
+        const tokenCount = (input_tokens || 0) + (output_tokens || 0);
+        const preview = (content || '').length > 300
+          ? content.slice(0, 300) + '…'
+          : content;
+        const journalContent =
+          `**Chat response** (${model || 'unknown'}, ${tokenCount} tokens, ${duration_ms || 0}ms)\n\n${preview}`;
+        appendJournal(agentSlug, journalContent).catch((err: unknown) => {
+          console.error('[chat-callback] Journal append failed (non-blocking):', err);
+        });
+      }
+    } catch (journalErr) {
+      console.error('[chat-callback] Journal lookup failed (non-blocking):', journalErr);
+    }
+  }
 
   // ── Batch completion detection for group threads ──
   // Check if all sibling messages (same reply_to) are terminal
