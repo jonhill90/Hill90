@@ -1,7 +1,7 @@
 """Tests for app.tools — tool definitions and dispatcher."""
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 
@@ -74,7 +74,28 @@ class TestExecuteToolCall:
         result = await execute_tool_call("execute_command", {"command": "echo hello", "timeout": 10})
         parsed = json.loads(result)
         assert parsed["success"] is True
-        mock_exec.assert_called_once_with("echo hello", timeout=10, work_id=None)
+        mock_exec.assert_called_once_with("echo hello", timeout=10, command_id=ANY, work_id=None)
+
+    @pytest.mark.asyncio
+    @patch("app.tools.shell.execute_command", new_callable=AsyncMock)
+    async def test_execute_command_generates_command_id(self, mock_exec):
+        mock_exec.return_value = json.dumps({"success": True})
+        await execute_tool_call("execute_command", {"command": "ls"})
+        _, kwargs = mock_exec.call_args
+        # command_id should be a valid UUID string
+        import uuid
+        uuid.UUID(kwargs["command_id"])  # raises if not valid
+
+    @pytest.mark.asyncio
+    @patch("app.tools.shell.execute_command_pty", new_callable=AsyncMock)
+    @patch("app.tools.shell._terminal", new="fake-terminal")
+    async def test_prefers_pty_when_terminal_configured(self, mock_pty):
+        """When terminal logger is configured, execute_command uses PTY path."""
+        mock_pty.return_value = json.dumps({"success": True, "exit_code": 0, "stdout": "", "stderr": ""})
+        result = await execute_tool_call("execute_command", {"command": "git status"})
+        parsed = json.loads(result)
+        assert parsed["success"] is True
+        mock_pty.assert_called_once_with("git status", timeout=30, command_id=ANY, work_id=None)
 
     @pytest.mark.asyncio
     @patch("app.tools.filesystem.read_file", new_callable=AsyncMock)
@@ -115,4 +136,4 @@ class TestExecuteToolCall:
     async def test_bad_timeout_defaults_to_30(self, mock_exec):
         mock_exec.return_value = json.dumps({"success": True})
         await execute_tool_call("execute_command", {"command": "ls", "timeout": "invalid"})
-        mock_exec.assert_called_once_with("ls", timeout=30, work_id=None)
+        mock_exec.assert_called_once_with("ls", timeout=30, command_id=ANY, work_id=None)
