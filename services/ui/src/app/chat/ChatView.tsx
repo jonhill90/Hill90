@@ -288,7 +288,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
 
       {/* Session pane (collapsible) */}
       {sessionPaneOpen && (
-        <div className="hidden xl:flex w-[360px] flex-shrink-0 border-l border-navy-700 bg-navy-900">
+        <div className="flex w-[360px] flex-shrink-0 border-l border-navy-700 bg-navy-900">
           <div className="w-full">
             <SessionPane threadId={threadId} />
           </div>
