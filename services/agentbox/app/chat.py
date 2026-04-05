@@ -254,8 +254,25 @@ def _classify_message(message: str) -> str:
 
 
 SENTINEL = "___AGENT_DONE___"
+RUNNER_SCRIPT = "/tmp/.agent-cmd.sh"
 # Shorter timeout for direct commands (they shouldn't take 10 min)
 COMMAND_TIMEOUT = 60
+
+
+def _write_runner_script(cmd: str) -> None:
+    """Write a wrapper script that runs a command, captures output, and signals done.
+
+    The terminal shows `.agent-cmd.sh` instead of raw tee/sentinel plumbing.
+    """
+    script = (
+        f"#!/bin/sh\n"
+        f"# {cmd}\n"
+        f"{{ {cmd} ; }} 2>&1 | tee {RESULT_FILE}\n"
+        f"echo '{SENTINEL}' >> {RESULT_FILE}\n"
+    )
+    with open(RUNNER_SCRIPT, "w") as f:
+        f.write(script)
+    os.chmod(RUNNER_SCRIPT, 0o755)
 
 
 def _run_terminal_task(
@@ -379,15 +396,12 @@ def _run_direct_command(user_message: str) -> str:
     if os.path.exists(RESULT_FILE):
         os.unlink(RESULT_FILE)
 
-    # Build the command: run user's command, tee output to result file,
-    # then write sentinel so we know it's done
-    shell_cmd = (
-        f"{{ {cmd} ; }} 2>&1 | tee {RESULT_FILE}; "
-        f"echo '{SENTINEL}' >> {RESULT_FILE}"
-    )
+    # Write a runner script so the terminal shows a clean command line
+    # instead of the raw tee/sentinel plumbing
+    _write_runner_script(cmd)
 
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, shell_cmd, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, RUNNER_SCRIPT, "Enter"],
         timeout=5,
         capture_output=True,
     )
@@ -425,13 +439,10 @@ def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
         os.unlink(RESULT_FILE)
 
     # Run claude --print in tmux (visible in xterm.js)
-    claude_cmd = (
-        f"claude --print < {TASK_FILE} 2>&1 | tee {RESULT_FILE}; "
-        f"echo '{SENTINEL}' >> {RESULT_FILE}"
-    )
+    _write_runner_script(f"claude --print < {TASK_FILE}")
 
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, RUNNER_SCRIPT, "Enter"],
         timeout=5,
         capture_output=True,
     )
