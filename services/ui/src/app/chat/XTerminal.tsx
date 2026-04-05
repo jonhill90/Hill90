@@ -64,10 +64,9 @@ export default function XTerminal({ threadId }: Props) {
     termRef.current = term
     fitRef.current = fitAddon
 
-    // Connect WebSocket
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    // Connect WebSocket directly to API service (Next.js doesn't proxy WS)
     const accessToken = (session as any).accessToken
-    const wsUrl = `${protocol}//${window.location.host}/api/chat/threads/${threadId}/terminal?token=${encodeURIComponent(accessToken)}`
+    const wsUrl = `wss://api.hill90.com/chat/threads/${threadId}/terminal?token=${encodeURIComponent(accessToken)}`
 
     const ws = new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
