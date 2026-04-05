@@ -59,3 +59,28 @@ export async function searchEntries(q: string, agentId?: string): Promise<ProxyR
   if (agentId) params.agent_id = agentId;
   return proxyGet('/internal/admin/search', params);
 }
+
+export async function appendJournal(agentId: string, content: string): Promise<ProxyResponse> {
+  if (!AKM_INTERNAL_SERVICE_TOKEN) {
+    return { status: 503, data: { error: 'Knowledge service not configured' } };
+  }
+
+  const url = `${AKM_SERVICE_URL}/internal/admin/journal/${encodeURIComponent(agentId)}`;
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${AKM_INTERNAL_SERVICE_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content }),
+    });
+  } catch {
+    return { status: 502, data: { error: 'Knowledge service unavailable' } };
+  }
+
+  const data = await resp.json();
+  return { status: resp.status, data };
+}
