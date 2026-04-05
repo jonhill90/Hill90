@@ -28,21 +28,21 @@ export default function XTerminal({ threadId }: Props) {
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme: {
-        background: '#0d1117',
-        foreground: '#e6edf3',
-        cursor: '#58a6ff',
-        selectionBackground: '#264f78',
-        black: '#0d1117',
+        background: '#0f1720',
+        foreground: '#e2e8f0',
+        cursor: '#6db33a',
+        selectionBackground: '#243044',
+        black: '#0f1720',
         red: '#ff7b72',
-        green: '#3fb950',
+        green: '#6db33a',
         yellow: '#d29922',
-        blue: '#58a6ff',
+        blue: '#79c0ff',
         magenta: '#bc8cff',
         cyan: '#39c5cf',
         white: '#b1bac4',
-        brightBlack: '#6e7681',
+        brightBlack: '#4a5568',
         brightRed: '#ffa198',
-        brightGreen: '#56d364',
+        brightGreen: '#5b9a2f',
         brightYellow: '#e3b341',
         brightBlue: '#79c0ff',
         brightMagenta: '#d2a8ff',
@@ -131,16 +131,16 @@ export default function XTerminal({ threadId }: Props) {
 
   return (
     <div className="flex flex-col h-full" data-testid="terminal-pane">
-      <div className="p-3 border-b border-navy-700 flex items-center justify-between">
+      <div className="p-3 border-b border-navy-700 bg-navy-800 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-200">Terminal</h3>
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" />
           <span className="text-xs text-mountain-400">Observer</span>
         </div>
       </div>
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 bg-[#0d1117]"
+        className="flex-1 min-h-0 bg-navy-900"
         style={{ padding: '4px' }}
       />
     </div>
