@@ -1632,9 +1632,10 @@ function stripDockerHeader(buf: Buffer): string[] {
 router.get('/:id/stats', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
     const { rows } = await getPool().query(
-      `SELECT * FROM agents WHERE id = $1${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
-      scope.where === '1=1' ? [req.params.id] : [req.params.id, ...scope.params],
+      `SELECT * FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
     );
     if (rows.length === 0) {
       res.status(404).json({ error: 'Agent not found' });
@@ -1720,9 +1721,10 @@ const ARTIFACT_CATALOG = [
 router.get('/:id/artifacts', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
     const { rows } = await getPool().query(
-      `SELECT * FROM agents WHERE id = $1${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
-      scope.where === '1=1' ? [req.params.id] : [req.params.id, ...scope.params],
+      `SELECT * FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
     );
     if (rows.length === 0) {
       res.status(404).json({ error: 'Agent not found' });
