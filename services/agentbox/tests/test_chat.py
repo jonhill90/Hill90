@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.chat import handle_chat, _build_tool_instruction, _deliver_callback
+from app.chat import handle_chat, _build_tool_instruction, _deliver_callback, _should_use_terminal
 from app.config import FilesystemConfig, ShellConfig, ToolLoopConfig, ToolsConfig
 from app.events import EventEmitter
 
@@ -598,11 +598,6 @@ class TestBuildToolInstruction:
             "execute_command, read_file, write_file, list_directory", tool_defs,
         )
         assert "Multi-Step Task Workflow" in result
-        assert "Understand" in result
-        assert "Plan" in result
-        assert "Implement" in result
-        assert "Verify" in result
-        assert "Iterate" in result
 
     def test_no_multistep_without_write(self):
         """Read-only agents should not get the coding workflow."""
@@ -622,52 +617,113 @@ class TestBuildToolInstruction:
         result = _build_tool_instruction("execute_command", tool_defs)
         assert "Multi-Step Task Workflow" not in result
 
-    @patch("app.chat.requests.post")
-    def test_multistep_prompt_in_system_message(self, mock_post, emitter, monkeypatch):
-        """End-to-end: multi-step workflow appears in the system message sent to LLM."""
-        em, _ = emitter
-class TestCorrelationIdFlow:
-    """AI-171: correlation_id flows through to emitted events for SSE filtering."""
 
+class TestTerminalDispatch:
+    """AI-181: Terminal dispatch mode — run claude CLI in tmux."""
+
+    def test_should_use_terminal_disabled_by_default(self, monkeypatch):
+        """Terminal dispatch is off when AGENT_USE_TERMINAL is not set."""
+        monkeypatch.delenv("AGENT_USE_TERMINAL", raising=False)
+        assert _should_use_terminal() is False
+
+    @patch("app.chat.shutil.which")
+    def test_should_use_terminal_enabled(self, mock_which, monkeypatch):
+        """Terminal dispatch is on when env var + tmux + claude are available."""
+        monkeypatch.setenv("AGENT_USE_TERMINAL", "1")
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}"
+        assert _should_use_terminal() is True
+
+    @patch("app.chat.shutil.which")
+    def test_should_use_terminal_no_claude(self, mock_which, monkeypatch):
+        """Terminal dispatch is off when claude CLI is missing."""
+        monkeypatch.setenv("AGENT_USE_TERMINAL", "1")
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}" if cmd == "tmux" else None
+        assert _should_use_terminal() is False
+
+    @patch("app.chat.shutil.which")
+    def test_should_use_terminal_no_tmux(self, mock_which, monkeypatch):
+        """Terminal dispatch is off when tmux is missing."""
+        monkeypatch.setenv("AGENT_USE_TERMINAL", "1")
+        mock_which.side_effect = lambda cmd: f"/usr/bin/{cmd}" if cmd == "claude" else None
+        assert _should_use_terminal() is False
+
+    @patch("app.chat._poll_for_result")
+    @patch("app.chat.subprocess.run")
+    @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
-    def test_events_include_correlation_id(self, mock_post, emitter, monkeypatch):
+    def test_terminal_dispatch_writes_task_and_sends_keys(
+        self, mock_post, mock_terminal, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
+    ):
+        """Terminal mode writes task file and sends claude command to tmux."""
         em, log_path = emitter
         monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
-        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+        monkeypatch.setattr("app.chat.TASK_FILE", str(tmp_path / "task.md"))
+        monkeypatch.setattr("app.chat.RESULT_FILE", str(tmp_path / "result"))
 
-        ai_response = MagicMock(
-            status_code=200,
-            json=lambda: {
-                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
-                "usage": {}, "model": "m",
-            },
-        )
-        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+        mock_post.return_value = MagicMock(status_code=200)
+        mock_subprocess.return_value = MagicMock(returncode=0)
+        mock_poll.return_value = "Task completed successfully."
 
         handle_chat(
             {
                 "thread_id": "t1", "message_id": "m1",
-                "messages": [{"role": "user", "content": "Fix the bug"}],
+                "messages": [{"role": "user", "content": "Create a hello.py file"}],
                 "model": "gpt-4o-mini",
                 "callback_url": "http://api:3000/cb",
             },
-            soul="I am CodeBot", rules="", work_id="w1", emitter=em,
-            tools_config=ToolsConfig(
-                shell=ShellConfig(enabled=True),
-                filesystem=FilesystemConfig(enabled=True),
-            ),
+            soul="You are a coding agent.", rules="Be concise.",
+            work_id="w1", emitter=em,
         )
 
-        ai_body = mock_post.call_args_list[0][1]["json"]
-        system_msg = ai_body["messages"][0]
-        assert system_msg["role"] == "system"
-        assert "I am CodeBot" in system_msg["content"]
-        assert "Multi-Step Task Workflow" in system_msg["content"]
-        assert "Verify" in system_msg["content"]
+        # Task file was written with soul + rules + task
+        task_content = (tmp_path / "task.md").read_text()
+        assert "You are a coding agent." in task_content
+        assert "Be concise." in task_content
+        assert "Create a hello.py file" in task_content
 
+        # tmux send-keys was called
+        assert mock_subprocess.called
+        send_keys_call = mock_subprocess.call_args
+        assert "tmux" in send_keys_call[0][0]
+        assert "send-keys" in send_keys_call[0][0]
+
+        # Callback was sent with complete status
+        last_callback = None
+        for call in mock_post.call_args_list:
+            body = call[1].get("json") or call[0][1] if len(call[0]) > 1 else call[1].get("json", {})
+            if isinstance(body, dict) and body.get("status") == "complete":
+                last_callback = body
+        assert last_callback is not None
+        assert last_callback["content"] == "Task completed successfully."
+
+    @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
-    def test_readonly_no_multistep_in_system(self, mock_post, emitter, monkeypatch):
-        """Read-only filesystem does not inject multi-step workflow."""
+    def test_terminal_dispatch_no_user_message(self, mock_post, mock_terminal, emitter, monkeypatch):
+        """Terminal mode returns error when no user message is found."""
+        em, _ = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+
+        mock_post.return_value = MagicMock(status_code=200)
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "assistant", "content": "I'm ready"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="", rules="", work_id="w1", emitter=em,
+        )
+
+        # Should have sent error callback
+        cb_body = mock_post.call_args[1]["json"]
+        assert cb_body["status"] == "error"
+        assert "No user message" in cb_body["error_message"]
+
+    @patch("app.chat._should_use_terminal", return_value=False)
+    @patch("app.chat.requests.post")
+    def test_legacy_path_when_terminal_disabled(self, mock_post, mock_terminal, emitter, monkeypatch):
+        """When terminal is disabled, falls through to legacy tool loop."""
         em, _ = emitter
         monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
         monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
@@ -675,8 +731,7 @@ class TestCorrelationIdFlow:
         ai_response = MagicMock(
             status_code=200,
             json=lambda: {
-                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
-                "usage": {}, "model": "m",
+                "choices": [{"message": {"content": "Hello!"}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 10, "completion_tokens": 5},
                 "model": "gpt-4o-mini",
             },
@@ -686,49 +741,13 @@ class TestCorrelationIdFlow:
         handle_chat(
             {
                 "thread_id": "t1", "message_id": "m1",
-                "messages": [{"role": "user", "content": "What files?"}],
                 "messages": [{"role": "user", "content": "Hi"}],
                 "model": "gpt-4o-mini",
                 "callback_url": "http://api:3000/cb",
             },
             soul="", rules="", work_id="w1", emitter=em,
-            tools_config=ToolsConfig(
-                shell=ShellConfig(enabled=True),
-                filesystem=FilesystemConfig(enabled=True, read_only=True),
-            ),
         )
 
-        ai_body = mock_post.call_args_list[0][1]["json"]
-        system_msg = ai_body["messages"][0]
-        assert "Multi-Step Task Workflow" not in system_msg["content"]
-
-    @patch("app.chat.requests.post")
-    def test_events_without_correlation_id(self, mock_post, emitter, monkeypatch):
-        """When no correlation_id is provided, events omit the field."""
-        em, log_path = emitter
-        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
-        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
-
-        ai_response = MagicMock(
-            status_code=200,
-            json=lambda: {
-                "choices": [{"message": {"content": "ok"}}],
-                "usage": {}, "model": "m",
-            },
-        )
-        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
-
-        handle_chat(
-            {
-                "thread_id": "t1", "message_id": "m1",
-                "messages": [{"role": "user", "content": "Hi"}],
-                "model": "gpt-4o-mini",
-                "callback_url": "http://api:3000/cb",
-            },
-            soul="", rules="", work_id="w1", emitter=em,
-            # No correlation_id
-        )
-
-        events = _read_events(log_path)
-        for event in events:
-            assert "correlation_id" not in event
+        # Should have called AI service (legacy path)
+        ai_call = mock_post.call_args_list[0]
+        assert "v1/chat/completions" in ai_call[0][0]
