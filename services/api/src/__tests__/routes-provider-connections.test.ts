@@ -222,7 +222,9 @@ describe('Provider Connections CRUD', () => {
     const updateCall = mockQuery.mock.calls[1];
     expect(updateCall[0]).toContain('last_validated_at = NOW()');
     expect(updateCall[0]).toContain('validation_latency_ms');
-    expect(updateCall[0]).toContain('last_validation_error = NULL');
+    expect(updateCall[0]).toContain('last_validation_error');
+    // Valid connection should clear the error (null param)
+    expect(updateCall[1][2]).toBeNull(); // last_validation_error param
   });
 
   it('validate connection invalid key — records error and latency', async () => {
@@ -253,6 +255,35 @@ describe('Provider Connections CRUD', () => {
     const updateCall = mockQuery.mock.calls[1];
     expect(updateCall[0]).toContain('last_validation_error');
     expect(updateCall[0]).toContain('last_validated_at = NOW()');
+  });
+
+  it('validate connection invalid via HTTP 200 — preserves error message', async () => {
+    // AI service returns {valid: false, error: "..."} with HTTP 200 (not a throw)
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        id: 'uuid-1', provider: 'openai',
+        api_key_encrypted: Buffer.from('encrypted-data'),
+        api_key_nonce: Buffer.from('nonce-data'),
+        api_base_url: null,
+      }],
+    });
+    mockQuery.mockResolvedValueOnce({ rows: [] });
+
+    mockAxiosPost.mockResolvedValueOnce({
+      data: { valid: false, error: 'Incorrect API key provided' },
+    });
+
+    const res = await request(app)
+      .post('/provider-connections/uuid-1/validate')
+      .set('Authorization', `Bearer ${userToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.is_valid).toBe(false);
+    expect(res.body.error).toBe('Incorrect API key provided');
+
+    // Verify DB update includes the error
+    const updateCall = mockQuery.mock.calls[1];
+    expect(updateCall[1][2]).toBe('Incorrect API key provided'); // last_validation_error param
   });
 
   it('update re-encrypts key', async () => {
