@@ -516,6 +516,26 @@ cmd_service() {
         bash "$SCRIPT_DIR/vault.sh" auto-unseal || warn "Auto-unseal failed — run 'vault.sh unseal' manually"
     fi
 
+    # Recycle running agentbox containers after API deploy (AI-99)
+    # The agentbox image is rebuilt during API preflight, but running
+    # containers keep the old image. This stops and removes them so the
+    # API creates fresh containers on next agent start.
+    if [ "$service" = "api" ]; then
+        local agentbox_containers
+        agentbox_containers=$(docker ps -q --filter "label=managed-by=hill90-api" --filter "name=agentbox-" 2>/dev/null || true)
+        if [ -n "$agentbox_containers" ]; then
+            echo "Recycling running agentbox containers to pick up new image..."
+            echo "$agentbox_containers" | while read -r cid; do
+                local cname
+                cname=$(docker inspect --format '{{.Name}}' "$cid" | sed 's|^/||')
+                echo "  Stopping $cname..."
+                docker stop "$cid" 2>/dev/null || true
+                docker rm "$cid" 2>/dev/null || true
+            done
+            echo "Agentbox containers recycled — agents will start fresh on next request"
+        fi
+    fi
+
     echo ""
     echo "================================"
     echo "${banner} Complete!"
