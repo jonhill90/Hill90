@@ -132,4 +132,3 @@ services:
       - "traefik.http.routers.api.entrypoints=websecure"
       - "traefik.http.routers.api.tls.certresolver=letsencrypt"
       - "traefik.http.services.api.loadbalancer.server.port=3000"
-      - "traefik.http.routers.api.middlewares=rate-limit@file"
