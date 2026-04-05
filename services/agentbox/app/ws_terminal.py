@@ -99,7 +99,7 @@ async def ws_terminal_handler(websocket: WebSocket, work_token: str | None) -> N
             argv, shell_bin = _resolve_shell()
 
             env = {
-                "PATH": "/usr/local/bin:/usr/bin:/bin",
+                "PATH": "/home/agentuser/.local/bin:/usr/local/bin:/usr/bin:/bin",
                 "HOME": "/home/agentuser",
                 "LANG": "C.UTF-8",
                 "TERM": "xterm-256color",
