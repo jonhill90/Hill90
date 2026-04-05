@@ -240,4 +240,53 @@ describe('ChatMessage', () => {
     const provenance = screen.getByTestId('chain-provenance')
     expect(provenance).toHaveTextContent('Triggered by @WriterBot')
   })
+
+  // AI-167: Stale error messages
+  it('renders stale message dimmed with original error text', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          author_type: 'agent',
+          role: 'assistant',
+          status: 'stale',
+          error_message: 'token expired',
+        })}
+        isOwnMessage={false}
+      />
+    )
+    const stale = screen.getByTestId('stale-message')
+    expect(stale).toBeInTheDocument()
+    expect(stale).toHaveTextContent('token expired')
+  })
+
+  it('renders stale fallback text when no error_message', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({
+          author_type: 'agent',
+          role: 'assistant',
+          status: 'stale',
+          error_message: null,
+        })}
+        isOwnMessage={false}
+      />
+    )
+    expect(screen.getByTestId('stale-message')).toHaveTextContent('Stale error (resolved)')
+  })
+
+  it('stale message does not render red error styling', () => {
+    const { container } = render(
+      <ChatMessage
+        message={makeMessage({
+          author_type: 'agent',
+          role: 'assistant',
+          status: 'stale',
+          error_message: 'token expired',
+        })}
+        isOwnMessage={false}
+      />
+    )
+    // Should not have red error styling
+    expect(container.querySelector('.text-red-400')).not.toBeInTheDocument()
+  })
 })
