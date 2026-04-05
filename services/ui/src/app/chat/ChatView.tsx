@@ -146,7 +146,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
     <div className="flex h-full">
       {/* Terminal (main stage) — shown when Live Session is open */}
       {sessionPaneOpen && (
-        <div className="flex-1 flex flex-col min-w-0 border-r border-navy-700 bg-[#0d1117]">
+        <div className="flex-1 flex flex-col min-w-0 border-r border-[#292e42] bg-[#1a1b26]">
           <SessionPane threadId={threadId} />
         </div>
       )}

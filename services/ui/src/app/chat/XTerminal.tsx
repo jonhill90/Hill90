@@ -23,31 +23,32 @@ export default function XTerminal({ threadId }: Props) {
     const { WebLinksAddon } = await import('@xterm/addon-web-links')
 
     const term = new Terminal({
-      cursorBlink: false,
+      cursorBlink: true,
       disableStdin: true,
-      fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      fontSize: 14,
+      fontFamily: "'FiraCode Nerd Font', 'Fira Code', 'JetBrains Mono', monospace",
       theme: {
-        background: '#0f1720',
-        foreground: '#e2e8f0',
-        cursor: '#6db33a',
-        selectionBackground: '#243044',
-        black: '#0f1720',
-        red: '#ff7b72',
-        green: '#6db33a',
-        yellow: '#d29922',
-        blue: '#79c0ff',
-        magenta: '#bc8cff',
-        cyan: '#39c5cf',
-        white: '#b1bac4',
-        brightBlack: '#4a5568',
-        brightRed: '#ffa198',
-        brightGreen: '#5b9a2f',
-        brightYellow: '#e3b341',
-        brightBlue: '#79c0ff',
-        brightMagenta: '#d2a8ff',
-        brightCyan: '#56d4dd',
-        brightWhite: '#f0f6fc',
+        // Tokyo Night color scheme
+        background: '#1a1b26',
+        foreground: '#a9b1d6',
+        cursor: '#c0caf5',
+        selectionBackground: '#33467c',
+        black: '#15161e',
+        red: '#f7768e',
+        green: '#9ece6a',
+        yellow: '#e0af68',
+        blue: '#7aa2f7',
+        magenta: '#bb9af7',
+        cyan: '#7dcfff',
+        white: '#a9b1d6',
+        brightBlack: '#414868',
+        brightRed: '#f7768e',
+        brightGreen: '#9ece6a',
+        brightYellow: '#e0af68',
+        brightBlue: '#7aa2f7',
+        brightMagenta: '#bb9af7',
+        brightCyan: '#7dcfff',
+        brightWhite: '#c0caf5',
       },
       scrollback: 5000,
       convertEol: true,
@@ -135,16 +136,16 @@ export default function XTerminal({ threadId }: Props) {
 
   return (
     <div className="flex flex-col h-full" data-testid="terminal-pane">
-      <div className="p-3 border-b border-navy-700 bg-navy-800 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-200">Terminal</h3>
+      <div className="px-3 py-2 border-b border-[#292e42] bg-[#1a1b26] flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-[#a9b1d6]">Terminal</h3>
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-brand-400 animate-pulse" />
-          <span className="text-xs text-mountain-400">Observer</span>
+          <span className="w-2 h-2 rounded-full bg-[#9ece6a] animate-pulse" />
+          <span className="text-xs text-[#565f89]">Observer</span>
         </div>
       </div>
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 bg-navy-900"
+        className="flex-1 min-h-0 bg-[#1a1b26] overflow-hidden"
         style={{ padding: '4px' }}
       />
     </div>
