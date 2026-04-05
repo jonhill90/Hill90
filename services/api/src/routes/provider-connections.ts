@@ -178,14 +178,17 @@ router.post('/validate-all', async (req: Request, res: Response) => {
 
       const latencyMs = Date.now() - startTime;
       const isValid = response.data?.valid === true;
+      const validationError = isValid ? null : (response.data?.error || '').slice(0, 500) || null;
       await pool.query(
         `UPDATE provider_connections
          SET is_valid = $1, last_validated_at = NOW(), validation_latency_ms = $2,
-             last_validation_error = NULL, updated_at = NOW()
-         WHERE id = $3`,
-        [isValid, latencyMs, row.id]
+             last_validation_error = $3, updated_at = NOW()
+         WHERE id = $4`,
+        [isValid, latencyMs, validationError, row.id]
       );
-      results.push({ id: row.id, name: row.name, is_valid: isValid, validation_latency_ms: latencyMs });
+      const result: any = { id: row.id, name: row.name, is_valid: isValid, validation_latency_ms: latencyMs };
+      if (validationError) result.error = validationError;
+      results.push(result);
     } catch (err: any) {
       const latencyMs = Date.now() - startTime;
       const errorMsg = (err.response?.data?.error || err.message || '').slice(0, 500);
@@ -500,14 +503,17 @@ router.post('/:id/validate', async (req: Request, res: Response) => {
 
     const latencyMs = Date.now() - startTime;
     const isValid = response.data?.valid === true;
+    const validationError = isValid ? null : (response.data?.error || '').slice(0, 500) || null;
     await pool.query(
       `UPDATE provider_connections
        SET is_valid = $1, last_validated_at = NOW(), validation_latency_ms = $2,
-           last_validation_error = NULL, updated_at = NOW()
-       WHERE id = $3`,
-      [isValid, latencyMs, id]
+           last_validation_error = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [isValid, latencyMs, validationError, id]
     );
-    res.json({ id, is_valid: isValid, validation_latency_ms: latencyMs });
+    const result: any = { id, is_valid: isValid, validation_latency_ms: latencyMs };
+    if (validationError) result.error = validationError;
+    res.json(result);
   } catch (err: any) {
     const latencyMs = Date.now() - startTime;
     const errorMsg = (err.response?.data?.error || err.message || '').slice(0, 500);
