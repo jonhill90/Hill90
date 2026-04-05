@@ -253,38 +253,9 @@ def _classify_message(message: str) -> str:
     return "task"
 
 
-SENTINEL = "___AGENT_DONE___"
+SENTINEL = "___DONE___"
 # Shorter timeout for direct commands (they shouldn't take 10 min)
 COMMAND_TIMEOUT = 60
-
-
-def _start_capture() -> None:
-    """Start silently capturing tmux pane output to the result file.
-
-    Uses tmux pipe-pane so the capture is invisible — the user sees
-    only the command and its output, no tee/redirect plumbing.
-    """
-    # Clear any previous result
-    if os.path.exists(RESULT_FILE):
-        os.unlink(RESULT_FILE)
-
-    subprocess.run(
-        ["tmux", "pipe-pane", "-t", TMUX_SESSION, f"cat >> {RESULT_FILE}"],
-        timeout=5,
-        capture_output=True,
-    )
-
-
-def _stop_capture_and_signal() -> None:
-    """Stop tmux pipe-pane capture and write the sentinel."""
-    subprocess.run(
-        ["tmux", "pipe-pane", "-t", TMUX_SESSION],
-        timeout=5,
-        capture_output=True,
-    )
-    # Write sentinel so polling knows the command finished
-    with open(RESULT_FILE, "a") as f:
-        f.write(f"\n{SENTINEL}\n")
 
 
 def _run_terminal_task(
@@ -399,28 +370,28 @@ def _run_terminal_task(
 def _run_direct_command(user_message: str) -> str:
     """Run a shell command directly in tmux and capture output.
 
-    The terminal shows only the command and its output — no plumbing.
-    Capture is done via tmux pipe-pane (invisible to the viewer).
+    Uses a compact tee to capture output while keeping the terminal
+    display as clean as possible.
     """
     # Strip prompt characters from the message
     cmd = user_message.strip().lstrip("$>#").strip()
 
-    # Start invisible capture, run the command, then stop capture
-    _start_capture()
+    # Clean up previous result
+    if os.path.exists(RESULT_FILE):
+        os.unlink(RESULT_FILE)
+
+    # Run the command with output capture — keep the plumbing minimal
+    shell_cmd = f"{cmd} 2>&1 | tee {RESULT_FILE}; echo {SENTINEL} >> {RESULT_FILE}"
 
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, cmd, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, shell_cmd, "Enter"],
         timeout=5,
         capture_output=True,
     )
 
     logger.info("[terminal-cmd] Direct command in tmux: %s", cmd[:100])
 
-    # Wait for prompt to return (command finished), then stop capture
-    result = _poll_for_prompt(timeout=COMMAND_TIMEOUT)
-    _stop_capture_and_signal()
-
-    return _poll_for_result_file(timeout=5)  # sentinel already written
+    return _poll_for_result_file(timeout=COMMAND_TIMEOUT)
 
 
 def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
@@ -447,10 +418,12 @@ def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
     with open(TASK_FILE, "w") as f:
         f.write(task_content)
 
-    # Start invisible capture, run claude in tmux, wait for completion
-    _start_capture()
+    if os.path.exists(RESULT_FILE):
+        os.unlink(RESULT_FILE)
 
-    claude_cmd = f"claude --print < {TASK_FILE}"
+    # Run claude --print in tmux with output capture
+    claude_cmd = f"claude --print < {TASK_FILE} 2>&1 | tee {RESULT_FILE}; echo {SENTINEL} >> {RESULT_FILE}"
+
     subprocess.run(
         ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],
         timeout=5,
@@ -459,53 +432,7 @@ def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
 
     logger.info("[terminal-task] Claude Code task in tmux: %s", user_message[:100])
 
-    # Wait for prompt to return, then stop capture
-    result = _poll_for_prompt(timeout=CLAUDE_TIMEOUT)
-    _stop_capture_and_signal()
-
-    return _poll_for_result_file(timeout=5)  # sentinel already written
-
-
-def _poll_for_prompt(*, timeout: int) -> str:
-    """Wait for the shell prompt to return in the tmux pane.
-
-    Detects completion by checking if the last line of the pane
-    ends with the shell prompt character ($ or #). Returns the
-    pane content when the prompt is detected or on timeout.
-    """
-    deadline = time.monotonic() + timeout
-    # Give the command a moment to start
-    time.sleep(0.5)
-
-    while time.monotonic() < deadline:
-        time.sleep(1)
-        try:
-            result = subprocess.run(
-                ["tmux", "capture-pane", "-t", TMUX_SESSION, "-p"],
-                timeout=5,
-                capture_output=True,
-                text=True,
-            )
-            pane_content = result.stdout.rstrip()
-            if not pane_content:
-                continue
-
-            last_line = pane_content.splitlines()[-1].strip()
-            # Detect common shell prompts (zsh/bash: ends with $ or #, or ❯)
-            if last_line.endswith("$") or last_line.endswith("#") or last_line.endswith("❯"):
-                return pane_content
-        except Exception:
-            continue
-
-    # Timeout — return whatever we have
-    try:
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", TMUX_SESSION, "-p"],
-            timeout=5, capture_output=True, text=True,
-        )
-        return result.stdout.rstrip()
-    except Exception:
-        return ""
+    return _poll_for_result_file(timeout=CLAUDE_TIMEOUT)
 
 
 def _poll_for_result_file(*, timeout: int) -> str:
