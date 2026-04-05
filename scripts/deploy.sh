@@ -346,7 +346,7 @@ cmd_service() {
         if ! docker image inspect hill90/knowledge:latest >/dev/null 2>&1; then
             die "Cannot build agentbox: hill90/knowledge:latest not found. Deploy knowledge first: bash scripts/deploy.sh knowledge prod"
         fi
-        docker build -t hill90/agentbox:latest services/agentbox/
+        docker build --no-cache -t hill90/agentbox:latest services/agentbox/
         echo "Agentbox image built successfully"
     fi
     if [[ "$service" == "minio" ]]; then

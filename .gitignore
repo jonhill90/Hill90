@@ -96,7 +96,7 @@ infra/secrets/prod-clean.enc.env
 infra/secrets/prod.tmp.enc.env
 
 # Docker
-.dockerignore
+# .dockerignore files are tracked — they control build context for cache correctness
 
 # Terraform State Files (Sensitive)
 terraform.tfstate
