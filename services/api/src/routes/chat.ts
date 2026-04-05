@@ -38,6 +38,7 @@ const STALE_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const MAX_AGENTS_PER_GROUP = 8;
 const MAX_CHAIN_HOPS = parseInt(process.env.MAX_CHAIN_HOPS || '5', 10);
 const MAX_CHAIN_DURATION_MS = parseInt(process.env.MAX_CHAIN_DURATION_MS || '60000', 10);
+const DEFAULT_CHAT_MODEL = process.env.DEFAULT_CHAT_MODEL || 'claude-sonnet-4-20250514';
 
 // ───────────────────────────────────────────────────────────────────
 // Helpers
@@ -186,7 +187,7 @@ async function dispatchToAgents(opts: {
   const placeholders: { agent: typeof opts.agents[0]; placeholderId: string; model: string }[] = [];
   for (const agent of opts.agents) {
     const models: string[] = Array.isArray(agent.models) ? agent.models : [];
-    const model = models[0] || 'gpt-4o-mini';
+    const model = models[0] || DEFAULT_CHAT_MODEL;
 
     const chainCols = opts.chainId ? ', chain_id, chain_hop, triggered_by' : '';
     const chainPlaceholders = opts.chainId ? ', $4, $5, $6' : '';
