@@ -2,12 +2,17 @@
 
 Builds OpenAI-compatible tool definitions from agent config and routes
 tool calls to the existing shell/filesystem modules.
+
+Shell commands prefer PTY execution (execute_command_pty) when the terminal
+logger is configured, so output streams to terminal.jsonl for the live
+terminal view. Falls back to plain subprocess (execute_command) otherwise.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import TYPE_CHECKING
 
 from app import filesystem, shell
@@ -129,8 +134,15 @@ async def execute_tool_call(
                 timeout = int(timeout)
             except (TypeError, ValueError):
                 timeout = 30
+        command_id = str(uuid.uuid4())
+        # Prefer PTY execution when terminal logger is configured —
+        # streams output to terminal.jsonl for the live terminal view.
+        if shell._terminal is not None:
+            return await shell.execute_command_pty(
+                command, timeout=timeout, command_id=command_id, work_id=work_id,
+            )
         return await shell.execute_command(
-            command, timeout=timeout, work_id=work_id,
+            command, timeout=timeout, command_id=command_id, work_id=work_id,
         )
 
     if name == "read_file":
