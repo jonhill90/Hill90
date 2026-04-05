@@ -59,8 +59,9 @@ COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 RUN useradd -m -u 1000 -s /usr/bin/zsh agentuser
 
 # Install oh-my-zsh for agentuser (non-interactive)
+# Theme: bira — two-line, colorful, shows git branch, no powerline fonts needed
 RUN su - agentuser -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended' && \
-    sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' /home/agentuser/.zshrc
+    sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="bira"/' /home/agentuser/.zshrc
 
 # Install Claude Code CLI (native binary) for agentuser
 # Installs to ~/.local/bin/claude with auto-updates disabled (container is ephemeral)

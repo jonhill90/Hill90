@@ -101,6 +101,8 @@ async def ws_terminal_handler(websocket: WebSocket, work_token: str | None) -> N
             env = {
                 "PATH": "/home/agentuser/.local/bin:/usr/local/bin:/usr/bin:/bin",
                 "HOME": "/home/agentuser",
+                "USER": "agentuser",
+                "LOGNAME": "agentuser",
                 "LANG": "C.UTF-8",
                 "TERM": "xterm-256color",
                 "SHELL": shutil.which("zsh") or shutil.which("bash") or "/bin/bash",
