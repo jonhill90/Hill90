@@ -92,6 +92,7 @@ services:
         condition: service_healthy
     volumes:
       - /opt/hill90/agentbox-configs:/data/agentbox
+      - ../../../platform/vault/secrets-schema.yaml:/app/platform/vault/secrets-schema.yaml:ro
     environment:
       - NODE_ENV=production
       - PORT=3000
