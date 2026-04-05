@@ -92,9 +92,10 @@ services:
         condition: service_healthy
     volumes:
       - /opt/hill90/agentbox-configs:/data/agentbox
-      - ../../../platform/vault/secrets-schema.yaml:/app/platform/vault/secrets-schema.yaml:ro
+      - ../../../platform/vault/secrets-schema.yaml:/data/secrets-schema.yaml:ro
     environment:
       - NODE_ENV=production
+      - SECRETS_SCHEMA_PATH=/data/secrets-schema.yaml
       - PORT=3000
       - AI_SERVICE_URL=http://ai:8000
       - KEYCLOAK_ISSUER=https://auth.hill90.com/realms/hill90
