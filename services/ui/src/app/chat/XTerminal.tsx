@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { useSession } from 'next-auth/react'
-import { MousePointer, Eye } from 'lucide-react'
+import { useSession, getSession } from 'next-auth/react'
+import { MousePointer } from 'lucide-react'
 
 interface Props {
   threadId: string
@@ -14,6 +14,8 @@ export default function XTerminal({ threadId }: Props) {
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<any>(null)
   const dataListenerRef = useRef<any>(null)
+  const reconnectRef = useRef(0)
+  const maxReconnects = 5
   const { data: session } = useSession()
   const [controlling, setControlling] = useState(false)
   const [connected, setConnected] = useState(false)
@@ -70,8 +72,9 @@ export default function XTerminal({ threadId }: Props) {
     termRef.current = term
     fitRef.current = fitAddon
 
-    // Connect WebSocket directly to API service (Next.js doesn't proxy WS)
-    const accessToken = (session as any).accessToken
+    // Connect WebSocket — fetch fresh token to avoid expiry issues
+    const freshSession = await getSession()
+    const accessToken = (freshSession as any)?.accessToken || (session as any).accessToken
     if (!accessToken) {
       term.write('\x1b[31m No access token — session may have expired. Try refreshing. \x1b[0m\r\n')
       return
@@ -83,8 +86,8 @@ export default function XTerminal({ threadId }: Props) {
     wsRef.current = ws
 
     ws.onopen = () => {
+      reconnectRef.current = 0
       setConnected(true)
-      // Send initial terminal size
       const dims = fitAddon.proposeDimensions()
       if (dims) {
         ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
@@ -99,13 +102,33 @@ export default function XTerminal({ threadId }: Props) {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setConnected(false)
       setControlling(false)
+
+      // Auto-reconnect with fresh token (handles token expiry)
+      if (reconnectRef.current < maxReconnects && event.code !== 4001) {
+        reconnectRef.current++
+        const delay = Math.min(1000 * reconnectRef.current, 5000)
+        term.write(`\r\n\x1b[2m Reconnecting (${reconnectRef.current}/${maxReconnects})... \x1b[0m\r\n`)
+        setTimeout(async () => {
+          const retrySession = await getSession()
+          const retryToken = (retrySession as any)?.accessToken
+          if (!retryToken) return
+          const retryUrl = `wss://api.hill90.com/chat/threads/${threadId}/terminal?token=${encodeURIComponent(retryToken)}`
+          const retryWs = new WebSocket(retryUrl)
+          retryWs.binaryType = 'arraybuffer'
+          wsRef.current = retryWs
+          retryWs.onopen = ws.onopen
+          retryWs.onmessage = ws.onmessage
+          retryWs.onclose = ws.onclose
+          retryWs.onerror = ws.onerror
+        }, delay)
+      }
     }
 
     ws.onerror = () => {
-      term.write('\r\n\x1b[31m Connection error \x1b[0m\r\n')
+      // Error logged, onclose handles reconnect
     }
 
     // Handle resize
