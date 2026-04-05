@@ -144,8 +144,15 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
 
   return (
     <div className="flex h-full">
-      {/* Message column (flex-1) */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Terminal (main stage) — shown when Live Session is open */}
+      {sessionPaneOpen && (
+        <div className="flex-1 flex flex-col min-w-0 border-r border-navy-700 bg-[#0d1117]">
+          <SessionPane threadId={threadId} />
+        </div>
+      )}
+
+      {/* Chat column — full width when terminal closed, sidebar when open */}
+      <div className={`flex flex-col min-w-0 ${sessionPaneOpen ? 'w-[400px] flex-shrink-0' : 'flex-1'}`}>
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-navy-700 bg-navy-900/50">
           <button
@@ -286,14 +293,6 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
         </div>
       )}
 
-      {/* Session pane (collapsible) */}
-      {sessionPaneOpen && (
-        <div className="flex w-[360px] flex-shrink-0 border-l border-navy-700 bg-navy-900">
-          <div className="w-full">
-            <SessionPane threadId={threadId} />
-          </div>
-        </div>
-      )}
     </div>
   )
 }
