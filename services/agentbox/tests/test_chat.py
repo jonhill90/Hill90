@@ -626,6 +626,12 @@ class TestBuildToolInstruction:
     def test_multistep_prompt_in_system_message(self, mock_post, emitter, monkeypatch):
         """End-to-end: multi-step workflow appears in the system message sent to LLM."""
         em, _ = emitter
+class TestCorrelationIdFlow:
+    """AI-171: correlation_id flows through to emitted events for SSE filtering."""
+
+    @patch("app.chat.requests.post")
+    def test_events_include_correlation_id(self, mock_post, emitter, monkeypatch):
+        em, log_path = emitter
         monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
         monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
 
@@ -671,6 +677,8 @@ class TestBuildToolInstruction:
             json=lambda: {
                 "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
                 "usage": {}, "model": "m",
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+                "model": "gpt-4o-mini",
             },
         )
         mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
@@ -679,6 +687,7 @@ class TestBuildToolInstruction:
             {
                 "thread_id": "t1", "message_id": "m1",
                 "messages": [{"role": "user", "content": "What files?"}],
+                "messages": [{"role": "user", "content": "Hi"}],
                 "model": "gpt-4o-mini",
                 "callback_url": "http://api:3000/cb",
             },
@@ -692,3 +701,44 @@ class TestBuildToolInstruction:
         ai_body = mock_post.call_args_list[0][1]["json"]
         system_msg = ai_body["messages"][0]
         assert "Multi-Step Task Workflow" not in system_msg["content"]
+            correlation_id="msg-uuid-456",
+        )
+
+        events = _read_events(log_path)
+        # All events should have correlation_id
+        for event in events:
+            if event["type"].startswith("chat_"):
+                assert event.get("correlation_id") == "msg-uuid-456", (
+                    f"Event {event['type']} missing correlation_id"
+                )
+
+    @patch("app.chat.requests.post")
+    def test_events_without_correlation_id(self, mock_post, emitter, monkeypatch):
+        """When no correlation_id is provided, events omit the field."""
+        em, log_path = emitter
+        monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
+        monkeypatch.setenv("MODEL_ROUTER_TOKEN", "mr-token")
+
+        ai_response = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {}, "model": "m",
+            },
+        )
+        mock_post.side_effect = [ai_response, MagicMock(status_code=200)]
+
+        handle_chat(
+            {
+                "thread_id": "t1", "message_id": "m1",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "model": "gpt-4o-mini",
+                "callback_url": "http://api:3000/cb",
+            },
+            soul="", rules="", work_id="w1", emitter=em,
+            # No correlation_id
+        )
+
+        events = _read_events(log_path)
+        for event in events:
+            assert "correlation_id" not in event
