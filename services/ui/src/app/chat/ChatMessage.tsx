@@ -33,6 +33,7 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
   const isUser = message.role === 'user'
   const isPending = message.status === 'pending'
   const isError = message.status === 'error'
+  const isStale = message.status === 'stale'
 
   // In group threads, find the agent name for assistant messages
   const agentName = !isUser && isGroup
@@ -61,6 +62,8 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
             ? 'bg-brand-600/20 border border-brand-600/30'
             : isError
             ? 'bg-red-900/20 border border-red-800/30'
+            : isStale
+            ? 'bg-navy-800/50 border border-navy-700/50 opacity-50'
             : 'bg-navy-800 border border-navy-700'
         }`}
       >
@@ -100,6 +103,10 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
               </p>
             </div>
           </div>
+        ) : isStale ? (
+          <p className="text-xs text-mountain-500 italic" data-testid="stale-message">
+            {message.error_message || 'Stale error (resolved)'}
+          </p>
         ) : (
           <p className="text-sm text-gray-200 whitespace-pre-wrap break-words">
             {message.content}
