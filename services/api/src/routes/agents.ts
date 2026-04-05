@@ -853,7 +853,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       cpus: agent.cpus,
       memLimit: agent.mem_limit,
       pidsLimit: agent.pids_limit,
-      env: [...akmEnv, ...modelRouterEnv, ...chatEnv, `WORK_TOKEN=${workToken}`],
+      env: [...akmEnv, ...modelRouterEnv, ...chatEnv, `WORK_TOKEN=${workToken}`, 'AGENT_USE_TERMINAL=1'],
       network,
       image: profileImage,
       metadata: profileMetadata,
