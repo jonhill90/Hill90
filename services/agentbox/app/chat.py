@@ -258,6 +258,32 @@ SENTINEL = "___DONE___"
 COMMAND_TIMEOUT = 60
 
 
+def _ensure_tmux_session() -> None:
+    """Ensure the tmux session exists, creating it if needed.
+
+    The terminal WebSocket handler (ws_terminal.py) normally creates
+    the session on first viewer connect, but chat may run before any
+    viewer connects. This ensures send-keys has a target.
+    """
+    # Check if session exists
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", TMUX_SESSION],
+        capture_output=True,
+        timeout=5,
+    )
+    if result.returncode == 0:
+        return  # session exists
+
+    # Create detached session with zsh
+    zsh = shutil.which("zsh") or "/bin/bash"
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", TMUX_SESSION, "-x", "120", "-y", "40"],
+        capture_output=True,
+        timeout=5,
+    )
+    logger.info("[terminal] Created tmux session '%s'", TMUX_SESSION)
+
+
 def _run_terminal_task(
     *,
     api_messages: list[dict],
@@ -376,6 +402,8 @@ def _run_direct_command(user_message: str) -> str:
     # Strip prompt characters from the message
     cmd = user_message.strip().lstrip("$>#").strip()
 
+    _ensure_tmux_session()
+
     # Clean up previous result
     if os.path.exists(RESULT_FILE):
         os.unlink(RESULT_FILE)
@@ -405,6 +433,8 @@ def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
         # No Claude Code — run as a direct command anyway (best effort)
         logger.warning("[terminal-task] Claude Code not available, running as direct command")
         return _run_direct_command(user_message)
+
+    _ensure_tmux_session()
 
     # Build the task file with context
     task_parts = []
