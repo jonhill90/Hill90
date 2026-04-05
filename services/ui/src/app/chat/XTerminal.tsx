@@ -23,7 +23,8 @@ export default function XTerminal({ threadId }: Props) {
     const { WebLinksAddon } = await import('@xterm/addon-web-links')
 
     const term = new Terminal({
-      cursorBlink: true,
+      cursorBlink: false,
+      disableStdin: true,
       fontSize: 13,
       fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
       theme: {
@@ -97,13 +98,6 @@ export default function XTerminal({ threadId }: Props) {
       term.write('\r\n\x1b[31m Connection error \x1b[0m\r\n')
     }
 
-    // Terminal input → WebSocket
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data))
-      }
-    })
-
     // Handle resize
     const handleResize = () => {
       fitAddon.fit()
@@ -141,7 +135,7 @@ export default function XTerminal({ threadId }: Props) {
         <h3 className="text-sm font-semibold text-gray-200">Terminal</h3>
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-xs text-mountain-400">Live</span>
+          <span className="text-xs text-mountain-400">Observer</span>
         </div>
       </div>
       <div
