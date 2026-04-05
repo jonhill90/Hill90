@@ -54,6 +54,7 @@ interface NewTaskForm {
 export default function TaskBoardClient() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [agents, setAgents] = useState<Array<{ agent_id: string; name: string }>>([])
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [transitioning, setTransitioning] = useState<string | null>(null)
@@ -63,13 +64,17 @@ export default function TaskBoardClient() {
 
   const fetchTasks = useCallback(async () => {
     try {
+      setError(null)
       const res = await fetch('/api/tasks')
       if (res.ok) {
         const data = await res.json()
         setTasks(Array.isArray(data) ? data : [])
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setError(body.error || `Failed to load tasks (${res.status})`)
       }
     } catch {
-      // Non-fatal
+      setError('Unable to reach tasks API')
     } finally {
       setLoading(false)
     }
@@ -274,6 +279,19 @@ export default function TaskBoardClient() {
             </button>
           </div>
         </form>
+      )}
+
+      {/* Error banner */}
+      {error && (
+        <div className="rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3 mb-6 flex items-center justify-between" data-testid="tasks-error">
+          <span className="text-sm text-red-400">{error}</span>
+          <button
+            onClick={() => { setLoading(true); fetchTasks() }}
+            className="text-xs text-red-300 hover:text-white transition-colors cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
       )}
 
       {/* Board */}
