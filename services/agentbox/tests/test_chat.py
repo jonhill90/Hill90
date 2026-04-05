@@ -724,17 +724,20 @@ class TestTerminalDispatch:
             work_id="w1", emitter=em,
         )
 
-        # tmux send-keys was called with the actual command (not claude)
+        # tmux send-keys was called with the runner script (not claude)
         assert mock_subprocess.called
         send_keys_call = mock_subprocess.call_args
         cmd_args = send_keys_call[0][0]
         assert "tmux" in cmd_args
         assert "send-keys" in cmd_args
-        # Args: ["tmux", "send-keys", "-t", "agent", <shell_cmd>, "Enter"]
-        # The shell command is the second-to-last arg (before "Enter")
+        # Args: ["tmux", "send-keys", "-t", "agent", RUNNER_SCRIPT, "Enter"]
         tmux_cmd = cmd_args[-2]
-        assert "ls -a" in tmux_cmd
+        assert ".agent-cmd.sh" in tmux_cmd
         assert "claude" not in tmux_cmd
+        # Verify the runner script contains the actual command
+        with open(tmux_cmd) as f:
+            script_content = f.read()
+        assert "ls -a" in script_content
 
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
