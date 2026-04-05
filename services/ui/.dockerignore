@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+.git
+.gitignore
+*.md
+.env*
+src/__tests__
+coverage
