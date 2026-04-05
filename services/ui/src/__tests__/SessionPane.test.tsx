@@ -10,6 +10,19 @@ vi.mock('@/app/agents/[id]/EventCard', () => ({
   ),
 }))
 
+// Mock XTerminal — it needs browser WebSocket + dynamic imports
+vi.mock('@/app/chat/XTerminal', () => ({
+  default: ({ threadId }: { threadId: string }) => (
+    <div data-testid="xterminal-mock">XTerminal: {threadId}</div>
+  ),
+}))
+
+// Mock lucide-react icons
+vi.mock('lucide-react', () => ({
+  Terminal: ({ className }: any) => <span data-testid="icon-terminal" className={className} />,
+  Activity: ({ className }: any) => <span data-testid="icon-activity" className={className} />,
+}))
+
 // Mock EventSource
 let latestES: any = null
 class MockEventSource {
@@ -52,7 +65,12 @@ function sendEvent(event: Record<string, unknown>) {
   })
 }
 
-describe('SessionPane', () => {
+/** Click the Events tab to switch from default Terminal view */
+function switchToEvents() {
+  fireEvent.click(screen.getByText('Events'))
+}
+
+describe('SessionPane — view mode toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     latestES = null
@@ -62,15 +80,60 @@ describe('SessionPane', () => {
     cleanup()
   })
 
-  it('renders session pane with filter buttons', () => {
+  it('renders session pane with Terminal and Events tabs', () => {
     render(<SessionPane threadId="thread-1" />)
 
     expect(screen.getByTestId('session-pane')).toBeInTheDocument()
-    expect(screen.getByText('Live Session')).toBeInTheDocument()
+    expect(screen.getByText('Terminal')).toBeInTheDocument()
+    expect(screen.getByText('Events')).toBeInTheDocument()
+  })
+
+  it('defaults to Terminal view', () => {
+    render(<SessionPane threadId="thread-1" />)
+
+    // XTerminal mock should be rendered
+    expect(screen.getByTestId('xterminal-mock')).toBeInTheDocument()
+    expect(screen.getByTestId('xterminal-mock')).toHaveTextContent('thread-1')
+
+    // Event filter buttons should NOT be visible
+    expect(screen.queryByText('All')).not.toBeInTheDocument()
+    expect(screen.queryByText('Shell')).not.toBeInTheDocument()
+  })
+
+  it('switches to Events view and shows filter buttons', () => {
+    render(<SessionPane threadId="thread-1" />)
+
+    switchToEvents()
+
+    // Filter buttons appear
     expect(screen.getByText('All')).toBeInTheDocument()
     expect(screen.getByText('Shell')).toBeInTheDocument()
     expect(screen.getByText('Runtime')).toBeInTheDocument()
     expect(screen.getByText('Inference')).toBeInTheDocument()
+
+    // XTerminal is hidden
+    expect(screen.queryByTestId('xterminal-mock')).not.toBeInTheDocument()
+  })
+
+  it('switches back to Terminal view', () => {
+    render(<SessionPane threadId="thread-1" />)
+
+    switchToEvents()
+    expect(screen.queryByTestId('xterminal-mock')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Terminal'))
+    expect(screen.getByTestId('xterminal-mock')).toBeInTheDocument()
+  })
+})
+
+describe('SessionPane — Events view', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    latestES = null
+  })
+
+  afterEach(() => {
+    cleanup()
   })
 
   it('connects EventSource to thread events endpoint', () => {
@@ -82,11 +145,13 @@ describe('SessionPane', () => {
 
   it('shows "Waiting for events..." when empty', () => {
     render(<SessionPane threadId="thread-1" />)
+    switchToEvents()
     expect(screen.getByTestId('no-events')).toHaveTextContent('Waiting for events...')
   })
 
   it('renders events received via SSE', () => {
     render(<SessionPane threadId="thread-1" />)
+    switchToEvents()
 
     sendEvent({
       id: 'evt-1', tool: 'shell', type: 'command_start',
@@ -99,6 +164,7 @@ describe('SessionPane', () => {
 
   it('filters events by tool type', () => {
     render(<SessionPane threadId="thread-1" />)
+    switchToEvents()
 
     sendEvent({
       id: 'e1', tool: 'shell', type: 'command_start',
@@ -151,6 +217,7 @@ describe('SessionPane TerminalBlock', () => {
 
   it('renders terminal output lines in TerminalBlock (T5)', () => {
     render(<SessionPane threadId="thread-1" />)
+    switchToEvents()
 
     sendEvent({
       id: 'e1', timestamp: new Date().toISOString(), type: 'command_start',
@@ -185,6 +252,7 @@ describe('SessionPane TerminalBlock', () => {
 
   it('auto-scrolls TerminalBlock on new output (T6)', () => {
     render(<SessionPane threadId="thread-1" />)
+    switchToEvents()
 
     sendEvent({
       id: 's1', timestamp: new Date().toISOString(), type: 'command_start',
@@ -213,6 +281,7 @@ describe('SessionPane TerminalBlock', () => {
 
   it('filters command_output with Shell filter (T7)', () => {
     render(<SessionPane threadId="thread-1" />)
+    switchToEvents()
 
     sendEvent({
       id: 'r1', timestamp: new Date().toISOString(), type: 'work_received',
