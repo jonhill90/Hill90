@@ -22,9 +22,6 @@ export default function XTerminal({ threadId }: Props) {
     const { FitAddon } = await import('@xterm/addon-fit')
     const { WebLinksAddon } = await import('@xterm/addon-web-links')
 
-    // Import xterm CSS
-    await import('xterm/css/xterm.css')
-
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,

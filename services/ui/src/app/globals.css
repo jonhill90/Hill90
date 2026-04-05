@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "xterm/css/xterm.css";
 
 @theme {
   --color-navy-900: #0f1720;
