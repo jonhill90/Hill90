@@ -193,20 +193,18 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
               hasPending={hasPending}
               onCancelled={onThreadUpdated}
             />
-            {isGroup && (
-              <button
-                onClick={() => setParticipantPanelOpen(prev => !prev)}
-                className={`p-1.5 rounded transition-colors ${
-                  participantPanelOpen
-                    ? 'bg-brand-600/20 text-brand-400'
-                    : 'text-mountain-400 hover:text-gray-200 hover:bg-navy-700'
-                }`}
-                title="Manage Participants"
-                data-testid="participants-toggle"
-              >
-                <Users size={18} />
-              </button>
-            )}
+            <button
+              onClick={() => setParticipantPanelOpen(prev => !prev)}
+              className={`p-1.5 rounded transition-colors ${
+                participantPanelOpen
+                  ? 'bg-brand-600/20 text-brand-400'
+                  : 'text-mountain-400 hover:text-gray-200 hover:bg-navy-700'
+              }`}
+              title="Manage Participants"
+              data-testid="participants-toggle"
+            >
+              <Users size={18} />
+            </button>
             <button
               onClick={() => setSessionPaneOpen(prev => !prev)}
               className={`p-1.5 rounded transition-colors ${
@@ -281,16 +279,23 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
         </div>
       </div>
 
-      {/* Participant panel (collapsible, group threads only) */}
-      {participantPanelOpen && isGroup && (
-        <div className="hidden xl:flex w-[300px] flex-shrink-0 border-l border-navy-700 bg-navy-900">
-          <ParticipantPanel
-            threadId={threadId}
-            currentAgents={agents}
-            onUpdated={onThreadUpdated}
-            onClose={() => setParticipantPanelOpen(false)}
+      {/* Participant panel — overlay on small screens, side-panel on xl+ */}
+      {participantPanelOpen && (
+        <>
+          {/* Backdrop (below xl) */}
+          <div
+            className="fixed inset-0 bg-black/40 z-40 xl:hidden"
+            onClick={() => setParticipantPanelOpen(false)}
           />
-        </div>
+          <div className="fixed right-0 top-0 bottom-0 w-[300px] z-50 xl:relative xl:z-auto flex-shrink-0 border-l border-navy-700 bg-navy-900">
+            <ParticipantPanel
+              threadId={threadId}
+              currentAgents={agents}
+              onUpdated={onThreadUpdated}
+              onClose={() => setParticipantPanelOpen(false)}
+            />
+          </div>
+        </>
       )}
 
     </div>
