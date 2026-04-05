@@ -408,8 +408,9 @@ def _run_direct_command(user_message: str) -> str:
     if os.path.exists(RESULT_FILE):
         os.unlink(RESULT_FILE)
 
-    # Run the command with output capture — keep the plumbing minimal
-    shell_cmd = f"{cmd} 2>&1 | tee {RESULT_FILE}; echo {SENTINEL} >> {RESULT_FILE}"
+    # Use the _r shell function (defined in agentbox zshrc) to hide capture plumbing.
+    # Terminal shows: _r "ls -a" instead of the raw tee/sentinel chain.
+    shell_cmd = f'_r "{cmd}"'
 
     subprocess.run(
         ["tmux", "send-keys", "-t", TMUX_SESSION, shell_cmd, "Enter"],
@@ -451,8 +452,8 @@ def _run_claude_task(user_message: str, soul: str, rules: str) -> str:
     if os.path.exists(RESULT_FILE):
         os.unlink(RESULT_FILE)
 
-    # Run claude --print in tmux with output capture
-    claude_cmd = f"claude --print < {TASK_FILE} 2>&1 | tee {RESULT_FILE}; echo {SENTINEL} >> {RESULT_FILE}"
+    # Use _r shell function to capture output invisibly
+    claude_cmd = f'_r "claude --print < {TASK_FILE}"'
 
     subprocess.run(
         ["tmux", "send-keys", "-t", TMUX_SESSION, claude_cmd, "Enter"],

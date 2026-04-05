@@ -19,5 +19,13 @@ source /usr/share/powerlevel10k/powerlevel10k.zsh-theme
 # PATH
 export PATH="$HOME/.local/bin:/data/tools/bin:$PATH"
 
+# Agent command runner — captures output invisibly
+# Chat handler calls: _r "cmd args..."
+# Terminal shows just: cmd args...
+_r() {
+  eval "$@" 2>&1 | tee /workspace/.claude-result
+  echo "___DONE___" >> /workspace/.claude-result
+}
+
 # Agent workspace
 cd /workspace 2>/dev/null || true
