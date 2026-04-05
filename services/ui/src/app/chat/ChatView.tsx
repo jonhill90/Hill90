@@ -20,7 +20,7 @@ export interface Message {
   author_type: 'human' | 'agent'
   role: 'user' | 'assistant'
   content: string
-  status: 'pending' | 'complete' | 'error'
+  status: 'pending' | 'complete' | 'error' | 'stale'
   model: string | null
   input_tokens: number | null
   output_tokens: number | null
