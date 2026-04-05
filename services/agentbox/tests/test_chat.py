@@ -701,10 +701,6 @@ class TestCorrelationIdFlow:
         ai_body = mock_post.call_args_list[0][1]["json"]
         system_msg = ai_body["messages"][0]
         assert "Multi-Step Task Workflow" not in system_msg["content"]
-            correlation_id="msg-uuid-456",
-        )
-
-        events = _read_events(log_path)
         # All events should have correlation_id
         for event in events:
             if event["type"].startswith("chat_"):
