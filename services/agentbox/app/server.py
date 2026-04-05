@@ -14,10 +14,11 @@ import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
-from starlette.routing import Route
+from starlette.routing import Route, WebSocketRoute
 
 from app import filesystem, shell
 from app.config import AgentConfig
+from app.ws_terminal import ws_terminal_handler
 from app.events import EventEmitter
 from app.runtime import AgentRuntime
 from app.token_refresh import start_model_router_refresh_loop
@@ -127,10 +128,14 @@ def create_app(
             },
         )
 
+    async def terminal_ws_endpoint(websocket):
+        await ws_terminal_handler(websocket, work_token)
+
     return Starlette(routes=[
         Route("/health", health_endpoint, methods=["GET"]),
         Route("/work", work_endpoint, methods=["POST"]),
         Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
+        WebSocketRoute("/terminal/ws", terminal_ws_endpoint),
     ])
 
 

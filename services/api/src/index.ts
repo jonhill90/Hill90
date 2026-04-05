@@ -1,8 +1,11 @@
+import * as jwt from 'jsonwebtoken';
 import { app } from './app';
 import { getPool, closePool } from './db/pool';
 import { runMigrations } from './db/migrate';
+import { createJwksKeyResolver } from './middleware/auth';
 import { reconcileAgentStatuses } from './services/docker';
 import { getS3Client, ensureBucket, AVATAR_BUCKET } from './services/s3';
+import { attachTerminalProxy } from './services/terminal-proxy';
 import { startStaleSweeper, stopStaleSweeper } from './routes/chat';
 
 const PORT = process.env.PORT || 3000;
@@ -56,6 +59,32 @@ async function start() {
   const server = app.listen(PORT, () => {
     console.log(`Hill90 API service listening on port ${PORT}`);
   });
+
+  // Attach WebSocket terminal proxy for live agent terminal sessions
+  const issuer = process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';
+  const jwksUri = process.env.KEYCLOAK_JWKS_URI || `${issuer}/protocol/openid-connect/certs`;
+  const getSigningKey = createJwksKeyResolver(jwksUri);
+
+  attachTerminalProxy(server, async (token: string) => {
+    try {
+      const decoded = jwt.decode(token, { complete: true });
+      if (!decoded || typeof decoded === 'string') return null;
+      const signingKey = await getSigningKey(decoded.header);
+      const payload = jwt.verify(token, signingKey, {
+        algorithms: ['RS256'],
+        issuer,
+      }) as jwt.JwtPayload;
+      if (typeof payload.exp !== 'number') return null;
+      const roles: string[] =
+        payload.realm_access?.roles ||
+        payload.resource_access?.['hill90-ui']?.roles ||
+        [];
+      return { sub: payload.sub || '', roles };
+    } catch {
+      return null;
+    }
+  });
+  console.log('[startup] WebSocket terminal proxy attached');
 
   // Graceful shutdown
   const shutdown = async () => {
