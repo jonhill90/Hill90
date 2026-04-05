@@ -1,7 +1,8 @@
 """WebSocket terminal — bidirectional PTY relay over WebSocket.
 
-Spawns a shell (bash) in a PTY and relays stdin/stdout between the
-WebSocket and the PTY master fd. Supports terminal resize via JSON
+Spawns a tmux session (with zsh) in a PTY and relays stdin/stdout
+between the WebSocket and the PTY master fd. If tmux is not available,
+falls back to zsh, then bash. Supports terminal resize via JSON
 control messages.
 
 Wire format:
@@ -19,6 +20,7 @@ import logging
 import os
 import pty
 import select
+import shutil
 import signal
 import struct
 import termios
@@ -30,7 +32,29 @@ logger = logging.getLogger(__name__)
 TERM_COLS = 120
 TERM_ROWS = 40
 READ_SIZE = 4096
-SHELL = "/bin/bash"
+TMUX_SESSION = "agent"
+
+
+def _resolve_shell() -> tuple[list[str], str]:
+    """Resolve the best available shell command.
+
+    Prefers: tmux new-session (zsh) > zsh > bash.
+    Returns (argv, shell_path) for execvpe.
+    """
+    tmux = shutil.which("tmux")
+    zsh = shutil.which("zsh")
+    bash = shutil.which("bash") or "/bin/bash"
+
+    if tmux and zsh:
+        # tmux with zsh as default-shell, attach or create session
+        return (
+            [tmux, "new-session", "-A", "-s", TMUX_SESSION,
+             "-x", str(TERM_COLS), "-y", str(TERM_ROWS)],
+            tmux,
+        )
+    if zsh:
+        return ([zsh, "--login"], zsh)
+    return ([bash, "--login"], bash)
 
 
 async def ws_terminal_handler(websocket: WebSocket, work_token: str | None) -> None:
@@ -72,16 +96,18 @@ async def ws_terminal_handler(websocket: WebSocket, work_token: str | None) -> N
             except OSError:
                 pass
 
+            argv, shell_bin = _resolve_shell()
+
             env = {
                 "PATH": "/usr/local/bin:/usr/bin:/bin",
-                "HOME": "/workspace",
+                "HOME": "/home/agentuser",
                 "LANG": "C.UTF-8",
                 "TERM": "xterm-256color",
-                "SHELL": SHELL,
+                "SHELL": shutil.which("zsh") or shutil.which("bash") or "/bin/bash",
             }
 
             try:
-                os.execvpe(SHELL, [SHELL, "--login"], env)
+                os.execvpe(shell_bin, argv, env)
             except OSError as e:
                 os.write(2, f"exec failed: {e}\n".encode())
                 os._exit(127)

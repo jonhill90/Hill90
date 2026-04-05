@@ -30,6 +30,8 @@ WORKDIR /app
 # Install runtime tools for agents
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
+    zsh \
+    tmux \
     git \
     curl \
     wget \
@@ -38,7 +40,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rsync \
     vim \
     make \
+    ca-certificates \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 LTS via NodeSource
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy Python packages from builder (only site-packages, not builder tools)
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
@@ -46,8 +55,12 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 # Copy AKM CLI binary from knowledge service image
 COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 
-# Create non-root user
-RUN useradd -m -u 1000 agentuser
+# Create non-root user with zsh as default shell
+RUN useradd -m -u 1000 -s /usr/bin/zsh agentuser
+
+# Install oh-my-zsh for agentuser (non-interactive)
+RUN su - agentuser -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended' && \
+    sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' /home/agentuser/.zshrc
 
 # Create required directories
 RUN mkdir -p /etc/agentbox /workspace /var/log/agentbox /data && \
