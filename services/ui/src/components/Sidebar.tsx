@@ -90,9 +90,9 @@ export default function Sidebar() {
           href={item.href}
           target="_blank"
           rel="noopener noreferrer"
-          className={`flex items-center gap-3 rounded-lg px-3 py-2 pl-10 text-sm font-medium transition-colors text-mountain-400 hover:bg-navy-800 hover:text-white`}
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 ${collapsed ? 'justify-center' : 'pl-10'} text-sm font-medium transition-colors text-mountain-400 hover:bg-navy-800 hover:text-white`}
         >
-          <Icon size={18} aria-hidden="true" />
+          <Icon size={18} aria-hidden="true" className="flex-shrink-0" />
           <span data-sidebar-label className={collapsed ? 'sr-only' : ''}>
             {item.label}
           </span>
@@ -106,13 +106,13 @@ export default function Sidebar() {
         href={item.href}
         aria-current={isActive ? 'page' : undefined}
         title={collapsed ? item.label : undefined}
-        className={`flex items-center gap-3 rounded-lg px-3 py-2 pl-10 text-sm font-medium transition-colors ${
+        className={`flex items-center gap-3 rounded-lg px-3 py-2 ${collapsed ? 'justify-center' : 'pl-10'} text-sm font-medium transition-colors ${
           isActive
             ? 'bg-brand-500/15 text-brand-400'
             : 'text-mountain-400 hover:bg-navy-800 hover:text-white'
         }`}
       >
-        <Icon size={18} aria-hidden="true" />
+        <Icon size={18} aria-hidden="true" className="flex-shrink-0" />
         <span data-sidebar-label className={collapsed ? 'sr-only' : ''}>
           {item.label}
         </span>
@@ -133,13 +133,13 @@ export default function Sidebar() {
           aria-expanded={isExpanded}
           aria-controls={`${item.id}-submenu`}
           title={collapsed ? item.label : undefined}
-          className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors w-full ${
+          className={`flex items-center gap-3 rounded-lg px-3 py-2 ${collapsed ? 'justify-center' : ''} text-sm font-medium transition-colors w-full ${
             isActive
               ? 'bg-brand-500/15 text-brand-400'
               : 'text-mountain-400 hover:bg-navy-800 hover:text-white'
           }`}
         >
-          <Icon size={20} aria-hidden="true" />
+          <Icon size={20} aria-hidden="true" className="flex-shrink-0" />
           <span data-sidebar-label className={collapsed ? 'sr-only' : ''}>
             {item.label}
           </span>
@@ -175,13 +175,13 @@ export default function Sidebar() {
         href={item.href}
         aria-current={isActive ? 'page' : undefined}
         title={collapsed ? item.label : undefined}
-        className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+        className={`flex items-center gap-3 rounded-lg px-3 py-2 ${collapsed ? 'justify-center' : ''} text-sm font-medium transition-colors ${
           isActive
             ? 'bg-brand-500/15 text-brand-400'
             : 'text-mountain-400 hover:bg-navy-800 hover:text-white'
         }`}
       >
-        <Icon size={20} aria-hidden="true" />
+        <Icon size={20} aria-hidden="true" className="flex-shrink-0" />
         <span data-sidebar-label className={collapsed ? 'sr-only' : ''}>
           {item.label}
         </span>
@@ -191,7 +191,7 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`hidden md:flex flex-col border-r border-navy-700 bg-navy-900 transition-[width] duration-200 ${
+      className={`hidden md:flex flex-col border-r border-navy-700 bg-navy-900 transition-[width] duration-200 overflow-hidden ${
         collapsed ? 'w-[60px]' : 'w-[220px]'
       }`}
     >
