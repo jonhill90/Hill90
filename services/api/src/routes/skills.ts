@@ -11,7 +11,7 @@ const VALID_SCOPES = ['container_local', 'host_docker', 'vps_system'] as const;
 function defaultToolsConfigForScope(_scope: string) {
   return {
     shell: { enabled: true, allowed_binaries: [], denied_patterns: [], max_timeout: 300 },
-    filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data'], denied_paths: [] },
+    filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/data', '/home/agentuser'], denied_paths: [] },
     health: { enabled: true },
   };
 }

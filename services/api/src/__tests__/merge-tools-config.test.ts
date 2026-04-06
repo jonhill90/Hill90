@@ -10,7 +10,7 @@ describe('mergeToolsConfigs', () => {
     expect(result.health.enabled).toBe(true);
     expect(result.shell.max_timeout).toBe(300);
     expect(result.filesystem.read_only).toBe(false);
-    expect(result.filesystem.allowed_paths).toEqual(['/workspace']);
+    expect(result.filesystem.allowed_paths).toEqual(['/workspace', '/home/agentuser']);
     expect(result.filesystem.denied_paths).toEqual([]);
   });
 
