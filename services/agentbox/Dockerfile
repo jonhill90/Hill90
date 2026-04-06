@@ -72,9 +72,9 @@ RUN mkdir -p /usr/share/fonts/nerd-fonts && \
 # Install oh-my-zsh for agentuser
 RUN su - agentuser -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
 
-# Install TPM (tmux plugin manager) and Tokyo Night theme
+# Install TPM (tmux plugin manager) and Tokyo Night theme (pinned to same version as Jon's Mac)
 RUN su - agentuser -c 'git clone --depth=1 https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm' && \
-    su - agentuser -c 'git clone --depth=1 https://github.com/fabioluciano/tmux-tokyo-night ~/.tmux/plugins/tmux-tokyo-night'
+    su - agentuser -c 'git clone https://github.com/fabioluciano/tmux-tokyo-night ~/.tmux/plugins/tmux-tokyo-night && cd ~/.tmux/plugins/tmux-tokyo-night && git checkout fcfde9a'
 
 # Copy theme config files (Tokyo Night tmux + Powerlevel10k zsh)
 COPY theme/tmux.conf /home/agentuser/.tmux.conf
