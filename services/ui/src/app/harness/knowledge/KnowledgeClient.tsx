@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 
 interface KnowledgeAgent {
   agent_id: string
@@ -45,6 +45,23 @@ interface Agent {
 
 const ENTRY_TYPES = ['note', 'plan', 'decision', 'journal', 'research'] as const
 
+type SortField = 'title' | 'updated_at'
+type SortDir = 'asc' | 'desc'
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diffMs = now - then
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
 function typeBadgeColor(type: string): string {
   switch (type) {
     case 'plan': return 'bg-blue-900/40 text-blue-400 border-blue-700'
@@ -69,6 +86,8 @@ export default function KnowledgeClient() {
   const [loading, setLoading] = useState(true)
   const [entriesLoading, setEntriesLoading] = useState(false)
   const [contentLoading, setContentLoading] = useState(false)
+  const [sortField, setSortField] = useState<SortField>('updated_at')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const agentName = useCallback((agentId: string) =>
     agents.find((a) => a.id === agentId || a.agent_id === agentId)?.name ?? agentId.substring(0, 8),
@@ -149,6 +168,37 @@ export default function KnowledgeClient() {
     }
   }
 
+  const sortedEntries = useMemo(() => {
+    const sorted = [...entries].sort((a, b) => {
+      const av = sortField === 'title' ? a.title.toLowerCase() : a.updated_at
+      const bv = sortField === 'title' ? b.title.toLowerCase() : b.updated_at
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+    return sorted
+  }, [entries, sortField, sortDir])
+
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const e of entries) {
+      counts[e.entry_type] = (counts[e.entry_type] || 0) + 1
+    }
+    return counts
+  }, [entries])
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir(field === 'title' ? 'asc' : 'desc')
+    }
+  }
+
+  const sortIndicator = (field: SortField) =>
+    sortField === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
+
   const clearSearch = () => {
     setSearchQuery('')
     setIsSearching(false)
@@ -180,7 +230,7 @@ export default function KnowledgeClient() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="Search across all knowledge entries..."
+            placeholder={selectedAgent ? `Search ${agentName(selectedAgent)}'s knowledge...` : 'Search across all knowledge entries...'}
             className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-1.5 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
           />
           <button
@@ -198,6 +248,11 @@ export default function KnowledgeClient() {
             </button>
           )}
         </div>
+        {selectedAgent && !isSearching && (
+          <p className="text-xs text-mountain-500 mt-2">
+            Searching within <span className="text-mountain-300 font-medium">{agentName(selectedAgent)}</span> — clear selection to search all agents
+          </p>
+        )}
       </div>
 
       {/* Search results */}
@@ -223,7 +278,8 @@ export default function KnowledgeClient() {
                         </span>
                       </div>
                       <p className="text-xs text-mountain-500 mb-2">
-                        {agentName(result.agent_id)} &middot; {result.path}
+                        {agentName(result.agent_id)} &middot; {result.path} &middot; {relativeTime(result.updated_at)}
+                        {result.score > 0 && <span className="ml-2 text-mountain-600">score {Number(result.score).toFixed(3)}</span>}
                       </p>
                       {result.headline && (
                         <p className="text-sm text-mountain-300"
@@ -263,7 +319,7 @@ export default function KnowledgeClient() {
                     <div className="text-xs text-mountain-500 mt-1">
                       {ka.entry_count} entr{ka.entry_count !== 1 ? 'ies' : 'y'}
                       {ka.last_updated && (
-                        <> &middot; {new Date(ka.last_updated).toLocaleDateString()}</>
+                        <> &middot; {relativeTime(ka.last_updated)}</>
                       )}
                     </div>
                   </button>
@@ -294,21 +350,26 @@ export default function KnowledgeClient() {
                         : 'bg-navy-900 text-mountain-400 border-navy-700 hover:border-navy-500'
                     }`}
                   >
-                    All
+                    All ({entries.length})
                   </button>
-                  {ENTRY_TYPES.map((type) => (
-                    <button
-                      key={type}
-                      onClick={() => setTypeFilter(type)}
-                      className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
-                        typeFilter === type
-                          ? 'bg-brand-900/50 text-brand-400 border-brand-700'
-                          : 'bg-navy-900 text-mountain-400 border-navy-700 hover:border-navy-500'
-                      }`}
-                    >
-                      {type}
-                    </button>
-                  ))}
+                  {ENTRY_TYPES.map((type) => {
+                    const count = typeCounts[type] || 0
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => setTypeFilter(type)}
+                        className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                          typeFilter === type
+                            ? 'bg-brand-900/50 text-brand-400 border-brand-700'
+                            : count === 0
+                              ? 'bg-navy-900 text-mountain-600 border-navy-700 opacity-50'
+                              : 'bg-navy-900 text-mountain-400 border-navy-700 hover:border-navy-500'
+                        }`}
+                      >
+                        {type}{count > 0 ? ` (${count})` : ''}
+                      </button>
+                    )
+                  })}
                 </div>
 
                 {entriesLoading ? (
@@ -331,13 +392,17 @@ export default function KnowledgeClient() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="bg-navy-800 text-mountain-400 text-left">
-                            <th className="px-4 py-3 font-medium">Title</th>
+                            <th className="px-4 py-3 font-medium cursor-pointer hover:text-mountain-200 select-none" onClick={() => toggleSort('title')}>
+                              Title{sortIndicator('title')}
+                            </th>
                             <th className="px-4 py-3 font-medium">Type</th>
-                            <th className="px-4 py-3 font-medium">Updated</th>
+                            <th className="px-4 py-3 font-medium cursor-pointer hover:text-mountain-200 select-none" onClick={() => toggleSort('updated_at')}>
+                              Updated{sortIndicator('updated_at')}
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-navy-700">
-                          {entries.map((entry) => (
+                          {sortedEntries.map((entry) => (
                             <tr
                               key={entry.id}
                               onClick={() => fetchContent(entry)}
@@ -347,14 +412,19 @@ export default function KnowledgeClient() {
                                   : 'bg-navy-900 hover:bg-navy-800'
                               }`}
                             >
-                              <td className="px-4 py-3 text-white">{entry.title}</td>
+                              <td className="px-4 py-3">
+                                <span className="text-white">{entry.title}</span>
+                                {entry.tags.length > 0 && (
+                                  <span className="ml-2 text-xs text-mountain-500">{entry.tags.join(', ')}</span>
+                                )}
+                              </td>
                               <td className="px-4 py-3">
                                 <span className={`px-1.5 py-0.5 text-xs rounded border ${typeBadgeColor(entry.entry_type)}`}>
                                   {entry.entry_type}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-mountain-400">
-                                {new Date(entry.updated_at).toLocaleDateString()}
+                              <td className="px-4 py-3 text-mountain-400" title={new Date(entry.updated_at).toLocaleString()}>
+                                {relativeTime(entry.updated_at)}
                               </td>
                             </tr>
                           ))}
@@ -375,14 +445,24 @@ export default function KnowledgeClient() {
                             {selectedEntry.entry_type}
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-mountain-500 mb-4">
+                        <div className="flex items-center flex-wrap gap-2 text-xs text-mountain-500 mb-4">
                           <span>{selectedEntry.path}</span>
                           <span>&middot;</span>
-                          <span>{new Date(selectedEntry.updated_at).toLocaleDateString()}</span>
+                          <span title={new Date(selectedEntry.updated_at).toLocaleString()}>
+                            {relativeTime(selectedEntry.updated_at)}
+                          </span>
                           {selectedEntry.tags.length > 0 && (
                             <>
                               <span>&middot;</span>
-                              <span>{selectedEntry.tags.join(', ')}</span>
+                              {selectedEntry.tags.map(tag => (
+                                <span
+                                  key={tag}
+                                  onClick={() => { setSearchQuery(tag); handleSearch() }}
+                                  className="px-1.5 py-0.5 rounded bg-navy-700 text-mountain-300 border border-navy-600 cursor-pointer hover:border-brand-600 hover:text-brand-400 transition-colors"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
                             </>
                           )}
                         </div>

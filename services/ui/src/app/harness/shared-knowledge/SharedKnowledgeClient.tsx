@@ -2,6 +2,20 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
+function relativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diffMs = now - then
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
 interface Collection {
   id: string
   name: string
@@ -662,7 +676,7 @@ export default function SharedKnowledgeClient() {
                             </td>
                             <td className="px-4 py-3">{statusBadge(src.status)}</td>
                             <td className="px-4 py-3 text-mountain-400">
-                              {new Date(src.created_at).toLocaleDateString()}
+                              <span title={new Date(src.created_at).toLocaleString()}>{relativeTime(src.created_at)}</span>
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2 justify-end">
