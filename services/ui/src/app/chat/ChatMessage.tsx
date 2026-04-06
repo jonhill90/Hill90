@@ -1,8 +1,9 @@
 'use client'
 
-import { Bot, User, AlertCircle, Loader2 } from 'lucide-react'
+import { User, AlertCircle, Loader2 } from 'lucide-react'
 import type { Message } from './ChatView'
 import type { ChatAgent } from './ChatLayout'
+import AgentAvatar from '@/components/AgentAvatar'
 
 interface Props {
   message: Message
@@ -43,17 +44,13 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
   return (
     <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
-      <div
-        className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-          isUser ? 'bg-brand-600/30' : 'bg-navy-700'
-        }`}
-      >
-        {isUser ? (
+      {isUser ? (
+        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-brand-600/30">
           <User size={14} className="text-brand-400" />
-        ) : (
-          <Bot size={14} className="text-mountain-400" />
-        )}
-      </div>
+        </div>
+      ) : (
+        <AgentAvatar name={agentName || agents.find(a => a.id === message.author_id)?.name || 'Agent'} />
+      )}
 
       {/* Bubble */}
       <div
