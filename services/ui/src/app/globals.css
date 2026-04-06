@@ -13,6 +13,14 @@
   --color-brand-400: #6db33a;
 }
 
+/* Hide xterm.js scrollbar — terminal should look like a screen share */
+.xterm-viewport::-webkit-scrollbar {
+  display: none;
+}
+.xterm-viewport {
+  scrollbar-width: none;
+}
+
 /* Top-nav logo animation + hover affordance */
 .logo-glow-hold {
   animation: logoGlowHold 1.2s ease-out 1;

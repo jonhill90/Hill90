@@ -72,11 +72,18 @@ RUN mkdir -p /usr/share/fonts/nerd-fonts && \
 # Install oh-my-zsh for agentuser
 RUN su - agentuser -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
 
+# Install TPM (tmux plugin manager) and Tokyo Night theme
+RUN su - agentuser -c 'git clone --depth=1 https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm' && \
+    su - agentuser -c 'git clone --depth=1 https://github.com/fabioluciano/tmux-tokyo-night ~/.tmux/plugins/tmux-tokyo-night'
+
 # Copy theme config files (Tokyo Night tmux + Powerlevel10k zsh)
 COPY theme/tmux.conf /home/agentuser/.tmux.conf
 COPY theme/zshrc /home/agentuser/.zshrc
 COPY theme/p10k.zsh /home/agentuser/.p10k.zsh
 RUN chown agentuser:agentuser /home/agentuser/.tmux.conf /home/agentuser/.zshrc /home/agentuser/.p10k.zsh
+
+# Pre-initialize TPM plugins so they're ready at container start
+RUN su - agentuser -c 'tmux start-server && tmux new-session -d -s init && ~/.tmux/plugins/tpm/bin/install_plugins && tmux kill-server' 2>/dev/null || true
 
 # Install Claude Code CLI (native binary) for agentuser
 # Installs to ~/.local/bin/claude with auto-updates disabled (container is ephemeral)
