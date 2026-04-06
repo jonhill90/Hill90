@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { Users, Trash2 } from 'lucide-react'
 import type { ChatThread } from './ChatLayout'
+import AgentAvatar from '@/components/AgentAvatar'
 
 interface Props {
   threads: ChatThread[]
@@ -69,7 +70,17 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
                 isActive ? 'bg-navy-800 border-l-2 border-l-brand-500' : ''
               }`}
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2">
+                {/* Agent avatar */}
+                {!isGroup && thread.agent?.name ? (
+                  <div className="mt-0.5">
+                    <AgentAvatar name={thread.agent.name} size="sm" />
+                  </div>
+                ) : isGroup && thread.agents && thread.agents.length > 0 ? (
+                  <div className="mt-0.5">
+                    <AgentAvatar name={thread.agents[0].name} size="sm" />
+                  </div>
+                ) : null}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     {isGroup && (
