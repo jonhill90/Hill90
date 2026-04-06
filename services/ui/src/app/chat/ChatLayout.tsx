@@ -106,7 +106,7 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="flex h-full overflow-hidden">
       {/* Thread list sidebar — desktop */}
       <div
         className={`${
