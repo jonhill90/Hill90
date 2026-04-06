@@ -252,16 +252,32 @@ def _classify_message(message: str) -> str:
         return "command"
 
     if first_word in _DIRECT_COMMAND_PREFIXES:
-        # Extra check: if the rest of the words look like natural language
-        # (no flags, no paths, no pipes), treat as task.
-        # e.g. "cat one of the files" → task, "cat .tmux.conf" → command
         words = clean.split()
-        if len(words) >= 3:
-            args = words[1:]
-            has_path = any("/" in w or "." in w or w.startswith("-") for w in args)
-            has_pipe = "|" in clean or ">" in clean or "&&" in clean
-            if not has_path and not has_pipe:
-                return "task"
+        if len(words) == 1:
+            return "command"
+        if len(words) == 2:
+            # Two-word commands: "git status", "docker ps" etc.
+            # If the second word is short and technical, it's a command
+            second = words[1]
+            if len(second) <= 12 and not any(c == " " for c in second):
+                return "command"
+        # 3+ words: check if args look like shell arguments
+        args = words[1:]
+        has_shell_args = any(
+            "/" in w or "." in w or w.startswith("-") or w.startswith("~")
+            or w.startswith('"') or w.startswith("'")
+            for w in args
+        )
+        has_operators = "|" in clean or ">" in clean or "&&" in clean or ";" in clean
+        if has_shell_args or has_operators:
+            return "command"
+        # Check for articles/prepositions (natural language giveaway)
+        english_words = {"the", "a", "an", "in", "on", "to", "for", "from", "with", "my", "this", "that", "all", "some"}
+        if any(w.lower() in english_words for w in args):
+            return "task"
+        # 4+ words with no shell-like args → probably natural language
+        if len(words) >= 4:
+            return "task"
         return "command"
 
     # Pipe chains without natural language → command
