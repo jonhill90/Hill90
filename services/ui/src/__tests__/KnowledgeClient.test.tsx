@@ -153,15 +153,15 @@ describe('KnowledgeClient', () => {
       expect(screen.getByText('Setup Notes')).toBeInTheDocument()
     })
 
-    // Type filter buttons
+    // Type filter buttons (include counts now, e.g. "All (2)", "note (1)")
     const buttons = screen.getAllByRole('button')
-    const buttonTexts = buttons.map(b => b.textContent)
-    expect(buttonTexts).toContain('All')
-    expect(buttonTexts).toContain('note')
-    expect(buttonTexts).toContain('plan')
-    expect(buttonTexts).toContain('decision')
-    expect(buttonTexts).toContain('journal')
-    expect(buttonTexts).toContain('research')
+    const buttonTexts = buttons.map(b => b.textContent || '')
+    expect(buttonTexts.some(t => t.startsWith('All'))).toBe(true)
+    expect(buttonTexts.some(t => t.startsWith('note'))).toBe(true)
+    expect(buttonTexts.some(t => t.startsWith('plan'))).toBe(true)
+    expect(buttonTexts.some(t => t.startsWith('decision'))).toBe(true)
+    expect(buttonTexts.some(t => t.startsWith('journal'))).toBe(true)
+    expect(buttonTexts.some(t => t.startsWith('research'))).toBe(true)
   })
 
   it('fetches and displays entry content on click', async () => {
