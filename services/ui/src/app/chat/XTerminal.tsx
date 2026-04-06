@@ -238,13 +238,11 @@ export default function XTerminal({ threadId }: Props) {
           </div>
         </div>
       </div>
-      <div className="flex-1 min-h-0 bg-black flex items-center justify-center overflow-hidden">
-        <div
-          ref={containerRef}
-          className="w-full bg-[#1a1b26] overflow-hidden"
-          style={{ aspectRatio: '16 / 9', maxHeight: '100%', padding: '4px' }}
-        />
-      </div>
+      <div
+        ref={containerRef}
+        className="flex-1 min-h-0 bg-[#1a1b26] overflow-hidden"
+        style={{ padding: '4px' }}
+      />
     </div>
   )
 }
