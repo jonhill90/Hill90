@@ -9,21 +9,18 @@ export default function AppShell({
   navExtra?: React.ReactNode
 }) {
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
-      {/* Top bar: always visible, never scrolls away */}
+    <div className="min-h-screen flex flex-col">
       <TopBar navExtra={navExtra} />
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1">
         {/* Sidebar: desktop only */}
         <Sidebar />
 
-        {/* Main content */}
-        <div className="flex flex-col flex-1 min-w-0 min-h-0">
-          <div className="flex-1 min-h-0 overflow-auto">
-            {children}
-          </div>
+        {/* Main content + footer */}
+        <div className="flex flex-col flex-1 min-w-0">
+          {children}
 
-          <footer className="px-6 py-4 border-t border-navy-700 text-center text-xs text-mountain-500 flex-shrink-0">
+          <footer className="px-6 py-6 border-t border-navy-700 text-center text-sm text-mountain-500">
             &copy; {new Date().getFullYear()} Hill90
           </footer>
         </div>
