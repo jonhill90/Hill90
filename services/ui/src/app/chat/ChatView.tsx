@@ -58,7 +58,8 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   // Scroll to bottom on new messages
   const scrollToBottom = useCallback(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      // Use nearest to avoid scrolling the whole page
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
   }, [])
 
