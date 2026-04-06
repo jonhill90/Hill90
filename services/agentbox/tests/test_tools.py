@@ -18,7 +18,8 @@ class TestBuildToolDefinitions:
         config = ToolsConfig(shell=ShellConfig(enabled=True))
         defs = build_tool_definitions(config)
         names = [d["function"]["name"] for d in defs]
-        assert names == ["execute_command"]
+        assert "execute_command" in names
+        assert "tmux" in names
 
     def test_filesystem_only(self):
         config = ToolsConfig(filesystem=FilesystemConfig(enabled=True))
@@ -44,11 +45,12 @@ class TestBuildToolDefinitions:
         )
         defs = build_tool_definitions(config)
         names = [d["function"]["name"] for d in defs]
-        assert len(names) == 4
+        assert len(names) == 5
         assert "execute_command" in names
         assert "read_file" in names
         assert "write_file" in names
         assert "list_directory" in names
+        assert "tmux" in names
 
     def test_tool_definitions_are_valid_openai_format(self):
         config = ToolsConfig(
