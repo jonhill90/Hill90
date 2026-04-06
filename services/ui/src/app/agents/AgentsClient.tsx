@@ -60,13 +60,31 @@ export default function AgentsClient({ session }: { session: Session }) {
     fetchData()
   }, [fetchData])
 
-  const handleAction = async (agentId: string, action: 'start' | 'stop') => {
+  const handleAction = async (agentId: string, action: 'start' | 'stop' | 'restart') => {
     setActionLoading(agentId)
     try {
-      const res = await fetch(`/api/agents/${agentId}/${action}`, { method: 'POST' })
-      if (!res.ok) {
-        const data = await res.json()
-        alert(data.error || `Failed to ${action} agent`)
+      if (action === 'restart') {
+        // Stop then start
+        const stopRes = await fetch(`/api/agents/${agentId}/stop`, { method: 'POST' })
+        if (!stopRes.ok) {
+          const data = await stopRes.json()
+          alert(data.error || 'Failed to stop agent')
+          return
+        }
+        // Brief pause for container cleanup
+        await new Promise(r => setTimeout(r, 1000))
+        const startRes = await fetch(`/api/agents/${agentId}/start`, { method: 'POST' })
+        if (!startRes.ok) {
+          const data = await startRes.json()
+          alert(data.error || 'Failed to start agent')
+          return
+        }
+      } else {
+        const res = await fetch(`/api/agents/${agentId}/${action}`, { method: 'POST' })
+        if (!res.ok) {
+          const data = await res.json()
+          alert(data.error || `Failed to ${action} agent`)
+        }
       }
       await fetchData()
     } catch (err) {
@@ -219,13 +237,22 @@ export default function AgentsClient({ session }: { session: Session }) {
                           {actionLoading === agent.id ? 'Starting...' : 'Start'}
                         </button>
                       ) : agent.status === 'running' ? (
-                        <button
-                          onClick={() => handleAction(agent.id, 'stop')}
-                          disabled={actionLoading === agent.id}
-                          className="px-3 py-1.5 text-xs font-medium rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          {actionLoading === agent.id ? 'Stopping...' : 'Stop'}
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleAction(agent.id, 'restart')}
+                            disabled={actionLoading === agent.id}
+                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            {actionLoading === agent.id ? 'Restarting...' : 'Restart'}
+                          </button>
+                          <button
+                            onClick={() => handleAction(agent.id, 'stop')}
+                            disabled={actionLoading === agent.id}
+                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            {actionLoading === agent.id ? 'Stopping...' : 'Stop'}
+                          </button>
+                        </>
                       ) : null}
                     </>
                   )}
