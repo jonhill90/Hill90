@@ -20,12 +20,15 @@ interface Props {
   threadId: string
 }
 
+const PING_INTERVAL_MS = 30_000 // 30s client-side keep-alive
+
 export default function XTerminal({ threadId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<any>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const fitRef = useRef<any>(null)
   const dataListenerRef = useRef<any>(null)
+  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const reconnectRef = useRef(0)
   const maxReconnects = 5
   const { data: session } = useSession()
@@ -103,6 +106,14 @@ export default function XTerminal({ threadId }: Props) {
       if (dims) {
         ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }))
       }
+      // Start keep-alive ping to prevent idle disconnects from
+      // Traefik, reverse proxies, and browser network stacks
+      if (pingRef.current) clearInterval(pingRef.current)
+      pingRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }))
+        }
+      }, PING_INTERVAL_MS)
     }
 
     ws.onmessage = (event) => {
@@ -114,6 +125,10 @@ export default function XTerminal({ threadId }: Props) {
     }
 
     ws.onclose = (event) => {
+      if (pingRef.current) {
+        clearInterval(pingRef.current)
+        pingRef.current = null
+      }
       setConnected(false)
       setControlling(false)
 
@@ -156,6 +171,10 @@ export default function XTerminal({ threadId }: Props) {
     resizeObserver.observe(containerRef.current)
 
     return () => {
+      if (pingRef.current) {
+        clearInterval(pingRef.current)
+        pingRef.current = null
+      }
       resizeObserver.disconnect()
       ws.close()
       term.dispose()

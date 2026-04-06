@@ -13,6 +13,7 @@ import { getPool } from '../db/pool';
 
 const CONTAINER_PREFIX = 'agentbox-';
 const AGENTBOX_PORT = 8054;
+const PING_INTERVAL_MS = 30_000; // 30s keep-alive ping
 
 /**
  * Extract threadId from upgrade path: /chat/threads/:id/terminal
@@ -138,6 +139,23 @@ export function attachTerminalProxy(
           if (clientWs.readyState === WebSocket.OPEN) clientWs.close(1011, 'upstream error');
         });
 
+        // Keep-alive: ping both sides every 30s to prevent idle timeout
+        // from Traefik, load balancers, or browser network stack
+        const pingInterval = setInterval(() => {
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.ping();
+          }
+          if (agentWs.readyState === WebSocket.OPEN) {
+            agentWs.ping();
+          }
+        }, PING_INTERVAL_MS);
+
+        function cleanupAll() {
+          clearInterval(pingInterval);
+          if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+          if (agentWs.readyState === WebSocket.OPEN) agentWs.close();
+        }
+
         // Relay: agentbox → client
         agentWs.on('message', (data, isBinary) => {
           if (clientWs.readyState === WebSocket.OPEN) {
@@ -153,20 +171,16 @@ export function attachTerminalProxy(
         });
 
         // Cleanup on either side close
-        agentWs.on('close', () => {
-          if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
-        });
-        clientWs.on('close', () => {
-          if (agentWs.readyState === WebSocket.OPEN) agentWs.close();
-        });
+        agentWs.on('close', cleanupAll);
+        clientWs.on('close', cleanupAll);
 
         agentWs.on('error', (err) => {
           console.error(`[terminal-proxy] Agentbox WS error: ${err.message}`);
-          if (clientWs.readyState === WebSocket.OPEN) clientWs.close();
+          cleanupAll();
         });
         clientWs.on('error', (err) => {
           console.error(`[terminal-proxy] Client WS error: ${err.message}`);
-          if (agentWs.readyState === WebSocket.OPEN) agentWs.close();
+          cleanupAll();
         });
       });
 
