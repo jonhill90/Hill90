@@ -19,5 +19,8 @@ source /usr/share/powerlevel10k/powerlevel10k.zsh-theme
 # PATH
 export PATH="$HOME/.local/bin:/data/tools/bin:$PATH"
 
-# Agent workspace
-cd /workspace 2>/dev/null || true
+# Symlink workspace into home for easy access
+[[ ! -L ~/workspace ]] && ln -sf /workspace ~/workspace 2>/dev/null
+
+# Start in home directory (looks like a normal user shell)
+cd ~ 2>/dev/null || true

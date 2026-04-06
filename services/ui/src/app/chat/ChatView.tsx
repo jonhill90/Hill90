@@ -127,6 +127,11 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
       setInput(text)
     } finally {
       setSending(false)
+      // Auto-refocus the input after sending
+      setTimeout(() => {
+        const input = document.querySelector('[data-testid="mention-input"]') as HTMLTextAreaElement
+        input?.focus()
+      }, 50)
     }
   }
 
