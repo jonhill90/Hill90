@@ -1,8 +1,20 @@
 'use client'
 
 import { useEffect, useRef, useCallback, useState } from 'react'
-import { useSession, getSession } from 'next-auth/react'
+import { useSession } from 'next-auth/react'
 import { MousePointer } from 'lucide-react'
+
+/** Fetch a fresh access token by hitting the session endpoint server-side. */
+async function getFreshToken(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/auth/session')
+    if (!res.ok) return null
+    const data = await res.json()
+    return data?.accessToken || null
+  } catch {
+    return null
+  }
+}
 
 interface Props {
   threadId: string
@@ -72,9 +84,8 @@ export default function XTerminal({ threadId }: Props) {
     termRef.current = term
     fitRef.current = fitAddon
 
-    // Connect WebSocket — fetch fresh token to avoid expiry issues
-    const freshSession = await getSession()
-    const accessToken = (freshSession as any)?.accessToken || (session as any).accessToken
+    // Connect WebSocket — fetch fresh token from server to avoid expiry
+    const accessToken = await getFreshToken() || (session as any).accessToken
     if (!accessToken) {
       term.write('\x1b[31m No access token — session may have expired. Try refreshing. \x1b[0m\r\n')
       return
@@ -106,14 +117,15 @@ export default function XTerminal({ threadId }: Props) {
       setConnected(false)
       setControlling(false)
 
-      // Auto-reconnect with fresh token (handles token expiry)
-      if (reconnectRef.current < maxReconnects && event.code !== 4001) {
+      // Don't reconnect on auth rejection or intentional close
+      if (event.code === 4001 || event.code === 1000) return
+
+      // Auto-reconnect with server-refreshed token
+      if (reconnectRef.current < maxReconnects) {
         reconnectRef.current++
-        const delay = Math.min(1000 * reconnectRef.current, 5000)
-        term.write(`\r\n\x1b[2m Reconnecting (${reconnectRef.current}/${maxReconnects})... \x1b[0m\r\n`)
+        const delay = Math.min(2000 * reconnectRef.current, 10000)
         setTimeout(async () => {
-          const retrySession = await getSession()
-          const retryToken = (retrySession as any)?.accessToken
+          const retryToken = await getFreshToken()
           if (!retryToken) return
           const retryUrl = `wss://api.hill90.com/chat/threads/${threadId}/terminal?token=${encodeURIComponent(retryToken)}`
           const retryWs = new WebSocket(retryUrl)
