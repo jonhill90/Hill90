@@ -85,6 +85,26 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
     }
   }
 
+  const handleClearOld = async () => {
+    const errorPatterns = ['Not logged in', 'Timed out', 'No messages yet', 'Command completed (no output)', 'login']
+    const staleThreads = threads.filter(t => {
+      const msg = t.last_message || ''
+      return errorPatterns.some(p => msg.includes(p))
+    })
+    if (staleThreads.length === 0) return
+    if (!confirm(`Delete ${staleThreads.length} old/error threads?`)) return
+
+    for (const t of staleThreads) {
+      try {
+        await fetch(`/api/chat/${t.id}`, { method: 'DELETE' })
+      } catch { /* skip */ }
+    }
+    fetchThreads()
+    if (activeThreadId && staleThreads.some(t => t.id === activeThreadId)) {
+      router.push('/chat')
+    }
+  }
+
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
       {/* Thread list sidebar — desktop */}
@@ -96,12 +116,23 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
         <div className="w-72 h-full flex flex-col">
           <div className="p-3 border-b border-navy-700 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-200">Threads</h2>
-            <button
-              onClick={() => setShowNewThread(true)}
-              className="px-2 py-1 text-xs bg-brand-600 hover:bg-brand-500 text-white rounded transition-colors"
-            >
-              + New
-            </button>
+            <div className="flex items-center gap-1">
+              {threads.some(t => ['Not logged in', 'Timed out', 'No messages yet', 'Command completed (no output)'].some(p => (t.last_message || '').includes(p))) && (
+                <button
+                  onClick={handleClearOld}
+                  className="px-2 py-1 text-xs text-mountain-400 hover:text-red-400 rounded transition-colors"
+                  title="Delete error/empty threads"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={() => setShowNewThread(true)}
+                className="px-2 py-1 text-xs bg-brand-600 hover:bg-brand-500 text-white rounded transition-colors"
+              >
+                + New
+              </button>
+            </div>
           </div>
           <ThreadList
             threads={threads}
