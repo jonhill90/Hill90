@@ -21,7 +21,7 @@ export default function ChatPage() {
   }
 
   return (
-    <AppShell>
+    <AppShell noFooter>
       <ChatLayout session={session as any} />
     </AppShell>
   )
