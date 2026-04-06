@@ -184,11 +184,17 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
               thread?.agent && (
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      thread.agent.status === 'running' ? 'bg-brand-400' : 'bg-mountain-500'
+                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      thread.agent.status === 'running' ? 'bg-green-400 animate-pulse' : 'bg-red-400'
                     }`}
+                    data-testid="agent-status-dot"
                   />
                   <span className="text-xs text-mountain-500">{agentName}</span>
+                  <span className={`text-[10px] font-medium ${
+                    thread.agent.status === 'running' ? 'text-green-400' : 'text-red-400'
+                  }`}>
+                    {thread.agent.status === 'running' ? 'Running' : 'Stopped'}
+                  </span>
                 </div>
               )
             )}
@@ -225,6 +231,17 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
             </button>
           </div>
         </div>
+
+        {/* Agent stopped warning */}
+        {!anyAgentRunning && agents.length > 0 && (
+          <div className="px-4 py-2 bg-yellow-900/20 border-b border-yellow-800/40 flex items-center gap-2" data-testid="agent-stopped-warning">
+            <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
+            <p className="text-xs text-yellow-300">
+              {isGroup ? 'All agents are stopped.' : `${agentName} is stopped.`}
+              {' '}Start the agent from the Agents page to resume chatting.
+            </p>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
