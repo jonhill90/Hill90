@@ -1,8 +1,9 @@
 'use client'
 
-import { Bot, User, AlertCircle, Loader2 } from 'lucide-react'
+import { User, AlertCircle, Loader2 } from 'lucide-react'
 import type { Message } from './ChatView'
 import type { ChatAgent } from './ChatLayout'
+import AgentAvatar from '@/components/AgentAvatar'
 
 interface Props {
   message: Message
@@ -29,6 +30,27 @@ function getAgentColor(agentId: string, agents: ChatAgent[]): string {
   return AGENT_COLORS[idx >= 0 ? idx % AGENT_COLORS.length : 0]
 }
 
+function formatTimestamp(iso: string): string {
+  const date = new Date(iso)
+  const now = Date.now()
+  const diffMs = now - date.getTime()
+  const diffMin = Math.floor(diffMs / 60_000)
+
+  if (diffMin < 1) return 'just now'
+  if (diffMin < 60) return `${diffMin}m ago`
+
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
 export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [], triggerAgentName }: Props) {
   const isUser = message.role === 'user'
   const isPending = message.status === 'pending'
@@ -43,17 +65,13 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
   return (
     <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
-      <div
-        className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-          isUser ? 'bg-brand-600/30' : 'bg-navy-700'
-        }`}
-      >
-        {isUser ? (
+      {isUser ? (
+        <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-brand-600/30">
           <User size={14} className="text-brand-400" />
-        ) : (
-          <Bot size={14} className="text-mountain-400" />
-        )}
-      </div>
+        </div>
+      ) : (
+        <AgentAvatar name={agentName || agents.find(a => a.id === message.author_id)?.name || 'Agent'} />
+      )}
 
       {/* Bubble */}
       <div
@@ -123,6 +141,13 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
             {message.input_tokens != null && message.output_tokens != null && (
               <span>{message.input_tokens + message.output_tokens} tok</span>
             )}
+          </div>
+        )}
+
+        {/* Timestamp */}
+        {!isPending && (
+          <div className={`mt-1 text-[10px] text-mountain-500 ${isUser ? 'text-right' : ''}`} data-testid="message-timestamp">
+            {formatTimestamp(message.created_at)}
           </div>
         )}
       </div>
