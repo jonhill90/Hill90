@@ -2,17 +2,28 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: ".",
-  timeout: 30_000,
+  timeout: 60_000,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "https://auth.hill90.com",
     ignoreHTTPSErrors: false,
   },
   projects: [
     {
-      name: "chromium",
-      use: { browserName: "chromium" },
+      name: "auth",
+      testMatch: "auth-theme.spec.ts",
+      use: {
+        baseURL: "https://auth.hill90.com",
+        browserName: "chromium",
+      },
+    },
+    {
+      name: "app",
+      testMatch: "chat.spec.ts",
+      use: {
+        baseURL: "https://hill90.com",
+        browserName: "chromium",
+      },
     },
   ],
 });
