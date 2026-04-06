@@ -11,15 +11,15 @@ export default function AppShell({
   noFooter?: boolean
 }) {
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className={`flex flex-col ${noFooter ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
       <TopBar navExtra={navExtra} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Sidebar: desktop only */}
         <Sidebar />
 
         {/* Main content + footer */}
-        <div className="flex flex-col flex-1 min-w-0">
+        <div className={`flex flex-col flex-1 min-w-0 ${noFooter ? 'min-h-0' : ''}`}>
           {children}
 
           {!noFooter && (
