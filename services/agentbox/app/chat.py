@@ -218,6 +218,8 @@ _TASK_MARKERS = (
     "could you", "would you", "write a", "create a", "build a",
     "fix the", "debug the", "explain", "refactor", "implement",
     "what is", "what are", "how do", "how to", "why does",
+    "show me", "let me", "tell me", "run the", "do a", "try",
+    "don't", "dont", "not", "one of", "some of", "all of",
 )
 
 
@@ -250,6 +252,16 @@ def _classify_message(message: str) -> str:
         return "command"
 
     if first_word in _DIRECT_COMMAND_PREFIXES:
+        # Extra check: if the rest of the words look like natural language
+        # (no flags, no paths, no pipes), treat as task.
+        # e.g. "cat one of the files" → task, "cat .tmux.conf" → command
+        words = clean.split()
+        if len(words) >= 3:
+            args = words[1:]
+            has_path = any("/" in w or "." in w or w.startswith("-") for w in args)
+            has_pipe = "|" in clean or ">" in clean or "&&" in clean
+            if not has_path and not has_pipe:
+                return "task"
         return "command"
 
     # Pipe chains without natural language → command
