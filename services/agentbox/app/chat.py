@@ -33,9 +33,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TMUX_SESSION = "agent"
-TASK_FILE = "/workspace/current-task.md"
-RESULT_FILE = "/workspace/.claude-result"
-CLAUDE_TIMEOUT = 600  # 10 minutes max per task
 
 
 def handle_chat(
@@ -262,7 +259,6 @@ def _classify_message(message: str) -> str:
     return "task"
 
 
-SENTINEL = "___DONE___"
 # Shorter timeout for direct commands (they shouldn't take 10 min)
 COMMAND_TIMEOUT = 60
 
@@ -397,84 +393,115 @@ def _run_terminal_task(
 def _run_direct_command(user_message: str) -> str:
     """Run a shell command directly in tmux and capture output.
 
-    Uses a compact tee to capture output while keeping the terminal
-    display as clean as possible.
+    Terminal shows exactly what a user would see — just the command
+    and its output. No wrappers, no tee, no sentinels.
+    Output is captured via tmux capture-pane after the prompt returns.
     """
-    # Strip prompt characters from the message
     cmd = user_message.strip().lstrip("$>#").strip()
-
     _ensure_tmux_session()
 
-    # Clean up previous result
-    if os.path.exists(RESULT_FILE):
-        os.unlink(RESULT_FILE)
-
-    # Use the _r shell function (defined in agentbox zshrc) to hide capture plumbing.
-    # Terminal shows: _r "ls -a" instead of the raw tee/sentinel chain.
-    shell_cmd = f'_r "{cmd}"'
-
+    # Send the raw command — exactly like a user typing it
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, shell_cmd, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, cmd, "Enter"],
         timeout=5,
         capture_output=True,
     )
 
     logger.info("[terminal-cmd] Direct command in tmux: %s", cmd[:100])
 
-    return _poll_for_result_file(timeout=COMMAND_TIMEOUT)
+    return _wait_and_capture(timeout=COMMAND_TIMEOUT)
 
 
 def _run_visible_command(cmd: str) -> str:
     """Run a command in tmux (visible to terminal viewer) and return result as JSON.
 
-    Used by the tool-use loop to make execute_command calls visible
-    in the terminal instead of running them in a hidden subprocess.
+    Used by the tool-use loop to make execute_command calls visible.
     """
     _ensure_tmux_session()
 
-    if os.path.exists(RESULT_FILE):
-        os.unlink(RESULT_FILE)
-
-    shell_cmd = f'_r "{cmd}"'
     subprocess.run(
-        ["tmux", "send-keys", "-t", TMUX_SESSION, shell_cmd, "Enter"],
+        ["tmux", "send-keys", "-t", TMUX_SESSION, cmd, "Enter"],
         timeout=5,
         capture_output=True,
     )
 
     logger.info("[terminal-visible] Command in tmux: %s", cmd[:100])
 
-    output = _poll_for_result_file(timeout=COMMAND_TIMEOUT)
+    output = _wait_and_capture(timeout=COMMAND_TIMEOUT)
     return json.dumps({"success": True, "output": output, "exit_code": 0})
 
 
-def _poll_for_result_file(*, timeout: int) -> str:
-    """Poll the result file until the sentinel appears or timeout.
+def _wait_and_capture(*, timeout: int) -> str:
+    """Wait for the command to finish, then capture output from tmux pane.
 
-    Returns the captured output with sentinel stripped.
+    Detects completion by watching for the shell prompt to return
+    (last non-empty line ends with $, #, %, or ❯).
     """
     deadline = time.monotonic() + timeout
+    # Give the command a moment to start
+    time.sleep(1)
+
+    prev_content = ""
+    stable_count = 0
 
     while time.monotonic() < deadline:
         time.sleep(1)
+        try:
+            result = subprocess.run(
+                ["tmux", "capture-pane", "-t", TMUX_SESSION, "-p", "-S", "-50"],
+                timeout=5,
+                capture_output=True,
+                text=True,
+            )
+            pane_content = result.stdout.rstrip()
+            if not pane_content:
+                continue
 
-        if not os.path.exists(RESULT_FILE):
+            # Check if the prompt has returned (command finished)
+            last_line = pane_content.splitlines()[-1].rstrip()
+            prompt_chars = ("$", "#", "%", "❯")
+            if any(last_line.endswith(c) for c in prompt_chars):
+                # Prompt is back — extract output (lines between command and prompt)
+                lines = pane_content.splitlines()
+                # Find the command line and return everything between it and the prompt
+                output_lines = []
+                found_cmd = False
+                for line in lines:
+                    if found_cmd:
+                        # Stop at the prompt line
+                        stripped = line.rstrip()
+                        if any(stripped.endswith(c) for c in prompt_chars) and stripped != line.strip():
+                            break
+                        output_lines.append(line)
+                    elif line.strip().endswith(last_line.strip()):
+                        # Skip duplicate prompt lines
+                        continue
+                    # Look for our command in the line
+                    if not found_cmd:
+                        found_cmd = True  # Start capturing from next iteration
+
+                output = "\n".join(output_lines).strip()
+                return output if output else "Command completed."
+
+            # Check if pane is stable (same content for 2 cycles = command still running)
+            if pane_content == prev_content:
+                stable_count += 1
+            else:
+                stable_count = 0
+                prev_content = pane_content
+
+        except Exception:
             continue
 
-        with open(RESULT_FILE) as f:
-            content = f.read()
-
-        if SENTINEL in content:
-            result = content.replace(SENTINEL, "").strip()
-            return result if result else "Command completed (no output)."
-
-    # Timeout
-    if os.path.exists(RESULT_FILE):
-        with open(RESULT_FILE) as f:
-            content = f.read().replace(SENTINEL, "").strip()
-        if content:
-            return f"{content}\n\n(Timed out after {timeout}s)"
-    return f"Timed out after {timeout}s with no output."
+    # Timeout — capture whatever is in the pane
+    try:
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", TMUX_SESSION, "-p", "-S", "-50"],
+            timeout=5, capture_output=True, text=True,
+        )
+        return f"{result.stdout.strip()}\n\n(Timed out after {timeout}s)"
+    except Exception:
+        return f"Timed out after {timeout}s."
 
 
 # ─────────────────────────────────────────────────────────────────────
