@@ -683,21 +683,20 @@ class TestTerminalDispatch:
                           if "chat/completions" in str(c)]
         assert len(inference_calls) >= 1, "Expected LLM inference call for complex task"
 
-    @patch("app.chat._poll_for_result_file")
+    @patch("app.chat._wait_and_capture")
     @patch("app.chat.subprocess.run")
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
     def test_terminal_dispatch_direct_command_skips_claude(
-        self, mock_post, mock_terminal, mock_subprocess, mock_poll, emitter, monkeypatch, tmp_path
+        self, mock_post, mock_terminal, mock_subprocess, mock_capture, emitter, monkeypatch
     ):
         """Direct shell commands (ls, git, etc.) run directly in tmux without Claude."""
         em, log_path = emitter
         monkeypatch.setenv("CHAT_CALLBACK_TOKEN", "cb-token")
-        monkeypatch.setattr("app.chat.RESULT_FILE", str(tmp_path / "result"))
 
         mock_post.return_value = MagicMock(status_code=200)
         mock_subprocess.return_value = MagicMock(returncode=0)
-        mock_poll.return_value = "file1.txt\nfile2.py\n"
+        mock_capture.return_value = "file1.txt\nfile2.py\n"
 
         handle_chat(
             {
@@ -710,16 +709,12 @@ class TestTerminalDispatch:
             work_id="w1", emitter=em,
         )
 
-        # tmux send-keys was called with the command (not claude)
-        assert mock_subprocess.called
-        send_keys_call = mock_subprocess.call_args
-        cmd_args = send_keys_call[0][0]
-        assert "tmux" in cmd_args
-        assert "send-keys" in cmd_args
-        # The command string (before "Enter") should contain ls -a
-        tmux_cmd = cmd_args[-2]
-        assert "ls -a" in tmux_cmd
-        assert "claude" not in tmux_cmd
+        # tmux send-keys was called with the raw command (no wrappers)
+        all_calls = [c[0][0] for c in mock_subprocess.call_args_list]
+        send_keys_calls = [c for c in all_calls if "send-keys" in c]
+        assert len(send_keys_calls) >= 1
+        tmux_cmd = send_keys_calls[0][-2]
+        assert tmux_cmd == "ls -a"  # Exactly the raw command, nothing else
 
     @patch("app.chat._should_use_terminal", return_value=True)
     @patch("app.chat.requests.post")
