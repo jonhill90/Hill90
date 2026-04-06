@@ -25,7 +25,7 @@ export default function ThreadPage({ params }: { params: Promise<{ threadId: str
   }
 
   return (
-    <AppShell>
+    <AppShell noFooter>
       <ChatLayout session={session as any} activeThreadId={threadId} />
     </AppShell>
   )
