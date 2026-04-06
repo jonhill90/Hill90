@@ -45,9 +45,10 @@ class TestBuildToolDefinitions:
         )
         defs = build_tool_definitions(config)
         names = [d["function"]["name"] for d in defs]
-        assert len(names) == 5
+        assert len(names) == 6
         assert "execute_command" in names
         assert "read_file" in names
+        assert "browser" in names
         assert "write_file" in names
         assert "list_directory" in names
         assert "tmux" in names

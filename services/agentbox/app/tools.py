@@ -107,6 +107,48 @@ LIST_DIR_TOOL = {
 }
 
 
+BROWSER_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "browser",
+        "description": (
+            "Control a headless Chromium browser. "
+            "Actions: navigate (go to URL), screenshot (capture page), "
+            "click (click element by selector), get_text (extract visible text), "
+            "evaluate (run JavaScript)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["navigate", "screenshot", "click", "get_text", "evaluate"],
+                    "description": "The browser action to perform",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "URL to navigate to (for navigate)",
+                },
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector for the target element (for click, get_text)",
+                },
+                "script": {
+                    "type": "string",
+                    "description": "JavaScript to evaluate in the page (for evaluate)",
+                },
+                "full_page": {
+                    "type": "boolean",
+                    "description": "Capture full scrollable page (for screenshot, default true)",
+                    "default": True,
+                },
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+
 TMUX_TOOL = {
     "type": "function",
     "function": {
@@ -165,6 +207,9 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     # tmux is always available when shell is enabled
     if tools_config.shell.enabled:
         definitions.append(TMUX_TOOL)
+    # browser is available when shell is enabled (chromium is pre-installed)
+    if tools_config.shell.enabled:
+        definitions.append(BROWSER_TOOL)
     return definitions
 
 
@@ -210,6 +255,9 @@ async def execute_tool_call(
 
     if name == "tmux":
         return await _execute_tmux(arguments)
+
+    if name == "browser":
+        return await _execute_browser(arguments)
 
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
@@ -270,3 +318,108 @@ async def _execute_tmux(args: dict) -> str:
 
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)[:200]})
+
+
+# ── Browser (Playwright chromium) ────────────────────────────────────
+
+# Lazy singleton — launched on first use, reused across calls within a work item
+_browser_context: object | None = None  # playwright BrowserContext
+_browser_page: object | None = None     # playwright Page
+_playwright_instance: object | None = None
+
+MAX_TEXT_LENGTH = 4000
+SCREENSHOT_DIR = "/workspace/screenshots"
+
+
+async def _get_browser_page():
+    """Get or create the singleton browser page."""
+    global _playwright_instance, _browser_context, _browser_page
+
+    if _browser_page is not None:
+        return _browser_page
+
+    import os
+    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+
+    from playwright.async_api import async_playwright
+
+    _playwright_instance = await async_playwright().start()
+    browser = await _playwright_instance.chromium.launch(
+        headless=True,
+        args=["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+    )
+    _browser_context = await browser.new_context(
+        viewport={"width": 1280, "height": 720},
+        user_agent="Hill90-Agent/1.0 (Headless Chromium)",
+    )
+    _browser_page = await _browser_context.new_page()
+    return _browser_page
+
+
+async def _execute_browser(args: dict) -> str:
+    """Execute a browser action via Playwright. Returns JSON result."""
+    action = args.get("action", "")
+
+    try:
+        page = await _get_browser_page()
+
+        if action == "navigate":
+            url = args.get("url", "")
+            if not url:
+                return json.dumps({"success": False, "error": "url is required"})
+            resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            title = await page.title()
+            return json.dumps({
+                "success": True,
+                "title": title,
+                "url": page.url,
+                "status": resp.status if resp else None,
+            })
+
+        elif action == "screenshot":
+            import time
+            full_page = args.get("full_page", True)
+            filename = f"screenshot-{int(time.time())}.png"
+            path = f"{SCREENSHOT_DIR}/{filename}"
+            await page.screenshot(path=path, full_page=full_page)
+            return json.dumps({
+                "success": True,
+                "path": path,
+                "url": page.url,
+            })
+
+        elif action == "click":
+            selector = args.get("selector", "")
+            if not selector:
+                return json.dumps({"success": False, "error": "selector is required"})
+            await page.click(selector, timeout=10000)
+            await page.wait_for_load_state("domcontentloaded", timeout=10000)
+            return json.dumps({
+                "success": True,
+                "url": page.url,
+                "title": await page.title(),
+            })
+
+        elif action == "get_text":
+            selector = args.get("selector", "body")
+            element = page.locator(selector).first
+            text = await element.inner_text(timeout=10000)
+            if len(text) > MAX_TEXT_LENGTH:
+                text = text[:MAX_TEXT_LENGTH] + f"\n...(truncated, {len(text)} total chars)"
+            return json.dumps({"success": True, "text": text})
+
+        elif action == "evaluate":
+            script = args.get("script", "")
+            if not script:
+                return json.dumps({"success": False, "error": "script is required"})
+            result = await page.evaluate(script)
+            text = json.dumps(result, default=str)
+            if len(text) > MAX_TEXT_LENGTH:
+                text = text[:MAX_TEXT_LENGTH] + "...(truncated)"
+            return json.dumps({"success": True, "result": text})
+
+        else:
+            return json.dumps({"success": False, "error": f"Unknown browser action: {action}"})
+
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)[:300]})

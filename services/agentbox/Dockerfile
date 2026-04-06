@@ -56,6 +56,13 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 # Copy AKM CLI binary from knowledge service image
 COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 
+# Install Playwright chromium + system deps (AI-177: browser observation)
+# Runs as root — installs system libraries (libnss3, libatk, etc.) + chromium binary
+# playwright install --with-deps handles both apt packages and browser download
+RUN pip install --no-cache-dir playwright==1.52.0 && \
+    playwright install chromium --with-deps && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create non-root user with zsh as default shell
 RUN useradd -m -u 1000 -s /usr/bin/zsh agentuser
 
