@@ -274,6 +274,35 @@ describe('ChatMessage', () => {
     expect(screen.getByTestId('stale-message')).toHaveTextContent('Stale error (resolved)')
   })
 
+  // Timestamps
+  it('shows timestamp on complete messages', () => {
+    render(<ChatMessage message={makeMessage()} isOwnMessage={true} />)
+    expect(screen.getByTestId('message-timestamp')).toBeInTheDocument()
+  })
+
+  it('shows relative time for recent messages', () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString()
+    render(<ChatMessage message={makeMessage({ created_at: fiveMinAgo })} isOwnMessage={true} />)
+    expect(screen.getByTestId('message-timestamp')).toHaveTextContent('5m ago')
+  })
+
+  it('shows absolute date for old messages', () => {
+    render(<ChatMessage message={makeMessage({ created_at: '2026-01-15T22:30:00Z' })} isOwnMessage={false} />)
+    const ts = screen.getByTestId('message-timestamp')
+    // Should contain month and day
+    expect(ts.textContent).toMatch(/Jan\s+15/)
+  })
+
+  it('does not show timestamp on pending messages', () => {
+    render(
+      <ChatMessage
+        message={makeMessage({ status: 'pending', role: 'assistant', author_type: 'agent', content: '' })}
+        isOwnMessage={false}
+      />
+    )
+    expect(screen.queryByTestId('message-timestamp')).not.toBeInTheDocument()
+  })
+
   it('stale message does not render red error styling', () => {
     const { container } = render(
       <ChatMessage
