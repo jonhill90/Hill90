@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity } from 'lucide-react'
+import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity, Zap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavLink {
@@ -43,6 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
       { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
       { type: 'link', id: 'storage', label: 'Storage', href: '/harness/storage', icon: HardDrive },
       { type: 'link', id: 'monitoring', label: 'Monitoring', href: '/harness/monitoring', icon: Activity },
+      { type: 'link', id: 'workflows', label: 'Workflows', href: '/harness/workflows', icon: Zap },
       { type: 'link', id: 'secrets', label: 'Secrets', href: '/harness/secrets', icon: Shield, adminOnly: true },
     ],
   },
