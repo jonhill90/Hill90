@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
-import { Terminal, Activity } from 'lucide-react'
+import { Terminal, Activity, Globe } from 'lucide-react'
 import EventCard, { type AgentEvent } from '@/app/agents/[id]/EventCard'
 
 const XTerminal = lazy(() => import('./XTerminal'))
@@ -10,7 +10,7 @@ const MAX_EVENTS = 200
 const MAX_TERMINAL_LINES = 500
 const TOOL_FILTERS = ['All', 'Shell', 'Runtime', 'Inference'] as const
 type ToolFilter = typeof TOOL_FILTERS[number]
-type ViewMode = 'events' | 'terminal'
+type ViewMode = 'events' | 'terminal' | 'browser'
 
 interface Props {
   threadId: string
@@ -86,6 +86,58 @@ function groupEventsWithTerminal(events: AgentEvent[]): GroupedItem[] {
   }
 
   return items
+}
+
+function BrowserView({ events }: { events: AgentEvent[] }) {
+  // Find the latest screenshot from browser_screenshot events
+  const latestScreenshot = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]
+      if (
+        e.type === 'tool_result' &&
+        e.tool === 'browser' &&
+        e.metadata?.screenshot
+      ) {
+        return {
+          url: e.metadata.url as string | undefined,
+          screenshot: e.metadata.screenshot as string,
+          timestamp: e.created_at,
+        }
+      }
+    }
+    return null
+  }, [events])
+
+  if (!latestScreenshot) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6" data-testid="browser-inactive">
+        <Globe className="w-10 h-10 text-mountain-500" />
+        <p className="text-sm text-mountain-500 text-center">Browser not active</p>
+        <p className="text-xs text-mountain-600 text-center max-w-xs">
+          When the agent uses the Playwright browser tool, screenshots will appear here in real time.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden" data-testid="browser-view">
+      {latestScreenshot.url && (
+        <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
+          <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
+          <span className="text-xs text-mountain-400 truncate">{latestScreenshot.url}</span>
+        </div>
+      )}
+      <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
+        <img
+          src={`data:image/png;base64,${latestScreenshot.screenshot}`}
+          alt="Browser screenshot"
+          className="max-w-full h-auto rounded border border-navy-700"
+          data-testid="browser-screenshot"
+        />
+      </div>
+    </div>
+  )
 }
 
 export default function SessionPane({ threadId }: Props) {
@@ -166,6 +218,18 @@ export default function SessionPane({ threadId }: Props) {
             <Activity className="w-3 h-3" />
             Events
           </button>
+          <button
+            onClick={() => setViewMode('browser')}
+            className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+              viewMode === 'browser'
+                ? 'bg-brand-600 text-white'
+                : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+            }`}
+            data-testid="browser-tab"
+          >
+            <Globe className="w-3 h-3" />
+            Browser
+          </button>
         </div>
         {viewMode === 'events' && (
           <div className="flex items-center gap-1">
@@ -194,6 +258,8 @@ export default function SessionPane({ threadId }: Props) {
         }>
           <XTerminal threadId={threadId} />
         </Suspense>
+      ) : viewMode === 'browser' ? (
+        <BrowserView events={events} />
       ) : (
         <div
           ref={containerRef}
