@@ -27,11 +27,18 @@ interface Agent {
   model_policy_id: string | null
   models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
+  autonomy_level: string | null
   error_message: string | null
   created_at: string
   updated_at: string
   created_by: string
 }
+
+const AUTONOMY_LEVELS = [
+  { value: 'ask', label: 'Ask before acting', description: 'Agent requests approval before taking any action' },
+  { value: 'scoped', label: 'Act within scope', description: 'Agent acts freely within assigned skills and permissions' },
+  { value: 'full', label: 'Full autonomy', description: 'Agent can take any action without approval' },
+] as const
 
 interface SkillRecord {
   id: string
@@ -108,6 +115,7 @@ export default function AgentDetailClient({
   const [soulDraft, setSoulDraft] = useState('')
   const [rulesDraft, setRulesDraft] = useState('')
   const [identitySaving, setIdentitySaving] = useState(false)
+  const [autonomySaving, setAutonomySaving] = useState(false)
 
   const isAdmin = session.user?.roles?.includes('admin')
 
@@ -351,6 +359,27 @@ export default function AgentDetailClient({
     ? allSkills
     : allSkills.filter(s => !ELEVATED_SCOPES.includes(s.scope))
   ).filter(s => !assignedIds.has(s.id))
+
+  const handleAutonomyChange = async (level: string) => {
+    setAutonomySaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autonomy_level: level }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to save autonomy level')
+        return
+      }
+      await fetchAgent()
+    } catch {
+      alert('Failed to save autonomy level')
+    } finally {
+      setAutonomySaving(false)
+    }
+  }
 
   const tabs: { id: TabId; label: string; adminOnly?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
@@ -693,6 +722,44 @@ export default function AgentDetailClient({
                 <dd className="text-white mt-1">{agent.pids_limit}</dd>
               </div>
             </dl>
+          </div>
+
+          {/* Autonomy Level */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-1">Autonomy Level</h2>
+            <p className="text-sm text-mountain-400 mb-4">Controls how much freedom this agent has to act without human approval.</p>
+            <div className="space-y-2">
+              {AUTONOMY_LEVELS.map((level) => {
+                const isSelected = (agent.autonomy_level || 'scoped') === level.value
+                return (
+                  <label
+                    key={level.value}
+                    className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'border-brand-600 bg-brand-900/20'
+                        : 'border-navy-700 bg-navy-900 hover:border-navy-500'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="autonomy_level"
+                      value={level.value}
+                      checked={isSelected}
+                      onChange={() => handleAutonomyChange(level.value)}
+                      disabled={autonomySaving || agent.status === 'running'}
+                      className="mt-0.5 accent-brand-500"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-white">{level.label}</span>
+                      <p className="text-xs text-mountain-500 mt-0.5">{level.description}</p>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+            {agent.status === 'running' && (
+              <p className="text-xs text-mountain-600 mt-2">Stop the agent to change autonomy level.</p>
+            )}
           </div>
 
           {/* Identity — SOUL.md */}
