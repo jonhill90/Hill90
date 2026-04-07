@@ -141,7 +141,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const scope = scopeToOwner(req);
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
-              a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id,
+              a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id, a.autonomy_level,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               a.created_at, a.updated_at, a.created_by,
               a.container_profile_id,
@@ -183,7 +183,16 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
 router.post('/', requireRole('user'), async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id } = req.body;
+    const { agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id, autonomy_level } = req.body;
+
+    // Validate autonomy_level if provided
+    if (autonomy_level !== undefined) {
+      const validLevels = ['ask_before_acting', 'act_within_scope', 'full_autonomy'];
+      if (!validLevels.includes(autonomy_level)) {
+        res.status(400).json({ error: `autonomy_level must be one of: ${validLevels.join(', ')}` });
+        return;
+      }
+    }
 
     // Reject legacy field
     if (req.body.tool_preset_id !== undefined) {
@@ -292,13 +301,13 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const { rows } = await getPool().query(
-      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, container_profile_id, created_by)
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, container_profile_id, autonomy_level, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
                COALESCE($10::uuid, (SELECT id FROM model_policies WHERE name = 'default' AND created_by IS NULL LIMIT 1)),
-               $11, $12)
+               $11, $12, $13)
        RETURNING id, agent_id, name, description, status, tools_config,
                  cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-                 model_policy_id, container_profile_id, error_message, created_at, updated_at, created_by`,
+                 model_policy_id, container_profile_id, autonomy_level, error_message, created_at, updated_at, created_by`,
       [
         agent_id,
         name,
@@ -311,6 +320,7 @@ router.post('/', requireRole('user'), async (req: Request, res: Response) => {
         rules_md || '',
         validatedPolicyId,
         container_profile_id || null,
+        autonomy_level || 'act_within_scope',
         user.sub,
       ]
     );
@@ -375,7 +385,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-              model_policy_id, a.container_profile_id,
+              model_policy_id, a.autonomy_level, a.container_profile_id,
               cp.name AS cp_name, cp.docker_image AS cp_docker_image,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               error_message, a.created_at, a.updated_at, a.created_by
@@ -444,7 +454,16 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const user = (req as any).user;
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id } = req.body;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id, autonomy_level } = req.body;
+
+    // Validate autonomy_level if provided
+    if (autonomy_level !== undefined) {
+      const validLevels = ['ask_before_acting', 'act_within_scope', 'full_autonomy'];
+      if (!validLevels.includes(autonomy_level)) {
+        res.status(400).json({ error: `autonomy_level must be one of: ${validLevels.join(', ')}` });
+        return;
+      }
+    }
 
     // Validate skill_ids
     if (skill_ids !== undefined) {
@@ -601,11 +620,12 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         rules_md = COALESCE($8, rules_md),
         model_policy_id = CASE WHEN $9::boolean THEN $10::uuid ELSE model_policy_id END,
         container_profile_id = CASE WHEN $11::boolean THEN $12::uuid ELSE container_profile_id END,
+        autonomy_level = COALESCE($13, autonomy_level),
         updated_at = NOW()
-       WHERE id = $13
+       WHERE id = $14
        RETURNING id, agent_id, name, description, status, tools_config,
                  cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-                 model_policy_id, container_profile_id, error_message, created_at, updated_at, created_by`,
+                 model_policy_id, container_profile_id, autonomy_level, error_message, created_at, updated_at, created_by`,
       [
         name || null,
         description ?? null,
@@ -619,6 +639,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         modelPolicyProvided ? (effectiveModelPolicyId ?? null) : null,
         containerProfileProvided,
         containerProfileProvided ? (container_profile_id ?? null) : null,
+        autonomy_level || null,
         req.params.id,
       ]
     );
