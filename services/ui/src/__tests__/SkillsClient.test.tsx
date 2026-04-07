@@ -404,4 +404,126 @@ describe('SkillsClient', () => {
     const warnings = screen.getAllByTestId('elevated-warning')
     expect(warnings.length).toBeGreaterThanOrEqual(2)
   })
+
+  // AI-226: Platform badge shows lock icon
+  it('platform badge includes lock icon', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    // Platform skills should have "Platform" badge text
+    const platformBadges = screen.getAllByText('Platform')
+    expect(platformBadges.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // AI-226: Search input filters skills by name
+  it('search input filters skills by name', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    const searchInput = screen.getByLabelText('Search skills')
+    fireEvent.change(searchInput, { target: { value: 'CI' } })
+
+    // Only CI Runner should be visible
+    expect(screen.getByText('CI Runner')).toBeInTheDocument()
+    expect(screen.queryByText('Minimal')).not.toBeInTheDocument()
+    expect(screen.queryByText('Developer')).not.toBeInTheDocument()
+    // Count should show filtered results
+    expect(screen.getByText('1 of 3 skills')).toBeInTheDocument()
+  })
+
+  // AI-226: Search with no results shows message
+  it('search with no results shows empty message', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    const searchInput = screen.getByLabelText('Search skills')
+    fireEvent.change(searchInput, { target: { value: 'nonexistent' } })
+
+    expect(screen.getByText('No skills match your search')).toBeInTheDocument()
+  })
+
+  // AI-226: Search filters by description too
+  it('search filters by description', async () => {
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    const searchInput = screen.getByLabelText('Search skills')
+    fireEvent.change(searchInput, { target: { value: 'health monitoring' } })
+
+    expect(screen.getByText('Minimal')).toBeInTheDocument()
+    expect(screen.queryByText('Developer')).not.toBeInTheDocument()
+  })
+
+  // AI-226: Expandable instructions — show more toggle for long instructions
+  it('long instructions show "Show more" toggle', async () => {
+    const skillsWithLongInstructions = [
+      {
+        ...MOCK_SKILLS[0],
+        instructions_md: 'Line one of instructions.\nLine two of instructions.\nLine three with more detail.\nLine four with even more.',
+      },
+    ]
+    mockFetchDefaults(skillsWithLongInstructions)
+
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    // Expand the skill card
+    fireEvent.click(screen.getByText('Minimal'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Line one of instructions/)).toBeInTheDocument()
+    })
+
+    // Should show "Show more" since instructions have >2 lines
+    expect(screen.getByText('Show more')).toBeInTheDocument()
+    // Should NOT show lines 3-4 yet
+    expect(screen.queryByText(/Line three with more detail/)).not.toBeInTheDocument()
+
+    // Click "Show more"
+    fireEvent.click(screen.getByText('Show more'))
+
+    // Now all lines should be visible
+    expect(screen.getByText(/Line three with more detail/)).toBeInTheDocument()
+    expect(screen.getByText('Show less')).toBeInTheDocument()
+  })
+
+  // AI-226: Short instructions do not show toggle
+  it('short instructions do not show toggle', async () => {
+    const skillsWithShortInstructions = [
+      {
+        ...MOCK_SKILLS[0],
+        instructions_md: 'Just one line.',
+      },
+    ]
+    mockFetchDefaults(skillsWithShortInstructions)
+
+    render(<SkillsClient />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Minimal')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Minimal'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Just one line.')).toBeInTheDocument()
+    })
+
+    expect(screen.queryByText('Show more')).not.toBeInTheDocument()
+  })
 })
