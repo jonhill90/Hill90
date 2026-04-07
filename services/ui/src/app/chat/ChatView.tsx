@@ -51,6 +51,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
+  const refocusTimer = useRef<number | null>(null)
 
   const userId = (session.user as any)?.id || (session.user as any)?.sub || ''
   const isGroup = thread?.type === 'group'
@@ -99,6 +100,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
     return () => {
       es.close()
       eventSourceRef.current = null
+      if (refocusTimer.current) clearTimeout(refocusTimer.current)
     }
   }, [threadId])
 
@@ -130,7 +132,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
     } finally {
       setSending(false)
       // Auto-refocus the input after sending
-      setTimeout(() => {
+      refocusTimer.current = window.setTimeout(() => {
         const input = document.querySelector('[data-testid="mention-input"]') as HTMLTextAreaElement
         input?.focus()
       }, 50)
@@ -150,16 +152,16 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       {/* Terminal (main stage) — shown when Live Session is open */}
       {sessionPaneOpen && (
-        <div className="flex-1 flex flex-col min-w-0 border-r border-[#292e42] bg-[#1a1b26]">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden border-r border-[#292e42] bg-[#1a1b26]">
           <SessionPane threadId={threadId} />
         </div>
       )}
 
       {/* Chat column — full width when terminal closed, narrow sidebar when open */}
-      <div className={`flex flex-col min-w-0 ${sessionPaneOpen ? 'w-[340px] flex-shrink-0' : 'flex-1'}`}>
+      <div className={`flex flex-col min-w-0 min-h-0 overflow-hidden ${sessionPaneOpen ? 'w-[340px] flex-shrink-0' : 'flex-1'}`}>
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-navy-700 bg-navy-900/50">
           <button
