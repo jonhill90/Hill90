@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
 import EventTimeline from './EventTimeline'
+import ActivityTimeline from './ActivityTimeline'
 import AgentMemory from './AgentMemory'
 import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
@@ -99,7 +100,7 @@ export default function AgentDetailClient({
   const [toolInstallsLoading, setToolInstallsLoading] = useState(false)
 
   // Activity sub-view state
-  const [activityView, setActivityView] = useState<'events' | 'logs'>('events')
+  const [activityView, setActivityView] = useState<'timeline' | 'events' | 'logs'>('timeline')
 
   // Editable identity (SOUL.md / RULES.md)
   const [editingSoul, setEditingSoul] = useState(false)
@@ -886,14 +887,26 @@ export default function AgentDetailClient({
           {/* Sub-view toggle */}
           <div className="flex items-center gap-1">
             <button
+              onClick={() => setActivityView('timeline')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                activityView === 'timeline'
+                  ? 'bg-brand-600 text-white'
+                  : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+              }`}
+              data-testid="timeline-toggle"
+            >
+              Timeline
+            </button>
+            <button
               onClick={() => setActivityView('events')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
                 activityView === 'events'
                   ? 'bg-brand-600 text-white'
                   : 'text-mountain-400 hover:text-white hover:bg-navy-700'
               }`}
+              data-testid="events-toggle"
             >
-              Events
+              Detailed Events
             </button>
             {isAdmin && (
               <button
@@ -909,6 +922,10 @@ export default function AgentDetailClient({
               </button>
             )}
           </div>
+
+          {activityView === 'timeline' && (
+            <ActivityTimeline agentId={agentId} agentStatus={agent.status} />
+          )}
 
           {activityView === 'events' && (
             <EventTimeline agentId={agentId} agentStatus={agent.status} />
