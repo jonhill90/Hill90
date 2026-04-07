@@ -8,6 +8,7 @@ import EventTimeline from './EventTimeline'
 import AgentMemory from './AgentMemory'
 import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
+import WorkspaceBrowser from './WorkspaceBrowser'
 
 interface Agent {
   id: string
@@ -64,7 +65,7 @@ function scopeBadge(scope: string): { label: string; colorClasses: string } {
   }
 }
 
-type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'activity'
+type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'workspace' | 'activity'
 
 export default function AgentDetailClient({
   agentId,
@@ -325,6 +326,7 @@ export default function AgentDetailClient({
     { id: 'model-access', label: 'Model Access' },
     { id: 'memory', label: 'Memory' },
     { id: 'notebook', label: 'Notebook' },
+    { id: 'workspace', label: 'Workspace' },
     { id: 'activity', label: 'Activity' },
   ]
 
@@ -761,6 +763,10 @@ export default function AgentDetailClient({
 
       {activeTab === 'notebook' && agent && (
         <AgentNotebook agentId={agent.agent_id} />
+      )}
+
+      {activeTab === 'workspace' && agent && (
+        <WorkspaceBrowser agentId={agent.agent_id} />
       )}
 
       {activeTab === 'activity' && (
