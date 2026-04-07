@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type { Session } from 'next-auth'
+import { Bot, MessageSquare, MessagesSquare, Activity } from 'lucide-react'
 import StatusBadge from '@/components/StatusBadge'
 
 interface ServiceHealth {
@@ -14,6 +15,11 @@ interface HarnessOverview {
   agents: { total: number; running: number; stopped: number; error: number }
   models: number
   usage: { requests: number; tokens: number; cost: number }
+}
+
+interface ChatSummary {
+  threads: number
+  messagesToday: number
 }
 
 function sevenDaysAgo(): string {
@@ -31,6 +37,26 @@ export default function DashboardClient({ session }: { session: Session }) {
   ])
   const [lastChecked, setLastChecked] = useState<string>('')
   const [harness, setHarness] = useState<HarnessOverview | null>(null)
+  const [chat, setChat] = useState<ChatSummary>({ threads: 0, messagesToday: 0 })
+
+  const fetchChat = useCallback(async () => {
+    try {
+      const res = await fetch('/api/chat')
+      if (!res.ok) return
+      const threads = await res.json()
+      const arr = Array.isArray(threads) ? threads : []
+      const start = new Date().toISOString().split('T')[0] + 'T00:00:00.000Z'
+      let messagesToday = 0
+      for (const t of arr) {
+        if (t.last_message_at && t.last_message_at >= start) {
+          messagesToday += Number(t.message_count ?? 0)
+        }
+      }
+      setChat({ threads: arr.length, messagesToday })
+    } catch (err) {
+      console.error('Failed to fetch chat summary:', err)
+    }
+  }, [])
 
   const checkHealth = useCallback(async () => {
     setServices((prev) =>
@@ -86,10 +112,74 @@ export default function DashboardClient({ session }: { session: Session }) {
   useEffect(() => {
     checkHealth()
     fetchHarness()
-  }, [checkHealth, fetchHarness])
+    fetchChat()
+  }, [checkHealth, fetchHarness, fetchChat])
+
+  const healthyCount = services.filter((s) => s.status === 'healthy').length
 
   return (
     <>
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="rounded-md bg-brand-400/10 p-2">
+              <Bot className="h-5 w-5 text-brand-400" />
+            </div>
+            <h3 className="text-sm font-medium text-mountain-400">Running Agents</h3>
+          </div>
+          <p className="text-3xl font-bold text-white">
+            {harness?.agents.running ?? '—'}
+          </p>
+          {harness && harness.agents.total > 0 && (
+            <p className="text-xs text-mountain-500 mt-1">
+              of {harness.agents.total} total
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="rounded-md bg-brand-400/10 p-2">
+              <MessageSquare className="h-5 w-5 text-brand-400" />
+            </div>
+            <h3 className="text-sm font-medium text-mountain-400">Chat Threads</h3>
+          </div>
+          <p className="text-3xl font-bold text-white">{chat.threads}</p>
+        </div>
+
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="rounded-md bg-brand-400/10 p-2">
+              <MessagesSquare className="h-5 w-5 text-brand-400" />
+            </div>
+            <h3 className="text-sm font-medium text-mountain-400">Messages Today</h3>
+          </div>
+          <p className="text-3xl font-bold text-white">{chat.messagesToday}</p>
+        </div>
+
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="rounded-md bg-brand-400/10 p-2">
+              <Activity className="h-5 w-5 text-brand-400" />
+            </div>
+            <h3 className="text-sm font-medium text-mountain-400">System Health</h3>
+          </div>
+          <p className="text-3xl font-bold text-white">
+            {services.some((s) => s.status === 'loading')
+              ? '—'
+              : healthyCount === services.length
+                ? 'All Go'
+                : `${healthyCount}/${services.length}`}
+          </p>
+          {!services.some((s) => s.status === 'loading') && (
+            <p className={`text-xs mt-1 ${healthyCount === services.length ? 'text-brand-400' : 'text-yellow-400'}`}>
+              {healthyCount === services.length ? 'Operational' : 'Degraded'}
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* Session info card */}
       <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-8">
         <h2 className="text-lg font-semibold text-white mb-3">Session</h2>
