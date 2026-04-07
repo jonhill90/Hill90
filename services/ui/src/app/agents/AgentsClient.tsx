@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import type { Session } from 'next-auth'
 import AgentAvatar from '@/components/AgentAvatar'
+import AgentLevelBadge from '@/components/AgentLevelBadge'
 
 interface Agent {
   id: string
@@ -176,7 +177,10 @@ export default function AgentsClient({ session }: { session: Session }) {
                       {agent.name}
                     </Link>
                   </div>
-                  <StatusBadge status={agent.status} />
+                  <div className="flex items-center gap-2">
+                    <AgentLevelBadge agentId={agent.id} />
+                    <StatusBadge status={agent.status} />
+                  </div>
                 </div>
 
                 <p className="text-sm text-mountain-400 mb-3 line-clamp-2 flex-1">

@@ -1,6 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { Shield } from 'lucide-react'
+import { getAgentLevel } from '@/utils/agent-level'
 
 interface Stats {
   total_inferences: number
@@ -85,6 +87,8 @@ export default function AgentProgression({ agentId }: Props) {
 
   if (!stats) return null
 
+  const levelInfo = getAgentLevel(stats)
+
   const statCards = [
     { label: 'Inferences', value: formatNumber(stats.total_inferences) },
     { label: 'Tokens', value: formatNumber(stats.total_tokens) },
@@ -96,6 +100,34 @@ export default function AgentProgression({ agentId }: Props) {
 
   return (
     <div className="space-y-4" data-testid="progression">
+      {/* Level & XP */}
+      <div className="rounded-lg border border-navy-700 bg-navy-800 p-5" data-testid="level-section">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-brand-500" />
+            <h2 className="text-lg font-semibold text-white">
+              Level {levelInfo.level}
+              <span className="ml-2 text-sm font-normal text-mountain-400">{levelInfo.title}</span>
+            </h2>
+          </div>
+          <span className="text-xs text-mountain-400" data-testid="xp-label">
+            {formatNumber(levelInfo.currentXp)} XP
+          </span>
+        </div>
+        <div className="w-full h-2 rounded-full bg-navy-900 overflow-hidden" data-testid="xp-bar">
+          <div
+            className="h-full rounded-full bg-brand-600 transition-all duration-500"
+            style={{ width: `${levelInfo.progress}%` }}
+            data-testid="xp-fill"
+          />
+        </div>
+        {levelInfo.progress < 100 && (
+          <p className="text-[10px] text-mountain-500 mt-1">
+            {formatNumber(levelInfo.xpForNextLevel - levelInfo.currentXp)} XP to Level {levelInfo.level + 1}
+          </p>
+        )}
+      </div>
+
       {/* Stats Grid */}
       <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
         <h2 className="text-lg font-semibold text-white mb-3">Stats</h2>
