@@ -18,6 +18,7 @@ vi.mock('lucide-react', () => ({
   Send: (props: any) => <span data-testid="icon-send" {...props} />,
   Terminal: (props: any) => <span data-testid="icon-terminal" {...props} />,
   Users: (props: any) => <span data-testid="icon-users" {...props} />,
+  Paperclip: (props: any) => <span data-testid="icon-paperclip" {...props} />,
 }))
 
 vi.mock('@/app/chat/ChatMessage', () => ({
@@ -153,5 +154,18 @@ describe('ChatView', () => {
     render(<ChatView {...defaultProps} />)
     expect(MockEventSource.instances.length).toBe(1)
     expect(MockEventSource.instances[0].url).toBe('/api/chat/thread-1/stream')
+  })
+
+  it('renders attach file button', () => {
+    render(<ChatView {...defaultProps} />)
+    expect(screen.getByTestId('attach-file-button')).toBeInTheDocument()
+    expect(screen.getByTestId('icon-paperclip')).toBeInTheDocument()
+  })
+
+  it('shows file upload toast when attach button clicked', () => {
+    render(<ChatView {...defaultProps} />)
+    fireEvent.click(screen.getByTestId('attach-file-button'))
+    expect(screen.getByTestId('file-toast')).toBeInTheDocument()
+    expect(screen.getByText('File upload coming soon')).toBeInTheDocument()
   })
 })

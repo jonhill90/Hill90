@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Send, Terminal, Users } from 'lucide-react'
+import { ArrowLeft, Send, Terminal, Users, Paperclip } from 'lucide-react'
 import type { Session } from 'next-auth'
 import type { ChatThread } from './ChatLayout'
 import ChatMessage from './ChatMessage'
@@ -46,6 +46,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fileToast, setFileToast] = useState(false)
   const [sessionPaneOpen, setSessionPaneOpen] = useState(false)
   const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -280,9 +281,27 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
           </div>
         )}
 
+        {/* File upload toast */}
+        {fileToast && (
+          <div className="px-4 py-2 bg-navy-800 border-t border-navy-700" data-testid="file-toast">
+            <p className="text-sm text-mountain-400">File upload coming soon</p>
+          </div>
+        )}
+
         {/* Input */}
         <div className="px-4 py-3 border-t border-navy-700 bg-navy-900/50">
           <div className="flex gap-2 items-end">
+            <button
+              onClick={() => {
+                setFileToast(true)
+                setTimeout(() => setFileToast(false), 3000)
+              }}
+              className="p-2 text-mountain-400 hover:text-white hover:bg-navy-700 rounded-lg transition-colors flex-shrink-0"
+              aria-label="Attach file"
+              data-testid="attach-file-button"
+            >
+              <Paperclip size={18} />
+            </button>
             <MentionInput
               agents={agents}
               value={input}
