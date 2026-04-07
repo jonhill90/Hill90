@@ -16,6 +16,11 @@ interface HarnessOverview {
   usage: { requests: number; tokens: number; cost: number }
 }
 
+interface ChatSummary {
+  threads: number
+  messages: number
+}
+
 function sevenDaysAgo(): string {
   const d = new Date()
   d.setDate(d.getDate() - 7)
@@ -31,6 +36,23 @@ export default function DashboardClient({ session }: { session: Session }) {
   ])
   const [lastChecked, setLastChecked] = useState<string>('')
   const [harness, setHarness] = useState<HarnessOverview | null>(null)
+  const [chat, setChat] = useState<ChatSummary>({ threads: 0, messages: 0 })
+
+  const fetchChat = useCallback(async () => {
+    try {
+      const res = await fetch('/api/chat')
+      if (!res.ok) return
+      const threads = await res.json()
+      const arr = Array.isArray(threads) ? threads : []
+      let totalMessages = 0
+      for (const t of arr) {
+        totalMessages += Number(t.message_count ?? 0)
+      }
+      setChat({ threads: arr.length, messages: totalMessages })
+    } catch (err) {
+      console.error('Failed to fetch chat summary:', err)
+    }
+  }, [])
 
   const checkHealth = useCallback(async () => {
     setServices((prev) =>
@@ -86,10 +108,39 @@ export default function DashboardClient({ session }: { session: Session }) {
   useEffect(() => {
     checkHealth()
     fetchHarness()
-  }, [checkHealth, fetchHarness])
+    fetchChat()
+  }, [checkHealth, fetchHarness, fetchChat])
+
+  const healthyCount = services.filter((s) => s.status === 'healthy').length
 
   return (
     <>
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
+          <dt className="text-sm text-mountain-400">Running Agents</dt>
+          <dd className="text-2xl font-bold text-white mt-1">
+            {harness?.agents.running ?? '—'}
+          </dd>
+        </div>
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
+          <dt className="text-sm text-mountain-400">Threads</dt>
+          <dd className="text-2xl font-bold text-white mt-1">{chat.threads}</dd>
+        </div>
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
+          <dt className="text-sm text-mountain-400">Messages</dt>
+          <dd className="text-2xl font-bold text-white mt-1">{chat.messages.toLocaleString()}</dd>
+        </div>
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
+          <dt className="text-sm text-mountain-400">Health</dt>
+          <dd className="text-2xl font-bold mt-1">
+            <span className={healthyCount === services.length ? 'text-brand-400' : 'text-yellow-400'}>
+              {healthyCount}/{services.length}
+            </span>
+          </dd>
+        </div>
+      </div>
+
       {/* Session info card */}
       <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-8">
         <h2 className="text-lg font-semibold text-white mb-3">Session</h2>
