@@ -88,6 +88,11 @@ components:
           type: string
         rules_md:
           type: string
+        autonomy_level:
+          type: string
+          enum: [ask_before_acting, act_within_scope, full_autonomy]
+          default: act_within_scope
+          description: Controls how much freedom the agent has when executing commands.
         status:
           type: string
           enum: [stopped, running, error]
@@ -1045,6 +1050,10 @@ paths:
                   format: uuid
                   nullable: true
                   description: Container profile to assign. Determines Docker image. Omit for default.
+                autonomy_level:
+                  type: string
+                  enum: [ask_before_acting, act_within_scope, full_autonomy]
+                  description: Controls agent autonomy. Defaults to act_within_scope.
       responses:
         "201":
           description: Agent created
@@ -1138,6 +1147,10 @@ paths:
                   format: uuid
                   nullable: true
                   description: Container profile to assign. Omit for no change; explicit null to clear.
+                autonomy_level:
+                  type: string
+                  enum: [ask_before_acting, act_within_scope, full_autonomy]
+                  description: Controls agent autonomy. Omit for no change.
       responses:
         "200":
           description: Agent updated
