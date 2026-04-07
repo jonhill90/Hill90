@@ -20,6 +20,23 @@ export default function StoragePage() {
     redirect('/api/auth/signin')
   }
 
+  const isAdmin = (session.user as any)?.roles?.includes('admin')
+
+  if (!isAdmin) {
+    return (
+      <AppShell>
+        <main className="flex-1 px-6 py-12 max-w-6xl mx-auto w-full">
+          <div className="rounded-lg border border-red-700 bg-red-900/20 p-12 text-center">
+            <p className="text-red-400 font-medium">Access denied</p>
+            <p className="text-sm text-mountain-400 mt-2">
+              You need admin privileges to view storage management.
+            </p>
+          </div>
+        </main>
+      </AppShell>
+    )
+  }
+
   return (
     <AppShell>
       <main className="flex-1 px-6 py-12 max-w-6xl mx-auto w-full">
