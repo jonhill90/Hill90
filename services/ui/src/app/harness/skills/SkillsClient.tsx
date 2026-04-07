@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Lock, Search, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface Tool {
   id: string
@@ -58,6 +58,17 @@ export default function SkillsClient() {
     scope: 'container_local',
   })
   const [formError, setFormError] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [expandedInstructions, setExpandedInstructions] = useState<Set<string>>(new Set())
+
+  const filteredSkills = useMemo(() => {
+    if (!searchQuery.trim()) return skills
+    const q = searchQuery.toLowerCase()
+    return skills.filter(s =>
+      s.name.toLowerCase().includes(q) ||
+      (s.description && s.description.toLowerCase().includes(q))
+    )
+  }, [skills, searchQuery])
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -177,7 +188,9 @@ export default function SkillsClient() {
         <div>
           <h1 className="text-2xl font-bold">Skills</h1>
           <p className="text-sm text-mountain-400 mt-1">
-            {skills.length} skill{skills.length !== 1 ? 's' : ''}
+            {searchQuery && filteredSkills.length !== skills.length
+              ? `${filteredSkills.length} of ${skills.length} skill${skills.length !== 1 ? 's' : ''}`
+              : `${skills.length} skill${skills.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         {isAdmin && (
@@ -188,6 +201,19 @@ export default function SkillsClient() {
             Add Skill
           </button>
         )}
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-6">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-mountain-500" aria-hidden="true" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filter skills by name or description..."
+          className="w-full rounded-lg border border-navy-700 bg-navy-800 pl-9 pr-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+          aria-label="Search skills"
+        />
       </div>
 
       {/* Create/Edit form */}
@@ -304,11 +330,13 @@ export default function SkillsClient() {
       )}
 
       {/* Skills list */}
-      {skills.length === 0 ? (
-        <p className="text-sm text-mountain-500 mb-6">No skills yet</p>
+      {filteredSkills.length === 0 ? (
+        <p className="text-sm text-mountain-500 mb-6">
+          {searchQuery ? 'No skills match your search' : 'No skills yet'}
+        </p>
       ) : (
         <div className="space-y-3">
-          {skills.map((skill) => {
+          {filteredSkills.map((skill) => {
             const isExpanded = expandedId === skill.id
 
             return (
@@ -329,7 +357,8 @@ export default function SkillsClient() {
                     <div className="flex items-center gap-3">
                       <span className="font-medium text-white">{skill.name}</span>
                       {skill.is_platform && (
-                        <span className="px-2 py-0.5 text-xs rounded-md bg-mountain-500/20 text-mountain-300 border border-mountain-500/30">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-mountain-500/20 text-mountain-300 border border-mountain-500/30">
+                          <Lock size={10} aria-hidden="true" />
                           Platform
                         </span>
                       )}
@@ -370,15 +399,47 @@ export default function SkillsClient() {
                       <p className="text-sm text-mountain-300 mb-4">{skill.description}</p>
                     )}
 
-                    {/* Instructions preview */}
-                    {skill.instructions_md && (
-                      <div className="mb-4">
-                        <h3 className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-2">Instructions</h3>
-                        <div className="rounded-md border border-navy-700 bg-navy-900 p-3">
-                          <p className="text-sm text-mountain-300 whitespace-pre-wrap">{skill.instructions_md}</p>
+                    {/* Instructions preview with expand/collapse */}
+                    {skill.instructions_md && (() => {
+                      const lines = skill.instructions_md.split('\n')
+                      const isLong = lines.length > 2
+                      const isInstructionsExpanded = expandedInstructions.has(skill.id)
+                      const preview = isLong && !isInstructionsExpanded
+                        ? lines.slice(0, 2).join('\n')
+                        : skill.instructions_md
+
+                      return (
+                        <div className="mb-4">
+                          <h3 className="text-xs font-medium text-mountain-400 uppercase tracking-wide mb-2">Instructions</h3>
+                          <div className="rounded-md border border-navy-700 bg-navy-900 p-3">
+                            <p className="text-sm text-mountain-300 whitespace-pre-wrap">{preview}{isLong && !isInstructionsExpanded ? '...' : ''}</p>
+                            {isLong && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setExpandedInstructions(prev => {
+                                    const next = new Set(prev)
+                                    if (next.has(skill.id)) {
+                                      next.delete(skill.id)
+                                    } else {
+                                      next.add(skill.id)
+                                    }
+                                    return next
+                                  })
+                                }}
+                                className="mt-2 inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 transition-colors cursor-pointer"
+                              >
+                                {isInstructionsExpanded ? (
+                                  <><ChevronDown size={12} /> Show less</>
+                                ) : (
+                                  <><ChevronRight size={12} /> Show more</>
+                                )}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )
+                    })()}
 
                     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm mb-4">
                       {/* Tool dependencies */}
