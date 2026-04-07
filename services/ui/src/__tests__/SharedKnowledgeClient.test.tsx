@@ -146,7 +146,7 @@ describe('SharedKnowledgeClient', () => {
     render(<SharedKnowledgeClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('Select a collection to view its sources')).toBeInTheDocument()
+      expect(screen.getByText('No collection selected')).toBeInTheDocument()
     })
   })
 
@@ -409,7 +409,7 @@ describe('SharedKnowledgeClient', () => {
 
     fireEvent.click(screen.getByText('Search'))
 
-    expect(screen.getByText('Enter a query to search shared knowledge')).toBeInTheDocument()
+    expect(screen.getByText('Search your knowledge base')).toBeInTheDocument()
   })
 
   it('shows empty collections state', async () => {

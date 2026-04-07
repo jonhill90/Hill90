@@ -1,6 +1,21 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { Database, FileText, FolderOpen, Globe, Search, Plus, AlertCircle } from 'lucide-react'
+
+/**
+ * Highlight search terms in content by wrapping them in <b> tags.
+ * Used as a fallback when the API headline is not available.
+ */
+function highlightTerms(text: string, query: string): string {
+  if (!query.trim()) return text
+  // Escape regex special chars in each search term
+  const terms = query.trim().split(/\s+/).filter(Boolean)
+  const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  if (escaped.length === 0) return text
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'gi')
+  return text.replace(pattern, '<b>$1</b>')
+}
 
 function relativeTime(dateStr: string): string {
   const now = Date.now()
@@ -23,6 +38,8 @@ interface Collection {
   visibility: string
   created_by: string
   created_at: string
+  source_count?: number
+  document_count?: number
 }
 
 interface Source {
@@ -374,13 +391,43 @@ export default function SharedKnowledgeClient() {
   }
 
   const statusBadge = (status: string) => {
-    const colors: Record<string, string> = {
-      active: 'bg-green-900/40 text-green-400 border-green-700',
-      pending: 'bg-yellow-900/40 text-yellow-400 border-yellow-700',
-      error: 'bg-red-900/40 text-red-400 border-red-700',
+    const config: Record<string, { color: string; icon: React.ReactNode }> = {
+      completed: {
+        color: 'bg-green-900/40 text-green-400 border-green-700',
+        icon: <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5" />,
+      },
+      active: {
+        color: 'bg-green-900/40 text-green-400 border-green-700',
+        icon: <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5" />,
+      },
+      processing: {
+        color: 'bg-blue-900/40 text-blue-400 border-blue-700',
+        icon: <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5 animate-pulse" />,
+      },
+      running: {
+        color: 'bg-blue-900/40 text-blue-400 border-blue-700',
+        icon: <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 mr-1.5 animate-pulse" />,
+      },
+      error: {
+        color: 'bg-red-900/40 text-red-400 border-red-700',
+        icon: <AlertCircle className="inline w-3 h-3 mr-1" />,
+      },
+      failed: {
+        color: 'bg-red-900/40 text-red-400 border-red-700',
+        icon: <AlertCircle className="inline w-3 h-3 mr-1" />,
+      },
+      pending: {
+        color: 'bg-yellow-900/40 text-yellow-400 border-yellow-700',
+        icon: <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 mr-1.5" />,
+      },
+    }
+    const cfg = config[status] || {
+      color: 'bg-navy-700 text-mountain-400 border-navy-600',
+      icon: null,
     }
     return (
-      <span className={`px-2 py-0.5 text-xs font-medium rounded border ${colors[status] || 'bg-navy-700 text-mountain-400 border-navy-600'}`}>
+      <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border ${cfg.color}`}>
+        {cfg.icon}
         {status}
       </span>
     )
@@ -506,8 +553,17 @@ export default function SharedKnowledgeClient() {
 
             {/* Collection list */}
             {collections.length === 0 ? (
-              <div className="rounded-lg border border-navy-700 bg-navy-800 p-6 text-center">
-                <p className="text-sm text-mountain-400">No collections yet</p>
+              <div className="rounded-lg border border-dashed border-navy-600 bg-navy-800/50 p-6 text-center">
+                <FolderOpen className="w-8 h-8 text-mountain-500 mx-auto mb-3" />
+                <p className="text-sm font-medium text-mountain-400 mb-1">No collections yet</p>
+                <p className="text-xs text-mountain-500 mb-3">Collections group related knowledge sources together.</p>
+                <button
+                  onClick={() => { resetCollectionForm(); setShowCollectionForm(true) }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" />
+                  Create your first collection
+                </button>
               </div>
             ) : (
               <div className="space-y-1">
@@ -527,6 +583,22 @@ export default function SharedKnowledgeClient() {
                     </div>
                     {col.description && (
                       <p className="text-xs text-mountain-500 mt-1 truncate">{col.description}</p>
+                    )}
+                    {(col.source_count != null || col.document_count != null) && (
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-mountain-500">
+                        {col.source_count != null && (
+                          <span className="inline-flex items-center gap-1">
+                            <FileText className="w-3 h-3" />
+                            {col.source_count} source{col.source_count !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {col.document_count != null && (
+                          <span className="inline-flex items-center gap-1">
+                            <Database className="w-3 h-3" />
+                            {col.document_count} doc{col.document_count !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
                     )}
                     <div className="flex items-center gap-2 mt-2">
                       <button
@@ -552,8 +624,10 @@ export default function SharedKnowledgeClient() {
           {/* Sources panel */}
           <div className="flex-1 min-w-0">
             {!selectedCollection ? (
-              <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
-                <p className="text-mountain-400">Select a collection to view its sources</p>
+              <div className="rounded-lg border border-dashed border-navy-600 bg-navy-800/50 p-12 text-center">
+                <FolderOpen className="w-10 h-10 text-mountain-500 mx-auto mb-3" />
+                <p className="text-mountain-400 font-medium mb-1">No collection selected</p>
+                <p className="text-sm text-mountain-500">Select a collection from the sidebar to view and manage its sources.</p>
               </div>
             ) : (
               <>
@@ -639,9 +713,17 @@ export default function SharedKnowledgeClient() {
 
                 {/* Sources list */}
                 {sources.length === 0 ? (
-                  <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
-                    <p className="text-mountain-400 mb-2">No sources in this collection</p>
-                    <p className="text-sm text-mountain-500">Add text, markdown, or web page sources to build your knowledge base</p>
+                  <div className="rounded-lg border border-dashed border-navy-600 bg-navy-800/50 p-12 text-center">
+                    <FileText className="w-10 h-10 text-mountain-500 mx-auto mb-3" />
+                    <p className="text-mountain-400 font-medium mb-1">No sources in this collection</p>
+                    <p className="text-sm text-mountain-500 mb-4">Add text, markdown, or web page sources to build your knowledge base.</p>
+                    <button
+                      onClick={() => { resetSourceForm(); setShowSourceForm(true) }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Source
+                    </button>
                   </div>
                 ) : (
                   <div className="rounded-lg border border-navy-700 overflow-hidden">
@@ -733,10 +815,19 @@ export default function SharedKnowledgeClient() {
           </div>
 
           {searchResults.length === 0 ? (
-            <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
-              <p className="text-mountain-400">
-                {searchQuery ? 'No results found' : 'Enter a query to search shared knowledge'}
-              </p>
+            <div className="rounded-lg border border-dashed border-navy-600 bg-navy-800/50 p-12 text-center">
+              <Search className="w-10 h-10 text-mountain-500 mx-auto mb-3" />
+              {searchQuery ? (
+                <>
+                  <p className="text-mountain-400 font-medium mb-1">No results found</p>
+                  <p className="text-sm text-mountain-500">Try broadening your search terms or searching across all collections.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-mountain-400 font-medium mb-1">Search your knowledge base</p>
+                  <p className="text-sm text-mountain-500">Enter a query above to search across all shared knowledge sources.</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -770,8 +861,8 @@ export default function SharedKnowledgeClient() {
                     </span>
                   </div>
                   <p
-                    className="text-sm text-mountain-300 leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: r.headline || r.content }}
+                    className="text-sm text-mountain-300 leading-relaxed [&_b]:text-white [&_b]:font-semibold"
+                    dangerouslySetInnerHTML={{ __html: r.headline || highlightTerms(r.content, searchQuery) }}
                   />
                 </div>
               ))}
@@ -810,8 +901,10 @@ export default function SharedKnowledgeClient() {
               <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
             </div>
           ) : !stats ? (
-            <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
-              <p className="text-mountain-400">No stats available</p>
+            <div className="rounded-lg border border-dashed border-navy-600 bg-navy-800/50 p-12 text-center">
+              <Database className="w-10 h-10 text-mountain-500 mx-auto mb-3" />
+              <p className="text-mountain-400 font-medium mb-1">No stats available</p>
+              <p className="text-sm text-mountain-500">Quality metrics will appear here once searches and ingestion have occurred.</p>
             </div>
           ) : (
             <div className="space-y-6">
