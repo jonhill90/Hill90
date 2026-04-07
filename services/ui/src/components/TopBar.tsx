@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
-import { Menu } from 'lucide-react'
+import { Menu, Bell } from 'lucide-react'
 import HillLogo from '@/components/HillLogo'
 import AuthButtons from '@/components/AuthButtons'
 import MobileDrawer from '@/components/MobileDrawer'
@@ -42,8 +42,22 @@ export default function TopBar({ navExtra }: TopBarProps) {
           )}
         </div>
 
-        {/* Right: auth */}
-        <AuthButtons />
+        {/* Right: notifications + auth */}
+        <div className="flex items-center gap-3">
+          {session && (
+            <button
+              className="relative p-1.5 text-mountain-400 hover:text-white transition-colors rounded-md hover:bg-navy-700"
+              aria-label="Notifications"
+              data-testid="notifications-bell"
+            >
+              <Bell size={20} />
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 text-[10px] font-bold leading-4 text-center text-white bg-red-500 rounded-full">
+                3
+              </span>
+            </button>
+          )}
+          <AuthButtons />
+        </div>
       </header>
 
       <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
