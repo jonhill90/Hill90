@@ -21,6 +21,7 @@ vi.mock('@/app/chat/XTerminal', () => ({
 vi.mock('lucide-react', () => ({
   Terminal: ({ className }: any) => <span data-testid="icon-terminal" className={className} />,
   Activity: ({ className }: any) => <span data-testid="icon-activity" className={className} />,
+  Globe: ({ className }: any) => <span data-testid="icon-globe" className={className} />,
 }))
 
 // Mock EventSource
@@ -317,5 +318,84 @@ describe('SessionPane TerminalBlock', () => {
     fireEvent.click(screen.getByText('Runtime'))
     expect(screen.queryByTestId('terminal-block')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('event-card').length).toBe(1)
+  })
+})
+
+// ── Browser tab tests (AI-177) ──
+
+function switchToBrowser() {
+  fireEvent.click(screen.getByText('Browser'))
+}
+
+describe('SessionPane — Browser tab', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    latestES = null
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('renders Browser tab button', () => {
+    render(<SessionPane threadId="thread-1" />)
+    expect(screen.getByTestId('browser-tab')).toBeInTheDocument()
+    expect(screen.getByText('Browser')).toBeInTheDocument()
+  })
+
+  it('shows inactive state when no browser events', () => {
+    render(<SessionPane threadId="thread-1" />)
+    switchToBrowser()
+
+    expect(screen.getByTestId('browser-inactive')).toBeInTheDocument()
+    expect(screen.getByText('Browser not active')).toBeInTheDocument()
+  })
+
+  it('hides terminal and events when browser tab active', () => {
+    render(<SessionPane threadId="thread-1" />)
+    switchToBrowser()
+
+    expect(screen.queryByTestId('xterminal-mock')).not.toBeInTheDocument()
+    expect(screen.queryByText('All')).not.toBeInTheDocument()
+  })
+
+  it('shows screenshot when browser tool_result has screenshot', () => {
+    render(<SessionPane threadId="thread-1" />)
+
+    sendEvent({
+      id: 'b1', timestamp: new Date().toISOString(), type: 'tool_result',
+      tool: 'browser', input_summary: 'navigate', output_summary: 'navigated',
+      duration_ms: 500, success: true, created_at: new Date().toISOString(),
+      metadata: { url: 'https://example.com', screenshot: 'iVBORw0KGgo=' },
+    })
+
+    switchToBrowser()
+
+    expect(screen.getByTestId('browser-view')).toBeInTheDocument()
+    expect(screen.getByTestId('browser-screenshot')).toBeInTheDocument()
+    expect(screen.getByText('https://example.com')).toBeInTheDocument()
+  })
+
+  it('shows latest screenshot when multiple browser events', () => {
+    render(<SessionPane threadId="thread-1" />)
+
+    sendEvent({
+      id: 'b1', timestamp: new Date().toISOString(), type: 'tool_result',
+      tool: 'browser', input_summary: 'navigate', output_summary: null,
+      duration_ms: 100, success: true, created_at: new Date().toISOString(),
+      metadata: { url: 'https://first.com', screenshot: 'AAAA' },
+    })
+    sendEvent({
+      id: 'b2', timestamp: new Date().toISOString(), type: 'tool_result',
+      tool: 'browser', input_summary: 'click', output_summary: null,
+      duration_ms: 200, success: true, created_at: new Date().toISOString(),
+      metadata: { url: 'https://second.com', screenshot: 'BBBB' },
+    })
+
+    switchToBrowser()
+
+    expect(screen.getByText('https://second.com')).toBeInTheDocument()
+    const img = screen.getByTestId('browser-screenshot') as HTMLImageElement
+    expect(img.src).toContain('BBBB')
   })
 })
