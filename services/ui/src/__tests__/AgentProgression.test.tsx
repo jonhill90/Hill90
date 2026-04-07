@@ -46,6 +46,22 @@ describe('AgentProgression', () => {
 
   afterEach(() => cleanup())
 
+  it('renders level section with XP bar', async () => {
+    render(<AgentProgression agentId="uuid-1" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('level-section')).toBeInTheDocument()
+    })
+
+    // 1234 inferences + 89*0.5 = 1278 XP -> Level 5 (Journeyman, threshold 400)
+    // But 1278 >= 800 -> Level 6 (Journeyman, threshold 800)
+    // 1278 < 1500 -> Level 6
+    expect(screen.getByText(/Level 6/)).toBeInTheDocument()
+    expect(screen.getByText('Journeyman')).toBeInTheDocument()
+    expect(screen.getByTestId('xp-bar')).toBeInTheDocument()
+    expect(screen.getByTestId('xp-fill')).toBeInTheDocument()
+  })
+
   it('renders stats grid with formatted values', async () => {
     render(<AgentProgression agentId="uuid-1" />)
 
@@ -90,5 +106,16 @@ describe('AgentProgression', () => {
     render(<AgentProgression agentId="uuid-1" />)
 
     expect(screen.getByTestId('progression-loading')).toBeInTheDocument()
+  })
+
+  it('shows XP to next level text', async () => {
+    render(<AgentProgression agentId="uuid-1" />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('level-section')).toBeInTheDocument()
+    })
+
+    // XP to Level 7 = 1500 - 1278 = 222
+    expect(screen.getByText(/XP to Level 7/)).toBeInTheDocument()
   })
 })
