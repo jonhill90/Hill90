@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import type { Session } from 'next-auth'
+import AgentAvatar from '@/components/AgentAvatar'
 
 interface Agent {
   id: string
@@ -166,12 +167,15 @@ export default function AgentsClient({ session }: { session: Session }) {
                 className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex flex-col"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <Link
-                    href={`/agents/${agent.id}`}
-                    className="font-semibold text-white hover:text-brand-400 transition-colors truncate"
-                  >
-                    {agent.name}
-                  </Link>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <AgentAvatar name={agent.name} size="md" />
+                    <Link
+                      href={`/agents/${agent.id}`}
+                      className="font-semibold text-white hover:text-brand-400 transition-colors truncate"
+                    >
+                      {agent.name}
+                    </Link>
+                  </div>
                   <StatusBadge status={agent.status} />
                 </div>
 
