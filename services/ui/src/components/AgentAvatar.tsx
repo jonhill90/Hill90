@@ -1,6 +1,7 @@
 interface Props {
   name: string
-  size?: 'sm' | 'md'
+  avatarUrl?: string | null
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }
 
 const COLORS = [
@@ -12,6 +13,8 @@ const COLORS = [
   'bg-cyan-600',
   'bg-orange-600',
   'bg-indigo-600',
+  'bg-teal-600',
+  'bg-pink-600',
 ]
 
 function hashName(name: string): number {
@@ -28,17 +31,32 @@ function initials(name: string): string {
   return name.slice(0, 2).toUpperCase()
 }
 
-const SIZE_CLASSES = {
-  sm: 'w-5 h-5 text-[9px]',
-  md: 'w-7 h-7 text-[11px]',
+const SIZE_CLASSES: Record<string, string> = {
+  sm: 'w-6 h-6 text-[9px]',
+  md: 'w-8 h-8 text-[11px]',
+  lg: 'w-12 h-12 text-base',
+  xl: 'w-16 h-16 text-lg',
 }
 
-export default function AgentAvatar({ name, size = 'md' }: Props) {
+export default function AgentAvatar({ name, avatarUrl, size = 'md' }: Props) {
   const color = COLORS[hashName(name) % COLORS.length]
+  const sizeClass = SIZE_CLASSES[size]
+
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className={`${sizeClass} rounded-full object-cover flex-shrink-0`}
+        title={name}
+        data-testid="agent-avatar"
+      />
+    )
+  }
 
   return (
     <div
-      className={`${SIZE_CLASSES[size]} rounded-full flex items-center justify-center flex-shrink-0 ${color} text-white font-semibold select-none`}
+      className={`${sizeClass} rounded-full flex items-center justify-center flex-shrink-0 ${color} text-white font-semibold select-none`}
       title={name}
       data-testid="agent-avatar"
     >

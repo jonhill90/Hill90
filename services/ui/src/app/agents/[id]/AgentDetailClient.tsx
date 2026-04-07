@@ -10,6 +10,7 @@ import AgentMemory from './AgentMemory'
 import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
 import WorkspaceBrowser from './WorkspaceBrowser'
+import AgentAvatar from '@/components/AgentAvatar'
 
 interface Agent {
   id: string
@@ -395,9 +396,12 @@ export default function AgentDetailClient({
     <>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">{agent.name}</h1>
-          <p className="text-sm text-mountain-400 mt-1 font-mono">{agent.agent_id}</p>
+        <div className="flex items-center gap-4">
+          <AgentAvatar name={agent.name} size="xl" />
+          <div>
+            <h1 className="text-2xl font-bold">{agent.name}</h1>
+            <p className="text-sm text-mountain-400 mt-1 font-mono">{agent.agent_id}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {isAdmin && agent.status !== 'running' && (
