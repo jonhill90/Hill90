@@ -22,7 +22,7 @@ export default function Dashboard() {
 
   return (
     <AppShell>
-      <main className="flex-1 px-6 py-12 max-w-4xl mx-auto w-full">
+      <main className="flex-1 px-6 py-12 max-w-6xl mx-auto w-full">
         <DashboardClient session={session as any} />
       </main>
     </AppShell>
