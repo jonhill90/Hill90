@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next-auth/react
@@ -83,5 +83,73 @@ describe('TopBar', () => {
     render(<TopBar />)
 
     expect(screen.queryByRole('button', { name: /open menu/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('TopBar — Notification dropdown', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSession = {
+      data: { user: { name: 'Jon', roles: ['admin', 'user'] } },
+      status: 'authenticated',
+    }
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  it('shows notification bell when authenticated', () => {
+    render(<TopBar />)
+    expect(screen.getByTestId('notifications-bell')).toBeInTheDocument()
+  })
+
+  it('shows unread badge count', () => {
+    render(<TopBar />)
+    // Mock data has 3 unread notifications
+    expect(screen.getByText('3')).toBeInTheDocument()
+  })
+
+  it('opens dropdown on bell click', () => {
+    render(<TopBar />)
+    fireEvent.click(screen.getByTestId('notifications-bell'))
+    expect(screen.getByTestId('notifications-dropdown')).toBeInTheDocument()
+    expect(screen.getByText('Notifications')).toBeInTheDocument()
+  })
+
+  it('shows notification items', () => {
+    render(<TopBar />)
+    fireEvent.click(screen.getByTestId('notifications-bell'))
+    const items = screen.getAllByTestId('notification-item')
+    expect(items.length).toBe(5)
+  })
+
+  it('shows agent names on notifications', () => {
+    render(<TopBar />)
+    fireEvent.click(screen.getByTestId('notifications-bell'))
+    expect(screen.getAllByText('ResearchBot').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('CodeAssistant').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows mark all read button when unread exist', () => {
+    render(<TopBar />)
+    fireEvent.click(screen.getByTestId('notifications-bell'))
+    expect(screen.getByTestId('mark-all-read')).toBeInTheDocument()
+  })
+
+  it('mark all read clears unread badge', () => {
+    render(<TopBar />)
+    fireEvent.click(screen.getByTestId('notifications-bell'))
+    fireEvent.click(screen.getByTestId('mark-all-read'))
+    // Badge should be gone (0 unread)
+    expect(screen.queryByText('3')).not.toBeInTheDocument()
+  })
+
+  it('closes dropdown on second bell click', () => {
+    render(<TopBar />)
+    fireEvent.click(screen.getByTestId('notifications-bell'))
+    expect(screen.getByTestId('notifications-dropdown')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('notifications-bell'))
+    expect(screen.queryByTestId('notifications-dropdown')).not.toBeInTheDocument()
   })
 })
