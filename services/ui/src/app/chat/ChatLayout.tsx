@@ -167,7 +167,7 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
       </div>
 
       {/* Message pane (flex-1) */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {activeThreadId ? (
           <ChatView
             threadId={activeThreadId}

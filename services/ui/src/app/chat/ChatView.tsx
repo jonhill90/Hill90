@@ -150,16 +150,16 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   }
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full overflow-hidden">
       {/* Terminal (main stage) — shown when Live Session is open */}
       {sessionPaneOpen && (
-        <div className="flex-1 flex flex-col min-w-0 border-r border-[#292e42] bg-[#1a1b26]">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden border-r border-[#292e42] bg-[#1a1b26]">
           <SessionPane threadId={threadId} />
         </div>
       )}
 
       {/* Chat column — full width when terminal closed, narrow sidebar when open */}
-      <div className={`flex flex-col min-w-0 ${sessionPaneOpen ? 'w-[340px] flex-shrink-0' : 'flex-1'}`}>
+      <div className={`flex flex-col min-w-0 min-h-0 overflow-hidden ${sessionPaneOpen ? 'w-[340px] flex-shrink-0' : 'flex-1'}`}>
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-navy-700 bg-navy-900/50">
           <button
