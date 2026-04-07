@@ -19,7 +19,7 @@ export default function AppShell({
         <Sidebar />
 
         {/* Main content + footer */}
-        <div className={`flex flex-col flex-1 min-w-0 ${noFooter ? 'min-h-0' : ''}`}>
+        <div className={`flex flex-col flex-1 min-w-0 ${noFooter ? 'min-h-0 overflow-hidden' : ''}`}>
           {children}
 
           {!noFooter && (

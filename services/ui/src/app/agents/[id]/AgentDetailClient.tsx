@@ -101,6 +101,13 @@ export default function AgentDetailClient({
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'events' | 'logs'>('events')
 
+  // Editable identity (SOUL.md / RULES.md)
+  const [editingSoul, setEditingSoul] = useState(false)
+  const [editingRules, setEditingRules] = useState(false)
+  const [soulDraft, setSoulDraft] = useState('')
+  const [rulesDraft, setRulesDraft] = useState('')
+  const [identitySaving, setIdentitySaving] = useState(false)
+
   const isAdmin = session.user?.roles?.includes('admin')
 
   const fetchAgent = useCallback(async () => {
@@ -310,6 +317,30 @@ export default function AgentDetailClient({
       else next.add(skillId)
       return next
     })
+  }
+
+  const handleSaveIdentity = async (field: 'soul_md' | 'rules_md', value: string) => {
+    setIdentitySaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || `Failed to save ${field}`)
+        return
+      }
+      await fetchAgent()
+      if (field === 'soul_md') setEditingSoul(false)
+      if (field === 'rules_md') setEditingRules(false)
+    } catch (err) {
+      console.error(`Failed to save ${field}:`, err)
+      alert(`Failed to save ${field}`)
+    } finally {
+      setIdentitySaving(false)
+    }
   }
 
   // For assign picker: admins see all skills, non-admins see only container_local
@@ -663,28 +694,109 @@ export default function AgentDetailClient({
             </dl>
           </div>
 
-          {/* Identity */}
-          {(agent.soul_md || agent.rules_md) && (
-            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-              <h2 className="text-lg font-semibold text-white mb-3">Identity</h2>
-              {agent.soul_md && (
-                <div className="mb-4">
-                  <h3 className="text-sm font-medium text-mountain-400 mb-2">SOUL.md</h3>
-                  <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-48 overflow-y-auto">
-                    {agent.soul_md}
-                  </pre>
-                </div>
-              )}
-              {agent.rules_md && (
-                <div>
-                  <h3 className="text-sm font-medium text-mountain-400 mb-2">RULES.md</h3>
-                  <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-48 overflow-y-auto">
-                    {agent.rules_md}
-                  </pre>
-                </div>
+          {/* Identity — SOUL.md */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-white">SOUL.md</h2>
+              {agent.status !== 'running' && !editingSoul && (
+                <button
+                  onClick={() => { setSoulDraft(agent.soul_md || ''); setEditingSoul(true) }}
+                  className="text-sm text-brand-400 hover:text-brand-300 transition-colors cursor-pointer"
+                >
+                  Edit
+                </button>
               )}
             </div>
-          )}
+            <p className="text-xs text-mountain-500 mb-3">
+              The agent&apos;s identity and personality. Defines who the agent is and how it behaves.
+            </p>
+            {editingSoul ? (
+              <div>
+                <textarea
+                  value={soulDraft}
+                  onChange={(e) => setSoulDraft(e.target.value)}
+                  rows={12}
+                  className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none resize-y"
+                  placeholder="You are a helpful coding agent..."
+                  data-testid="soul-md-editor"
+                />
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    onClick={() => handleSaveIdentity('soul_md', soulDraft)}
+                    disabled={identitySaving}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {identitySaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingSoul(false)}
+                    disabled={identitySaving}
+                    className="px-4 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : agent.soul_md ? (
+              <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-64 overflow-y-auto">
+                {agent.soul_md}
+              </pre>
+            ) : (
+              <p className="text-sm text-mountain-500 italic">No SOUL.md configured</p>
+            )}
+          </div>
+
+          {/* Identity — RULES.md */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold text-white">RULES.md</h2>
+              {agent.status !== 'running' && !editingRules && (
+                <button
+                  onClick={() => { setRulesDraft(agent.rules_md || ''); setEditingRules(true) }}
+                  className="text-sm text-brand-400 hover:text-brand-300 transition-colors cursor-pointer"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-mountain-500 mb-3">
+              Behavioral constraints and guidelines. Skill instructions are appended at start time.
+            </p>
+            {editingRules ? (
+              <div>
+                <textarea
+                  value={rulesDraft}
+                  onChange={(e) => setRulesDraft(e.target.value)}
+                  rows={12}
+                  className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none resize-y"
+                  placeholder="Follow these rules..."
+                  data-testid="rules-md-editor"
+                />
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    onClick={() => handleSaveIdentity('rules_md', rulesDraft)}
+                    disabled={identitySaving}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {identitySaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingRules(false)}
+                    disabled={identitySaving}
+                    className="px-4 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : agent.rules_md ? (
+              <pre className="text-xs text-mountain-300 whitespace-pre-wrap bg-navy-900 rounded-md p-3 max-h-64 overflow-y-auto">
+                {agent.rules_md}
+              </pre>
+            ) : (
+              <p className="text-sm text-mountain-500 italic">No RULES.md configured</p>
+            )}
+          </div>
         </div>
       )}
 
