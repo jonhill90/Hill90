@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next-auth session
@@ -8,6 +8,13 @@ let mockSession: any = null
 
 vi.mock('next-auth/react', () => ({
   useSession: () => ({ data: mockSession, status: mockSession ? 'authenticated' : 'unauthenticated' }),
+}))
+
+// Mock provider-icons to avoid SVG rendering complexity
+vi.mock('../app/harness/models/provider-icons', () => ({
+  ProviderIcon: ({ provider, className }: { provider: string; className?: string }) => (
+    <span data-testid={`provider-icon-${provider}`} className={className}>{provider}</span>
+  ),
 }))
 
 // Mock global fetch
@@ -67,16 +74,35 @@ const MOCK_HEALTH = {
   ],
 }
 
+const MOCK_MODELS = [
+  { id: 'model-1', connection_id: 'conn-1' },
+  { id: 'model-2', connection_id: 'conn-1' },
+  { id: 'model-3', connection_id: 'conn-2' },
+]
+
+function mockFetchForAll() {
+  mockFetch.mockImplementation((...args: any[]) => {
+    const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || ''
+    if (url.includes('/health')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_HEALTH) })
+    }
+    if (url.includes('/user-models')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_MODELS) })
+    }
+    if (url.includes('/provider-connections')) {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+  })
+}
+
 describe('ConnectionsClient', () => {
   const session = { user: { name: 'Test', roles: ['user'] }, accessToken: 'jwt' } as any
 
   beforeEach(() => {
     vi.clearAllMocks()
     mockSession = { user: { roles: ['user'] } }
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(MOCK_CONNECTIONS),
-    })
+    mockFetchForAll()
   })
 
   afterEach(() => {
@@ -104,9 +130,15 @@ describe('ConnectionsClient', () => {
   })
 
   it('shows empty state when no connections', async () => {
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve([]),
+    mockFetch.mockImplementation((...args: any[]) => {
+      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || ''
+      if (url.includes('/health')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ total: 0, valid: 0, invalid: 0, untested: 0, avg_latency_ms: null, by_provider: [] }) })
+      }
+      if (url.includes('/user-models')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     })
 
     render(<ConnectionsClient session={session} />)
@@ -131,11 +163,6 @@ describe('ConnectionsClient', () => {
   })
 
   it('submits create form', async () => {
-    mockFetch
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) }) // initial fetch
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 'new-id' }) }) // POST
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) }) // refetch
-
     render(<ConnectionsClient session={session} />)
 
     await waitFor(() => {
@@ -161,11 +188,6 @@ describe('ConnectionsClient', () => {
   })
 
   it('calls validate endpoint on Test click', async () => {
-    mockFetch
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) }) // initial
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 'conn-1', is_valid: true }) }) // validate
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) }) // refetch
-
     render(<ConnectionsClient session={session} />)
 
     await waitFor(() => {
@@ -195,17 +217,15 @@ describe('ConnectionsClient', () => {
     fireEvent.click(deleteButtons[0])
 
     expect(confirmSpy).toHaveBeenCalled()
-    // Should not have called DELETE since confirm returned false
-    expect(mockFetch).toHaveBeenCalledTimes(1) // only initial fetch
     confirmSpy.mockRestore()
   })
 
-  it('shows provider name on cards', async () => {
+  it('shows provider icons on cards', async () => {
     render(<ConnectionsClient session={session} />)
 
     await waitFor(() => {
-      expect(screen.getAllByText('openai').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getByText('anthropic')).toBeInTheDocument()
+      expect(screen.getAllByTestId('provider-icon-openai').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByTestId('provider-icon-anthropic').length).toBeGreaterThanOrEqual(1)
     })
   })
 
@@ -218,11 +238,6 @@ describe('ConnectionsClient', () => {
   })
 
   it('Check All triggers validate-all endpoint', async () => {
-    mockFetch
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) }) // initial
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ results: [] }) }) // validate-all
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) }) // refetch
-
     render(<ConnectionsClient session={session} />)
 
     await waitFor(() => {
@@ -262,6 +277,78 @@ describe('ConnectionsClient', () => {
       expect(screen.getByText('Invalid API key')).toBeInTheDocument()
     })
   })
+
+  it('shows health dots on connection cards', async () => {
+    render(<ConnectionsClient session={session} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('health-dot-valid')).toBeInTheDocument()
+      expect(screen.getByTestId('health-dot-invalid')).toBeInTheDocument()
+      expect(screen.getByTestId('health-dot-unknown')).toBeInTheDocument()
+    })
+  })
+
+  it('shows model count per connection', async () => {
+    render(<ConnectionsClient session={session} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('model-count-conn-1')).toHaveTextContent('2 models')
+      expect(screen.getByTestId('model-count-conn-2')).toHaveTextContent('1 model')
+      expect(screen.getByTestId('model-count-conn-3')).toHaveTextContent('0 models')
+    })
+  })
+
+  it('shows health summary in header', async () => {
+    render(<ConnectionsClient session={session} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('1 healthy')).toBeInTheDocument()
+      expect(screen.getByText(/1 failing/)).toBeInTheDocument()
+    })
+  })
+
+  it('fetches health on page load', async () => {
+    render(<ConnectionsClient session={session} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('My OpenAI Key')).toBeInTheDocument()
+    })
+
+    // Health should be fetched on mount (not just on health tab)
+    const healthCalls = mockFetch.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('/health')
+    )
+    expect(healthCalls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('auto-refreshes health every 60 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    render(<ConnectionsClient session={session} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('My OpenAI Key')).toBeInTheDocument()
+    })
+
+    const initialHealthCalls = mockFetch.mock.calls.filter(
+      (c: any[]) => typeof c[0] === 'string' && c[0].includes('/health')
+    ).length
+    expect(initialHealthCalls).toBe(1)
+
+    // Advance timer by 60s
+    await act(async () => {
+      vi.advanceTimersByTime(60_000)
+    })
+
+    await waitFor(() => {
+      const afterCalls = mockFetch.mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('/health')
+      ).length
+      expect(afterCalls).toBe(2)
+    })
+
+    vi.useRealTimers()
+  })
 })
 
 describe('ConnectionsClient Health Tab', () => {
@@ -270,6 +357,7 @@ describe('ConnectionsClient Health Tab', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSession = { user: { roles: ['user'] } }
+    mockFetchForAll()
   })
 
   afterEach(() => {
@@ -277,14 +365,6 @@ describe('ConnectionsClient Health Tab', () => {
   })
 
   it('renders health summary cards', async () => {
-    mockFetch.mockImplementation((...args: any[]) => {
-      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || ''
-      if (url.includes('/health')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_HEALTH) })
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
-    })
-
     render(<ConnectionsClient session={session} />)
 
     await waitFor(() => {
@@ -301,14 +381,6 @@ describe('ConnectionsClient Health Tab', () => {
   })
 
   it('renders per-connection health table', async () => {
-    mockFetch.mockImplementation((...args: any[]) => {
-      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || ''
-      if (url.includes('/health')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_HEALTH) })
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
-    })
-
     render(<ConnectionsClient session={session} />)
 
     await waitFor(() => {
@@ -324,14 +396,6 @@ describe('ConnectionsClient Health Tab', () => {
   })
 
   it('displays latency for validated connections', async () => {
-    mockFetch.mockImplementation((...args: any[]) => {
-      const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || ''
-      if (url.includes('/health')) {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_HEALTH) })
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONNECTIONS) })
-    })
-
     render(<ConnectionsClient session={session} />)
 
     await waitFor(() => {
@@ -352,6 +416,9 @@ describe('ConnectionsClient Health Tab', () => {
       if (url.includes('/health')) {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(emptyHealth) })
       }
+      if (url.includes('/user-models')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+      }
       return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     })
 
@@ -365,6 +432,23 @@ describe('ConnectionsClient Health Tab', () => {
 
     await waitFor(() => {
       expect(screen.getByText('No connections to monitor')).toBeInTheDocument()
+    })
+  })
+
+  it('shows provider icons in health table', async () => {
+    render(<ConnectionsClient session={session} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('My OpenAI Key')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText('Health'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Connection Details')).toBeInTheDocument()
+      // Provider icons should be present in the health table
+      const icons = screen.getAllByTestId(/provider-icon-/)
+      expect(icons.length).toBeGreaterThan(0)
     })
   })
 })

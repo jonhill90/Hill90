@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Session } from 'next-auth'
+import { ProviderIcon } from '../models/provider-icons'
 
 interface ProviderConnection {
   id: string
@@ -34,7 +35,14 @@ interface ProviderHealthRow {
   avg_latency_ms: number | null
 }
 
+interface UserModel {
+  id: string
+  connection_id: string | null
+}
+
 const PROVIDERS = ['openai', 'anthropic', 'google', 'mistral', 'cohere', 'azure']
+
+const HEALTH_REFRESH_MS = 60_000
 
 export default function ConnectionsClient({ session }: { session: Session }) {
   const [connections, setConnections] = useState<ProviderConnection[]>([])
@@ -48,6 +56,8 @@ export default function ConnectionsClient({ session }: { session: Session }) {
   const [healthStats, setHealthStats] = useState<HealthStats | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
   const [checkAllLoading, setCheckAllLoading] = useState(false)
+  const [modelCounts, setModelCounts] = useState<Record<string, number>>({})
+  const healthTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchConnections = useCallback(async () => {
     try {
@@ -76,15 +86,43 @@ export default function ConnectionsClient({ session }: { session: Session }) {
     }
   }, [])
 
+  const fetchModelCounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/user-models')
+      if (res.ok) {
+        const models: UserModel[] = await res.json()
+        const counts: Record<string, number> = {}
+        for (const m of models) {
+          if (m.connection_id) {
+            counts[m.connection_id] = (counts[m.connection_id] || 0) + 1
+          }
+        }
+        setModelCounts(counts)
+      }
+    } catch (err) {
+      console.error('Failed to fetch model counts:', err)
+    }
+  }, [])
+
+  // Initial data load: connections + health + model counts
   useEffect(() => {
     fetchConnections()
-  }, [fetchConnections])
+    fetchHealth()
+    fetchModelCounts()
+  }, [fetchConnections, fetchHealth, fetchModelCounts])
 
+  // Auto-refresh health every 60 seconds
   useEffect(() => {
-    if (activeTab === 'health') {
+    healthTimerRef.current = setInterval(() => {
       fetchHealth()
+    }, HEALTH_REFRESH_MS)
+
+    return () => {
+      if (healthTimerRef.current) {
+        clearInterval(healthTimerRef.current)
+      }
     }
-  }, [activeTab, fetchHealth])
+  }, [fetchHealth])
 
   const resetForm = () => {
     setFormData({ name: '', provider: 'openai', api_key: '', api_base_url: '' })
@@ -130,6 +168,7 @@ export default function ConnectionsClient({ session }: { session: Session }) {
       if (res.ok) {
         resetForm()
         await fetchConnections()
+        await fetchModelCounts()
       } else {
         const data = await res.json()
         setFormError(data.error || 'Failed to save connection')
@@ -157,6 +196,7 @@ export default function ConnectionsClient({ session }: { session: Session }) {
       const res = await fetch(`/api/provider-connections/${conn.id}`, { method: 'DELETE' })
       if (res.ok) {
         await fetchConnections()
+        await fetchModelCounts()
       } else {
         const data = await res.json()
         alert(data.error || 'Failed to delete connection')
@@ -174,6 +214,7 @@ export default function ConnectionsClient({ session }: { session: Session }) {
       const res = await fetch(`/api/provider-connections/${conn.id}/validate`, { method: 'POST' })
       if (res.ok) {
         await fetchConnections()
+        await fetchHealth()
       } else {
         const data = await res.json()
         alert(data.error || 'Validation failed')
@@ -191,9 +232,7 @@ export default function ConnectionsClient({ session }: { session: Session }) {
       const res = await fetch('/api/provider-connections/validate-all', { method: 'POST' })
       if (res.ok) {
         await fetchConnections()
-        if (activeTab === 'health') {
-          await fetchHealth()
-        }
+        await fetchHealth()
       }
     } catch {
       alert('Failed to validate connections')
@@ -217,6 +256,14 @@ export default function ConnectionsClient({ session }: { session: Session }) {
           <h1 className="text-2xl font-bold">Provider Connections</h1>
           <p className="text-sm text-mountain-400 mt-1">
             {connections.length} connection{connections.length !== 1 ? 's' : ''}
+            {healthStats && connections.length > 0 && (
+              <span className="ml-2">
+                <span className="text-brand-400">{healthStats.valid} healthy</span>
+                {healthStats.invalid > 0 && (
+                  <span className="text-red-400 ml-1">/ {healthStats.invalid} failing</span>
+                )}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -354,59 +401,85 @@ export default function ConnectionsClient({ session }: { session: Session }) {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {connections.map((conn) => (
-                <div
-                  key={conn.id}
-                  className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex flex-col"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-white truncate">{conn.name}</h3>
-                    <ValidityBadge isValid={conn.is_valid} />
-                  </div>
+              {connections.map((conn) => {
+                const count = modelCounts[conn.id] || 0
+                return (
+                  <div
+                    key={conn.id}
+                    className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex flex-col"
+                  >
+                    {/* Header: provider icon + name + health dot */}
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="flex-shrink-0 text-mountain-400">
+                        <ProviderIcon provider={conn.provider} className="h-8 w-8" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-white truncate">{conn.name}</h3>
+                          <HealthDot isValid={conn.is_valid} />
+                        </div>
+                        <p className="text-xs text-mountain-400 capitalize">{conn.provider}</p>
+                      </div>
+                    </div>
 
-                  <p className="text-sm text-mountain-400 mb-1">{conn.provider}</p>
-                  {conn.api_base_url && (
-                    <p className="text-xs text-mountain-500 mb-1 truncate">{conn.api_base_url}</p>
-                  )}
-                  <p className="text-xs text-mountain-500 mb-1">
-                    Added {new Date(conn.created_at).toLocaleDateString()}
-                  </p>
-                  {conn.last_validated_at && (
-                    <p className="text-xs text-mountain-500 mb-1">
-                      Checked {formatRelativeTime(conn.last_validated_at)}
-                      {conn.validation_latency_ms != null && ` (${conn.validation_latency_ms}ms)`}
-                    </p>
-                  )}
-                  {conn.last_validation_error && (
-                    <p className="text-xs text-red-400 mb-1 truncate" title={conn.last_validation_error}>
-                      {conn.last_validation_error}
-                    </p>
-                  )}
+                    {/* Info rows */}
+                    <div className="space-y-1 text-xs text-mountain-500 mb-3">
+                      {conn.api_base_url && (
+                        <p className="truncate" title={conn.api_base_url}>{conn.api_base_url}</p>
+                      )}
+                      <p>
+                        <span className="text-mountain-400" data-testid={`model-count-${conn.id}`}>
+                          {count} model{count !== 1 ? 's' : ''}
+                        </span>
+                        <span className="mx-1.5 text-navy-600">|</span>
+                        Added {new Date(conn.created_at).toLocaleDateString()}
+                      </p>
+                      {conn.last_validated_at && (
+                        <p>
+                          Checked {formatRelativeTime(conn.last_validated_at)}
+                          {conn.validation_latency_ms != null && (
+                            <span className="text-mountain-400"> ({conn.validation_latency_ms}ms)</span>
+                          )}
+                        </p>
+                      )}
+                      {conn.last_validation_error && (
+                        <p className="text-red-400 truncate" title={conn.last_validation_error}>
+                          {conn.last_validation_error}
+                        </p>
+                      )}
+                    </div>
 
-                  <div className="flex items-center gap-2 mt-auto pt-2">
-                    <button
-                      onClick={() => handleValidate(conn)}
-                      disabled={actionLoading === conn.id}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                    >
-                      {actionLoading === conn.id ? 'Testing...' : 'Test'}
-                    </button>
-                    <button
-                      onClick={() => handleEdit(conn)}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(conn)}
-                      disabled={actionLoading === conn.id}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                    >
-                      Delete
-                    </button>
+                    {/* Status badge */}
+                    <div className="mb-3">
+                      <ValidityBadge isValid={conn.is_valid} />
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 mt-auto pt-2 border-t border-navy-700">
+                      <button
+                        onClick={() => handleValidate(conn)}
+                        disabled={actionLoading === conn.id}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        {actionLoading === conn.id ? 'Testing...' : 'Test'}
+                      </button>
+                      <button
+                        onClick={() => handleEdit(conn)}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(conn)}
+                        disabled={actionLoading === conn.id}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </>
@@ -485,12 +558,17 @@ function HealthTab({
             <tbody>
               {stats.by_provider.map((row) => (
                 <tr key={row.provider} className="border-t border-navy-700">
-                  <td className="px-4 py-2 text-white">{row.provider}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center gap-2">
+                      <ProviderIcon provider={row.provider} className="h-4 w-4 text-mountain-400" />
+                      <span className="text-white capitalize">{row.provider}</span>
+                    </div>
+                  </td>
                   <td className="px-4 py-2 text-mountain-400">{row.total}</td>
                   <td className="px-4 py-2 text-brand-400">{row.valid}</td>
                   <td className="px-4 py-2 text-red-400">{row.invalid}</td>
                   <td className="px-4 py-2 text-mountain-400">
-                    {row.avg_latency_ms != null ? `${row.avg_latency_ms}ms` : '—'}
+                    {row.avg_latency_ms != null ? `${row.avg_latency_ms}ms` : '\u2014'}
                   </td>
                 </tr>
               ))}
@@ -518,19 +596,24 @@ function HealthTab({
           <tbody>
             {connections.map((conn) => (
               <tr key={conn.id} className="border-t border-navy-700">
-                <td className="px-4 py-2 text-white">{conn.name}</td>
-                <td className="px-4 py-2 text-mountain-400">{conn.provider}</td>
+                <td className="px-4 py-2">
+                  <div className="flex items-center gap-2">
+                    <ProviderIcon provider={conn.provider} className="h-4 w-4 text-mountain-400" />
+                    <span className="text-white">{conn.name}</span>
+                  </div>
+                </td>
+                <td className="px-4 py-2 text-mountain-400 capitalize">{conn.provider}</td>
                 <td className="px-4 py-2">
                   <ValidityBadge isValid={conn.is_valid} />
                 </td>
                 <td className="px-4 py-2 text-mountain-400">
-                  {conn.validation_latency_ms != null ? `${conn.validation_latency_ms}ms` : '—'}
+                  {conn.validation_latency_ms != null ? `${conn.validation_latency_ms}ms` : '\u2014'}
                 </td>
                 <td className="px-4 py-2 text-mountain-400">
                   {conn.last_validated_at ? formatRelativeTime(conn.last_validated_at) : 'Never'}
                 </td>
                 <td className="px-4 py-2 text-red-400 max-w-xs truncate" title={conn.last_validation_error || ''}>
-                  {conn.last_validation_error || '—'}
+                  {conn.last_validation_error || '\u2014'}
                 </td>
               </tr>
             ))}
@@ -547,6 +630,35 @@ function StatCard({ label, value, color }: { label: string; value: number; color
       <p className="text-xs text-mountain-400 mb-1">{label}</p>
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
     </div>
+  )
+}
+
+/** Small colored dot indicating health status — used inline on connection cards */
+function HealthDot({ isValid }: { isValid: boolean | null }) {
+  if (isValid === true) {
+    return (
+      <span
+        className="inline-block h-2.5 w-2.5 rounded-full bg-brand-500 flex-shrink-0"
+        title="Healthy"
+        data-testid="health-dot-valid"
+      />
+    )
+  }
+  if (isValid === false) {
+    return (
+      <span
+        className="inline-block h-2.5 w-2.5 rounded-full bg-red-500 flex-shrink-0"
+        title="Unhealthy"
+        data-testid="health-dot-invalid"
+      />
+    )
+  }
+  return (
+    <span
+      className="inline-block h-2.5 w-2.5 rounded-full bg-mountain-500 flex-shrink-0"
+      title="Unknown"
+      data-testid="health-dot-unknown"
+    />
   )
 }
 
