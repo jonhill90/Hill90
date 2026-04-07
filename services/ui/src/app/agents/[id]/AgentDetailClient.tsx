@@ -27,6 +27,7 @@ interface Agent {
   model_policy_id: string | null
   models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
+  autonomy_level: string
   error_message: string | null
   created_at: string
   updated_at: string
@@ -108,6 +109,9 @@ export default function AgentDetailClient({
   const [soulDraft, setSoulDraft] = useState('')
   const [rulesDraft, setRulesDraft] = useState('')
   const [identitySaving, setIdentitySaving] = useState(false)
+
+  // Autonomy level
+  const [autonomySaving, setAutonomySaving] = useState(false)
 
   const isAdmin = session.user?.roles?.includes('admin')
 
@@ -341,6 +345,28 @@ export default function AgentDetailClient({
       alert(`Failed to save ${field}`)
     } finally {
       setIdentitySaving(false)
+    }
+  }
+
+  const handleSaveAutonomy = async (level: string) => {
+    setAutonomySaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autonomy_level: level }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to save autonomy level')
+        return
+      }
+      await fetchAgent()
+    } catch (err) {
+      console.error('Failed to save autonomy level:', err)
+      alert('Failed to save autonomy level')
+    } finally {
+      setAutonomySaving(false)
     }
   }
 
@@ -693,6 +719,74 @@ export default function AgentDetailClient({
                 <dd className="text-white mt-1">{agent.pids_limit}</dd>
               </div>
             </dl>
+          </div>
+
+          {/* Autonomy Level */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-1">Autonomy Level</h2>
+            <p className="text-xs text-mountain-500 mb-4">
+              Controls how much freedom the agent has when executing commands.
+            </p>
+            <div className="space-y-3">
+              {([
+                {
+                  value: 'ask_before_acting',
+                  label: 'Ask before acting',
+                  description: 'Agent requests approval before executing commands',
+                },
+                {
+                  value: 'act_within_scope',
+                  label: 'Act within scope',
+                  description: 'Agent acts freely within its skill and tool permissions',
+                },
+                {
+                  value: 'full_autonomy',
+                  label: 'Full autonomy',
+                  description: 'Agent operates with minimal guardrails',
+                },
+              ] as const).map((option) => {
+                const isSelected = (agent.autonomy_level || 'act_within_scope') === option.value
+                const isRunning = agent.status === 'running'
+                return (
+                  <label
+                    key={option.value}
+                    className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${
+                      isRunning
+                        ? 'cursor-not-allowed opacity-60'
+                        : 'cursor-pointer'
+                    } ${
+                      isSelected
+                        ? 'border-brand-500 bg-brand-900/20'
+                        : 'border-navy-600 bg-navy-900 hover:border-navy-500'
+                    }`}
+                    title={isRunning ? 'Stop agent to change autonomy level' : undefined}
+                  >
+                    <input
+                      type="radio"
+                      name="autonomy_level"
+                      value={option.value}
+                      checked={isSelected}
+                      disabled={isRunning || autonomySaving}
+                      onChange={() => handleSaveAutonomy(option.value)}
+                      className="mt-0.5 accent-brand-500"
+                      data-testid={`autonomy-${option.value}`}
+                    />
+                    <div>
+                      <span className={`text-sm font-medium ${isSelected ? 'text-white' : 'text-mountain-300'}`}>
+                        {option.label}
+                      </span>
+                      {option.value === 'act_within_scope' && (
+                        <span className="ml-2 text-xs text-mountain-500">(default)</span>
+                      )}
+                      <p className="text-xs text-mountain-500 mt-0.5">{option.description}</p>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+            {autonomySaving && (
+              <p className="text-xs text-mountain-400 mt-2">Saving...</p>
+            )}
           </div>
 
           {/* Identity — SOUL.md */}
