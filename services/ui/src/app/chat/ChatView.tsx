@@ -51,6 +51,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
+  const refocusTimer = useRef<number | null>(null)
 
   const userId = (session.user as any)?.id || (session.user as any)?.sub || ''
   const isGroup = thread?.type === 'group'
@@ -99,6 +100,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
     return () => {
       es.close()
       eventSourceRef.current = null
+      if (refocusTimer.current) clearTimeout(refocusTimer.current)
     }
   }, [threadId])
 
@@ -130,7 +132,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
     } finally {
       setSending(false)
       // Auto-refocus the input after sending
-      setTimeout(() => {
+      refocusTimer.current = window.setTimeout(() => {
         const input = document.querySelector('[data-testid="mention-input"]') as HTMLTextAreaElement
         input?.focus()
       }, 50)
