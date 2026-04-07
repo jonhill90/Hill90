@@ -196,6 +196,8 @@ const EXPECTED_PATHS = [
   '/tasks',
   '/tasks/{id}',
   '/tasks/{id}/transition',
+  '/storage/buckets',
+  '/storage/buckets/{name}/objects',
   '/admin/secrets',
   '/admin/secrets/status',
 ];

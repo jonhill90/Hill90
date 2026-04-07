@@ -4122,3 +4122,100 @@ paths:
           description: Not authenticated
         "403":
           description: Requires admin role
+
+  # ── Storage (MinIO) ──────────────────────────────────────────────
+
+  /storage/buckets:
+    get:
+      summary: List MinIO buckets
+      tags: [Storage]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Array of buckets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    created_at:
+                      type: string
+                      nullable: true
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/objects:
+    get:
+      summary: List objects in a bucket
+      tags: [Storage]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          schema:
+            type: string
+        - name: max_keys
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: continuation_token
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Objects and common prefixes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  objects:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        size:
+                          type: integer
+                        last_modified:
+                          type: string
+                          nullable: true
+                        etag:
+                          type: string
+                  prefixes:
+                    type: array
+                    items:
+                      type: string
+                  is_truncated:
+                    type: boolean
+                  next_continuation_token:
+                    type: string
+                    nullable: true
+                  key_count:
+                    type: integer
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Bucket not found
+        "502":
+          description: Storage service unavailable
