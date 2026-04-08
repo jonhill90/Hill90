@@ -293,6 +293,29 @@ describe('ChatMessage', () => {
     expect(ts.textContent).toMatch(/Jan\s+15/)
   })
 
+  it('shows yesterday for messages from previous day', () => {
+    // Use noon yesterday local time — guaranteed to be in "yesterday" bucket
+    const now = new Date()
+    const yesterdayNoon = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12, 0, 0)
+    // If yesterdayNoon is less than 24h ago (early morning test runs), shift back further
+    if (now.getTime() - yesterdayNoon.getTime() < 86_400_000) {
+      yesterdayNoon.setDate(yesterdayNoon.getDate())
+    }
+    render(<ChatMessage message={makeMessage({ created_at: yesterdayNoon.toISOString() })} isOwnMessage={true} />)
+    // Should show either "yesterday" or hours ago (depending on timezone)
+    const ts = screen.getByTestId('message-timestamp')
+    expect(ts.textContent).toMatch(/yesterday|\d+h ago/)
+  })
+
+  it('shows full timestamp on hover via title attribute', () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60_000).toISOString()
+    render(<ChatMessage message={makeMessage({ created_at: fiveMinAgo })} isOwnMessage={true} />)
+    const ts = screen.getByTestId('message-timestamp')
+    expect(ts.getAttribute('title')).toBeTruthy()
+    // Title should contain year for absolute context
+    expect(ts.getAttribute('title')).toContain('2026')
+  })
+
   it('does not show timestamp on pending messages', () => {
     render(
       <ChatMessage

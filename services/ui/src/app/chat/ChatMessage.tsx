@@ -30,10 +30,10 @@ function getAgentColor(agentId: string, agents: ChatAgent[]): string {
   return AGENT_COLORS[idx >= 0 ? idx % AGENT_COLORS.length : 0]
 }
 
-function formatTimestamp(iso: string): string {
+function timeAgo(iso: string): string {
   const date = new Date(iso)
-  const now = Date.now()
-  const diffMs = now - date.getTime()
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
   const diffMin = Math.floor(diffMs / 60_000)
 
   if (diffMin < 1) return 'just now'
@@ -42,11 +42,28 @@ function formatTimestamp(iso: string): string {
   const diffHr = Math.floor(diffMin / 60)
   if (diffHr < 24) return `${diffHr}h ago`
 
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const yesterday = new Date(today.getTime() - 86_400_000)
+  if (date >= yesterday && date < today) return 'yesterday'
+
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
+  })
+}
+
+function fullTimestamp(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
     hour12: true,
   })
 }
@@ -146,8 +163,12 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
 
         {/* Timestamp */}
         {!isPending && (
-          <div className={`mt-1 text-[10px] text-mountain-500 ${isUser ? 'text-right' : ''}`} data-testid="message-timestamp">
-            {formatTimestamp(message.created_at)}
+          <div
+            className={`mt-1 text-[10px] text-mountain-500 ${isUser ? 'text-right' : ''}`}
+            title={fullTimestamp(message.created_at)}
+            data-testid="message-timestamp"
+          >
+            {timeAgo(message.created_at)}
           </div>
         )}
       </div>
