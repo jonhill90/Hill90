@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import type { Session } from 'next-auth'
+import { Trash2 } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
 import AgentLevelBadge from '@/components/AgentLevelBadge'
 
@@ -44,6 +45,8 @@ export default function AgentsClient({ session }: { session: Session }) {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const isAdmin = session.user?.roles?.includes('admin')
 
@@ -101,6 +104,57 @@ export default function AgentsClient({ session }: { session: Session }) {
     .filter((a) => statusFilter === 'all' || a.status === statusFilter)
     .sort((a, b) => (STATUS_ORDER[a.status] ?? 3) - (STATUS_ORDER[b.status] ?? 3))
 
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Only stopped/error agents are deletable
+  const deletableInView = filteredAgents.filter(a => a.status === 'stopped' || a.status === 'error')
+  const allDeletableSelected = deletableInView.length > 0 && deletableInView.every(a => selected.has(a.id))
+
+  const toggleSelectAll = () => {
+    if (allDeletableSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(deletableInView.map(a => a.id)))
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    const toDelete = agents.filter(a => selected.has(a.id) && (a.status === 'stopped' || a.status === 'error'))
+    if (toDelete.length === 0) return
+
+    const names = toDelete.map(a => a.name).join(', ')
+    if (!confirm(`Delete ${toDelete.length} agent${toDelete.length > 1 ? 's' : ''}?\n\n${names}\n\nThis cannot be undone.`)) return
+
+    setBulkDeleting(true)
+    const errors: string[] = []
+    for (const agent of toDelete) {
+      try {
+        const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const data = await res.json()
+          errors.push(`${agent.name}: ${data.error || 'failed'}`)
+        }
+      } catch {
+        errors.push(`${agent.name}: request failed`)
+      }
+    }
+
+    setSelected(new Set())
+    await fetchData()
+    setBulkDeleting(false)
+
+    if (errors.length > 0) {
+      alert(`Some deletions failed:\n${errors.join('\n')}`)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -112,18 +166,41 @@ export default function AgentsClient({ session }: { session: Session }) {
   return (
     <>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Agents</h1>
-          <p className="text-sm text-mountain-400 mt-1">
-            {agents.length} agent{agents.length !== 1 ? 's' : ''}
-          </p>
+        <div className="flex items-center gap-3">
+          {isAdmin && deletableInView.length > 0 && (
+            <input
+              type="checkbox"
+              checked={allDeletableSelected}
+              onChange={toggleSelectAll}
+              className="h-4 w-4 rounded border-navy-600 bg-navy-900 text-brand-500 focus:ring-brand-500 cursor-pointer"
+              title="Select all deletable agents"
+            />
+          )}
+          <div>
+            <h1 className="text-2xl font-bold">Agents</h1>
+            <p className="text-sm text-mountain-400 mt-1">
+              {agents.length} agent{agents.length !== 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
-        <Link
-          href="/agents/new"
-          className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors"
-        >
-          Create Agent
-        </Link>
+        <div className="flex items-center gap-2">
+          {isAdmin && selected.size > 0 && (
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkDeleting}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Trash2 size={14} />
+              {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+            </button>
+          )}
+          <Link
+            href="/agents/new"
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors"
+          >
+            Create Agent
+          </Link>
+        </div>
       </div>
 
       {/* Status Filter */}
@@ -169,6 +246,14 @@ export default function AgentsClient({ session }: { session: Session }) {
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5 min-w-0">
+                    {isAdmin && (agent.status === 'stopped' || agent.status === 'error') && (
+                      <input
+                        type="checkbox"
+                        checked={selected.has(agent.id)}
+                        onChange={() => toggleSelect(agent.id)}
+                        className="h-4 w-4 rounded border-navy-600 bg-navy-900 text-brand-500 focus:ring-brand-500 cursor-pointer flex-shrink-0"
+                      />
+                    )}
                     <AgentAvatar name={agent.name} size="md" />
                     <Link
                       href={`/agents/${agent.id}`}
