@@ -367,12 +367,12 @@ export default function TaskBoardClient() {
                     return (
                       <div
                         key={task.id}
-                        className="rounded-lg border border-navy-700 bg-navy-900 p-3 hover:border-navy-500 transition-colors"
+                        className="rounded-lg border border-navy-700 bg-navy-900 p-3 hover:border-navy-500 transition-colors cursor-pointer"
                         data-testid="task-card"
+                        onClick={() => setSelectedTask(task)}
                       >
-                        <button
-                          onClick={() => setSelectedTask(task)}
-                          className="w-full text-left cursor-pointer"
+                        <div
+                          className="w-full text-left"
                         >
                           <p className="text-sm font-medium text-white line-clamp-2 mb-1">{task.title}</p>
                           <div className="flex items-center gap-1.5">
@@ -383,7 +383,7 @@ export default function TaskBoardClient() {
                             <span className="text-[10px] text-mountain-500 truncate">{task.agent_id}</span>
                           </div>
                           <p className="text-[10px] text-mountain-500 mt-1">{timeAgo(task.updated_at)}</p>
-                        </button>
+                        </div>
                         {/* Quick status transition */}
                         <div className="mt-2 pt-2 border-t border-navy-700">
                           <select
