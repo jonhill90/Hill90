@@ -11,6 +11,7 @@ import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
 import WorkspaceBrowser from './WorkspaceBrowser'
 import AgentKnowledge from './AgentKnowledge'
+import { Camera } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
 
 interface Agent {
@@ -30,6 +31,7 @@ interface Agent {
   models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
   autonomy_level: string | null
+  hasAvatar: boolean
   error_message: string | null
   created_at: string
   updated_at: string
@@ -140,6 +142,11 @@ export default function AgentDetailClient({
   const [identitySaving, setIdentitySaving] = useState(false)
   const [autonomySaving, setAutonomySaving] = useState(false)
 
+  // Avatar
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const [avatarVersion, setAvatarVersion] = useState(0)
+
   const isAdmin = session.user?.roles?.includes('admin')
 
   const fetchAgent = useCallback(async () => {
@@ -156,6 +163,26 @@ export default function AgentDetailClient({
       setLoading(false)
     }
   }, [agentId, router])
+
+  const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAvatarUploading(true)
+    try {
+      const form = new FormData()
+      form.append('avatar', file)
+      const res = await fetch(`/api/agents/${agentId}/avatar`, { method: 'POST', body: form })
+      if (res.ok) {
+        setAvatarVersion(v => v + 1)
+        await fetchAgent()
+      }
+    } catch (err) {
+      console.error('Failed to upload avatar:', err)
+    } finally {
+      setAvatarUploading(false)
+      if (avatarInputRef.current) avatarInputRef.current.value = ''
+    }
+  }, [agentId, fetchAgent])
 
   const fetchAllSkills = useCallback(async () => {
     try {
@@ -447,7 +474,29 @@ export default function AgentDetailClient({
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <AgentAvatar name={agent.name} size="xl" />
+          <button
+            type="button"
+            className="relative group cursor-pointer"
+            onClick={() => avatarInputRef.current?.click()}
+            disabled={avatarUploading}
+            title="Change avatar"
+          >
+            <AgentAvatar
+              name={agent.name}
+              avatarUrl={agent.hasAvatar ? `/api/agents/${agent.id}/avatar?v=${avatarVersion}` : undefined}
+              size="xl"
+            />
+            <div className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <Camera className="w-5 h-5 text-white" />
+            </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="hidden"
+              onChange={handleAvatarUpload}
+            />
+          </button>
           <div>
             <h1 className="text-2xl font-bold">{agent.name}</h1>
             <p className="text-sm text-mountain-400 mt-1 font-mono">{agent.agent_id}</p>
