@@ -151,6 +151,7 @@ const EXPECTED_PATHS = [
   '/agents/{id}/tool-installs',
   '/agents/{id}/reconcile-tools',
   '/agents/{id}/events',
+  '/agents/{id}/avatar',
   '/agents/{id}/logs',
   '/agents/{id}/clone',
   '/agents/{id}/webhooks',
