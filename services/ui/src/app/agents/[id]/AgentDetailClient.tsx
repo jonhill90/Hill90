@@ -10,6 +10,7 @@ import AgentMemory from './AgentMemory'
 import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
 import WorkspaceBrowser from './WorkspaceBrowser'
+import AgentKnowledge from './AgentKnowledge'
 import AgentAvatar from '@/components/AgentAvatar'
 
 interface Agent {
@@ -74,7 +75,7 @@ function scopeBadge(scope: string): { label: string; colorClasses: string } {
   }
 }
 
-type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'workspace' | 'activity'
+type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'workspace' | 'knowledge' | 'activity'
 
 export default function AgentDetailClient({
   agentId,
@@ -389,6 +390,7 @@ export default function AgentDetailClient({
     { id: 'memory', label: 'Memory' },
     { id: 'notebook', label: 'Notebook' },
     { id: 'workspace', label: 'Workspace' },
+    { id: 'knowledge', label: 'Knowledge' },
     { id: 'activity', label: 'Activity' },
   ]
 
@@ -951,6 +953,10 @@ export default function AgentDetailClient({
 
       {activeTab === 'workspace' && agent && (
         <WorkspaceBrowser agentId={agent.agent_id} />
+      )}
+
+      {activeTab === 'knowledge' && agent && (
+        <AgentKnowledge agentName={agent.name} />
       )}
 
       {activeTab === 'activity' && (
