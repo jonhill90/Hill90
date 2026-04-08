@@ -955,6 +955,51 @@ paths:
                     type: string
                     example: api
 
+  /health/detailed:
+    get:
+      summary: Detailed health check
+      description: >
+        Returns service health with database connectivity, uptime, memory usage,
+        and Node.js version. Public — no authentication required.
+      security: []
+      responses:
+        "200":
+          description: Detailed health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded]
+                  service:
+                    type: string
+                    example: api
+                  uptime_seconds:
+                    type: integer
+                  node_version:
+                    type: string
+                    example: v20.18.0
+                  database:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [connected, error]
+                      latency_ms:
+                        type: integer
+                        nullable: true
+                  memory:
+                    type: object
+                    properties:
+                      rss_mb:
+                        type: integer
+                      heap_used_mb:
+                        type: integer
+                      heap_total_mb:
+                        type: integer
+
   /me:
     get:
       summary: Get current user claims
