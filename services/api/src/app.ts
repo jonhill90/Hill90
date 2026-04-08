@@ -21,6 +21,7 @@ import { delegationTokenHandler } from './services/model-router-delegation';
 import chatRouter, { chatCallbackHandler, startStaleSweeper } from './routes/chat';
 import tasksRouter from './routes/tasks';
 import storageRouter from './routes/storage';
+import notificationsRouter from './routes/notifications';
 import { modelRouterRefreshHandler } from './services/model-router-refresh';
 
 interface AppOptions {
@@ -132,6 +133,9 @@ export function createApp(opts: AppOptions = {}): Application {
 
   // Storage routes (admin-only, MinIO bucket operations)
   app.use('/storage', requireAuth, storageRouter);
+
+  // Notifications
+  app.use('/notifications', requireAuth, notificationsRouter);
 
   // Secrets vault inventory (admin-only, AI-147)
   app.use('/admin/secrets', requireAuth, requireRole('admin'), secretsRouter);
