@@ -150,6 +150,89 @@ async function resolveAgentModels(policyId: string | null): Promise<string[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Templates (static, no DB)
+// ---------------------------------------------------------------------------
+
+const AGENT_TEMPLATES = [
+  {
+    id: 'code-assistant',
+    name: 'Code Assistant',
+    agent_id: 'code-assistant',
+    description: 'General-purpose coding agent. Reads, writes, and refactors code in a sandboxed workspace.',
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['node', 'npm', 'npx', 'git', 'python3', 'pip3'], denied_patterns: ['rm -rf /'], max_timeout: 300 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/home/agentuser'], denied_paths: [] },
+      health: { enabled: true },
+    },
+    soul_md: 'You are a skilled software engineer. Write clean, well-tested code. Prefer simple solutions over clever ones.',
+    rules_md: 'Always run tests before declaring a task complete. Never commit secrets or credentials.',
+    cpus: '1.0',
+    mem_limit: '1g',
+    pids_limit: 200,
+    skill_names: [],
+    model_names: [],
+  },
+  {
+    id: 'research-agent',
+    name: 'Research Agent',
+    agent_id: 'research-agent',
+    description: 'Investigates topics, summarises findings, and produces structured reports with citations.',
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['curl', 'node', 'python3'], denied_patterns: [], max_timeout: 300 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/home/agentuser'], denied_paths: [] },
+      health: { enabled: true },
+    },
+    soul_md: 'You are a thorough researcher. Gather information from multiple sources, cross-reference claims, and present findings with clear citations.',
+    rules_md: 'Always cite sources. Flag uncertain or contradictory information. Prefer primary sources over summaries.',
+    cpus: '0.5',
+    mem_limit: '512m',
+    pids_limit: 100,
+    skill_names: [],
+    model_names: [],
+  },
+  {
+    id: 'devops-bot',
+    name: 'DevOps Bot',
+    agent_id: 'devops-bot',
+    description: 'Infrastructure automation agent for deployments, monitoring, and incident response.',
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['docker', 'git', 'curl', 'ssh', 'scp', 'bash', 'node', 'npm'], denied_patterns: ['rm -rf /'], max_timeout: 600 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/home/agentuser'], denied_paths: [] },
+      health: { enabled: true },
+    },
+    soul_md: 'You are an experienced DevOps engineer. Prioritise reliability, observability, and minimal-downtime changes.',
+    rules_md: 'Always verify health checks after deployments. Never bypass branch protections. Use rollback procedures when failures are detected.',
+    cpus: '1.0',
+    mem_limit: '1g',
+    pids_limit: 200,
+    skill_names: [],
+    model_names: [],
+  },
+  {
+    id: 'data-analyst',
+    name: 'Data Analyst',
+    agent_id: 'data-analyst',
+    description: 'Analyses datasets, produces visualisations, and generates summary statistics.',
+    tools_config: {
+      shell: { enabled: true, allowed_binaries: ['python3', 'pip3', 'node', 'npm'], denied_patterns: [], max_timeout: 600 },
+      filesystem: { enabled: true, read_only: false, allowed_paths: ['/workspace', '/home/agentuser'], denied_paths: [] },
+      health: { enabled: true },
+    },
+    soul_md: 'You are a data analyst. Clean data methodically, choose appropriate visualisations, and explain statistical findings in plain language.',
+    rules_md: 'Always validate data quality before analysis. Document assumptions and limitations. Use reproducible methods.',
+    cpus: '1.0',
+    mem_limit: '2g',
+    pids_limit: 200,
+    skill_names: [],
+    model_names: [],
+  },
+];
+
+router.get('/templates', requireRole('user'), (_req: Request, res: Response) => {
+  res.json(AGENT_TEMPLATES);
+});
+
+// ---------------------------------------------------------------------------
 // CRUD (user role)
 // ---------------------------------------------------------------------------
 
