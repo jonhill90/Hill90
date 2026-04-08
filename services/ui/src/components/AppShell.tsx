@@ -1,5 +1,6 @@
 import TopBar from '@/components/TopBar'
 import Sidebar from '@/components/Sidebar'
+import Breadcrumbs from '@/components/Breadcrumbs'
 
 export default function AppShell({
   children,
@@ -20,6 +21,7 @@ export default function AppShell({
 
         {/* Main content + footer */}
         <div className={`flex flex-col flex-1 min-w-0 ${noFooter ? 'min-h-0 overflow-hidden' : ''}`}>
+          {!noFooter && <Breadcrumbs />}
           {children}
 
           {!noFooter && (
