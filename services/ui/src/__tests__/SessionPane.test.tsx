@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, act, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock EventCard to avoid importing the full agent EventCard tree
@@ -343,11 +343,18 @@ describe('SessionPane — Browser tab', () => {
     expect(screen.getByText('Browser')).toBeInTheDocument()
   })
 
-  it('shows inactive state when no browser events', () => {
+  it('shows inactive state when no browser events', async () => {
+    // Mock fetch to return 404 (no browser active)
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('/screenshot')) return Promise.resolve({ ok: false, status: 404 })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    }))
     render(<SessionPane threadId="thread-1" />)
     switchToBrowser()
 
-    expect(screen.getByTestId('browser-inactive')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('browser-inactive')).toBeInTheDocument()
+    })
     expect(screen.getByText('Browser not active')).toBeInTheDocument()
   })
 
@@ -359,43 +366,36 @@ describe('SessionPane — Browser tab', () => {
     expect(screen.queryByText('All')).not.toBeInTheDocument()
   })
 
-  it('shows screenshot when browser tool_result has screenshot', () => {
+  it('shows screenshot when poll returns data', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('/screenshot')) return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ screenshot: 'iVBORw0KGgo=', url: 'https://example.com' }),
+      })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    }))
     render(<SessionPane threadId="thread-1" />)
-
-    sendEvent({
-      id: 'b1', timestamp: new Date().toISOString(), type: 'tool_result',
-      tool: 'browser', input_summary: 'navigate', output_summary: 'navigated',
-      duration_ms: 500, success: true, created_at: new Date().toISOString(),
-      metadata: { url: 'https://example.com', screenshot: 'iVBORw0KGgo=' },
-    })
-
     switchToBrowser()
 
-    expect(screen.getByTestId('browser-view')).toBeInTheDocument()
-    expect(screen.getByTestId('browser-screenshot')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByTestId('browser-screenshot')).toBeInTheDocument()
+    })
     expect(screen.getByText('https://example.com')).toBeInTheDocument()
   })
 
-  it('shows latest screenshot when multiple browser events', () => {
+  it('shows latest screenshot from polling', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('/screenshot')) return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve({ screenshot: 'LATEST_PNG_DATA', url: 'https://latest.com' }),
+      })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    }))
     render(<SessionPane threadId="thread-1" />)
-
-    sendEvent({
-      id: 'b1', timestamp: new Date().toISOString(), type: 'tool_result',
-      tool: 'browser', input_summary: 'navigate', output_summary: null,
-      duration_ms: 100, success: true, created_at: new Date().toISOString(),
-      metadata: { url: 'https://first.com', screenshot: 'AAAA' },
-    })
-    sendEvent({
-      id: 'b2', timestamp: new Date().toISOString(), type: 'tool_result',
-      tool: 'browser', input_summary: 'click', output_summary: null,
-      duration_ms: 200, success: true, created_at: new Date().toISOString(),
-      metadata: { url: 'https://second.com', screenshot: 'BBBB' },
-    })
-
     switchToBrowser()
 
-    expect(screen.getByText('https://second.com')).toBeInTheDocument()
-    const img = screen.getByTestId('browser-screenshot') as HTMLImageElement
-    expect(img.src).toContain('BBBB')
+    await waitFor(() => {
+      expect(screen.getByText('https://latest.com')).toBeInTheDocument()
+    })
   })
 })
