@@ -202,6 +202,7 @@ const EXPECTED_PATHS = [
   '/storage/buckets/{name}/objects',
   '/admin/secrets',
   '/admin/secrets/status',
+  '/admin/secrets/kv',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token'];
