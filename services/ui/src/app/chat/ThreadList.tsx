@@ -1,10 +1,33 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { Users, Trash2 } from 'lucide-react'
 import type { ChatThread } from './ChatLayout'
 import AgentAvatar from '@/components/AgentAvatar'
+
+const SEEN_KEY = 'hill90:thread-seen'
+
+function getSeenMap(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function markSeen(threadId: string) {
+  const map = getSeenMap()
+  map[threadId] = new Date().toISOString()
+  localStorage.setItem(SEEN_KEY, JSON.stringify(map))
+}
+
+function isUnread(thread: ChatThread, seenMap: Record<string, string>): boolean {
+  if (!thread.last_message) return false
+  const lastSeen = seenMap[thread.id]
+  if (!lastSeen) return true
+  return (thread.updated_at || thread.created_at) > lastSeen
+}
 
 interface Props {
   threads: ChatThread[]
@@ -33,6 +56,20 @@ function truncate(text: string, maxLen: number): string {
 
 export default function ThreadList({ threads, loading, activeThreadId, onDelete }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [seenMap, setSeenMap] = useState<Record<string, string>>({})
+
+  // Load seen map on mount
+  useEffect(() => {
+    setSeenMap(getSeenMap())
+  }, [])
+
+  // Mark active thread as seen whenever it changes
+  useEffect(() => {
+    if (activeThreadId) {
+      markSeen(activeThreadId)
+      setSeenMap(getSeenMap())
+    }
+  }, [activeThreadId])
 
   if (loading) {
     return (
@@ -61,6 +98,7 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
           ? truncate(thread.last_message, 60)
           : 'No messages yet'
         const time = timeAgo(thread.updated_at || thread.created_at)
+        const unread = !isActive && isUnread(thread, seenMap)
 
         return (
           <div key={thread.id} className="group relative">
@@ -91,6 +129,9 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
                     </span>
                     {!isGroup && thread.agent?.status === 'running' && (
                       <span className="w-1.5 h-1.5 rounded-full bg-brand-400 flex-shrink-0" />
+                    )}
+                    {unread && (
+                      <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" data-testid="unread-dot" />
                     )}
                   </div>
                   {isGroup && thread.agents && thread.agents.length > 0 && (
