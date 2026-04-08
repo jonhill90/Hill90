@@ -141,6 +141,7 @@ describe('Root route non-regression', () => {
 // from drift enforcement. They are tested for auth/RBAC above, not contract coverage.
 const EXPECTED_PATHS = [
   '/health',
+  '/health/detailed',
   '/me',
   '/agents',
   '/agents/{id}',
@@ -285,7 +286,7 @@ describe('Spec contract enforcement', () => {
       for (const [method, operation] of Object.entries(pathItem)) {
         if (method === 'parameters') continue;
         const op = operation as any;
-        if (pathKey === '/health') {
+        if (pathKey === '/health' || pathKey === '/health/detailed') {
           expect(op.security).toEqual([]);
         } else {
           expect(op.security).toBeDefined();

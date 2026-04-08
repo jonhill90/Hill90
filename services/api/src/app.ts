@@ -39,6 +39,37 @@ export function createApp(opts: AppOptions = {}): Application {
     res.json({ status: 'healthy', service: 'api' });
   });
 
+  // Detailed health — public, includes DB check + runtime stats
+  app.get('/health/detailed', async (_req, res) => {
+    const mem = process.memoryUsage();
+    let dbStatus: 'connected' | 'error' = 'error';
+    let dbLatencyMs: number | null = null;
+
+    try {
+      const { getPool } = await import('./db/pool');
+      const start = Date.now();
+      await getPool().query('SELECT 1');
+      dbLatencyMs = Date.now() - start;
+      dbStatus = 'connected';
+    } catch { /* db unreachable */ }
+
+    res.json({
+      status: dbStatus === 'connected' ? 'healthy' : 'degraded',
+      service: 'api',
+      uptime_seconds: Math.floor(process.uptime()),
+      node_version: process.version,
+      database: {
+        status: dbStatus,
+        latency_ms: dbLatencyMs,
+      },
+      memory: {
+        rss_mb: Math.round(mem.rss / 1024 / 1024),
+        heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+        heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+      },
+    });
+  });
+
   // Internal service-to-service endpoints (service-token auth, not Keycloak)
   app.post('/internal/delegation-token', delegationTokenHandler);
   app.post('/internal/chat/callback', chatCallbackHandler);
