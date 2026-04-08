@@ -19,6 +19,7 @@ vi.mock('next/link', () => ({
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   usePathname: () => '/',
+  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),
 }))
 
 // Mock localStorage
