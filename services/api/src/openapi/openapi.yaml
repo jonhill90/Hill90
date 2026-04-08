@@ -3980,6 +3980,43 @@ paths:
         "409":
           description: No running agents in thread
 
+  /chat/threads/{id}/screenshot:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Live browser screenshot from agentbox
+      description: |
+        Proxies to the running agent's agentbox /screenshot endpoint.
+        Returns a base64 PNG screenshot of the current Playwright browser
+        page, or {active: false} if no browser is open.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Screenshot data or inactive status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+                  url:
+                    type: string
+                  title:
+                    type: string
+                  screenshot:
+                    type: string
+                    description: Base64-encoded PNG
+        "404":
+          description: Thread not found or not a participant
+
   # Task management
   /tasks:
     get:

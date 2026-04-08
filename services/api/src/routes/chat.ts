@@ -1606,6 +1606,65 @@ export function stopStaleSweeper(): void {
   }
 }
 
+// ───────────────────────────────────────────────────────────────────
+// GET /chat/threads/:id/screenshot — proxy live browser screenshot from agentbox
+// ───────────────────────────────────────────────────────────────────
+
+const AGENTBOX_PORT = 8054;
+
+router.get('/threads/:id/screenshot', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+    const threadId = req.params.id;
+
+    if (!(await isParticipant(threadId, user.sub, admin))) {
+      res.status(404).json({ error: 'Thread not found' });
+      return;
+    }
+
+    // Find running agent in this thread
+    const pool = getPool();
+    const { rows } = await pool.query(
+      `SELECT a.agent_id
+       FROM chat_participants cp
+       JOIN agents a ON a.id = cp.participant_id::uuid
+       WHERE cp.thread_id = $1 AND cp.participant_type = 'agent'
+         AND cp.left_at IS NULL AND a.status = 'running'
+       LIMIT 1`,
+      [threadId]
+    );
+
+    if (rows.length === 0) {
+      res.json({ active: false });
+      return;
+    }
+
+    const agentSlug = rows[0].agent_id;
+    const url = `http://agentbox-${agentSlug}:${AGENTBOX_PORT}/screenshot`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const upstream = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      const data = await upstream.json();
+      res.json(data);
+    } catch (fetchErr: any) {
+      clearTimeout(timeout);
+      if (fetchErr.name === 'AbortError') {
+        res.json({ active: false, error: 'Timeout reaching agentbox' });
+      } else {
+        res.json({ active: false });
+      }
+    }
+  } catch (err) {
+    console.error('[chat] Screenshot proxy error:', err);
+    res.status(500).json({ error: 'Failed to fetch screenshot' });
+  }
+});
+
 // Export helpers for testing
 export { parseMentions, resolveAgentSlugs, dispatchToAgents };
 

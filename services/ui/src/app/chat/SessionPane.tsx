@@ -88,33 +88,54 @@ function groupEventsWithTerminal(events: AgentEvent[]): GroupedItem[] {
   return items
 }
 
-function BrowserView({ events }: { events: AgentEvent[] }) {
-  // Find the latest screenshot from browser_screenshot events
-  const latestScreenshot = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i]
-      if (
-        e.type === 'tool_result' &&
-        e.tool === 'browser' &&
-        e.metadata?.screenshot
-      ) {
-        return {
-          url: e.metadata.url as string | undefined,
-          screenshot: e.metadata.screenshot as string,
-          timestamp: e.created_at,
+const BROWSER_POLL_MS = 2000
+
+function BrowserView({ threadId, isActive }: { threadId: string; isActive: boolean }) {
+  const [screenshot, setScreenshot] = useState<{ url: string; screenshot: string; title?: string } | null>(null)
+  const [polling, setPolling] = useState(false)
+
+  useEffect(() => {
+    if (!isActive) return
+
+    let cancelled = false
+    setPolling(true)
+
+    async function poll() {
+      while (!cancelled) {
+        try {
+          const res = await fetch(`/api/chat/threads/${threadId}/screenshot`)
+          if (cancelled) break
+          if (res.ok) {
+            const data = await res.json()
+            if (data.active && data.screenshot) {
+              setScreenshot({ url: data.url, screenshot: data.screenshot, title: data.title })
+            }
+          }
+        } catch {
+          // Network error — skip this cycle
+        }
+        if (!cancelled) {
+          await new Promise(r => setTimeout(r, BROWSER_POLL_MS))
         }
       }
     }
-    return null
-  }, [events])
 
-  if (!latestScreenshot) {
+    poll()
+    return () => {
+      cancelled = true
+      setPolling(false)
+    }
+  }, [threadId, isActive])
+
+  if (!screenshot) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6" data-testid="browser-inactive">
         <Globe className="w-10 h-10 text-mountain-500" />
-        <p className="text-sm text-mountain-500 text-center">Browser not active</p>
+        <p className="text-sm text-mountain-500 text-center">
+          {polling ? 'Waiting for browser activity...' : 'Browser not active'}
+        </p>
         <p className="text-xs text-mountain-600 text-center max-w-xs">
-          When the agent uses the Playwright browser tool, screenshots will appear here in real time.
+          When the agent uses the Playwright browser tool, live screenshots will appear here.
         </p>
       </div>
     )
@@ -122,16 +143,16 @@ function BrowserView({ events }: { events: AgentEvent[] }) {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="browser-view">
-      {latestScreenshot.url && (
+      {screenshot.url && (
         <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
           <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
-          <span className="text-xs text-mountain-400 truncate">{latestScreenshot.url}</span>
+          <span className="text-xs text-mountain-400 truncate font-mono" title={screenshot.url}>{screenshot.url}</span>
         </div>
       )}
       <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
         <img
-          src={`data:image/png;base64,${latestScreenshot.screenshot}`}
-          alt="Browser screenshot"
+          src={`data:image/png;base64,${screenshot.screenshot}`}
+          alt={screenshot.title || 'Browser screenshot'}
           className="max-w-full h-auto rounded border border-navy-700"
           data-testid="browser-screenshot"
         />
@@ -259,7 +280,7 @@ export default function SessionPane({ threadId }: Props) {
           <XTerminal threadId={threadId} />
         </Suspense>
       ) : viewMode === 'browser' ? (
-        <BrowserView events={events} />
+        <BrowserView threadId={threadId} isActive={viewMode === 'browser'} />
       ) : (
         <div
           ref={containerRef}

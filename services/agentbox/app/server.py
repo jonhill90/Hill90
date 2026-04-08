@@ -5,6 +5,8 @@ Shell and filesystem functions remain available as direct Python imports
 from app.shell and app.filesystem — no MCP protocol involvement.
 """
 
+import base64
+import json
 import logging
 import os
 
@@ -131,10 +133,36 @@ def create_app(
     async def terminal_ws_endpoint(websocket):
         await ws_terminal_handler(websocket, work_token)
 
+    async def screenshot_endpoint(request: Request):
+        """Capture a screenshot of the current Playwright browser page.
+
+        Returns JSON with base64 PNG screenshot and current URL,
+        or inactive status if no browser page is open.
+        """
+        from app.tools import _browser_page
+
+        if _browser_page is None:
+            return JSONResponse({"active": False})
+
+        try:
+            page = _browser_page
+            png_bytes = await page.screenshot(full_page=False)
+            b64 = base64.b64encode(png_bytes).decode("ascii")
+            return JSONResponse({
+                "active": True,
+                "url": page.url,
+                "title": await page.title(),
+                "screenshot": b64,
+            })
+        except Exception as exc:
+            logger.warning("Screenshot capture failed: %s", exc)
+            return JSONResponse({"active": False, "error": str(exc)[:200]})
+
     return Starlette(routes=[
         Route("/health", health_endpoint, methods=["GET"]),
         Route("/work", work_endpoint, methods=["POST"]),
         Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
+        Route("/screenshot", screenshot_endpoint, methods=["GET"]),
         WebSocketRoute("/terminal/ws", terminal_ws_endpoint),
     ])
 
