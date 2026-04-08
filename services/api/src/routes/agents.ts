@@ -428,6 +428,192 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
   }
 });
 
+// Export agent config
+router.get('/:id/export', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT a.id, a.agent_id, a.name, a.description, a.tools_config,
+              a.cpus, a.mem_limit, a.pids_limit, a.soul_md, a.rules_md,
+              a.autonomy_level, a.container_profile_id,
+              COALESCE(mp.allowed_models, '[]'::jsonb) AS models
+       FROM agents a
+       LEFT JOIN model_policies mp ON mp.id = a.model_policy_id
+       WHERE a.id = $${paramOffset} AND ${scope.where.replace(/created_by/g, 'a.created_by')}`,
+      [...scope.params, req.params.id]
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const agent = rows[0];
+
+    const { rows: skillRows } = await getPool().query(
+      `SELECT s.name, s.scope FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [agent.id]
+    );
+
+    const exportData = {
+      _version: 1,
+      _exported_at: new Date().toISOString(),
+      agent_id: agent.agent_id,
+      name: agent.name,
+      description: agent.description,
+      tools_config: agent.tools_config,
+      cpus: agent.cpus,
+      mem_limit: agent.mem_limit,
+      pids_limit: agent.pids_limit,
+      soul_md: agent.soul_md,
+      rules_md: agent.rules_md,
+      autonomy_level: agent.autonomy_level,
+      model_names: agent.models || [],
+      skill_names: skillRows.map((s: any) => s.name),
+      container_profile_id: agent.container_profile_id,
+    };
+
+    res.setHeader('Content-Disposition', `attachment; filename="${agent.agent_id}.json"`);
+    res.json(exportData);
+  } catch (err) {
+    console.error('[agents] Export error:', err);
+    res.status(500).json({ error: 'Failed to export agent' });
+  }
+});
+
+// Import agent from exported config
+router.post('/import', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const config = req.body;
+
+    if (!config.agent_id || !config.name) {
+      res.status(400).json({ error: 'Exported config must include agent_id and name' });
+      return;
+    }
+
+    if (!/^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/.test(config.agent_id) && !/^[a-z0-9]$/.test(config.agent_id)) {
+      res.status(400).json({ error: 'agent_id must be a lowercase slug (a-z, 0-9, hyphens, 1-63 chars)' });
+      return;
+    }
+
+    const validLevels = ['ask_before_acting', 'act_within_scope', 'full_autonomy'];
+    const autonomyLevel = config.autonomy_level && validLevels.includes(config.autonomy_level)
+      ? config.autonomy_level
+      : 'act_within_scope';
+
+    // Resolve skill_ids from skill_names
+    let validatedSkillIds: string[] = [];
+    let resolvedToolsConfig = config.tools_config || DEFAULT_TOOLS_CONFIG;
+    if (config.skill_names && Array.isArray(config.skill_names) && config.skill_names.length > 0) {
+      const { rows: skillRows } = await getPool().query(
+        'SELECT id, tools_config, scope FROM skills WHERE name = ANY($1::text[])',
+        [config.skill_names]
+      );
+      if (skillRows.some((s: any) => ELEVATED_SCOPES.includes(s.scope)) && !isAdmin(req)) {
+        res.status(403).json({ error: 'Importing agents with elevated-scope skills requires admin role' });
+        return;
+      }
+      validatedSkillIds = skillRows.map((r: any) => r.id);
+      if (skillRows.length > 0) {
+        resolvedToolsConfig = mergeToolsConfigs(skillRows.map((r: any) => r.tools_config));
+      }
+    }
+
+    // Validate model_names
+    const modelNames: string[] = config.model_names && Array.isArray(config.model_names) ? config.model_names : [];
+    if (modelNames.length > 0) {
+      const modelError = await validateModelNames(modelNames, user.sub);
+      if (modelError) {
+        res.status(400).json({ error: modelError });
+        return;
+      }
+    }
+
+    // Validate container_profile_id
+    let profileId = null;
+    if (config.container_profile_id) {
+      const { rows: profileRows } = await getPool().query(
+        'SELECT id FROM container_profiles WHERE id = $1',
+        [config.container_profile_id]
+      );
+      if (profileRows.length > 0) {
+        profileId = config.container_profile_id;
+      }
+    }
+
+    const { rows } = await getPool().query(
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, container_profile_id, autonomy_level, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+               (SELECT id FROM model_policies WHERE name = 'default' AND created_by IS NULL LIMIT 1),
+               $10, $11, $12)
+       RETURNING id, agent_id, name, description, status, tools_config,
+                 cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
+                 model_policy_id, container_profile_id, autonomy_level, error_message, created_at, updated_at, created_by`,
+      [
+        config.agent_id,
+        config.name,
+        config.description || '',
+        JSON.stringify(resolvedToolsConfig),
+        config.cpus || '1.0',
+        config.mem_limit || '1g',
+        config.pids_limit || 200,
+        config.soul_md || '',
+        config.rules_md || '',
+        profileId,
+        autonomyLevel,
+        user.sub,
+      ]
+    );
+
+    const createdAgent = rows[0];
+
+    if (modelNames.length > 0) {
+      const autoPolicyId = await upsertAutoAgentModelsPolicy(
+        createdAgent.id,
+        createdAgent.agent_id,
+        user.sub,
+        user.sub,
+        modelNames
+      );
+      await getPool().query(
+        `UPDATE agents SET model_policy_id = $1, updated_at = NOW() WHERE id = $2`,
+        [autoPolicyId, createdAgent.id]
+      );
+      createdAgent.model_policy_id = autoPolicyId;
+      createdAgent.models = modelNames;
+    } else {
+      createdAgent.models = await resolveAgentModels(createdAgent.model_policy_id);
+    }
+
+    for (const skillId of validatedSkillIds) {
+      await getPool().query(
+        'INSERT INTO agent_skills (agent_id, skill_id, assigned_by) VALUES ($1, $2, $3)',
+        [createdAgent.id, skillId, user.sub]
+      );
+    }
+
+    const { rows: skillRows2 } = await getPool().query(
+      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [createdAgent.id]
+    );
+    createdAgent.skills = skillRows2;
+
+    res.status(201).json(createdAgent);
+  } catch (err: any) {
+    if (err.code === '23505') {
+      res.status(409).json({ error: 'An agent with this agent_id already exists' });
+      return;
+    }
+    console.error('[agents] Import error:', err);
+    res.status(500).json({ error: 'Failed to import agent' });
+  }
+});
+
 // Update agent
 router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
   try {

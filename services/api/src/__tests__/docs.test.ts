@@ -155,6 +155,8 @@ const EXPECTED_PATHS = [
   '/agents/{id}/clone',
   '/agents/{id}/webhooks',
   '/agents/{id}/webhooks/{webhookId}',
+  '/agents/{id}/export',
+  '/agents/import',
   '/model-policies',
   '/model-policies/{id}',
   '/provider-connections',

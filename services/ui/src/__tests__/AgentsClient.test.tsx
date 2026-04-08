@@ -4,6 +4,10 @@ import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/re
 import '@testing-library/jest-dom/vitest'
 
 // Mock next/link
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn(), back: vi.fn(), replace: vi.fn() }),
+}))
+
 vi.mock('next/link', () => ({
   default: ({ children, href, ...props }: { children: React.ReactNode; href: string; [key: string]: any }) => (
     <a href={href} {...props}>{children}</a>
