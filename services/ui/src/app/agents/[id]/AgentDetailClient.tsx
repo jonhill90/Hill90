@@ -74,6 +74,24 @@ function scopeBadge(scope: string): { label: string; colorClasses: string } {
   }
 }
 
+function formatUptime(dateStr: string): string {
+  const ms = Date.now() - new Date(dateStr).getTime()
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ${minutes % 60}m`
+  const days = Math.floor(hours / 24)
+  return `${days}d ${hours % 24}h`
+}
+
+const STATUS_BADGE: Record<string, { dot: string; bg: string; text: string }> = {
+  running: { dot: 'bg-brand-500', bg: 'bg-brand-900/50 border-brand-700', text: 'text-brand-400' },
+  error: { dot: 'bg-red-500', bg: 'bg-red-900/50 border-red-700', text: 'text-red-400' },
+  stopped: { dot: 'bg-mountain-500', bg: 'bg-navy-800/50 border-navy-700', text: 'text-mountain-400' },
+}
+
 type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'workspace' | 'activity'
 
 export default function AgentDetailClient({
@@ -109,6 +127,9 @@ export default function AgentDetailClient({
 
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'timeline' | 'events' | 'logs'>('timeline')
+
+  // Model policy name
+  const [policyName, setPolicyName] = useState<string | null>(null)
 
   // Editable identity (SOUL.md / RULES.md)
   const [editingSoul, setEditingSoul] = useState(false)
@@ -172,6 +193,15 @@ export default function AgentDetailClient({
     const interval = setInterval(fetchAgent, 10000)
     return () => clearInterval(interval)
   }, [agent?.status, fetchAgent])
+
+  // Fetch model policy name
+  useEffect(() => {
+    if (!agent?.model_policy_id) return
+    fetch(`/api/model-policies/${agent.model_policy_id}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.name) setPolicyName(data.name) })
+      .catch(() => {})
+  }, [agent?.model_policy_id])
 
   // Lazy-load usage when Model Access tab selected
   useEffect(() => {
@@ -470,9 +500,16 @@ export default function AgentDetailClient({
             <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
               <div>
                 <dt className="text-mountain-400">State</dt>
-                <dd className="text-white mt-1 flex items-center gap-2">
-                  <StatusDot status={agent.status} />
-                  {agent.status}
+                <dd className="mt-1">
+                  {(() => {
+                    const badge = STATUS_BADGE[agent.status] || STATUS_BADGE.stopped
+                    return (
+                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border ${badge.bg} ${badge.text}`}>
+                        <span className={`h-2 w-2 rounded-full ${badge.dot} ${agent.status === 'running' ? 'animate-pulse' : ''}`} />
+                        {agent.status}
+                      </span>
+                    )
+                  })()}
                 </dd>
               </div>
               <div>
@@ -482,10 +519,20 @@ export default function AgentDetailClient({
                 </dd>
               </div>
               <div>
-                <dt className="text-mountain-400">Last Updated</dt>
-                <dd className="text-white mt-1">{new Date(agent.updated_at).toLocaleString()}</dd>
+                <dt className="text-mountain-400">{agent.status === 'running' ? 'Uptime' : 'Last Updated'}</dt>
+                <dd className="text-white mt-1">
+                  {agent.status === 'running'
+                    ? formatUptime(agent.updated_at)
+                    : new Date(agent.updated_at).toLocaleString()}
+                </dd>
               </div>
             </dl>
+            {agent.model_policy_id && (
+              <div className="mt-3 pt-3 border-t border-navy-700">
+                <dt className="text-mountain-400 text-sm">Model Policy</dt>
+                <dd className="text-white text-sm mt-1">{policyName || agent.model_policy_id}</dd>
+              </div>
+            )}
             {agent.error_message && (
               <div className="mt-3 rounded-md border border-red-700 bg-red-900/30 p-3 text-sm text-red-400">
                 {agent.error_message}
