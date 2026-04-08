@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Providers from '@/components/Providers';
+import KeyboardShortcuts from '@/components/KeyboardShortcuts';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -15,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-navy-900 text-white antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <KeyboardShortcuts />
+        </Providers>
       </body>
     </html>
   );
