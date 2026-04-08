@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
-import { Trash2, Upload } from 'lucide-react'
+import { Trash2, Upload, LayoutTemplate, X } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
 import AgentLevelBadge from '@/components/AgentLevelBadge'
 
@@ -24,6 +24,21 @@ interface Agent {
   created_at: string
   updated_at: string
   created_by: string
+}
+
+interface AgentTemplate {
+  id: string
+  name: string
+  agent_id: string
+  description: string
+  tools_config: Record<string, unknown>
+  soul_md: string
+  rules_md: string
+  cpus: string
+  mem_limit: string
+  pids_limit: number
+  skill_names: string[]
+  model_names: string[]
 }
 
 function scopeBadge(scope: string): { label: string; colorClasses: string } {
@@ -51,6 +66,10 @@ export default function AgentsClient({ session }: { session: Session }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [templates, setTemplates] = useState<AgentTemplate[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [creatingFromTemplate, setCreatingFromTemplate] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -189,6 +208,60 @@ export default function AgentsClient({ session }: { session: Session }) {
     }
   }
 
+  const openTemplates = async () => {
+    setShowTemplates(true)
+    if (templates.length > 0) return
+    setTemplatesLoading(true)
+    try {
+      const res = await fetch('/api/agents/templates')
+      if (res.ok) setTemplates(await res.json())
+    } catch {
+      // silently fail
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }
+
+  const createFromTemplate = async (tpl: AgentTemplate) => {
+    setCreatingFromTemplate(tpl.id)
+    try {
+      let agentId = tpl.agent_id
+      const existing = agents.find(a => a.agent_id === agentId)
+      if (existing) {
+        agentId = `${tpl.agent_id}-${Date.now().toString(36).slice(-4)}`
+      }
+
+      const res = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_id: agentId,
+          name: tpl.name,
+          description: tpl.description,
+          tools_config: tpl.tools_config,
+          soul_md: tpl.soul_md,
+          rules_md: tpl.rules_md,
+          cpus: tpl.cpus,
+          mem_limit: tpl.mem_limit,
+          pids_limit: tpl.pids_limit,
+          model_names: tpl.model_names,
+        }),
+      })
+      if (res.ok) {
+        const created = await res.json()
+        setShowTemplates(false)
+        router.push(`/agents/${created.id}`)
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to create agent from template')
+      }
+    } catch {
+      alert('Failed to create agent from template')
+    } finally {
+      setCreatingFromTemplate(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -242,6 +315,13 @@ export default function AgentsClient({ session }: { session: Session }) {
           >
             <Upload size={14} />
             {importing ? 'Importing...' : 'Import'}
+          </button>
+          <button
+            onClick={openTemplates}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer flex items-center gap-2"
+          >
+            <LayoutTemplate size={14} />
+            From Template
           </button>
           <Link
             href="/agents/new"
@@ -408,6 +488,51 @@ export default function AgentsClient({ session }: { session: Session }) {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Template Picker Modal */}
+      {showTemplates && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-navy-800 border border-navy-700 rounded-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-navy-700">
+              <h2 className="text-lg font-semibold text-white">Create from Template</h2>
+              <button
+                onClick={() => setShowTemplates(false)}
+                className="text-mountain-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {templatesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {templates.map((tpl) => (
+                    <button
+                      key={tpl.id}
+                      onClick={() => createFromTemplate(tpl)}
+                      disabled={creatingFromTemplate !== null}
+                      className="text-left rounded-lg border border-navy-600 bg-navy-900 p-4 hover:border-brand-500/50 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <h3 className="font-semibold text-white mb-1">{tpl.name}</h3>
+                      <p className="text-sm text-mountain-400 mb-3 line-clamp-2">{tpl.description}</p>
+                      <div className="flex items-center gap-3 text-xs text-mountain-500">
+                        <span>{tpl.cpus} CPU</span>
+                        <span>{tpl.mem_limit} RAM</span>
+                      </div>
+                      {creatingFromTemplate === tpl.id && (
+                        <p className="text-xs text-brand-400 mt-2">Creating...</p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </>
