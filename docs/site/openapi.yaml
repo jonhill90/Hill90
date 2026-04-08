@@ -1583,6 +1583,38 @@ paths:
         "404":
           description: Webhook not found
 
+  /agents/{id}/export:
+    get:
+      summary: Export agent configuration
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Agent configuration JSON
+        "404":
+          description: Agent not found
+
+  /agents/import:
+    post:
+      summary: Import agent from exported config
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Agent created from import
+
   /agents/{id}/logs:
     parameters:
       - name: id
