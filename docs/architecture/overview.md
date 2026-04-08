@@ -152,6 +152,7 @@ See [Agent Harness Architecture](./agent-harness.md) for the full design: agentb
 
 ## See Also
 
+- [UI Component Architecture](./ui-components.md) - AppShell, nav, auth patterns, API proxy
 - [Agent Harness Architecture](./agent-harness.md) - Agentbox, agent lifecycle, model-router, AKM
 - [Certificate Management](./certificates.md) - HTTP-01 vs DNS-01 challenges, DNS Manager implementation
 - [Secrets Architecture](./secrets-model.md) - Vault-first architecture, KV paths, AppRole, sync
