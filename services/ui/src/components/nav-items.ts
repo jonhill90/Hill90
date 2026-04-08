@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity, Zap } from 'lucide-react'
+import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity, Zap, Box } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavLink {
@@ -65,6 +65,7 @@ export const NAV_ITEMS: NavItem[] = [
     adminOnly: true,
     children: [
       { type: 'link', id: 'admin-services', label: 'Services', href: '/admin/services', icon: Server },
+      { type: 'link', id: 'admin-profiles', label: 'Profiles', href: '/admin/profiles', icon: Box },
       { type: 'link', id: 'settings', label: 'Settings', href: '/settings', icon: Settings },
     ],
   },
