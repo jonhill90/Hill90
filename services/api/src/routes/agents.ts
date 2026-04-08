@@ -25,6 +25,7 @@ import {
 } from '../services/akm-token';
 import { revokeAgentAkmToken } from '../services/akm-revoke';
 import { dispatchWebhooks } from '../services/webhook-dispatch';
+import { notify } from '../services/notifications';
 import {
   generateAgentModelRouterToken,
   getModelRouterEnvVars,
@@ -1308,6 +1309,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       akm_jti: akmJti, model_router_jti: modelRouterJti,
     });
     dispatchWebhooks(agent.agent_id, agent.id, 'start', { container_id: containerId });
+    notify(agent.created_by, `Agent "${agent.name || agent.agent_id}" started`, 'agent_start', { agent_id: agent.id, agent_slug: agent.agent_id });
     res.json({ status: 'running', container_id: containerId, principal_id: agent.id });
   } catch (err: any) {
     console.error('[agents] Start error:', err);
@@ -1321,6 +1323,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     } catch { /* best effort */ }
 
     dispatchWebhooks(agentSlug, req.params.id, 'error', { error: err.message });
+    notify((req as any).user?.sub, `Agent "${agentSlug}" failed to start: ${err.message}`, 'agent_error', { agent_id: req.params.id, agent_slug: agentSlug });
     res.status(500).json({ error: 'Failed to start agent', detail: err.message });
   }
 });
@@ -1412,6 +1415,7 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
       principal_id: agent.id, owner_sub: agent.created_by, correlation_id: stopCorrelationId,
     });
     dispatchWebhooks(agent.agent_id, agent.id, 'stop', {});
+    notify(agent.created_by, `Agent "${agent.name || agent.agent_id}" stopped`, 'agent_stop', { agent_id: agent.id, agent_slug: agent.agent_id });
     res.json({ status: 'stopped' });
   } catch (err: any) {
     console.error('[agents] Stop error:', err);
