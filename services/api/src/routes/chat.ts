@@ -1227,6 +1227,54 @@ router.get('/threads/:id/events', requireRole('user'), async (req: Request, res:
 });
 
 // ───────────────────────────────────────────────────────────────────
+// GET /chat/threads/:id/screenshot — live browser screenshot from agentbox
+// ───────────────────────────────────────────────────────────────────
+
+const AGENTBOX_PORT = 8054;
+
+router.get('/threads/:id/screenshot', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+    const threadId = req.params.id;
+
+    if (!(await isParticipant(threadId, user.sub, admin))) {
+      res.status(404).json({ error: 'Thread not found' });
+      return;
+    }
+
+    const pool = getPool();
+    const { rows } = await pool.query(
+      `SELECT a.agent_id
+       FROM chat_participants cp
+       JOIN agents a ON a.id = cp.participant_id::uuid
+       WHERE cp.thread_id = $1 AND cp.participant_type = 'agent' AND a.status = 'running'
+       LIMIT 1`,
+      [threadId]
+    );
+
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'No running agent in thread' });
+      return;
+    }
+
+    const agentId = rows[0].agent_id;
+    const url = `http://agentbox-${agentId}:${AGENTBOX_PORT}/screenshot`;
+
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err: any) {
+    if (err.name === 'TimeoutError' || err.code === 'UND_ERR_CONNECT_TIMEOUT') {
+      res.status(504).json({ error: 'Agentbox screenshot timed out' });
+      return;
+    }
+    console.error('[chat] Screenshot proxy error:', err);
+    res.status(502).json({ error: 'Failed to get screenshot from agentbox' });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
 // Internal callback handler (separate router, no Keycloak auth)
 // ───────────────────────────────────────────────────────────────────
 
