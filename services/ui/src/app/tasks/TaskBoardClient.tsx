@@ -26,12 +26,23 @@ const COLUMNS = [
 
 type ColumnId = typeof COLUMNS[number]['id']
 
-const PRIORITY_LABELS: Record<number, { label: string; color: string }> = {
-  1: { label: 'Urgent', color: 'bg-red-900/50 text-red-400 border-red-700' },
-  2: { label: 'High', color: 'bg-amber-900/50 text-amber-400 border-amber-700' },
-  3: { label: 'Medium', color: 'bg-navy-700/50 text-mountain-300 border-navy-600' },
-  4: { label: 'Low', color: 'bg-navy-800/50 text-mountain-500 border-navy-700' },
+const PRIORITY_LABELS: Record<number, { label: string; color: string; dot: string }> = {
+  1: { label: 'Urgent', color: 'bg-red-900/50 text-red-400 border-red-700', dot: 'bg-red-500' },
+  2: { label: 'High', color: 'bg-amber-900/50 text-amber-400 border-amber-700', dot: 'bg-orange-500' },
+  3: { label: 'Medium', color: 'bg-yellow-900/50 text-yellow-400 border-yellow-700', dot: 'bg-yellow-500' },
+  4: { label: 'Low', color: 'bg-navy-800/50 text-mountain-500 border-navy-700', dot: 'bg-mountain-500' },
 }
+
+const FILTER_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'backlog', label: 'Backlog' },
+  { id: 'todo', label: 'Todo' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'review', label: 'Review' },
+  { id: 'done', label: 'Done' },
+] as const
+
+type FilterId = typeof FILTER_TABS[number]['id']
 
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
@@ -61,6 +72,7 @@ export default function TaskBoardClient() {
   const [showNewForm, setShowNewForm] = useState(false)
   const [newTask, setNewTask] = useState<NewTaskForm>({ agent_id: '', title: '', description: '', priority: 3 })
   const [creating, setCreating] = useState(false)
+  const [filter, setFilter] = useState<FilterId>('all')
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -140,12 +152,22 @@ export default function TaskBoardClient() {
     }
   }
 
+  const filteredTasks = filter === 'all' ? tasks : tasks.filter(t => t.status === filter)
+
   const tasksByColumn = (columnId: string) =>
-    tasks.filter(t => t.status === columnId)
+    filteredTasks.filter(t => t.status === columnId)
+
+  const countByStatus = (statusId: string) =>
+    tasks.filter(t => t.status === statusId).length
+
+  const visibleColumns = filter === 'all'
+    ? COLUMNS
+    : COLUMNS.filter(c => c.id === filter)
 
   // Task detail panel
   if (selectedTask) {
     const nextStatuses = COLUMNS.map(c => c.id).filter(s => s !== selectedTask.status)
+    const pri = PRIORITY_LABELS[selectedTask.priority]
     return (
       <div>
         <div className="mb-4">
@@ -160,8 +182,9 @@ export default function TaskBoardClient() {
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-6" data-testid="task-detail">
           <h2 className="text-xl font-semibold text-white mb-2">{selectedTask.title}</h2>
           <div className="flex items-center gap-2 mb-4">
-            <span className={`px-2 py-0.5 text-xs rounded-md border ${PRIORITY_LABELS[selectedTask.priority]?.color || ''}`}>
-              {PRIORITY_LABELS[selectedTask.priority]?.label || `P${selectedTask.priority}`}
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs rounded-md border ${pri?.color || ''}`}>
+              <span className={`h-2 w-2 rounded-full ${pri?.dot || 'bg-mountain-500'}`} />
+              {pri?.label || `P${selectedTask.priority}`}
             </span>
             <span className="text-xs text-mountain-400">{selectedTask.agent_id}</span>
             <span className="text-xs text-mountain-500">Updated {timeAgo(selectedTask.updated_at)}</span>
@@ -207,6 +230,30 @@ export default function TaskBoardClient() {
         >
           + New Task
         </button>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex items-center gap-1 mb-6" data-testid="filter-tabs">
+        {FILTER_TABS.map(tab => {
+          const count = tab.id === 'all' ? tasks.length : countByStatus(tab.id)
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setFilter(tab.id)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                filter === tab.id
+                  ? 'bg-brand-600 text-white'
+                  : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+              }`}
+              data-testid={`filter-${tab.id}`}
+            >
+              {tab.label}
+              <span className={`ml-1.5 ${filter === tab.id ? 'text-white/70' : 'text-mountain-500'}`}>
+                {count}
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       {/* New task form */}
@@ -300,8 +347,13 @@ export default function TaskBoardClient() {
           <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
         </div>
       ) : (
-        <div className="grid grid-cols-5 gap-3" data-testid="board">
-          {COLUMNS.map(col => {
+        <div
+          className={`grid gap-3 ${
+            visibleColumns.length === 1 ? 'grid-cols-1 max-w-md' : 'grid-cols-5'
+          }`}
+          data-testid="board"
+        >
+          {visibleColumns.map(col => {
             const colTasks = tasksByColumn(col.id)
             return (
               <div key={col.id} className="min-h-[200px]" data-testid={`column-${col.id}`}>
@@ -310,23 +362,45 @@ export default function TaskBoardClient() {
                   <span className="text-xs text-mountain-500">{colTasks.length}</span>
                 </div>
                 <div className="space-y-2">
-                  {colTasks.map(task => (
-                    <button
-                      key={task.id}
-                      onClick={() => setSelectedTask(task)}
-                      className="w-full text-left rounded-lg border border-navy-700 bg-navy-900 p-3 hover:border-navy-500 transition-colors cursor-pointer"
-                      data-testid="task-card"
-                    >
-                      <p className="text-sm font-medium text-white line-clamp-2 mb-1">{task.title}</p>
-                      <div className="flex items-center gap-1.5">
-                        <span className={`px-1.5 py-0.5 text-[10px] rounded border ${PRIORITY_LABELS[task.priority]?.color || ''}`}>
-                          {PRIORITY_LABELS[task.priority]?.label || `P${task.priority}`}
-                        </span>
-                        <span className="text-[10px] text-mountain-500 truncate">{task.agent_id}</span>
+                  {colTasks.map(task => {
+                    const pri = PRIORITY_LABELS[task.priority]
+                    return (
+                      <div
+                        key={task.id}
+                        className="rounded-lg border border-navy-700 bg-navy-900 p-3 hover:border-navy-500 transition-colors cursor-pointer"
+                        data-testid="task-card"
+                        onClick={() => setSelectedTask(task)}
+                      >
+                        <div
+                          className="w-full text-left"
+                        >
+                          <p className="text-sm font-medium text-white line-clamp-2 mb-1">{task.title}</p>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`h-2 w-2 rounded-full shrink-0 ${pri?.dot || 'bg-mountain-500'}`} data-testid="priority-dot" />
+                            <span className={`px-1.5 py-0.5 text-[10px] rounded border ${pri?.color || ''}`}>
+                              {pri?.label || `P${task.priority}`}
+                            </span>
+                            <span className="text-[10px] text-mountain-500 truncate">{task.agent_id}</span>
+                          </div>
+                          <p className="text-[10px] text-mountain-500 mt-1">{timeAgo(task.updated_at)}</p>
+                        </div>
+                        {/* Quick status transition */}
+                        <div className="mt-2 pt-2 border-t border-navy-700">
+                          <select
+                            value={task.status}
+                            onChange={e => handleTransition(task.id, e.target.value)}
+                            disabled={transitioning === task.id}
+                            className="w-full rounded-md border border-navy-600 bg-navy-800 px-2 py-1 text-[10px] text-mountain-400 focus:border-brand-500 focus:outline-none cursor-pointer disabled:opacity-50"
+                            data-testid="quick-transition"
+                          >
+                            {COLUMNS.map(c => (
+                              <option key={c.id} value={c.id}>{c.label}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-mountain-500 mt-1">{timeAgo(task.updated_at)}</p>
-                    </button>
-                  ))}
+                    )
+                  })}
                   {colTasks.length === 0 && (
                     <p className="text-xs text-mountain-500 text-center py-4" data-testid="column-empty">
                       No tasks
