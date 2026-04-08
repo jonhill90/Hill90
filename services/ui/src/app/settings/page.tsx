@@ -2,9 +2,10 @@
 
 import { useSession } from 'next-auth/react'
 import { redirect } from 'next/navigation'
-import AppShell from '@/components/AppShell';
+import AppShell from '@/components/AppShell'
+import SettingsClient from './SettingsClient'
 
-export default function Settings() {
+export default function SettingsPage() {
   const { data: session, status } = useSession()
 
   if (status === 'loading') {
@@ -20,13 +21,9 @@ export default function Settings() {
   }
 
   return (
-    <AppShell navExtra={<span className="text-sm font-medium text-white">Settings</span>}>
-      <main className="flex-1 px-6 py-12 max-w-2xl mx-auto w-full">
-        <h1 className="text-2xl font-bold text-white mb-8">Settings</h1>
-
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-6">
-          <p className="text-sm text-mountain-400">Settings options coming soon.</p>
-        </div>
+    <AppShell>
+      <main className="flex-1 px-6 py-12 max-w-6xl mx-auto w-full">
+        <SettingsClient />
       </main>
     </AppShell>
   )

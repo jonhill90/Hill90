@@ -65,6 +65,7 @@ export const NAV_ITEMS: NavItem[] = [
     adminOnly: true,
     children: [
       { type: 'link', id: 'admin-services', label: 'Services', href: '/admin/services', icon: Server },
+      { type: 'link', id: 'settings', label: 'Settings', href: '/settings', icon: Settings },
     ],
   },
 ]
