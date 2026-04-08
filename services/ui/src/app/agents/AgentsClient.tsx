@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Upload } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
 import AgentLevelBadge from '@/components/AgentLevelBadge'
 
@@ -48,6 +49,9 @@ export default function AgentsClient({ session }: { session: Session }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
+  const router = useRouter()
 
   const isAdmin = session.user?.roles?.includes('admin')
 
@@ -156,6 +160,34 @@ export default function AgentsClient({ session }: { session: Session }) {
     }
   }
 
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImporting(true)
+    try {
+      const text = await file.text()
+      const config = JSON.parse(text)
+      const res = await fetch('/api/agents/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      })
+      if (res.ok) {
+        const created = await res.json()
+        router.push(`/agents/${created.id}`)
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to import agent')
+        await fetchData()
+      }
+    } catch {
+      alert('Invalid JSON file')
+    } finally {
+      setImporting(false)
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -195,6 +227,21 @@ export default function AgentsClient({ session }: { session: Session }) {
               {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
             </button>
           )}
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json"
+            onChange={handleImport}
+            className="hidden"
+          />
+          <button
+            onClick={() => importInputRef.current?.click()}
+            disabled={importing}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <Upload size={14} />
+            {importing ? 'Importing...' : 'Import'}
+          </button>
           <Link
             href="/agents/new"
             className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors"
