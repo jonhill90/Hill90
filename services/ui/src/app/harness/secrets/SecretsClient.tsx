@@ -2,7 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
-import { ChevronDown, ChevronRight, KeyRound, Shield, ShieldOff, ShieldAlert } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  KeyRound,
+  Plus,
+  Shield,
+  ShieldOff,
+  ShieldAlert,
+  Trash2,
+  Save,
+  X,
+  Pencil,
+} from 'lucide-react'
 
 interface KeyEntry {
   key: string
@@ -90,7 +102,130 @@ function VaultStatusBar({ status }: { status: VaultStatus | null }) {
   )
 }
 
-function PathRow({ group }: { group: VaultPathGroup }) {
+function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  message: string
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+      <div className="bg-navy-800 border border-navy-600 rounded-lg p-6 max-w-sm w-full mx-4 shadow-xl">
+        <p className="text-sm text-gray-300 mb-6">{message}</p>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-gray-400 hover:text-white rounded border border-navy-600 hover:border-navy-500 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 text-sm text-white bg-red-600 hover:bg-red-500 rounded transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SecretForm({
+  initialPath,
+  initialKey,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  initialPath?: string
+  initialKey?: string
+  onSave: (path: string, key: string, value: string) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const [path, setPath] = useState(initialPath || '')
+  const [key, setKey] = useState(initialKey || '')
+  const [value, setValue] = useState('')
+
+  const isEditing = !!initialKey
+
+  return (
+    <div className="bg-navy-800 border border-navy-600 rounded-lg p-4 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-medium text-white">
+          {isEditing ? `Update ${initialPath}/${initialKey}` : 'Add Secret'}
+        </h3>
+        <button onClick={onCancel} className="text-gray-500 hover:text-gray-300">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="space-y-3">
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Vault Path</label>
+          <input
+            type="text"
+            value={path}
+            onChange={e => setPath(e.target.value)}
+            disabled={isEditing}
+            placeholder="secret/shared/database"
+            className="w-full px-3 py-2 text-sm bg-navy-900 border border-navy-600 rounded text-white placeholder-gray-600 focus:outline-none focus:border-brand-500 disabled:opacity-50"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Key</label>
+          <input
+            type="text"
+            value={key}
+            onChange={e => setKey(e.target.value)}
+            disabled={isEditing}
+            placeholder="DB_PASSWORD"
+            className="w-full px-3 py-2 text-sm bg-navy-900 border border-navy-600 rounded text-white placeholder-gray-600 focus:outline-none focus:border-brand-500 disabled:opacity-50"
+          />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Value</label>
+          <input
+            type="password"
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            placeholder="Enter secret value"
+            className="w-full px-3 py-2 text-sm bg-navy-900 border border-navy-600 rounded text-white placeholder-gray-600 focus:outline-none focus:border-brand-500"
+          />
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-sm text-gray-400 hover:text-white rounded border border-navy-600 hover:border-navy-500 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(path, key, value)}
+            disabled={saving || !path || !key || !value}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-brand-600 hover:bg-brand-500 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save className="h-3.5 w-3.5" />
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PathRow({
+  group,
+  onEdit,
+  onDelete,
+}: {
+  group: VaultPathGroup
+  onEdit: (path: string, key: string) => void
+  onDelete: (path: string, key: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
 
   const allConsumers = [...new Set(group.keys.flatMap(k => k.consumers))].sort()
@@ -121,6 +256,7 @@ function PathRow({ group }: { group: VaultPathGroup }) {
             {allConsumers.length === 0 && <span className="text-xs text-gray-600">none</span>}
           </div>
         </td>
+        <td className="px-4 py-3" />
       </tr>
       {expanded && group.keys.map(k => (
         <tr key={k.key} className="border-b border-navy-800/30 bg-navy-900/50">
@@ -137,6 +273,24 @@ function PathRow({ group }: { group: VaultPathGroup }) {
               {k.consumers.length === 0 && <span className="text-xs text-gray-600">-</span>}
             </div>
           </td>
+          <td className="px-4 py-2">
+            <div className="flex items-center gap-1 justify-end">
+              <button
+                onClick={e => { e.stopPropagation(); onEdit(group.path, k.key) }}
+                className="p-1 text-gray-600 hover:text-brand-400 transition-colors"
+                title="Update value"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); onDelete(group.path, k.key) }}
+                className="p-1 text-gray-600 hover:text-red-400 transition-colors"
+                title="Delete key"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </td>
         </tr>
       ))}
     </>
@@ -151,6 +305,18 @@ export default function SecretsClient() {
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  // CRUD state
+  const [showForm, setShowForm] = useState(false)
+  const [editTarget, setEditTarget] = useState<{ path: string; key: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; key: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const showToast = useCallback((type: 'success' | 'error', message: string) => {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 4000)
+  }, [])
 
   const fetchData = useCallback(async () => {
     try {
@@ -166,7 +332,7 @@ export default function SecretsClient() {
       if (statusRes.ok) {
         setVaultStatus(await statusRes.json())
       }
-    } catch (err) {
+    } catch {
       setError('Failed to connect to API')
     } finally {
       setLoading(false)
@@ -177,6 +343,54 @@ export default function SecretsClient() {
     if (isAdmin) fetchData()
     else setLoading(false)
   }, [isAdmin, fetchData])
+
+  const handleSave = async (path: string, key: string, value: string) => {
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/secrets/kv', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, key, value }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast('error', data.detail || data.error || 'Save failed')
+        return
+      }
+      showToast('success', `Saved ${path}/${key}`)
+      setShowForm(false)
+      setEditTarget(null)
+      fetchData()
+    } catch {
+      showToast('error', 'Failed to save secret')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/admin/secrets/kv', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: deleteTarget.path, key: deleteTarget.key }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        showToast('error', data.detail || data.error || 'Delete failed')
+        return
+      }
+      showToast('success', `Deleted ${deleteTarget.path}/${deleteTarget.key}`)
+      setDeleteTarget(null)
+      fetchData()
+    } catch {
+      showToast('error', 'Failed to delete secret')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   if (!isAdmin) {
     return (
@@ -208,14 +422,56 @@ export default function SecretsClient() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white">Secrets</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          Vault secrets inventory and metadata. Values are never displayed.
-        </p>
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg text-sm shadow-lg border transition-opacity ${
+            toast.type === 'success'
+              ? 'bg-brand-900/80 text-brand-300 border-brand-700'
+              : 'bg-red-900/80 text-red-300 border-red-700'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      {deleteTarget && (
+        <ConfirmDialog
+          message={`Delete key "${deleteTarget.key}" from ${deleteTarget.path}? This cannot be undone.`}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Secrets</h1>
+          <p className="text-sm text-gray-400 mt-1">
+            Vault secrets inventory. Values are write-only — never displayed.
+          </p>
+        </div>
+        <button
+          onClick={() => { setShowForm(true); setEditTarget(null) }}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm text-white bg-brand-600 hover:bg-brand-500 rounded-lg transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Add Secret
+        </button>
       </div>
 
       <VaultStatusBar status={vaultStatus} />
+
+      {/* Add / Edit form */}
+      {(showForm || editTarget) && (
+        <SecretForm
+          initialPath={editTarget?.path}
+          initialKey={editTarget?.key}
+          onSave={handleSave}
+          onCancel={() => { setShowForm(false); setEditTarget(null) }}
+          saving={saving}
+        />
+      )}
 
       {inventory && (
         <>
@@ -232,11 +488,17 @@ export default function SecretsClient() {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Path</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Keys</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Consumers</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {inventory.paths.map(group => (
-                  <PathRow key={group.path} group={group} />
+                  <PathRow
+                    key={group.path}
+                    group={group}
+                    onEdit={(p, k) => setEditTarget({ path: p, key: k })}
+                    onDelete={(p, k) => setDeleteTarget({ path: p, key: k })}
+                  />
                 ))}
               </tbody>
             </table>
