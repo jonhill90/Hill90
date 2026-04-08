@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react'
 import { Menu, Bell, Bot, CheckCircle, AlertCircle, Play } from 'lucide-react'
 import HillLogo from '@/components/HillLogo'
 import AuthButtons from '@/components/AuthButtons'
+import ThemeToggle from '@/components/ThemeToggle'
 import MobileDrawer from '@/components/MobileDrawer'
 
 interface Notification {
@@ -228,6 +229,7 @@ export default function TopBar({ navExtra }: TopBarProps) {
               )}
             </div>
           )}
+          <ThemeToggle />
           <AuthButtons />
         </div>
       </header>
