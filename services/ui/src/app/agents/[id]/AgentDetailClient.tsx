@@ -118,6 +118,7 @@ export default function AgentDetailClient({
   // Logs
   const [logs, setLogs] = useState('')
   const [showLogs, setShowLogs] = useState(false)
+  const [logSearch, setLogSearch] = useState('')
   const logsEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
 
@@ -250,7 +251,9 @@ export default function AgentDetailClient({
       return
     }
 
-    const es = new EventSource(`/api/agents/${agentId}/logs?follow=true&tail=100`)
+    const sseParams = new URLSearchParams({ follow: 'true', tail: '100' })
+    if (logSearch) sseParams.set('search', logSearch)
+    const es = new EventSource(`/api/agents/${agentId}/logs?${sseParams}`)
     eventSourceRef.current = es
 
     es.onmessage = (event) => {
@@ -262,7 +265,7 @@ export default function AgentDetailClient({
     es.addEventListener('error', () => { es.close() })
 
     return () => { es.close() }
-  }, [showLogs, isAdmin, agent?.status, agentId])
+  }, [showLogs, isAdmin, agent?.status, agentId, logSearch])
 
   const handleAction = async (action: 'start' | 'stop') => {
     setActionLoading(true)
@@ -335,7 +338,9 @@ export default function AgentDetailClient({
 
   const fetchLogs = async () => {
     try {
-      const res = await fetch(`/api/agents/${agentId}/logs?tail=200`)
+      const params = new URLSearchParams({ tail: '500' })
+      if (logSearch) params.set('search', logSearch)
+      const res = await fetch(`/api/agents/${agentId}/logs?${params}`)
       if (res.ok) {
         const data = await res.json()
         setLogs(data.logs || '')
@@ -1134,6 +1139,13 @@ export default function AgentDetailClient({
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold text-white">Logs</h2>
                 <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    placeholder="Search logs..."
+                    className="px-3 py-1.5 text-xs rounded-md bg-navy-900 border border-navy-600 text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none w-48"
+                  />
                   {agent.status === 'running' && (
                     <button
                       onClick={() => setShowLogs(!showLogs)}
