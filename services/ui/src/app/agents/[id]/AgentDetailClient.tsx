@@ -288,6 +288,24 @@ export default function AgentDetailClient({
     }
   }
 
+  const handleClone = async () => {
+    setActionLoading(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/clone`, { method: 'POST' })
+      if (res.ok) {
+        const cloned = await res.json()
+        router.push(`/agents/${cloned.id}`)
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to clone agent')
+      }
+    } catch (err) {
+      console.error('Failed to clone:', err)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   const fetchLogs = async () => {
     try {
       const res = await fetch(`/api/agents/${agentId}/logs?tail=200`)
@@ -462,6 +480,13 @@ export default function AgentDetailClient({
               Edit
             </Link>
           )}
+          <button
+            onClick={handleClone}
+            disabled={actionLoading}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+          >
+            Clone
+          </button>
           {isAdmin && (
             <button
               onClick={handleDelete}
