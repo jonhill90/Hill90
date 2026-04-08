@@ -40,9 +40,22 @@ interface ContainerProfileOption {
   is_platform: boolean
 }
 
-interface PolicyOption {
+interface ModelPolicyOption {
+  id: string
+  name: string
+  description: string
+  allowed_models: string[]
+  created_by: string | null
+}
+
+interface UserModelOption {
   name: string
 }
+
+const AGENT_ID_REGEX = /^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?$/
+const DESCRIPTION_MAX = 500
+
+type ModelMode = 'policy' | 'manual'
 
 export default function AgentFormClient({
   initial,
@@ -65,6 +78,7 @@ export default function AgentFormClient({
     models?: string[]
     skills?: Array<{ id: string; name: string; scope: string }>
     container_profile_id?: string | null
+    model_policy_id?: string | null
   }
   agentUuid?: string
   disabled?: boolean
@@ -78,6 +92,7 @@ export default function AgentFormClient({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [validationError, setValidationError] = useState('')
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
 
   const [agentId, setAgentId] = useState(initial?.agent_id || '')
   const [name, setName] = useState(initial?.name || '')
@@ -87,8 +102,11 @@ export default function AgentFormClient({
   const [pidsLimit, setPidsLimit] = useState(initial?.pids_limit || 200)
   const [soulMd, setSoulMd] = useState(initial?.soul_md || '')
   const [rulesMd, setRulesMd] = useState(initial?.rules_md || '')
-  const [availableModels, setAvailableModels] = useState<PolicyOption[]>([])
+  const [availableModels, setAvailableModels] = useState<UserModelOption[]>([])
   const [selectedModels, setSelectedModels] = useState<string[]>(initial?.models || [])
+  const [modelPolicies, setModelPolicies] = useState<ModelPolicyOption[]>([])
+  const [selectedPolicyId, setSelectedPolicyId] = useState<string>(initial?.model_policy_id || '')
+  const [modelMode, setModelMode] = useState<ModelMode>(initial?.model_policy_id ? 'policy' : 'manual')
   const [skills, setSkills] = useState<SkillOption[]>([])
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
     new Set(initial?.skills?.map(s => s.id) || [])
@@ -118,6 +136,10 @@ export default function AgentFormClient({
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setContainerProfiles(data))
       .catch(() => {})
+    fetch('/api/model-policies')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setModelPolicies(data))
+      .catch(() => {})
   }, [])
 
   const handleProfileChange = (profileId: string) => {
@@ -139,7 +161,35 @@ export default function AgentFormClient({
     })
   }
 
+  // Inline validation
+  const agentIdError = touched.agent_id && agentId.length > 0 && !AGENT_ID_REGEX.test(agentId)
+    ? 'Must be lowercase letters, numbers, and hyphens. Cannot start or end with a hyphen.'
+    : touched.agent_id && agentId.length === 0
+    ? 'Agent ID is required'
+    : ''
+
+  const nameError = touched.name && name.trim().length === 0
+    ? 'Name is required'
+    : ''
+
+  const descriptionOver = description.length > DESCRIPTION_MAX
+
   const validateForm = (): boolean => {
+    // Mark all as touched
+    setTouched({ agent_id: true, name: true })
+
+    if (!agentId || !AGENT_ID_REGEX.test(agentId)) {
+      setValidationError('Agent ID must be lowercase alphanumeric with optional hyphens (1-63 chars)')
+      return false
+    }
+    if (!name.trim()) {
+      setValidationError('Name is required')
+      return false
+    }
+    if (descriptionOver) {
+      setValidationError(`Description must be ${DESCRIPTION_MAX} characters or fewer`)
+      return false
+    }
     if (selectedSkillIds.size === 0) {
       setValidationError('Please select at least one skill')
       return false
@@ -169,7 +219,11 @@ export default function AgentFormClient({
     // D10: Non-owner must NOT include model_names key — not even as null/empty.
     // The API's CASE WHEN flag pattern preserves existing values only when key is absent.
     if (isOwner) {
-      body.model_names = selectedModels
+      if (modelMode === 'policy' && selectedPolicyId) {
+        body.model_policy_id = selectedPolicyId
+      } else {
+        body.model_names = selectedModels
+      }
     }
     if (selectedProfileId) {
       body.container_profile_id = selectedProfileId
@@ -199,6 +253,8 @@ export default function AgentFormClient({
     }
   }
 
+  const selectedPolicy = modelPolicies.find(p => p.id === selectedPolicyId)
+
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
       {error && (
@@ -219,9 +275,9 @@ export default function AgentFormClient({
         </div>
       )}
 
-      {/* Basic Info */}
+      {/* ── Identity ── */}
       <fieldset disabled={disabled} className="space-y-4">
-        <legend className="text-lg font-semibold text-white mb-4">Basic Info</legend>
+        <legend className="text-lg font-semibold text-white mb-4">Identity</legend>
 
         <div>
           <label htmlFor="agent_id" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
@@ -232,13 +288,22 @@ export default function AgentFormClient({
             type="text"
             value={agentId}
             onChange={(e) => setAgentId(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+            onBlur={() => setTouched(prev => ({ ...prev, agent_id: true }))}
             disabled={isEdit}
             required
-            pattern="[a-z0-9][a-z0-9-]{0,61}[a-z0-9]?"
             maxLength={63}
             placeholder="my-agent"
-            className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm placeholder:text-mountain-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
+            className={`w-full rounded-lg border bg-navy-900 px-3 py-2 text-white text-sm placeholder:text-mountain-600 focus:outline-none disabled:opacity-50 ${
+              agentIdError ? 'border-red-600 focus:border-red-500' : 'border-navy-600 focus:border-brand-500'
+            }`}
           />
+          {agentIdError ? (
+            <p className="text-xs text-red-400 mt-1">{agentIdError}</p>
+          ) : (
+            <p className="text-xs text-mountain-600 mt-1">
+              Lowercase letters, numbers, and hyphens only. {agentId.length}/63
+            </p>
+          )}
         </div>
 
         <div>
@@ -250,83 +315,47 @@ export default function AgentFormClient({
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            onBlur={() => setTouched(prev => ({ ...prev, name: true }))}
             required
             maxLength={255}
             placeholder="My Agent"
-            className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm placeholder:text-mountain-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
+            className={`w-full rounded-lg border bg-navy-900 px-3 py-2 text-white text-sm placeholder:text-mountain-600 focus:outline-none disabled:opacity-50 ${
+              nameError ? 'border-red-600 focus:border-red-500' : 'border-navy-600 focus:border-brand-500'
+            }`}
           />
+          {nameError && <p className="text-xs text-red-400 mt-1">{nameError}</p>}
         </div>
 
         <div>
-          <label htmlFor="description" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            Description
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label htmlFor="description" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide">
+              Description
+            </label>
+            <span className={`text-xs ${descriptionOver ? 'text-red-400' : 'text-mountain-500'}`}>
+              {description.length}/{DESCRIPTION_MAX}
+            </span>
+          </div>
           <textarea
             id="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
+            maxLength={DESCRIPTION_MAX}
             placeholder="What does this agent do?"
-            className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm placeholder:text-mountain-600 focus:border-brand-500 focus:outline-none disabled:opacity-50"
+            className={`w-full rounded-lg border bg-navy-900 px-3 py-2 text-white text-sm placeholder:text-mountain-600 focus:outline-none disabled:opacity-50 ${
+              descriptionOver ? 'border-red-600 focus:border-red-500' : 'border-navy-600 focus:border-brand-500'
+            }`}
           />
         </div>
       </fieldset>
 
-      {/* Skills */}
+      {/* ── Resources ── */}
       <fieldset disabled={disabled} className="space-y-4">
-        <legend className="text-lg font-semibold text-white mb-4">Tools</legend>
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
-          <p className="text-xs text-mountain-400 mb-2">
-            Select one or more skills. Runtime access is derived from skill dependencies and RBAC scope.
-          </p>
-          {(() => {
-            const visibleSkills = isAdmin ? skills : skills.filter(s => !ELEVATED_SCOPES.includes(s.scope))
-            return (
-              <div className="space-y-2">
-                {visibleSkills.map((skill) => {
-                  const badge = scopeBadge(skill.scope)
-                  return (
-                    <label key={skill.id} className="flex items-center gap-3 cursor-pointer py-1">
-                      <input
-                        type="checkbox"
-                        checked={selectedSkillIds.has(skill.id)}
-                        onChange={() => handleSkillToggle(skill.id)}
-                        className="rounded border-navy-600"
-                      />
-                      <span className="text-sm text-white">{skill.name}</span>
-                      <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
-                        {badge.label}
-                      </span>
-                      {skill.tools && skill.tools.length > 0 && (
-                        <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
-                          {skill.tools.map(t => t.name).join(', ')}
-                        </span>
-                      )}
-                    </label>
-                  )
-                })}
-                {visibleSkills.length === 0 && (
-                  <p className="text-xs text-mountain-500">No skills available</p>
-                )}
-              </div>
-            )
-          })()}
-          {selectedSkillIds.size > 0 && (
-            <div className="border-t border-navy-700 pt-3">
-              <p className="text-xs text-mountain-500">
-                {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? 's' : ''} selected.
-              </p>
-            </div>
-          )}
-        </div>
-      </fieldset>
+        <legend className="text-lg font-semibold text-white mb-4">Resources</legend>
 
-      {/* Container Profile */}
-      <fieldset disabled={disabled} className="space-y-4">
-        <legend className="text-lg font-semibold text-white mb-4">Container Profile</legend>
         <div>
           <label htmlFor="container_profile" className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            Runtime Profile
+            Container Profile
           </label>
           <select
             id="container_profile"
@@ -341,70 +370,10 @@ export default function AgentFormClient({
               </option>
             ))}
           </select>
-          <p className="text-xs text-mountain-500 mt-1">
-            Determines the Docker image and default resource limits for this agent.
+          <p className="text-xs text-mountain-600 mt-1">
+            Determines the Docker image and default resource limits.
           </p>
         </div>
-      </fieldset>
-
-      {/* Models */}
-      <fieldset disabled={disabled} className="space-y-4">
-        <legend className="text-lg font-semibold text-white mb-4">Models</legend>
-
-        {!isOwner && (
-          <div className="rounded-lg border border-yellow-700 bg-yellow-900/30 p-4 text-sm text-yellow-400">
-            Model assignment is managed by the agent owner. You cannot change model configuration for agents you don&apos;t own.
-          </div>
-        )}
-
-        <div>
-          <label className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-1">
-            {isOwner ? 'Assign Models' : 'Assigned Models'}
-          </label>
-          <div className="max-h-48 overflow-y-auto rounded-lg border border-navy-700 bg-navy-800 p-3 space-y-2">
-            {isOwner ? (
-              availableModels.length === 0 ? (
-                <p className="text-xs text-mountain-500">No models available. Add a provider connection and create a model first.</p>
-              ) : (
-                availableModels.map((m) => (
-                  <label key={m.name} className="flex items-center gap-2 text-sm text-white cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={selectedModels.includes(m.name)}
-                      onChange={() => {
-                        setSelectedModels((prev) => (
-                          prev.includes(m.name)
-                            ? prev.filter((v) => v !== m.name)
-                            : [...prev, m.name]
-                        ))
-                      }}
-                      className="rounded border-navy-600"
-                    />
-                    {m.name}
-                  </label>
-                ))
-              )
-            ) : (
-              selectedModels.length === 0 ? (
-                <p className="text-xs text-mountain-500">No models assigned</p>
-              ) : (
-                selectedModels.map((name) => (
-                  <div key={name} className="text-sm text-white py-1">{name}</div>
-                ))
-              )
-            )}
-          </div>
-          {isOwner && (
-            <p className="text-xs text-mountain-500 mt-1">
-              Select one or more models this agent can access.
-            </p>
-          )}
-        </div>
-      </fieldset>
-
-      {/* Resources */}
-      <fieldset disabled={disabled} className="space-y-4">
-        <legend className="text-lg font-semibold text-white mb-4">Resources</legend>
 
         <div className="grid grid-cols-3 gap-4">
           <div>
@@ -448,9 +417,178 @@ export default function AgentFormClient({
         </div>
       </fieldset>
 
-      {/* Identity */}
+      {/* ── Configuration ── */}
+      <fieldset disabled={disabled} className="space-y-6">
+        <legend className="text-lg font-semibold text-white mb-4">Configuration</legend>
+
+        {/* Skills */}
+        <div>
+          <label className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-2">
+            Skills
+          </label>
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-4 space-y-3">
+            <p className="text-xs text-mountain-400 mb-2">
+              Select one or more skills. Runtime access is derived from skill dependencies and RBAC scope.
+            </p>
+            {(() => {
+              const visibleSkills = isAdmin ? skills : skills.filter(s => !ELEVATED_SCOPES.includes(s.scope))
+              return (
+                <div className="space-y-2">
+                  {visibleSkills.map((skill) => {
+                    const badge = scopeBadge(skill.scope)
+                    return (
+                      <label key={skill.id} className="flex items-center gap-3 cursor-pointer py-1">
+                        <input
+                          type="checkbox"
+                          checked={selectedSkillIds.has(skill.id)}
+                          onChange={() => handleSkillToggle(skill.id)}
+                          className="rounded border-navy-600"
+                        />
+                        <span className="text-sm text-white">{skill.name}</span>
+                        <span className={`px-1.5 py-0.5 text-xs rounded-md ${badge.colorClasses}`}>
+                          {badge.label}
+                        </span>
+                        {skill.tools && skill.tools.length > 0 && (
+                          <span className="px-1.5 py-0.5 text-xs rounded-md bg-navy-800 text-mountain-300 border border-navy-600 font-mono">
+                            {skill.tools.map(t => t.name).join(', ')}
+                          </span>
+                        )}
+                      </label>
+                    )
+                  })}
+                  {visibleSkills.length === 0 && (
+                    <p className="text-xs text-mountain-500">No skills available</p>
+                  )}
+                </div>
+              )
+            })()}
+            {selectedSkillIds.size > 0 && (
+              <div className="border-t border-navy-700 pt-3">
+                <p className="text-xs text-mountain-500">
+                  {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? 's' : ''} selected.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Models */}
+        <div>
+          <label className="block text-xs font-medium text-mountain-500 uppercase tracking-wide mb-2">
+            Models
+          </label>
+
+          {!isOwner && (
+            <div className="rounded-lg border border-yellow-700 bg-yellow-900/30 p-4 text-sm text-yellow-400 mb-3">
+              Model assignment is managed by the agent owner. You cannot change model configuration for agents you don&apos;t own.
+            </div>
+          )}
+
+          {isOwner && (
+            <div className="flex gap-1 mb-3">
+              <button
+                type="button"
+                onClick={() => setModelMode('policy')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  modelMode === 'policy'
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-navy-800 text-mountain-400 hover:text-white border border-navy-700'
+                }`}
+              >
+                Use Policy
+              </button>
+              <button
+                type="button"
+                onClick={() => setModelMode('manual')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  modelMode === 'manual'
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-navy-800 text-mountain-400 hover:text-white border border-navy-700'
+                }`}
+              >
+                Select Models
+              </button>
+            </div>
+          )}
+
+          {isOwner && modelMode === 'policy' ? (
+            <div>
+              <select
+                value={selectedPolicyId}
+                onChange={(e) => setSelectedPolicyId(e.target.value)}
+                className="w-full rounded-lg border border-navy-600 bg-navy-900 px-3 py-2 text-white text-sm focus:border-brand-500 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">Select a model policy...</option>
+                {modelPolicies.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{!p.created_by ? ' (platform)' : ''}
+                  </option>
+                ))}
+              </select>
+              {selectedPolicy && (
+                <div className="mt-2 rounded-lg border border-navy-700 bg-navy-800 p-3">
+                  {selectedPolicy.description && (
+                    <p className="text-xs text-mountain-400 mb-2">{selectedPolicy.description}</p>
+                  )}
+                  <div className="flex flex-wrap gap-1">
+                    {selectedPolicy.allowed_models.map((m) => (
+                      <span key={m} className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md bg-brand-900/30 text-brand-400 border border-brand-800">
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-mountain-600 mt-1">
+                A policy defines which models the agent can use, plus optional rate/budget limits.
+              </p>
+            </div>
+          ) : isOwner ? (
+            <div>
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-navy-700 bg-navy-800 p-3 space-y-2">
+                {availableModels.length === 0 ? (
+                  <p className="text-xs text-mountain-500">No models available. Add a provider connection and create a model first.</p>
+                ) : (
+                  availableModels.map((m) => (
+                    <label key={m.name} className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedModels.includes(m.name)}
+                        onChange={() => {
+                          setSelectedModels((prev) => (
+                            prev.includes(m.name)
+                              ? prev.filter((v) => v !== m.name)
+                              : [...prev, m.name]
+                          ))
+                        }}
+                        className="rounded border-navy-600"
+                      />
+                      {m.name}
+                    </label>
+                  ))
+                )}
+              </div>
+              <p className="text-xs text-mountain-600 mt-1">
+                Select one or more models this agent can access.
+              </p>
+            </div>
+          ) : (
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-navy-700 bg-navy-800 p-3 space-y-2">
+              {selectedModels.length === 0 ? (
+                <p className="text-xs text-mountain-500">No models assigned</p>
+              ) : (
+                selectedModels.map((n) => (
+                  <div key={n} className="text-sm text-white py-1">{n}</div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </fieldset>
+
+      {/* ── Identity Docs ── */}
       <fieldset disabled={disabled} className="space-y-4">
-        <legend className="text-lg font-semibold text-white mb-4">Identity</legend>
+        <legend className="text-lg font-semibold text-white mb-4">Identity Docs</legend>
 
         <div>
           <div className="flex items-center justify-between mb-1">

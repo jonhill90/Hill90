@@ -54,14 +54,11 @@ describe('AgentFormClient', () => {
 
   it('renders basic sections and skill selection', async () => {
     render(<AgentFormClient />)
-    await waitFor(() => expect(screen.getByText('Basic Info')).toBeInTheDocument())
-    expect(screen.getByText('Tools')).toBeInTheDocument()
-    expect(screen.getByText('Models')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Identity')).toBeInTheDocument())
     expect(screen.getByText('Resources')).toBeInTheDocument()
-    expect(screen.getByText('Identity')).toBeInTheDocument()
+    expect(screen.getByText('Configuration')).toBeInTheDocument()
     expect(screen.getByText('Minimal')).toBeInTheDocument()
     expect(screen.getByText('Developer')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Custom')).not.toBeInTheDocument()
   })
 
   it('non-admin does not see elevated skills', async () => {
@@ -106,7 +103,7 @@ describe('AgentFormClient', () => {
   it('renders profile selector with standard profile option', async () => {
     render(<AgentFormClient />)
     await waitFor(() => expect(screen.getByText('Container Profile')).toBeInTheDocument())
-    const select = screen.getByLabelText('Runtime Profile') as HTMLSelectElement
+    const select = screen.getByLabelText('Container Profile') as HTMLSelectElement
     expect(select).toBeInTheDocument()
     // Verify standard profile option exists
     await waitFor(() => {
@@ -119,9 +116,10 @@ describe('AgentFormClient', () => {
   it('shows empty state when no user models available', async () => {
     mockFetch.mockImplementation((url: string, opts?: any) => {
       if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+      if (url === '/api/model-policies') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_POLICIES) })
       if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
       if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     })
     render(<AgentFormClient />)
     await waitFor(() => expect(screen.getByText(/no models available/i)).toBeInTheDocument())
@@ -134,7 +132,7 @@ describe('AgentFormClient', () => {
       if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve([{ id: 'um-1', name: 'my-model', is_active: true }]) })
       if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
       if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     })
     render(<AgentFormClient />)
     await waitFor(() => expect(screen.getByText('my-model')).toBeInTheDocument())
@@ -147,7 +145,7 @@ describe('AgentFormClient', () => {
       if (url === '/api/user-models') return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
       if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
       if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     })
     render(<AgentFormClient />)
     await waitFor(() => expect(screen.getByText(/no models available/i)).toBeInTheDocument())
@@ -173,13 +171,10 @@ describe('AgentFormClient', () => {
       if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
       if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
       if (typeof url === 'string' && url.startsWith('/api/agents/') && opts?.method === 'PUT') return Promise.resolve({ ok: true, json: () => Promise.resolve({ id: 'existing-uuid' }) })
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     })
     render(<AgentFormClient initial={initial} agentUuid="uuid-1" />)
     await waitFor(() => expect(screen.getByText('edit-model')).toBeInTheDocument())
-    // Verify no model-policies fetch was made
-    const fetchCalls = mockFetch.mock.calls.map((c: any[]) => c[0])
-    expect(fetchCalls).not.toContain('/api/model-policies')
   })
 
   // M5: Inactive owned model excluded from picker
@@ -194,7 +189,7 @@ describe('AgentFormClient', () => {
       })
       if (url === '/api/skills') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_SKILLS) })
       if (url === '/api/container-profiles') return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_CONTAINER_PROFILES) })
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     })
     render(<AgentFormClient />)
     await waitFor(() => expect(screen.getByText('active-model')).toBeInTheDocument())
@@ -224,10 +219,10 @@ describe('AgentFormClient', () => {
       />
     )
     await waitFor(() => expect(screen.getByText('my-custom-model')).toBeInTheDocument())
-    // Model should appear as plain text, not as a checkbox in the models section
-    const modelsSection = screen.getByText('Assigned Models').closest('fieldset')!
-    const modelCheckboxes = modelsSection.querySelectorAll('input[type="checkbox"]')
-    expect(modelCheckboxes).toHaveLength(0)
+    // Non-owner should see ownership banner, not model picker
+    expect(screen.getByText(/model assignment is managed by the agent owner/i)).toBeInTheDocument()
+    // No "Select Models" or "Use Policy" buttons visible
+    expect(screen.queryByText('Select Models')).not.toBeInTheDocument()
   })
 
   // G2: Non-owner sees ownership banner
@@ -362,7 +357,7 @@ describe('AgentFormClient', () => {
   })
 
   // G6: Owner sees normal editable model section
-  it('G6: owner sees normal editable model section with checkboxes', async () => {
+  it('G6: owner sees normal editable model section', async () => {
     const initial = {
       agent_id: 'my-agent',
       name: 'My Agent',
@@ -383,11 +378,9 @@ describe('AgentFormClient', () => {
         currentUserSub="user-123"
       />
     )
-    await waitFor(() => expect(screen.getByText('Assign Models')).toBeInTheDocument())
-    // Owner should see checkboxes in the models section
-    const modelsSection = screen.getByText('Assign Models').closest('fieldset')!
-    const modelCheckboxes = modelsSection.querySelectorAll('input[type="checkbox"]')
-    expect(modelCheckboxes.length).toBeGreaterThan(0)
+    // Owner should see model mode buttons
+    await waitFor(() => expect(screen.getByText('Use Policy')).toBeInTheDocument())
+    expect(screen.getByText('Select Models')).toBeInTheDocument()
     // No ownership banner
     expect(screen.queryByText(/model assignment is managed by the agent owner/i)).not.toBeInTheDocument()
   })
@@ -395,7 +388,8 @@ describe('AgentFormClient', () => {
   // G7: Owner with no agentOwner prop sees editable (create flow)
   it('G7: no agentOwner prop shows editable model section (create flow)', async () => {
     render(<AgentFormClient />)
-    await waitFor(() => expect(screen.getByText('Assign Models')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Use Policy')).toBeInTheDocument())
+    expect(screen.getByText('Select Models')).toBeInTheDocument()
     expect(screen.queryByText(/model assignment is managed by the agent owner/i)).not.toBeInTheDocument()
   })
 
