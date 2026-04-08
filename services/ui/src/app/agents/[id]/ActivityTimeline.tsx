@@ -8,6 +8,11 @@ import {
   Info,
   AlertTriangle,
   Clock,
+  Terminal,
+  MessageSquare,
+  RefreshCw,
+  Wrench,
+  type LucideIcon,
 } from 'lucide-react'
 
 interface ActivityEvent {
@@ -32,11 +37,20 @@ function classifyEvent(event: ActivityEvent): DotVariant {
   return 'info'
 }
 
-const DOT_STYLES: Record<DotVariant, { dot: string; icon: typeof Circle }> = {
+const DOT_STYLES: Record<DotVariant, { dot: string; icon: LucideIcon }> = {
   success: { dot: 'bg-brand-500', icon: CheckCircle2 },
   error: { dot: 'bg-red-500', icon: AlertCircle },
   info: { dot: 'bg-blue-500', icon: Info },
   warning: { dot: 'bg-yellow-500', icon: AlertTriangle },
+}
+
+function iconForEvent(event: ActivityEvent): LucideIcon | null {
+  const t = event.type
+  if (t === 'command_start' || t === 'command_complete' || t === 'command_output') return Terminal
+  if (t.startsWith('chat_')) return MessageSquare
+  if (t.startsWith('tool_call')) return Wrench
+  if (t === 'work_received' || t === 'work_completed' || t === 'work_failed') return RefreshCw
+  return null
 }
 
 function relativeTime(timestamp: string): string {
@@ -211,7 +225,7 @@ export default function ActivityTimeline({
           {events.map((event) => {
             const variant = classifyEvent(event)
             const style = DOT_STYLES[variant]
-            const Icon = style.icon
+            const Icon = iconForEvent(event) || style.icon
             const desc = eventDescription(event)
 
             return (
