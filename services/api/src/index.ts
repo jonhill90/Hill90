@@ -46,8 +46,10 @@ async function start() {
 
   // Ensure MinIO avatar bucket exists (safe-fail: log error but continue)
   try {
-    await ensureBucket(getS3Client(), AVATAR_BUCKET);
-    console.log('[startup] Avatar bucket ready');
+    const s3 = getS3Client();
+    await ensureBucket(s3, AVATAR_BUCKET);
+    await ensureBucket(s3, 'agent-avatars');
+    console.log('[startup] Avatar buckets ready');
   } catch (err) {
     console.error('[startup] Avatar bucket init failed, avatar routes may error:', err);
   }

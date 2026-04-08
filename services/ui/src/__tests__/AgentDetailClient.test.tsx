@@ -53,6 +53,7 @@ const MOCK_AGENT = {
   model_policy_id: 'policy-1',
   models: ['gpt-4o-mini', 'claude-sonnet-4-5-20250929'],
   skills: [],
+  hasAvatar: false,
   error_message: null,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-15T00:00:00Z',

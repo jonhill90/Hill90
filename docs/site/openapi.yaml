@@ -1615,6 +1615,33 @@ paths:
         "201":
           description: Agent created from import
 
+  /agents/{id}/avatar:
+    put:
+      summary: Upload agent avatar
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Avatar updated
+        "404":
+          description: Agent not found
+
   /agents/{id}/logs:
     parameters:
       - name: id

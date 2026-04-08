@@ -20,6 +20,7 @@ interface Agent {
   models: string[]
   avatar_key: string | null
   skills: Array<{ id: string; name: string; scope: string }>
+  hasAvatar: boolean
   created_at: string
   updated_at: string
   created_by: string
