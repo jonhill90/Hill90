@@ -1,19 +1,25 @@
 /**
- * Secrets Vault UI — read-only inventory surface (Phase 1, AI-147).
+ * Secrets Vault UI — inventory + CRUD surface.
  *
  * Parses platform/vault/secrets-schema.yaml to produce a grouped
  * inventory of vault paths, key names, and consumer services.
- * NEVER exposes secret values — metadata only.
+ *
+ * CRUD operations talk directly to OpenBao KV v2 API via BAO_TOKEN.
+ * Secret values are write-only — the read endpoint returns key names,
+ * never values.
  *
  * Endpoints:
- *   GET /admin/secrets        — grouped inventory from schema
- *   GET /admin/secrets/status — vault seal status (degrades gracefully)
+ *   GET    /admin/secrets           — grouped inventory from schema
+ *   GET    /admin/secrets/status    — vault seal status
+ *   PUT    /admin/secrets/kv       — create or update a secret key
+ *   DELETE /admin/secrets/kv       — delete a secret key
  */
 
 import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
+import { kvPut, kvDeleteKey, isVaultConfigured } from '../helpers/vault-client';
 
 const router = Router();
 
@@ -54,7 +60,7 @@ function loadSchema(): SecretsSchema {
   return cachedSchema;
 }
 
-/** Extract service name from compose filename (e.g., docker-compose.api.yml → api). */
+/** Extract service name from compose filename (e.g., docker-compose.api.yml -> api). */
 function extractService(composeRef: string): string {
   const match = composeRef.match(/docker-compose\.(.+)\.yml/);
   return match ? match[1] : composeRef;
@@ -132,6 +138,88 @@ router.get('/status', async (_req: Request, res: Response) => {
       initialized: null,
       version: null,
       cluster_name: null,
+    });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
+// PUT /admin/secrets/kv — create or update a secret key
+// ───────────────────────────────────────────────────────────────────
+
+router.put('/kv', async (req: Request, res: Response) => {
+  if (!isVaultConfigured()) {
+    res.status(503).json({ error: 'Vault token not configured' });
+    return;
+  }
+
+  const { path: secretPath, key, value } = req.body as {
+    path?: string;
+    key?: string;
+    value?: string;
+  };
+
+  if (!secretPath || !key || value === undefined || value === null) {
+    res.status(400).json({ error: 'path, key, and value are required' });
+    return;
+  }
+
+  // Normalize: strip secret/ prefix since KV v2 API path adds it
+  const normalizedPath = secretPath.startsWith('secret/')
+    ? secretPath.slice('secret/'.length)
+    : secretPath;
+
+  try {
+    await kvPut(normalizedPath, key, value);
+    const user = (req as any).user;
+    console.log(
+      `[secrets] Key written: ${secretPath}/${key} by ${user?.preferred_username || 'unknown'}`,
+    );
+    res.json({ ok: true, path: secretPath, key });
+  } catch (err) {
+    console.error('[secrets] Write failed:', err);
+    res.status(502).json({
+      error: 'Vault write failed',
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
+// DELETE /admin/secrets/kv — delete a secret key
+// ───────────────────────────────────────────────────────────────────
+
+router.delete('/kv', async (req: Request, res: Response) => {
+  if (!isVaultConfigured()) {
+    res.status(503).json({ error: 'Vault token not configured' });
+    return;
+  }
+
+  const { path: secretPath, key } = req.body as {
+    path?: string;
+    key?: string;
+  };
+
+  if (!secretPath || !key) {
+    res.status(400).json({ error: 'path and key are required' });
+    return;
+  }
+
+  const normalizedPath = secretPath.startsWith('secret/')
+    ? secretPath.slice('secret/'.length)
+    : secretPath;
+
+  try {
+    await kvDeleteKey(normalizedPath, key);
+    const user = (req as any).user;
+    console.log(
+      `[secrets] Key deleted: ${secretPath}/${key} by ${user?.preferred_username || 'unknown'}`,
+    );
+    res.json({ ok: true, path: secretPath, key });
+  } catch (err) {
+    console.error('[secrets] Delete failed:', err);
+    res.status(502).json({
+      error: 'Vault delete failed',
+      detail: err instanceof Error ? err.message : String(err),
     });
   }
 });
