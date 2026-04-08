@@ -1115,6 +1115,15 @@ paths:
         "409":
           description: Duplicate agent_id
 
+  /agents/templates:
+    get:
+      summary: List agent templates
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of predefined agent templates
+
   /agents/{id}:
     parameters:
       - name: id
