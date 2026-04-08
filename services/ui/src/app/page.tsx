@@ -3,7 +3,29 @@
 import { useSession } from 'next-auth/react'
 import AppShell from '@/components/AppShell'
 import LandingHero from '@/components/LandingHero'
-import DashboardClient from './dashboard/DashboardClient'
+
+const services = [
+  {
+    name: 'API Gateway',
+    description: 'REST API routing, request validation, and service orchestration.',
+    endpoint: 'api.hill90.com',
+  },
+  {
+    name: 'AI Services',
+    description: 'AI-powered endpoints for inference and intelligent processing.',
+    endpoint: 'ai.hill90.com',
+  },
+  {
+    name: 'Auth Service',
+    description: 'Authentication, authorization, and session management.',
+    endpoint: 'Internal',
+  },
+  {
+    name: 'MCP Gateway',
+    description: 'Model Context Protocol server for AI tool integrations.',
+    endpoint: 'ai.hill90.com/mcp',
+  },
+]
 
 export default function Home() {
   const { data: session, status } = useSession()
@@ -22,8 +44,29 @@ export default function Home() {
 
   return (
     <AppShell>
-      <main className="flex-1 px-6 py-12 max-w-6xl mx-auto w-full">
-        <DashboardClient session={session as any} />
+      {/* Hero */}
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-24 text-center">
+        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
+          <span className="text-brand-500">Hill90</span> Platform
+        </h1>
+        <p className="text-lg text-mountain-400 max-w-xl mb-12">
+          A microservices platform with infrastructure automation,
+          Tailscale-secured networking, and Docker Compose deployments.
+        </p>
+
+        {/* Services grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
+          {services.map((svc) => (
+            <div
+              key={svc.name}
+              className="rounded-lg border border-navy-700 bg-navy-800 p-5 text-left hover:border-brand-500/50 transition-colors"
+            >
+              <h3 className="font-semibold text-white mb-1">{svc.name}</h3>
+              <p className="text-sm text-mountain-400 mb-3">{svc.description}</p>
+              <span className="text-xs font-mono text-brand-400">{svc.endpoint}</span>
+            </div>
+          ))}
+        </div>
       </main>
     </AppShell>
   )
