@@ -1,5 +1,6 @@
 import TopBar from '@/components/TopBar'
 import Sidebar from '@/components/Sidebar'
+import CommandPalette from '@/components/CommandPalette'
 
 export default function AppShell({
   children,
@@ -13,6 +14,7 @@ export default function AppShell({
   return (
     <div className={`flex flex-col ${noFooter ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
       <TopBar navExtra={navExtra} />
+      <CommandPalette />
 
       <div className="flex flex-1 overflow-hidden min-h-0">
         {/* Sidebar: desktop only */}
