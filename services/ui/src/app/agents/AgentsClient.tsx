@@ -17,6 +17,7 @@ interface Agent {
   mem_limit: string
   pids_limit: number
   models: string[]
+  avatar_key: string | null
   skills: Array<{ id: string; name: string; scope: string }>
   created_at: string
   updated_at: string
@@ -254,7 +255,7 @@ export default function AgentsClient({ session }: { session: Session }) {
                         className="h-4 w-4 rounded border-navy-600 bg-navy-900 text-brand-500 focus:ring-brand-500 cursor-pointer flex-shrink-0"
                       />
                     )}
-                    <AgentAvatar name={agent.name} size="md" />
+                    <AgentAvatar name={agent.name} avatarUrl={agent.avatar_key ? `/api/agents/${agent.id}/avatar` : undefined} size="md" />
                     <Link
                       href={`/agents/${agent.id}`}
                       className="font-semibold text-white hover:text-brand-400 transition-colors truncate"
