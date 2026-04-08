@@ -3980,6 +3980,44 @@ paths:
         "409":
           description: No running agents in thread
 
+  /chat/threads/{id}/screenshot:
+    get:
+      summary: Latest browser screenshot for thread agent
+      description: >
+        Returns the latest Playwright browser screenshot from the running agent
+        in this thread. Proxied from agentbox. Used by the Browser tab for live viewing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Screenshot data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  screenshot:
+                    type: string
+                    description: Base64-encoded PNG screenshot
+                  url:
+                    type: string
+                    nullable: true
+                    description: Current page URL
+                  timestamp:
+                    type: string
+                    format: date-time
+        "404":
+          description: No running agent or no browser active
+        "409":
+          description: No running agents in thread
+
   # Task management
   /tasks:
     get:
@@ -4153,6 +4191,53 @@ paths:
           description: Transitioned task
         "404":
           description: Task not found
+  /storage/buckets/{name}/upload:
+    post:
+      summary: Upload file to bucket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Upload successful
+        "400":
+          description: No file provided
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/objects/*:
+    delete:
+      summary: Delete object from bucket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Object deleted
+        "404":
+          description: Bucket or object not found
+        "502":
+          description: Storage service unavailable
+
   # ── Admin: Secrets Vault Inventory (AI-147) ──
 
   /admin/secrets:
@@ -4244,6 +4329,60 @@ paths:
           description: Not authenticated
         "403":
           description: Requires admin role
+
+  /admin/secrets/kv:
+    put:
+      summary: Create or update a vault secret
+      description: Write a key-value pair to vault. Admin only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, key, value]
+              properties:
+                path:
+                  type: string
+                key:
+                  type: string
+                value:
+                  type: string
+      responses:
+        "200":
+          description: Secret written
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "502":
+          description: Vault unavailable
+    delete:
+      summary: Delete a vault secret key
+      description: Remove a key from a vault path. Admin only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, key]
+              properties:
+                path:
+                  type: string
+                key:
+                  type: string
+      responses:
+        "200":
+          description: Secret deleted
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "502":
+          description: Vault unavailable
 
   # ── Storage (MinIO) ──────────────────────────────────────────────
 
