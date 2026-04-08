@@ -88,31 +88,54 @@ function groupEventsWithTerminal(events: AgentEvent[]): GroupedItem[] {
   return items
 }
 
-function BrowserView({ events }: { events: AgentEvent[] }) {
-  // Find the latest screenshot from browser_screenshot events
-  const latestScreenshot = useMemo(() => {
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i]
-      if (
-        e.type === 'tool_result' &&
-        e.tool === 'browser' &&
-        e.metadata?.screenshot
-      ) {
-        return {
-          url: e.metadata.url as string | undefined,
-          screenshot: e.metadata.screenshot as string,
-          timestamp: e.created_at,
+const SCREENSHOT_POLL_MS = 2000
+
+function BrowserView({ threadId, active }: { threadId: string; active: boolean }) {
+  const [screenshot, setScreenshot] = useState<string | null>(null)
+  const [url, setUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!active) return
+
+    let cancelled = false
+
+    async function poll() {
+      try {
+        const res = await fetch(`/api/chat/${threadId}/screenshot`)
+        if (cancelled) return
+        if (res.status === 404) {
+          setError('Browser not active')
+          return
         }
+        if (!res.ok) {
+          setError(`Screenshot failed (${res.status})`)
+          return
+        }
+        const data = await res.json()
+        if (cancelled) return
+        if (data.screenshot) {
+          setScreenshot(data.screenshot)
+          setUrl(data.url || null)
+          setError(null)
+        } else {
+          setError(data.error || 'No screenshot available')
+        }
+      } catch {
+        if (!cancelled) setError('Failed to fetch screenshot')
       }
     }
-    return null
-  }, [events])
 
-  if (!latestScreenshot) {
+    poll()
+    const interval = setInterval(poll, SCREENSHOT_POLL_MS)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [threadId, active])
+
+  if (error && !screenshot) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6" data-testid="browser-inactive">
         <Globe className="w-10 h-10 text-mountain-500" />
-        <p className="text-sm text-mountain-500 text-center">Browser not active</p>
+        <p className="text-sm text-mountain-500 text-center">{error}</p>
         <p className="text-xs text-mountain-600 text-center max-w-xs">
           When the agent uses the Playwright browser tool, screenshots will appear here in real time.
         </p>
@@ -120,17 +143,25 @@ function BrowserView({ events }: { events: AgentEvent[] }) {
     )
   }
 
+  if (!screenshot) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="browser-view">
-      {latestScreenshot.url && (
+      {url && (
         <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
           <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
-          <span className="text-xs text-mountain-400 truncate">{latestScreenshot.url}</span>
+          <span className="text-xs text-mountain-400 truncate">{url}</span>
         </div>
       )}
       <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
         <img
-          src={`data:image/png;base64,${latestScreenshot.screenshot}`}
+          src={`data:image/png;base64,${screenshot}`}
           alt="Browser screenshot"
           className="max-w-full h-auto rounded border border-navy-700"
           data-testid="browser-screenshot"
@@ -259,7 +290,7 @@ export default function SessionPane({ threadId }: Props) {
           <XTerminal threadId={threadId} />
         </Suspense>
       ) : viewMode === 'browser' ? (
-        <BrowserView events={events} />
+        <BrowserView threadId={threadId} active={viewMode === 'browser'} />
       ) : (
         <div
           ref={containerRef}

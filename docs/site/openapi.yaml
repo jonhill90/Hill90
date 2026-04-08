@@ -3980,6 +3980,34 @@ paths:
         "409":
           description: No running agents in thread
 
+  /chat/threads/{id}/screenshot:
+    get:
+      summary: Latest browser screenshot for thread agent
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Screenshot data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  screenshot:
+                    type: string
+                  url:
+                    type: string
+                    nullable: true
+        "404":
+          description: No running agent or no browser active
+
   # Task management
   /tasks:
     get:
