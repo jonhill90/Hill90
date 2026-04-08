@@ -20,14 +20,19 @@ export function avatarKey(keycloakId: string): string {
   return `avatars/${keycloakId}/${randomUUID()}.webp`;
 }
 
+export function agentAvatarKey(agentId: string): string {
+  return `agent-avatars/${agentId}/${randomUUID()}.webp`;
+}
+
 export async function uploadAvatar(
   client: S3Client,
   key: string,
-  data: Buffer
+  data: Buffer,
+  bucket: string = AVATAR_BUCKET
 ): Promise<void> {
   await client.send(
     new PutObjectCommand({
-      Bucket: AVATAR_BUCKET,
+      Bucket: bucket,
       Key: key,
       Body: data,
       ContentType: 'image/webp',
@@ -37,11 +42,12 @@ export async function uploadAvatar(
 
 export async function deleteAvatar(
   client: S3Client,
-  key: string
+  key: string,
+  bucket: string = AVATAR_BUCKET
 ): Promise<void> {
   await client.send(
     new DeleteObjectCommand({
-      Bucket: AVATAR_BUCKET,
+      Bucket: bucket,
       Key: key,
     })
   );
@@ -49,11 +55,12 @@ export async function deleteAvatar(
 
 export async function getAvatarStream(
   client: S3Client,
-  key: string
+  key: string,
+  bucket: string = AVATAR_BUCKET
 ): Promise<{ stream: NodeJS.ReadableStream; etag?: string }> {
   const res = await client.send(
     new GetObjectCommand({
-      Bucket: AVATAR_BUCKET,
+      Bucket: bucket,
       Key: key,
     })
   );

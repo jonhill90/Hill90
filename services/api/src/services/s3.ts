@@ -5,6 +5,7 @@ import {
 } from '@aws-sdk/client-s3';
 
 export const AVATAR_BUCKET = 'user-avatars';
+export const AGENT_AVATAR_BUCKET = 'agent-avatars';
 
 let s3Client: S3Client | null = null;
 

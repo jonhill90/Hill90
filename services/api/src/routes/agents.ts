@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
 import { getPool } from '../db/pool';
 import { requireRole } from '../middleware/role';
 import { scopeToOwner } from '../helpers/scope';
@@ -30,8 +31,24 @@ import {
   isModelRouterConfigured,
 } from '../services/model-router-token';
 import { revokeAgentModelRouterToken } from '../services/model-router-revoke';
+import { getS3Client } from '../services/s3';
+import {
+  processAvatar,
+  agentAvatarKey,
+  uploadAvatar as uploadAvatarToS3,
+  deleteAvatar as deleteAvatarFromS3,
+  getAvatarStream,
+} from '../services/avatar';
 
 const router = Router();
+
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const AGENT_AVATAR_BUCKET = 'agent-avatars';
 
 function dbHealthCheck(_req: Request, res: Response, next: () => void) {
   if (!process.env.DATABASE_URL) {
@@ -143,6 +160,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id, a.autonomy_level,
+              a.avatar_key,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               a.created_at, a.updated_at, a.created_by,
               a.container_profile_id,
@@ -166,6 +184,9 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
       // AI-115: Add principal identity fields
       row.principal_id = row.id;
       row.principal_type = row.principal_type || 'agent';
+
+      row.hasAvatar = !!row.avatar_key;
+      delete row.avatar_key;
 
       row.container_profile = row.container_profile_id
         ? { id: row.container_profile_id, name: row.cp_name, docker_image: row.cp_docker_image }
@@ -386,7 +407,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-              model_policy_id, a.autonomy_level, a.container_profile_id,
+              model_policy_id, a.autonomy_level, a.avatar_key, a.container_profile_id,
               cp.name AS cp_name, cp.docker_image AS cp_docker_image,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               error_message, a.created_at, a.updated_at, a.created_by
@@ -402,6 +423,9 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const agent = rows[0];
+    agent.hasAvatar = !!agent.avatar_key;
+    delete agent.avatar_key;
+
     // AI-115: Add principal identity fields
     agent.principal_id = agent.id;
     agent.principal_type = agent.principal_type || 'agent';
@@ -890,6 +914,15 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
       auditLog('purge_volumes', agent.agent_id, user.sub, 'human');
     }
 
+    // Remove avatar from S3
+    if (agent.avatar_key) {
+      try {
+        await deleteAvatarFromS3(getS3Client(), agent.avatar_key, AGENT_AVATAR_BUCKET);
+      } catch (err) {
+        console.error('[agents] Failed to delete avatar:', err);
+      }
+    }
+
     // Remove config files
     removeAgentFiles(agent.agent_id);
 
@@ -902,6 +935,75 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
     console.error('[agents] Delete error:', err);
     res.status(500).json({ error: 'Failed to delete agent' });
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Avatar (user role)
+// ---------------------------------------------------------------------------
+
+router.post('/:id/avatar', requireRole('user'), avatarUpload.single('avatar'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT id, agent_id, avatar_key FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (rows.length === 0) { res.status(404).json({ error: 'Agent not found' }); return; }
+    const file = req.file;
+    if (!file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+    if (!ALLOWED_MIMES.includes(file.mimetype)) { res.status(400).json({ error: 'Invalid file type' }); return; }
+    const agent = rows[0];
+    const processed = await processAvatar(file.buffer);
+    const key = agentAvatarKey(agent.id);
+    const s3 = getS3Client();
+    const oldKey = agent.avatar_key;
+    await uploadAvatarToS3(s3, key, processed, AGENT_AVATAR_BUCKET);
+    await getPool().query('UPDATE agents SET avatar_key = $1, updated_at = NOW() WHERE id = $2', [key, agent.id]);
+    if (oldKey) { try { await deleteAvatarFromS3(s3, oldKey, AGENT_AVATAR_BUCKET); } catch (e) { console.error('[agents] old avatar delete failed:', e); } }
+    res.json({ message: 'Avatar uploaded' });
+  } catch (err) { console.error('[agents] POST avatar error:', err); res.status(500).json({ error: 'Failed to upload avatar' }); }
+});
+
+router.get('/:id/avatar', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT avatar_key FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (rows.length === 0) { res.status(404).json({ error: 'Agent not found' }); return; }
+    if (!rows[0].avatar_key) { res.status(404).json({ error: 'No avatar found' }); return; }
+    const s3 = getS3Client();
+    const { stream, etag } = await getAvatarStream(s3, rows[0].avatar_key, AGENT_AVATAR_BUCKET);
+    if (etag && req.headers['if-none-match'] === etag) { res.status(304).end(); return; }
+    res.setHeader('Content-Type', 'image/webp');
+    res.setHeader('Cache-Control', 'private, no-cache');
+    if (etag) res.setHeader('ETag', etag);
+    (stream as any).pipe(res);
+  } catch (err: any) {
+    if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) { res.status(404).json({ error: 'No avatar found' }); return; }
+    console.error('[agents] GET avatar error:', err); res.status(500).json({ error: 'Failed to fetch avatar' });
+  }
+});
+
+router.delete('/:id/avatar', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT id, avatar_key FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (rows.length === 0) { res.status(404).json({ error: 'Agent not found' }); return; }
+    if (!rows[0].avatar_key) { res.status(404).json({ error: 'No avatar found' }); return; }
+    const s3 = getS3Client();
+    await deleteAvatarFromS3(s3, rows[0].avatar_key, AGENT_AVATAR_BUCKET);
+    await getPool().query('UPDATE agents SET avatar_key = NULL, updated_at = NOW() WHERE id = $1', [rows[0].id]);
+    res.json({ message: 'Avatar deleted' });
+  } catch (err) { console.error('[agents] DELETE avatar error:', err); res.status(500).json({ error: 'Failed to delete avatar' }); }
 });
 
 // ---------------------------------------------------------------------------
