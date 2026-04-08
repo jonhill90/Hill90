@@ -4245,6 +4245,101 @@ paths:
         "403":
           description: Requires admin role
 
+  /admin/secrets/kv:
+    put:
+      summary: Create or update a vault secret key
+      description: >
+        Write a key-value pair to a vault KV v2 path. Merges with existing keys.
+        Requires BAO_TOKEN configured on API service. Admin only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, key, value]
+              properties:
+                path:
+                  type: string
+                  description: Vault path (e.g. secret/shared/database)
+                key:
+                  type: string
+                  description: Secret key name
+                value:
+                  type: string
+                  description: Secret value
+      responses:
+        "200":
+          description: Secret saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  path:
+                    type: string
+                  key:
+                    type: string
+        "400":
+          description: Missing required fields
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "502":
+          description: Vault write failed
+        "503":
+          description: Vault token not configured
+    delete:
+      summary: Delete a vault secret key
+      description: >
+        Remove a key from a vault KV v2 path. If the last key is removed,
+        the entire path is deleted. Admin only.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, key]
+              properties:
+                path:
+                  type: string
+                  description: Vault path (e.g. secret/shared/database)
+                key:
+                  type: string
+                  description: Secret key name to delete
+      responses:
+        "200":
+          description: Secret deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  path:
+                    type: string
+                  key:
+                    type: string
+        "400":
+          description: Missing required fields
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "502":
+          description: Vault delete failed
+        "503":
+          description: Vault token not configured
+
   # ── Storage (MinIO) ──────────────────────────────────────────────
 
   /storage/buckets:
