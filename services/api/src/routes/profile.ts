@@ -213,6 +213,64 @@ router.get('/avatar', requireRole('user'), async (req: Request, res: Response) =
   }
 });
 
+// ── Preferences ──────────────────────────────────────────────────
+
+const DEFAULT_PREFERENCES = {
+  theme: 'dark',
+  notifications_enabled: true,
+  sidebar_collapsed: false,
+};
+
+// GET /profile/preferences — fetch user preferences
+router.get('/preferences', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { rows } = await getPool().query(
+      'SELECT preferences FROM user_preferences WHERE keycloak_id = $1',
+      [user.sub]
+    );
+
+    res.json(rows[0]?.preferences ?? DEFAULT_PREFERENCES);
+  } catch (err) {
+    console.error('[profile] GET preferences error:', err);
+    res.status(500).json({ error: 'Failed to fetch preferences' });
+  }
+});
+
+// PUT /profile/preferences — upsert user preferences (shallow merge)
+router.put('/preferences', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const incoming = req.body;
+
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) {
+      res.status(400).json({ error: 'Request body must be a JSON object' });
+      return;
+    }
+
+    // Shallow merge: incoming keys overwrite, unspecified keys kept from DB/default
+    const { rows: existing } = await getPool().query(
+      'SELECT preferences FROM user_preferences WHERE keycloak_id = $1',
+      [user.sub]
+    );
+    const current = existing[0]?.preferences ?? DEFAULT_PREFERENCES;
+    const merged = { ...current, ...incoming };
+
+    const { rows } = await getPool().query(
+      `INSERT INTO user_preferences (keycloak_id, preferences)
+       VALUES ($1, $2)
+       ON CONFLICT (keycloak_id) DO UPDATE SET preferences = $2, updated_at = NOW()
+       RETURNING preferences`,
+      [user.sub, JSON.stringify(merged)]
+    );
+
+    res.json(rows[0].preferences);
+  } catch (err) {
+    console.error('[profile] PUT preferences error:', err);
+    res.status(500).json({ error: 'Failed to save preferences' });
+  }
+});
+
 // POST /profile/password — change password
 // NOTE: Keycloak 12+ removed the /account/credentials/password REST endpoint.
 // Password changes now require a browser redirect via kc_action=UPDATE_PASSWORD.
