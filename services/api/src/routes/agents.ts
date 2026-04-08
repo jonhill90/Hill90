@@ -1778,6 +1778,29 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
   }
 });
 
+// Filter log lines by search term and timestamp range.
+function filterLogLines(lines: string[], search?: string, since?: string, until?: string): string[] {
+  let filtered = lines;
+  if (since || until) {
+    const sinceMs = since ? new Date(since).getTime() : 0;
+    const untilMs = until ? new Date(until).getTime() : Infinity;
+    if (!isNaN(sinceMs) || !isNaN(untilMs)) {
+      filtered = filtered.filter((line) => {
+        const spaceIdx = line.indexOf(' ');
+        if (spaceIdx < 10) return true;
+        const ts = new Date(line.slice(0, spaceIdx)).getTime();
+        if (isNaN(ts)) return true;
+        return ts >= (isNaN(sinceMs) ? 0 : sinceMs) && ts <= (isNaN(untilMs) ? Infinity : untilMs);
+      });
+    }
+  }
+  if (search) {
+    const term = search.toLowerCase();
+    filtered = filtered.filter((line) => line.toLowerCase().includes(term));
+  }
+  return filtered;
+}
+
 // Get container logs
 router.get('/:id/logs', requireRole('admin'), async (req: Request, res: Response) => {
   try {
@@ -1790,6 +1813,9 @@ router.get('/:id/logs', requireRole('admin'), async (req: Request, res: Response
     const agent = rows[0];
     const tail = parseInt(req.query.tail as string) || 200;
     const follow = req.query.follow === 'true';
+    const search = (req.query.search as string) || undefined;
+    const since = (req.query.since as string) || undefined;
+    const until = (req.query.until as string) || undefined;
 
     if (follow) {
       // SSE streaming
@@ -1804,7 +1830,8 @@ router.get('/:id/logs', requireRole('admin'), async (req: Request, res: Response
         stream.on('data', (chunk: Buffer) => {
           // Docker stream has 8-byte header per frame; strip it
           const lines = stripDockerHeader(chunk);
-          for (const line of lines) {
+          const filtered = filterLogLines(lines, search, since, until);
+          for (const line of filtered) {
             res.write(`data: ${line}\n\n`);
           }
         });
@@ -1836,7 +1863,8 @@ router.get('/:id/logs', requireRole('admin'), async (req: Request, res: Response
     stream.on('end', () => {
       const raw = Buffer.concat(chunks);
       const lines = stripDockerHeader(raw);
-      res.json({ logs: lines.join('\n') });
+      const filtered = filterLogLines(lines, search, since, until);
+      res.json({ logs: filtered.join('\n') });
     });
     stream.on('error', (err: Error) => {
       res.status(500).json({ error: 'Failed to read logs', detail: err.message });
