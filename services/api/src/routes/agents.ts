@@ -23,6 +23,7 @@ import {
   isAkmConfigured,
 } from '../services/akm-token';
 import { revokeAgentAkmToken } from '../services/akm-revoke';
+import { dispatchWebhooks } from '../services/webhook-dispatch';
 import {
   generateAgentModelRouterToken,
   getModelRouterEnvVars,
@@ -723,6 +724,7 @@ router.delete('/:id', requireRole('admin'), async (req: Request, res: Response) 
 
 // Start agent
 router.post('/:id/start', requireRole('admin'), async (req: Request, res: Response) => {
+  let agentSlug = 'unknown';
   try {
     const user = (req as any).user;
 
@@ -739,6 +741,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     }
 
     const agent = rows[0];
+    agentSlug = agent.agent_id;
     const correlationId = (req as any).correlationId;
 
     // Fetch skill instructions at start time (fresh-at-start, not resolve-on-save)
@@ -933,6 +936,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       container_id: containerId, network, profile_image: profileImage || 'hill90/agentbox:latest',
       akm_jti: akmJti, model_router_jti: modelRouterJti,
     });
+    dispatchWebhooks(agent.agent_id, agent.id, 'start', { container_id: containerId });
     res.json({ status: 'running', container_id: containerId, principal_id: agent.id });
   } catch (err: any) {
     console.error('[agents] Start error:', err);
@@ -945,6 +949,7 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       );
     } catch { /* best effort */ }
 
+    dispatchWebhooks(agentSlug, req.params.id, 'error', { error: err.message });
     res.status(500).json({ error: 'Failed to start agent', detail: err.message });
   }
 });
@@ -1035,6 +1040,7 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
     auditLog('stop', agent.agent_id, user.sub, 'human', {
       principal_id: agent.id, owner_sub: agent.created_by, correlation_id: stopCorrelationId,
     });
+    dispatchWebhooks(agent.agent_id, agent.id, 'stop', {});
     res.json({ status: 'stopped' });
   } catch (err: any) {
     console.error('[agents] Stop error:', err);
@@ -1813,6 +1819,235 @@ router.get('/:id/artifacts', requireRole('user'), async (req: Request, res: Resp
   } catch (err: any) {
     console.error('[agents] Artifacts error:', err);
     res.status(500).json({ error: 'Failed to compute artifacts' });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
+// POST /agents/:id/clone — clone an agent with a new name and ID
+// ───────────────────────────────────────────────────────────────────
+
+router.post('/:id/clone', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const pool = getPool();
+
+    // Fetch the source agent
+    const { rows: srcRows } = await pool.query(
+      `SELECT agent_id, name, description, tools_config, cpus, mem_limit, pids_limit,
+              soul_md, rules_md, model_policy_id, container_profile_id, autonomy_level
+       FROM agents WHERE id = $1`,
+      [req.params.id]
+    );
+    if (srcRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const src = srcRows[0];
+
+    // Generate a unique slug: original-clone or original-clone-N
+    let cloneSlug = `${src.agent_id}-clone`;
+    const { rows: existing } = await pool.query(
+      `SELECT agent_id FROM agents WHERE agent_id LIKE $1 ORDER BY agent_id`,
+      [`${src.agent_id}-clone%`]
+    );
+    if (existing.length > 0) {
+      const taken = new Set(existing.map((r: any) => r.agent_id));
+      if (taken.has(cloneSlug)) {
+        let n = 2;
+        while (taken.has(`${src.agent_id}-clone-${n}`)) n++;
+        cloneSlug = `${src.agent_id}-clone-${n}`;
+      }
+    }
+
+    const cloneName = req.body.name || `${src.name} (Clone)`;
+
+    // Validate model_policy ownership if present
+    let policyId = src.model_policy_id;
+    if (policyId) {
+      const { rows: policyRows } = await pool.query(
+        'SELECT id, created_by, description FROM model_policies WHERE id = $1',
+        [policyId]
+      );
+      if (policyRows.length > 0) {
+        const pol = policyRows[0];
+        // Auto-agent policies are per-agent — don't copy, let the new agent get its own
+        if (isAutoAgentModelsPolicy(pol.description)) {
+          policyId = null;
+        } else if (pol.created_by !== null && pol.created_by !== user.sub) {
+          policyId = null; // Can't assign another user's policy
+        }
+      } else {
+        policyId = null;
+      }
+    }
+
+    // Insert the cloned agent
+    const { rows: cloneRows } = await pool.query(
+      `INSERT INTO agents (agent_id, name, description, tools_config, cpus, mem_limit, pids_limit,
+                           soul_md, rules_md, model_policy_id, container_profile_id, autonomy_level, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+               COALESCE($10::uuid, (SELECT id FROM model_policies WHERE name = 'default' AND created_by IS NULL LIMIT 1)),
+               $11, $12, $13)
+       RETURNING id, agent_id, name, description, status, tools_config,
+                 cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
+                 model_policy_id, container_profile_id, autonomy_level, error_message, created_at, updated_at, created_by`,
+      [
+        cloneSlug,
+        cloneName,
+        src.description || '',
+        JSON.stringify(src.tools_config),
+        src.cpus,
+        src.mem_limit,
+        src.pids_limit,
+        src.soul_md || '',
+        src.rules_md || '',
+        policyId,
+        src.container_profile_id || null,
+        src.autonomy_level || 'act_within_scope',
+        user.sub,
+      ]
+    );
+    const cloned = cloneRows[0];
+
+    // Clone skill assignments
+    const { rows: srcSkills } = await pool.query(
+      `SELECT skill_id FROM agent_skills WHERE agent_id = $1`,
+      [req.params.id]
+    );
+    for (const { skill_id } of srcSkills) {
+      await pool.query(
+        'INSERT INTO agent_skills (agent_id, skill_id, assigned_by) VALUES ($1, $2, $3)',
+        [cloned.id, skill_id, user.sub]
+      );
+    }
+
+    // If source had auto-agent models, create one for the clone too
+    if (src.model_policy_id && !policyId) {
+      const models = await resolveAgentModels(src.model_policy_id);
+      if (models.length > 0) {
+        const autoPolicyId = await upsertAutoAgentModelsPolicy(
+          cloned.id, cloned.agent_id, user.sub, user.sub, models
+        );
+        await pool.query(
+          `UPDATE agents SET model_policy_id = $1, updated_at = NOW() WHERE id = $2`,
+          [autoPolicyId, cloned.id]
+        );
+        cloned.model_policy_id = autoPolicyId;
+        cloned.models = models;
+      }
+    }
+
+    if (!cloned.models) {
+      cloned.models = await resolveAgentModels(cloned.model_policy_id);
+    }
+
+    // Fetch skills for response
+    const { rows: skillRows } = await pool.query(
+      `SELECT s.id, s.name, s.scope FROM agent_skills asks
+       JOIN skills s ON s.id = asks.skill_id
+       WHERE asks.agent_id = $1`,
+      [cloned.id]
+    );
+    cloned.skills = skillRows;
+
+    res.status(201).json(cloned);
+  } catch (err: any) {
+    if (err.code === '23505') {
+      res.status(409).json({ error: 'Clone slug already exists — try again' });
+      return;
+    }
+    console.error('[agents] Clone error:', err);
+    res.status(500).json({ error: 'Failed to clone agent' });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
+// Webhooks CRUD
+// ───────────────────────────────────────────────────────────────────
+
+const VALID_WEBHOOK_EVENTS = ['start', 'stop', 'error'] as const;
+
+// GET /agents/:id/webhooks — list webhooks for an agent
+router.get('/:id/webhooks', requireRole('admin'), async (req: Request, res: Response) => {
+  try {
+    const { rows } = await getPool().query(
+      `SELECT id, agent_id, url, events, active, created_by, created_at, updated_at
+       FROM agent_webhooks WHERE agent_id = $1 ORDER BY created_at`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[agents] List webhooks error:', err);
+    res.status(500).json({ error: 'Failed to list webhooks' });
+  }
+});
+
+// POST /agents/:id/webhooks — register a webhook
+router.post('/:id/webhooks', requireRole('admin'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { url, events, secret } = req.body;
+
+    if (!url || typeof url !== 'string') {
+      res.status(400).json({ error: 'url is required' });
+      return;
+    }
+
+    // Validate URL format
+    try {
+      new URL(url);
+    } catch {
+      res.status(400).json({ error: 'Invalid URL format' });
+      return;
+    }
+
+    // Validate events array
+    const eventList: string[] = Array.isArray(events) ? events : ['start', 'stop', 'error'];
+    for (const e of eventList) {
+      if (!VALID_WEBHOOK_EVENTS.includes(e as any)) {
+        res.status(400).json({ error: `Invalid event: ${e}. Valid: ${VALID_WEBHOOK_EVENTS.join(', ')}` });
+        return;
+      }
+    }
+
+    // Verify agent exists
+    const { rows: agentRows } = await getPool().query(
+      'SELECT id FROM agents WHERE id = $1', [req.params.id]
+    );
+    if (agentRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const { rows } = await getPool().query(
+      `INSERT INTO agent_webhooks (agent_id, url, events, secret, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, agent_id, url, events, active, created_by, created_at, updated_at`,
+      [req.params.id, url, eventList, secret || null, user.sub]
+    );
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('[agents] Create webhook error:', err);
+    res.status(500).json({ error: 'Failed to create webhook' });
+  }
+});
+
+// DELETE /agents/:id/webhooks/:webhookId — remove a webhook
+router.delete('/:id/webhooks/:webhookId', requireRole('admin'), async (req: Request, res: Response) => {
+  try {
+    const { rowCount } = await getPool().query(
+      'DELETE FROM agent_webhooks WHERE id = $1 AND agent_id = $2',
+      [req.params.webhookId, req.params.id]
+    );
+    if (!rowCount) {
+      res.status(404).json({ error: 'Webhook not found' });
+      return;
+    }
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('[agents] Delete webhook error:', err);
+    res.status(500).json({ error: 'Failed to delete webhook' });
   }
 });
 
