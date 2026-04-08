@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { BarChart3 } from 'lucide-react'
 
 interface UsageSummary {
   total_requests: number
@@ -25,9 +26,9 @@ interface Agent {
 
 type GroupBy = 'agent' | 'model' | 'day'
 
-function sevenDaysAgo(): string {
+function daysAgo(n: number): string {
   const d = new Date()
-  d.setDate(d.getDate() - 7)
+  d.setDate(d.getDate() - n)
   return d.toISOString().split('T')[0]
 }
 
@@ -35,14 +36,22 @@ function today(): string {
   return new Date().toISOString().split('T')[0]
 }
 
+const DATE_PRESETS = [
+  { label: '24h', days: 1 },
+  { label: '7d', days: 7 },
+  { label: '30d', days: 30 },
+  { label: 'All Time', days: 0 },
+] as const
+
 export default function UsageClient() {
   const [summary, setSummary] = useState<UsageSummary | null>(null)
   const [groupedData, setGroupedData] = useState<GroupedRow[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [groupBy, setGroupBy] = useState<GroupBy>('agent')
-  const [fromDate, setFromDate] = useState(sevenDaysAgo)
+  const [fromDate, setFromDate] = useState(() => daysAgo(7))
   const [toDate, setToDate] = useState(today)
+  const [activePreset, setActivePreset] = useState('7d')
   const [agentFilter, setAgentFilter] = useState('')
   const [modelFilter, setModelFilter] = useState('')
 
@@ -87,6 +96,17 @@ export default function UsageClient() {
     fetchData()
   }, [fetchData])
 
+  const applyPreset = (label: string, days: number) => {
+    setActivePreset(label)
+    if (days === 0) {
+      setFromDate('')
+      setToDate('')
+    } else {
+      setFromDate(daysAgo(days))
+      setToDate(today())
+    }
+  }
+
   const groupByOptions: { value: GroupBy; label: string }[] = [
     { value: 'agent', label: 'Agent' },
     { value: 'model', label: 'Model' },
@@ -101,6 +121,10 @@ export default function UsageClient() {
     )
   }
 
+  const successRate = summary && summary.total_requests > 0
+    ? ((Number(summary.successful_requests) / Number(summary.total_requests)) * 100).toFixed(1)
+    : null
+
   return (
     <>
       <div className="mb-8">
@@ -110,12 +134,44 @@ export default function UsageClient() {
         </p>
       </div>
 
+      {/* Date range presets */}
+      <div className="flex items-center gap-2 mb-4">
+        {DATE_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            onClick={() => applyPreset(p.label, p.days)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+              activePreset === p.label
+                ? 'bg-brand-600 text-white'
+                : 'border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
       {/* Summary cards */}
       {summary && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <SummaryCard label="Total Requests" value={Number(summary.total_requests).toLocaleString()} />
-          <SummaryCard label="Total Tokens" value={Number(summary.total_tokens).toLocaleString()} />
+          <SummaryCard
+            label="Total Tokens"
+            value={Number(summary.total_tokens).toLocaleString()}
+            subtitle={`${Number(summary.total_input_tokens).toLocaleString()} in / ${Number(summary.total_output_tokens).toLocaleString()} out`}
+          />
           <SummaryCard label="Estimated Cost" value={`$${Number(summary.total_cost_usd).toFixed(4)}`} />
+          <SummaryCard
+            label="Success Rate"
+            value={successRate ? `${successRate}%` : '\u2014'}
+            subtitle={successRate ? `${Number(summary.successful_requests).toLocaleString()} of ${Number(summary.total_requests).toLocaleString()}` : undefined}
+          />
+          <SummaryCard
+            label="Avg Tokens/Req"
+            value={summary.total_requests > 0
+              ? Math.round(Number(summary.total_tokens) / Number(summary.total_requests)).toLocaleString()
+              : '\u2014'}
+          />
         </div>
       )}
 
@@ -127,7 +183,7 @@ export default function UsageClient() {
             <input
               type="date"
               value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
+              onChange={(e) => { setFromDate(e.target.value); setActivePreset('') }}
               className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-1.5 text-sm text-white focus:border-brand-500 focus:outline-none"
             />
           </div>
@@ -136,7 +192,7 @@ export default function UsageClient() {
             <input
               type="date"
               value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
+              onChange={(e) => { setToDate(e.target.value); setActivePreset('') }}
               className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-1.5 text-sm text-white focus:border-brand-500 focus:outline-none"
             />
           </div>
@@ -186,10 +242,13 @@ export default function UsageClient() {
 
       {/* Data table */}
       {groupedData.length === 0 ? (
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-12 text-center">
-          <p className="text-mountain-400 mb-4">No usage data yet</p>
-          <p className="text-sm text-mountain-500">
-            Assign one or more models to an agent and run it to begin tracking usage.
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-16 text-center">
+          <BarChart3 size={40} className="text-mountain-600 mx-auto mb-4" />
+          <p className="text-lg text-mountain-400 mb-2">No usage data for this period</p>
+          <p className="text-sm text-mountain-500 max-w-md mx-auto">
+            {fromDate
+              ? 'Try expanding the date range or clearing filters to see data.'
+              : 'Assign one or more models to an agent and run it to begin tracking usage.'}
           </p>
         </div>
       ) : (
@@ -230,11 +289,12 @@ export default function UsageClient() {
   )
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+function SummaryCard({ label, value, subtitle }: { label: string; value: string; subtitle?: string }) {
   return (
     <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
-      <dt className="text-sm text-mountain-400">{label}</dt>
-      <dd className="text-2xl font-bold text-white mt-1">{value}</dd>
+      <dt className="text-xs text-mountain-500 uppercase tracking-wider mb-1">{label}</dt>
+      <dd className="text-2xl font-bold text-white">{value}</dd>
+      {subtitle && <p className="text-xs text-mountain-500 mt-1">{subtitle}</p>}
     </div>
   )
 }

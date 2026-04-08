@@ -105,7 +105,7 @@ describe('UsageClient', () => {
     render(<UsageClient />)
 
     await waitFor(() => {
-      expect(screen.getByText('No usage data yet')).toBeInTheDocument()
+      expect(screen.getByText('No usage data for this period')).toBeInTheDocument()
     })
   })
 
