@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { HardDrive, FolderOpen, File, ChevronRight, ArrowLeft, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { HardDrive, FolderOpen, File, ChevronRight, ArrowLeft, RefreshCw, Upload, Trash2 } from 'lucide-react'
 
 interface Bucket {
   name: string
@@ -54,6 +54,9 @@ export default function StorageClient() {
   const [prefixes, setPrefixes] = useState<string[]>([])
   const [objectsLoading, setObjectsLoading] = useState(false)
   const [objectsError, setObjectsError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const fetchBuckets = useCallback(async () => {
     setLoading(true)
@@ -94,6 +97,55 @@ export default function StorageClient() {
       setObjectsLoading(false)
     }
   }, [])
+
+  const handleUpload = useCallback(async (files: FileList) => {
+    if (!activeBucket || files.length === 0) return
+    setUploading(true)
+    setObjectsError(null)
+    try {
+      for (const file of Array.from(files)) {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('key', prefix + file.name)
+        const res = await fetch(`/api/storage/buckets/${activeBucket}/upload`, {
+          method: 'POST',
+          body: formData,
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.error || `Failed to upload ${file.name} (${res.status})`)
+        }
+      }
+      fetchObjects(activeBucket, prefix)
+    } catch (err) {
+      setObjectsError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }, [activeBucket, prefix, fetchObjects])
+
+  const handleDelete = useCallback(async (key: string) => {
+    if (!activeBucket) return
+    const fileName = key.replace(prefix, '')
+    if (!confirm(`Delete "${fileName}"?`)) return
+    setDeleting(key)
+    setObjectsError(null)
+    try {
+      const res = await fetch(`/api/storage/buckets/${activeBucket}/objects/${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `Failed to delete (${res.status})`)
+      }
+      fetchObjects(activeBucket, prefix)
+    } catch (err) {
+      setObjectsError(err instanceof Error ? err.message : 'Delete failed')
+    } finally {
+      setDeleting(null)
+    }
+  }, [activeBucket, prefix, fetchObjects])
 
   useEffect(() => {
     fetchBuckets()
@@ -165,13 +217,30 @@ export default function StorageClient() {
           </button>
           <HardDrive className="h-6 w-6 text-brand-400" />
           <h1 className="text-2xl font-bold text-white">{activeBucket}</h1>
-          <button
-            onClick={() => fetchObjects(activeBucket, prefix)}
-            className="ml-auto p-1.5 rounded-md text-mountain-400 hover:text-white hover:bg-navy-700 transition-colors cursor-pointer"
-            title="Refresh"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => e.target.files && handleUpload(e.target.files)}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-brand-600 text-white hover:bg-brand-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {uploading ? 'Uploading...' : 'Upload'}
+            </button>
+            <button
+              onClick={() => fetchObjects(activeBucket, prefix)}
+              className="p-1.5 rounded-md text-mountain-400 hover:text-white hover:bg-navy-700 transition-colors cursor-pointer"
+              title="Refresh"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Breadcrumbs */}
@@ -228,6 +297,7 @@ export default function StorageClient() {
                   <th className="px-4 py-3 font-medium">Name</th>
                   <th className="px-4 py-3 font-medium w-28 text-right">Size</th>
                   <th className="px-4 py-3 font-medium w-48 text-right">Last Modified</th>
+                  <th className="px-4 py-3 font-medium w-12"></th>
                 </tr>
               </thead>
               <tbody>
@@ -237,7 +307,7 @@ export default function StorageClient() {
                     className="border-b border-navy-700/50 hover:bg-navy-700/30 cursor-pointer transition-colors"
                     onClick={navigateUp}
                   >
-                    <td className="px-4 py-2.5" colSpan={3}>
+                    <td className="px-4 py-2.5" colSpan={4}>
                       <span className="flex items-center gap-2 text-mountain-400 hover:text-white">
                         <FolderOpen className="h-4 w-4 text-mountain-500" />
                         ..
@@ -263,6 +333,7 @@ export default function StorageClient() {
                       </td>
                       <td className="px-4 py-2.5 text-right text-mountain-500">--</td>
                       <td className="px-4 py-2.5 text-right text-mountain-500">--</td>
+                      <td></td>
                     </tr>
                   )
                 })}
@@ -273,7 +344,7 @@ export default function StorageClient() {
                   return (
                     <tr
                       key={obj.key}
-                      className="border-b border-navy-700/50 hover:bg-navy-700/30 transition-colors"
+                      className="border-b border-navy-700/50 hover:bg-navy-700/30 transition-colors group"
                     >
                       <td className="px-4 py-2.5">
                         <span className="flex items-center gap-2 text-white">
@@ -286,6 +357,16 @@ export default function StorageClient() {
                       </td>
                       <td className="px-4 py-2.5 text-right text-mountain-400">
                         {formatDate(obj.last_modified)}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <button
+                          onClick={() => handleDelete(obj.key)}
+                          disabled={deleting === obj.key}
+                          className="p-1 rounded text-mountain-500 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-900/20 disabled:opacity-50 transition-all cursor-pointer"
+                          title={`Delete ${fileName}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </td>
                     </tr>
                   )
