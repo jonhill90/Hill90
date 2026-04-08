@@ -4153,6 +4153,51 @@ paths:
           description: Transitioned task
         "404":
           description: Task not found
+  /storage/buckets/{name}/upload:
+    post:
+      summary: Upload file to bucket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Upload successful
+        "400":
+          description: No file provided
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/objects/*:
+    delete:
+      summary: Delete object from bucket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Object deleted
+        "502":
+          description: Storage service unavailable
+
   # ── Admin: Secrets Vault Inventory (AI-147) ──
 
   /admin/secrets:

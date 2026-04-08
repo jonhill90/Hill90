@@ -4153,6 +4153,51 @@ paths:
           description: Transitioned task
         "404":
           description: Task not found
+  /storage/buckets/{name}/upload:
+    post:
+      summary: Upload file to bucket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Upload successful
+        "400":
+          description: No file provided
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/objects/*:
+    delete:
+      summary: Delete object from bucket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Object deleted
+        "502":
+          description: Storage service unavailable
+
   # ── Admin: Secrets Vault Inventory (AI-147) ──
 
   /admin/secrets:
@@ -4333,6 +4378,96 @@ paths:
                     nullable: true
                   key_count:
                     type: integer
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Bucket not found
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/upload:
+    post:
+      summary: Upload a file to a bucket
+      tags: [Storage]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                key:
+                  type: string
+                  description: Object key (defaults to original filename)
+      responses:
+        "200":
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  size:
+                    type: integer
+                  content_type:
+                    type: string
+        "400":
+          description: No file or key provided
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Bucket not found
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/objects/{key}:
+    delete:
+      summary: Delete an object from a bucket
+      tags: [Storage]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Object key (wildcard path)
+      responses:
+        "200":
+          description: Object deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: string
+        "400":
+          description: No object key provided
         "401":
           description: Not authenticated
         "403":
