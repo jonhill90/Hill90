@@ -3871,6 +3871,11 @@ paths:
                       nullable: true
                     created_by:
                       type: string
+                    lead_agent_id:
+                      type: string
+                      format: uuid
+                      nullable: true
+                      description: Lead agent for collaborative dispatch (null = broadcast)
                     last_message:
                       type: string
                       nullable: true
@@ -3918,6 +3923,14 @@ paths:
                 title:
                   type: string
                   nullable: true
+                lead_agent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: |
+                    Designate a lead agent for collaborative group threads.
+                    Must be one of the agent_ids. When set, only the lead agent
+                    receives dispatch with collaborator context.
                 idempotency_key:
                   type: string
                   nullable: true
@@ -3980,8 +3993,10 @@ paths:
           description: Thread not found or not a participant
 
     put:
-      summary: Update thread title
-      description: Requires thread owner or admin role.
+      summary: Update thread
+      description: |
+        Update thread title and/or lead agent. Set lead_agent_id to enable
+        collaborative mode. Set to null to revert to broadcast dispatch.
       security:
         - bearerAuth: []
       requestBody:
@@ -3994,9 +4009,16 @@ paths:
                 title:
                   type: string
                   nullable: true
+                lead_agent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Set lead agent for collaborative dispatch (null to clear)
       responses:
         "200":
           description: Thread updated
+        "400":
+          description: lead_agent_id not an active participant
         "404":
           description: Thread not found or not owner
 

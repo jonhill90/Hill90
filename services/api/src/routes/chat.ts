@@ -111,13 +111,13 @@ async function getThreadAgents(threadId: string): Promise<string[]> {
   return rows.map((r: any) => r.participant_id);
 }
 
-/** Get thread type. */
-async function getThreadType(threadId: string): Promise<string | null> {
+/** Get thread type and lead_agent_id. */
+async function getThreadType(threadId: string): Promise<{ type: string; lead_agent_id: string | null } | null> {
   const { rows } = await getPool().query(
-    `SELECT type FROM chat_threads WHERE id = $1`,
+    `SELECT type, lead_agent_id FROM chat_threads WHERE id = $1`,
     [threadId]
   );
-  return rows.length > 0 ? rows[0].type : null;
+  return rows.length > 0 ? { type: rows[0].type, lead_agent_id: rows[0].lead_agent_id } : null;
 }
 
 /**
@@ -174,6 +174,7 @@ async function dispatchToAgents(opts: {
   triggeredBy?: string | null;
   threadType?: string;
   participants?: { agent_id: string; name: string }[];
+  leadAgentId?: string | null;
 }): Promise<{
   dispatched: { agent_id: string; message_id: string }[];
   failed: { agent_id: string; message_id: string; reason: string }[];
@@ -206,6 +207,14 @@ async function dispatchToAgents(opts: {
   }
 
   // Phase 2: Dispatch all work items in parallel
+  // In collaborative mode (leadAgentId set), the lead agent gets collaborator
+  // context so it knows which agents are available for consultation.
+  const collaboratorList = opts.leadAgentId
+    ? opts.agents
+        .filter(a => a.id !== opts.leadAgentId)
+        .map(a => ({ agent_id: a.agent_id, name: a.name || a.agent_id }))
+    : undefined;
+
   const results = await Promise.allSettled(
     placeholders.map(({ agent, placeholderId, model }) =>
       dispatchChatWork({
@@ -218,6 +227,8 @@ async function dispatchToAgents(opts: {
         callbackUrl,
         threadType: opts.threadType,
         participants: opts.participants,
+        isLead: opts.leadAgentId ? agent.id === opts.leadAgentId : undefined,
+        collaborators: opts.leadAgentId && agent.id === opts.leadAgentId ? collaboratorList : undefined,
       })
     )
   );
@@ -264,7 +275,7 @@ router.get('/threads', requireRole('user'), async (req: Request, res: Response) 
     let params: any[];
 
     if (admin) {
-      query = `SELECT t.id, t.type, t.title, t.created_by, t.created_at, t.updated_at,
+      query = `SELECT t.id, t.type, t.title, t.created_by, t.lead_agent_id, t.created_at, t.updated_at,
                       (SELECT content FROM chat_messages
                        WHERE thread_id = t.id ORDER BY seq DESC LIMIT 1) AS last_message,
                       (SELECT author_type FROM chat_messages
@@ -273,7 +284,7 @@ router.get('/threads', requireRole('user'), async (req: Request, res: Response) 
                ORDER BY t.updated_at DESC`;
       params = [];
     } else {
-      query = `SELECT t.id, t.type, t.title, t.created_by, t.created_at, t.updated_at,
+      query = `SELECT t.id, t.type, t.title, t.created_by, t.lead_agent_id, t.created_at, t.updated_at,
                       (SELECT content FROM chat_messages
                        WHERE thread_id = t.id ORDER BY seq DESC LIMIT 1) AS last_message,
                       (SELECT author_type FROM chat_messages
@@ -346,7 +357,7 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
   try {
     const user = (req as any).user;
     const admin = isAdmin(req);
-    const { agent_id, agent_ids, message, title, idempotency_key } = req.body;
+    const { agent_id, agent_ids, message, title, idempotency_key, lead_agent_id } = req.body;
 
     // Resolve agent UUIDs: support both single agent_id and array agent_ids
     let agentUuids: string[];
@@ -373,6 +384,23 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
       return;
     }
 
+    // Validate lead_agent_id for collaborative mode
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (lead_agent_id) {
+      if (typeof lead_agent_id !== 'string' || !UUID_RE.test(lead_agent_id)) {
+        res.status(400).json({ error: 'lead_agent_id must be a valid UUID' });
+        return;
+      }
+      if (threadType !== 'group') {
+        res.status(400).json({ error: 'lead_agent_id is only valid for group threads (requires agent_ids with 2+ agents)' });
+        return;
+      }
+      if (!agentUuids.includes(lead_agent_id)) {
+        res.status(400).json({ error: 'lead_agent_id must be one of the agent_ids' });
+        return;
+      }
+    }
+
     // Look up all agents
     const agents: Awaited<ReturnType<typeof getAgentForDispatch>>[] = [];
     for (const uuid of agentUuids) {
@@ -396,10 +424,32 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
       }
     }
 
+    // Classify agents for dispatch (before DB writes to avoid orphans)
+    const dispatchableAgents: NonNullable<Awaited<ReturnType<typeof getAgentForDispatch>>>[] = [];
+    const skipped: { agent_id: string; reason: string }[] = [];
+
+    for (const agent of agents) {
+      if (agent!.status !== 'running' || !agent!.work_token) {
+        skipped.push({ agent_id: agent!.id, reason: 'not_running' });
+      } else {
+        dispatchableAgents.push(agent!);
+      }
+    }
+
     // Pre-flight: at least one agent must be running
-    const runningAgents = agents.filter(a => a!.status === 'running' && a!.work_token);
-    if (runningAgents.length === 0) {
+    if (dispatchableAgents.length === 0) {
       res.status(400).json({ error: 'No available agents — all selected agents are not running' });
+      return;
+    }
+
+    // In collaborative mode, only dispatch to the lead agent (others are collaborators)
+    const agentsToDispatch = lead_agent_id
+      ? dispatchableAgents.filter(a => a.id === lead_agent_id)
+      : dispatchableAgents;
+
+    if (lead_agent_id && agentsToDispatch.length === 0) {
+      // Lead agent isn't running — reject before creating thread
+      res.status(409).json({ error: 'Lead agent is not running' });
       return;
     }
 
@@ -407,10 +457,10 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
 
     // Create thread
     const { rows: [thread] } = await pool.query(
-      `INSERT INTO chat_threads (type, title, created_by)
-       VALUES ($1, $2, $3)
-       RETURNING id, type, title, created_by, created_at, updated_at`,
-      [threadType, title || null, user.sub]
+      `INSERT INTO chat_threads (type, title, created_by, lead_agent_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, type, title, created_by, lead_agent_id, created_at, updated_at`,
+      [threadType, title || null, user.sub, lead_agent_id || null]
     );
 
     // Add participants: human owner + all agents
@@ -437,19 +487,7 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
       [thread.id, user.sub, message.trim(), idempotency_key || null]
     );
 
-    // Classify agents for dispatch
-    const dispatchableAgents: NonNullable<Awaited<ReturnType<typeof getAgentForDispatch>>>[] = [];
-    const skipped: { agent_id: string; reason: string }[] = [];
-
-    for (const agent of agents) {
-      if (agent!.status !== 'running' || !agent!.work_token) {
-        skipped.push({ agent_id: agent!.id, reason: 'not_running' });
-      } else {
-        dispatchableAgents.push(agent!);
-      }
-    }
-
-    // Build participant list for group context
+    // Build participant list for group context (all agents, not just dispatch targets)
     const participantList = threadType === 'group'
       ? agents.map(a => ({ agent_id: a!.agent_id, name: a!.name || a!.agent_id }))
       : undefined;
@@ -458,11 +496,12 @@ router.post('/threads', requireRole('user'), async (req: Request, res: Response)
     const historyMessages = [{ role: 'user', content: message.trim() }];
     const { dispatched, failed } = await dispatchToAgents({
       threadId: thread.id,
-      agents: dispatchableAgents,
+      agents: agentsToDispatch,
       replyTo: userMsg.id,
       historyMessages,
       threadType: threadType || undefined,
       participants: participantList,
+      leadAgentId: lead_agent_id || null,
     });
 
     // Direct thread backward compat response
@@ -513,7 +552,7 @@ router.get('/threads/:id', requireRole('user'), async (req: Request, res: Respon
 
     // Get thread
     const { rows: threadRows } = await pool.query(
-      `SELECT id, type, title, created_by, created_at, updated_at
+      `SELECT id, type, title, created_by, lead_agent_id, created_at, updated_at
        FROM chat_threads WHERE id = $1`,
       [req.params.id]
     );
@@ -591,17 +630,49 @@ router.put('/threads/:id', requireRole('user'), async (req: Request, res: Respon
       return;
     }
 
-    const { title } = req.body;
+    const { title, lead_agent_id } = req.body;
     if (title !== undefined && title !== null && typeof title !== 'string') {
       res.status(400).json({ error: 'title must be a string or null' });
       return;
     }
 
+    // Validate lead_agent_id if provided
+    if (lead_agent_id !== undefined && lead_agent_id !== null) {
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (typeof lead_agent_id !== 'string' || !UUID_RE.test(lead_agent_id)) {
+        res.status(400).json({ error: 'lead_agent_id must be a valid UUID or null' });
+        return;
+      }
+      // Verify it's an active agent participant in this thread
+      const agentUuids = await getThreadAgents(req.params.id);
+      if (!agentUuids.includes(lead_agent_id)) {
+        res.status(400).json({ error: 'lead_agent_id must be an active agent participant in the thread' });
+        return;
+      }
+    }
+
+    // Build dynamic SET clause
+    const setClauses = ['updated_at = NOW()'];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (title !== undefined) {
+      setClauses.push(`title = $${idx}`);
+      params.push(title ?? null);
+      idx++;
+    }
+    if (lead_agent_id !== undefined) {
+      setClauses.push(`lead_agent_id = $${idx}`);
+      params.push(lead_agent_id ?? null);
+      idx++;
+    }
+
+    params.push(req.params.id);
     const { rows } = await getPool().query(
-      `UPDATE chat_threads SET title = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, type, title, created_by, created_at, updated_at`,
-      [title ?? null, req.params.id]
+      `UPDATE chat_threads SET ${setClauses.join(', ')}
+       WHERE id = $${idx}
+       RETURNING id, type, title, created_by, lead_agent_id, created_at, updated_at`,
+      params
     );
 
     if (rows.length === 0) {
@@ -772,11 +843,13 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
       return;
     }
 
-    const threadType = await getThreadType(threadId);
-    if (!threadType) {
+    const threadInfo = await getThreadType(threadId);
+    if (!threadInfo) {
       res.status(404).json({ error: 'Thread not found' });
       return;
     }
+    const threadType = threadInfo.type;
+    const leadAgentId = threadInfo.lead_agent_id;
 
     // Parse @-mentions
     const { slugs, cleanContent } = parseMentions(message.trim());
@@ -897,19 +970,34 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
     );
     const historyMessages = history.reverse();
 
-    // Build participant list for group context
-    const participantList = threadType === 'group'
-      ? targetAgents.map(a => ({ agent_id: a.agent_id, name: a.name || a.agent_id }))
-      : undefined;
+    // Build participant list for group context (all thread agents, not just targets)
+    let participantList: { agent_id: string; name: string }[] | undefined;
+    if (threadType === 'group') {
+      const allAgentInfos = await Promise.all(allAgentUuids.map(getAgentForDispatch));
+      participantList = allAgentInfos
+        .filter((a): a is NonNullable<typeof a> => a !== null)
+        .map(a => ({ agent_id: a.agent_id, name: a.name || a.agent_id }));
+    }
+
+    // In collaborative mode, only dispatch to the lead agent
+    const agentsToDispatch = leadAgentId
+      ? dispatchable.filter(a => a.id === leadAgentId)
+      : dispatchable;
+
+    if (leadAgentId && agentsToDispatch.length === 0) {
+      res.status(409).json({ error: 'Lead agent is not running or has a pending response' });
+      return;
+    }
 
     // Dispatch to each dispatchable agent via shared helper
     const { dispatched, failed: failedArr } = await dispatchToAgents({
       threadId,
-      agents: dispatchable,
+      agents: agentsToDispatch,
       replyTo: userMsg.id,
       historyMessages,
       threadType: threadType || undefined,
       participants: participantList,
+      leadAgentId,
     });
 
     // Direct thread backward compat response
