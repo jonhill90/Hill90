@@ -211,6 +211,8 @@ const EXPECTED_PATHS = [
   '/tasks/{id}/transition',
   '/storage/buckets',
   '/storage/buckets/{name}/objects',
+  '/storage/buckets/{name}/upload',
+  '/storage/buckets/{name}/objects/*',
   '/notifications',
   '/notifications/{id}/read',
   '/notifications/read-all',
