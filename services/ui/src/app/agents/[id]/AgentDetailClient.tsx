@@ -31,6 +31,7 @@ interface Agent {
   models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
   tags: string[]
+  env_vars: Record<string, string>
   autonomy_level: string | null
   schedule_cron: string | null
   schedule_enabled: boolean
@@ -157,6 +158,11 @@ export default function AgentDetailClient({
   // Tags
   const [tagInput, setTagInput] = useState('')
   const [tagsSaving, setTagsSaving] = useState(false)
+
+  // Env vars
+  const [envKey, setEnvKey] = useState('')
+  const [envVal, setEnvVal] = useState('')
+  const [envSaving, setEnvSaving] = useState(false)
 
   // Avatar
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -546,6 +552,55 @@ export default function AgentDetailClient({
       alert('Failed to save tags')
     } finally {
       setTagsSaving(false)
+    }
+  }
+
+  const handleAddEnvVar = async () => {
+    const key = envKey.trim()
+    if (!key) return
+    const updated = { ...(agent.env_vars || {}), [key]: envVal }
+    setEnvSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ env_vars: updated }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to save environment variable')
+        return
+      }
+      setEnvKey('')
+      setEnvVal('')
+      await fetchAgent()
+    } catch {
+      alert('Failed to save environment variable')
+    } finally {
+      setEnvSaving(false)
+    }
+  }
+
+  const handleRemoveEnvVar = async (key: string) => {
+    const updated = { ...(agent.env_vars || {}) }
+    delete updated[key]
+    setEnvSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ env_vars: updated }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to remove environment variable')
+        return
+      }
+      await fetchAgent()
+    } catch {
+      alert('Failed to remove environment variable')
+    } finally {
+      setEnvSaving(false)
     }
   }
 
@@ -1040,6 +1095,72 @@ export default function AgentDetailClient({
                   className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                 >
                   {tagsSaving ? 'Saving...' : 'Add'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Environment Variables */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-1">Environment Variables</h2>
+            <p className="text-sm text-mountain-400 mb-3">Key-value pairs injected into the agent container at startup.</p>
+            {Object.keys(agent.env_vars || {}).length > 0 ? (
+              <div className="rounded-md border border-navy-700 overflow-hidden mb-3">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-navy-700 bg-navy-900">
+                      <th className="text-left px-3 py-2 text-xs font-medium text-mountain-400 uppercase tracking-wide">Key</th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-mountain-400 uppercase tracking-wide">Value</th>
+                      {agent.status !== 'running' && <th className="w-10" />}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(agent.env_vars || {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => (
+                      <tr key={k} className="border-b border-navy-800 last:border-0">
+                        <td className="px-3 py-2 font-mono text-brand-400">{k}</td>
+                        <td className="px-3 py-2 font-mono text-white break-all">{v}</td>
+                        {agent.status !== 'running' && (
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              onClick={() => handleRemoveEnvVar(k)}
+                              disabled={envSaving}
+                              className="text-mountain-500 hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              &times;
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-xs text-mountain-500 mb-3">No environment variables configured.</p>
+            )}
+            {agent.status !== 'running' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={envKey}
+                  onChange={(e) => setEnvKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''))}
+                  placeholder="KEY"
+                  className="w-40 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm font-mono text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  value={envVal}
+                  onChange={(e) => setEnvVal(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddEnvVar()}
+                  placeholder="value"
+                  className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm font-mono text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                />
+                <button
+                  onClick={handleAddEnvVar}
+                  disabled={envSaving || !envKey.trim()}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {envSaving ? 'Saving...' : 'Add'}
                 </button>
               </div>
             )}
