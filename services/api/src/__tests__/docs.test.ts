@@ -212,7 +212,7 @@ const EXPECTED_PATHS = [
   '/storage/buckets',
   '/storage/buckets/{name}/objects',
   '/storage/buckets/{name}/upload',
-  '/storage/buckets/{name}/objects/*',
+  '/storage/buckets/{name}/objects/{key}',
   '/notifications',
   '/notifications/{id}/read',
   '/notifications/read-all',
@@ -224,7 +224,7 @@ const EXPECTED_PATHS = [
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token'];
 
 // Compat alias paths — same handler as canonical /skills routes, not in OpenAPI spec
-const COMPAT_PATHS: string[] = [];
+const COMPAT_PATHS: string[] = ['/storage/buckets/{name}/objects/*'];
 
 /**
  * Introspect Express app._router.stack to extract all registered route paths.
