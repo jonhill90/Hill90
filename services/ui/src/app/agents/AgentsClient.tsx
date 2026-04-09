@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
-import { Trash2, Upload, LayoutTemplate, X, Play, Square } from 'lucide-react'
+import { Trash2, Upload, LayoutTemplate, X, Play, Square, AlertTriangle } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
 import AgentLevelBadge from '@/components/AgentLevelBadge'
 
@@ -21,6 +21,7 @@ interface Agent {
   tags: string[]
   skills: Array<{ id: string; name: string; scope: string }>
   hasAvatar: boolean
+  error_message: string | null
   created_at: string
   updated_at: string
   created_by: string
@@ -71,6 +72,7 @@ export default function AgentsClient({ session }: { session: Session }) {
   const [templates, setTemplates] = useState<AgentTemplate[]>([])
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [creatingFromTemplate, setCreatingFromTemplate] = useState<string | null>(null)
+  const [errorDetails, setErrorDetails] = useState<Record<string, string>>({})
   const importInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -90,6 +92,22 @@ export default function AgentsClient({ session }: { session: Session }) {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  // Fetch error_message for agents in error state (not included in list endpoint)
+  useEffect(() => {
+    const errorAgents = agents.filter(a => a.status === 'error' && !errorDetails[a.id])
+    if (errorAgents.length === 0) return
+    for (const agent of errorAgents) {
+      fetch(`/api/agents/${agent.id}`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.error_message) {
+            setErrorDetails(prev => ({ ...prev, [agent.id]: data.error_message }))
+          }
+        })
+        .catch(() => {})
+    }
+  }, [agents, errorDetails])
 
   const handleAction = async (agentId: string, action: 'start' | 'stop' | 'restart') => {
     setActionLoading(agentId)
@@ -474,6 +492,16 @@ export default function AgentsClient({ session }: { session: Session }) {
                 <p className="text-sm text-mountain-400 mb-3 line-clamp-2 flex-1">
                   {agent.description || 'No description'}
                 </p>
+
+                {/* Error message */}
+                {agent.status === 'error' && (errorDetails[agent.id] || agent.error_message) && (
+                  <div className="mb-3 px-2.5 py-2 rounded-md bg-red-900/20 border border-red-800/40 flex items-start gap-2">
+                    <AlertTriangle size={14} className="text-red-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-red-300 line-clamp-2">
+                      {errorDetails[agent.id] || agent.error_message}
+                    </p>
+                  </div>
+                )}
 
                 {/* Tags */}
                 {agent.tags && agent.tags.length > 0 && (
