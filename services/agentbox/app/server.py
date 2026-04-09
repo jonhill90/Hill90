@@ -132,16 +132,16 @@ def create_app(
 
     async def screenshot_endpoint(request: Request):
         """Return a live Playwright screenshot as base64 PNG + current URL."""
-        from app.tools import _browser_page
+        import app.tools as _tools
 
-        if _browser_page is None:
+        if _tools._browser_page is None:
             return JSONResponse(
                 {"screenshot": None, "url": None, "error": "Browser not active"},
                 status_code=404,
             )
 
         try:
-            page = _browser_page
+            page = _tools._browser_page
             png_bytes = await page.screenshot(full_page=False)
             return JSONResponse({
                 "screenshot": base64.b64encode(png_bytes).decode("ascii"),
