@@ -154,12 +154,39 @@ def create_app(
                 status_code=500,
             )
 
+    async def files_endpoint(request: Request):
+        """List files in the agent workspace directory."""
+        path = request.query_params.get("path", "/home/agentuser")
+        # Restrict to safe roots
+        real = os.path.realpath(path)
+        if not (real.startswith("/home/agentuser") or real.startswith("/workspace")):
+            return JSONResponse({"error": "Path not allowed"}, status_code=403)
+        try:
+            entries = []
+            for name in sorted(os.listdir(real)):
+                full = os.path.join(real, name)
+                try:
+                    st = os.stat(full)
+                    entries.append({
+                        "name": name,
+                        "type": "directory" if os.path.isdir(full) else "file",
+                        "size": st.st_size,
+                    })
+                except OSError:
+                    entries.append({"name": name, "type": "unknown", "size": 0})
+            return JSONResponse({"path": path, "entries": entries})
+        except FileNotFoundError:
+            return JSONResponse({"error": f"Not found: {path}"}, status_code=404)
+        except PermissionError:
+            return JSONResponse({"error": f"Permission denied: {path}"}, status_code=403)
+
     async def terminal_ws_endpoint(websocket):
         await ws_terminal_handler(websocket, work_token)
 
     return Starlette(routes=[
         Route("/health", health_endpoint, methods=["GET"]),
         Route("/work", work_endpoint, methods=["POST"]),
+        Route("/files", files_endpoint, methods=["GET"]),
         Route("/screenshot", screenshot_endpoint, methods=["GET"]),
         Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
         WebSocketRoute("/terminal/ws", terminal_ws_endpoint),
