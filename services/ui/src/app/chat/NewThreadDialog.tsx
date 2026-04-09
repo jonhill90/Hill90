@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, Crown } from 'lucide-react'
 
 interface Agent {
   id: string
@@ -19,6 +19,7 @@ export default function NewThreadDialog({ onClose, onCreated }: Props) {
   const [agents, setAgents] = useState<Agent[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set())
+  const [leadAgentId, setLeadAgentId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -45,6 +46,8 @@ export default function NewThreadDialog({ onClose, onCreated }: Props) {
       const next = new Set(prev)
       if (next.has(agentId)) {
         next.delete(agentId)
+        // Clear lead if deselected
+        if (leadAgentId === agentId) setLeadAgentId(null)
       } else {
         if (next.size >= 8) return prev // Max 8 agents
         next.add(agentId)
@@ -65,9 +68,12 @@ export default function NewThreadDialog({ onClose, onCreated }: Props) {
     const agentIds = Array.from(selectedAgents)
 
     try {
-      const body = isGroup
+      const body: Record<string, unknown> = isGroup
         ? { agent_ids: agentIds, message: message.trim() }
         : { agent_id: agentIds[0], message: message.trim() }
+      if (isGroup && leadAgentId) {
+        body.lead_agent_id = leadAgentId
+      }
 
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -154,6 +160,32 @@ export default function NewThreadDialog({ onClose, onCreated }: Props) {
               </div>
             )}
           </div>
+
+          {/* Lead agent selector — shown for group chats */}
+          {isGroup && (
+            <div>
+              <label className="block text-sm text-mountain-400 mb-1.5">
+                <Crown size={12} className="inline mr-1 text-amber-400" />
+                Lead agent <span className="text-mountain-500">(optional)</span>
+              </label>
+              <select
+                value={leadAgentId || ''}
+                onChange={e => setLeadAgentId(e.target.value || null)}
+                className="w-full bg-navy-900 border border-navy-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                data-testid="lead-agent-select"
+              >
+                <option value="">No lead (all agents respond)</option>
+                {agents
+                  .filter(a => selectedAgents.has(a.id))
+                  .map(a => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+              </select>
+              <p className="text-[10px] text-mountain-500 mt-1">
+                The lead agent coordinates the group and responds first.
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm text-mountain-400 mb-1.5">Message</label>

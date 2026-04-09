@@ -19,6 +19,7 @@ export interface ChatThread {
   type: string
   title: string | null
   created_by: string
+  lead_agent_id?: string | null
   created_at: string
   updated_at: string
   last_message?: string | null
