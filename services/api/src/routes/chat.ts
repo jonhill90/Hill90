@@ -1363,6 +1363,55 @@ router.get('/threads/:id/screenshot', requireRole('user'), async (req: Request, 
 });
 
 // ───────────────────────────────────────────────────────────────────
+// GET /chat/threads/:id/search — full-text search messages
+// ───────────────────────────────────────────────────────────────────
+
+router.get('/threads/:id/search', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+    const threadId = req.params.id;
+
+    if (!(await isParticipant(threadId, user.sub, admin))) {
+      res.status(404).json({ error: 'Thread not found' });
+      return;
+    }
+
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (!q) {
+      res.status(400).json({ error: 'q query parameter is required' });
+      return;
+    }
+
+    const pool = getPool();
+
+    // Use plainto_tsquery for safe user input (no special syntax needed)
+    const { rows } = await pool.query(
+      `SELECT id, seq, author_id, author_type, role, content, status,
+              reply_to, target_agents,
+              chain_id, chain_hop, triggered_by,
+              model, input_tokens, output_tokens, duration_ms,
+              error_message, created_at,
+              ts_headline('english', content, plainto_tsquery('english', $2),
+                'StartSel=**,StopSel=**,MaxFragments=3,MaxWords=40,MinWords=20') AS headline
+       FROM chat_messages
+       WHERE thread_id = $1
+         AND status IN ('complete', 'thinking')
+         AND content != ''
+         AND to_tsvector('english', content) @@ plainto_tsquery('english', $2)
+       ORDER BY ts_rank(to_tsvector('english', content), plainto_tsquery('english', $2)) DESC
+       LIMIT 50`,
+      [threadId, q]
+    );
+
+    res.json({ results: rows, query: q, total: rows.length });
+  } catch (err) {
+    console.error('[chat] Search error:', err);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
 // Internal callback handler (separate router, no Keycloak auth)
 // ───────────────────────────────────────────────────────────────────
 

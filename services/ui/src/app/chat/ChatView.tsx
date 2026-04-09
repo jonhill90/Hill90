@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Send, Terminal, Users, Paperclip } from 'lucide-react'
+import { ArrowLeft, Send, Terminal, Users, Paperclip, Search, X } from 'lucide-react'
 import type { Session } from 'next-auth'
 import type { ChatThread } from './ChatLayout'
 import ChatMessage from './ChatMessage'
@@ -49,6 +49,11 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [fileToast, setFileToast] = useState(false)
   const [sessionPaneOpen, setSessionPaneOpen] = useState(false)
   const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<(Message & { headline?: string })[]>([])
+  const [searching, setSearching] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const refocusTimer = useRef<number | null>(null)
@@ -103,6 +108,36 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
       if (refocusTimer.current) clearTimeout(refocusTimer.current)
     }
   }, [threadId])
+
+  // Search handler with debounce
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!searchOpen || !searchQuery.trim()) {
+      setSearchResults([])
+      return
+    }
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const res = await fetch(`/api/chat/${threadId}/search?q=${encodeURIComponent(searchQuery.trim())}`)
+        if (res.ok) {
+          const data = await res.json()
+          setSearchResults(data.results || [])
+        }
+      } catch {
+        // ignore
+      } finally {
+        setSearching(false)
+      }
+    }, 300)
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current) }
+  }, [searchQuery, searchOpen, threadId])
+
+  // Focus search input when opened
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
 
   const handleSend = async () => {
     const text = input.trim()
@@ -209,6 +244,18 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
               onCancelled={onThreadUpdated}
             />
             <button
+              onClick={() => { setSearchOpen(prev => !prev); if (searchOpen) { setSearchQuery(''); setSearchResults([]) } }}
+              className={`p-1.5 rounded transition-colors ${
+                searchOpen
+                  ? 'bg-brand-600/20 text-brand-400'
+                  : 'text-mountain-400 hover:text-gray-200 hover:bg-navy-700'
+              }`}
+              title="Search messages"
+              data-testid="search-toggle"
+            >
+              <Search size={18} />
+            </button>
+            <button
               onClick={() => setParticipantPanelOpen(prev => !prev)}
               className={`p-1.5 rounded transition-colors ${
                 participantPanelOpen
@@ -234,6 +281,67 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
             </button>
           </div>
         </div>
+
+        {/* Search bar */}
+        {searchOpen && (
+          <div className="px-4 py-2 border-b border-navy-700 bg-navy-800/50" data-testid="search-bar">
+            <div className="flex items-center gap-2">
+              <Search size={14} className="text-mountain-500 flex-shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search messages..."
+                className="flex-1 bg-transparent text-sm text-white placeholder-mountain-500 focus:outline-none"
+                data-testid="search-input"
+              />
+              {searching && (
+                <div className="h-4 w-4 rounded-full border-2 border-brand-500 border-t-transparent animate-spin flex-shrink-0" />
+              )}
+              <button
+                onClick={() => { setSearchOpen(false); setSearchQuery(''); setSearchResults([]) }}
+                className="text-mountain-400 hover:text-white transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="mt-2 max-h-64 overflow-y-auto space-y-1" data-testid="search-results">
+                {searchResults.map(r => (
+                  <button
+                    key={r.id}
+                    onClick={() => {
+                      const el = document.getElementById(`msg-${r.id}`)
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        el.classList.add('ring-2', 'ring-brand-500/50')
+                        setTimeout(() => el.classList.remove('ring-2', 'ring-brand-500/50'), 2000)
+                      }
+                    }}
+                    className="w-full text-left px-3 py-2 rounded bg-navy-900/50 hover:bg-navy-700 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[10px] font-medium text-mountain-500">
+                        {r.author_type === 'human' ? 'You' : agents.find(a => a.id === r.author_id)?.name || 'Agent'}
+                      </span>
+                      <span className="text-[10px] text-mountain-600">
+                        {new Date(r.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p
+                      className="text-xs text-mountain-300 line-clamp-2"
+                      dangerouslySetInnerHTML={{ __html: (r.headline || r.content.slice(0, 120)).replace(/\*\*([^*]+)\*\*/g, '<mark class="bg-brand-600/30 text-brand-300 rounded px-0.5">$1</mark>') }}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+            {searchQuery.trim() && !searching && searchResults.length === 0 && (
+              <p className="mt-2 text-xs text-mountain-500">No results found</p>
+            )}
+          </div>
+        )}
 
         {/* Agent stopped warning */}
         {!anyAgentRunning && agents.length > 0 && (
@@ -263,14 +371,15 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
               }
             }
             return (
-              <ChatMessage
-                key={msg.id}
-                message={msg}
-                isOwnMessage={msg.author_id === userId}
-                isGroup={isGroup}
-                agents={agents}
-                triggerAgentName={triggerAgentName}
-              />
+              <div key={msg.id} id={`msg-${msg.id}`} className="transition-all duration-300 rounded">
+                <ChatMessage
+                  message={msg}
+                  isOwnMessage={msg.author_id === userId}
+                  isGroup={isGroup}
+                  agents={agents}
+                  triggerAgentName={triggerAgentName}
+                />
+              </div>
             )
           })}
           <div ref={messagesEndRef} />
