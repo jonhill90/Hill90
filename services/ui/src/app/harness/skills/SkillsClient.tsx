@@ -60,6 +60,9 @@ export default function SkillsClient() {
   const [formError, setFormError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedInstructions, setExpandedInstructions] = useState<Set<string>>(new Set())
+  const [showGraph, setShowGraph] = useState(false)
+  const [graphData, setGraphData] = useState<{ nodes: any[]; edges: any[] } | null>(null)
+  const [graphLoading, setGraphLoading] = useState(false)
 
   const filteredSkills = useMemo(() => {
     if (!searchQuery.trim()) return skills
@@ -88,6 +91,22 @@ export default function SkillsClient() {
       .then(data => setAllTools(data))
       .catch(() => {})
   }, [fetchSkills])
+
+  const fetchGraph = useCallback(async () => {
+    setGraphLoading(true)
+    try {
+      const res = await fetch('/api/skills/graph')
+      if (res.ok) setGraphData(await res.json())
+    } catch {
+      // graph unavailable
+    } finally {
+      setGraphLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (showGraph && !graphData) fetchGraph()
+  }, [showGraph, graphData, fetchGraph])
 
   const resetForm = () => {
     setFormData({
@@ -495,6 +514,77 @@ export default function SkillsClient() {
           })}
         </div>
       )}
+
+      {/* Dependency Graph Toggle */}
+      <div className="mt-8">
+        <button
+          onClick={() => setShowGraph(!showGraph)}
+          className="flex items-center gap-2 text-sm text-mountain-400 hover:text-white transition-colors cursor-pointer"
+        >
+          {showGraph ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          Tool Dependencies
+        </button>
+
+        {showGraph && (
+          <div className="mt-3 rounded-lg border border-navy-700 bg-navy-800 overflow-hidden">
+            {graphLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+              </div>
+            ) : graphData ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-navy-700">
+                    <th className="text-left px-4 py-2 text-mountain-400 font-medium">Skill</th>
+                    <th className="text-left px-4 py-2 text-mountain-400 font-medium">Scope</th>
+                    <th className="text-left px-4 py-2 text-mountain-400 font-medium">Tools</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {graphData.nodes
+                    .filter(n => n.type === 'skill')
+                    .map(skill => {
+                      const toolIds = graphData.edges
+                        .filter(e => e.source === skill.id)
+                        .map(e => e.target)
+                      const tools = graphData.nodes.filter(n => n.type === 'tool' && toolIds.includes(n.id))
+                      return (
+                        <tr key={skill.id} className="border-b border-navy-700/50 hover:bg-navy-700/30">
+                          <td className="px-4 py-2 text-white">
+                            {skill.name}
+                            {skill.is_platform && (
+                              <Lock size={10} className="inline ml-1 text-mountain-500" />
+                            )}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className={`inline-flex items-center px-2 py-0.5 text-xs rounded-md ${scopeBadge(skill.scope).colorClasses}`}>
+                              {scopeBadge(skill.scope).label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2">
+                            {tools.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {tools.map(t => (
+                                  <span key={t.id} className="px-2 py-0.5 text-xs rounded-md bg-navy-900 text-brand-400 border border-navy-700 font-mono">
+                                    {t.name}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-mountain-500">None</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            ) : (
+              <p className="px-4 py-4 text-sm text-mountain-500">Failed to load dependency graph</p>
+            )}
+          </div>
+        )}
+      </div>
     </>
   )
 }
