@@ -118,12 +118,33 @@ router.get('/status', async (_req: Request, res: Response) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
 
-    const response = await fetch(`${vaultAddr}/v1/sys/health`, {
-      signal: controller.signal,
-    });
+    // OpenBao /sys/health returns non-200 for sealed (503), standby (429),
+    // uninitialized (501), etc. — but always returns JSON body with status
+    // fields. Use ?sealedcode=200&uninitcode=200&standbycode=200 to force
+    // 200 for all states so fetch + json parsing always succeeds.
+    const response = await fetch(
+      `${vaultAddr}/v1/sys/health?sealedcode=200&uninitcode=200&standbycode=200`,
+      { signal: controller.signal },
+    );
     clearTimeout(timeout);
 
-    const body = await response.json() as Record<string, unknown>;
+    const text = await response.text();
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // Non-JSON response — vault is reachable but returned unexpected content
+      res.json({
+        available: true,
+        sealed: null,
+        initialized: null,
+        version: null,
+        cluster_name: null,
+        error: `Unexpected response (HTTP ${response.status})`,
+      });
+      return;
+    }
+
     res.json({
       available: true,
       sealed: body.sealed ?? null,
