@@ -217,7 +217,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
               )}
             </div>
             {isGroup ? (
-              <AgentStatusBar agents={agents} />
+              <AgentStatusBar agents={agents} leadAgentId={thread?.lead_agent_id} />
             ) : (
               thread?.agent && (
                 <div className="flex items-center gap-1.5 mt-0.5">
