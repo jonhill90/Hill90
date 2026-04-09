@@ -11,7 +11,7 @@ import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
 import WorkspaceBrowser from './WorkspaceBrowser'
 import AgentKnowledge from './AgentKnowledge'
-import { Camera } from 'lucide-react'
+import { Camera, Download } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
 
 interface Agent {
@@ -120,9 +120,12 @@ export default function AgentDetailClient({
 
   // Logs
   const [logs, setLogs] = useState('')
-  const [showLogs, setShowLogs] = useState(false)
+  const [logsPaused, setLogsPaused] = useState(false)
   const [logSearch, setLogSearch] = useState('')
+  const [logsStreaming, setLogsStreaming] = useState(false)
+  const [logsFetched, setLogsFetched] = useState(false)
   const logsEndRef = useRef<HTMLDivElement>(null)
+  const logsContainerRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
 
   // Skills
@@ -258,11 +261,36 @@ export default function AgentDetailClient({
       .finally(() => { setUsageLoading(false); setUsageFetched(true) })
   }, [activeTab, usageFetched, agent])
 
-  // SSE log streaming
+  // Auto-fetch initial logs when entering logs view
   useEffect(() => {
-    if (!showLogs || !isAdmin || agent?.status !== 'running') {
-      eventSourceRef.current?.close()
-      eventSourceRef.current = null
+    if (activeTab !== 'activity' || activityView !== 'logs' || !isAdmin || logsFetched) return
+    setLogsFetched(true)
+    const params = new URLSearchParams({ tail: '500' })
+    if (logSearch) params.set('search', logSearch)
+    fetch(`/api/agents/${agentId}/logs?${params}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.logs) setLogs(data.logs) })
+      .catch(() => {})
+  }, [activeTab, activityView, isAdmin, logsFetched, agentId, logSearch])
+
+  // Reset logsFetched when leaving logs view
+  useEffect(() => {
+    if (activeTab !== 'activity' || activityView !== 'logs') {
+      setLogsFetched(false)
+    }
+  }, [activeTab, activityView])
+
+  // SSE log streaming — auto-connect when viewing logs on a running agent
+  useEffect(() => {
+    const shouldStream = activeTab === 'activity' && activityView === 'logs'
+      && isAdmin && agent?.status === 'running' && !logsPaused
+
+    if (!shouldStream) {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+        setLogsStreaming(false)
+      }
       return
     }
 
@@ -270,17 +298,25 @@ export default function AgentDetailClient({
     if (logSearch) sseParams.set('search', logSearch)
     const es = new EventSource(`/api/agents/${agentId}/logs?${sseParams}`)
     eventSourceRef.current = es
+    setLogsStreaming(true)
 
     es.onmessage = (event) => {
       setLogs((prev) => prev + event.data + '\n')
-      logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+      // Auto-scroll if user is near the bottom
+      const container = logsContainerRef.current
+      if (container) {
+        const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80
+        if (nearBottom) {
+          requestAnimationFrame(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }))
+        }
+      }
     }
 
-    es.addEventListener('end', () => { es.close() })
-    es.addEventListener('error', () => { es.close() })
+    es.addEventListener('end', () => { es.close(); setLogsStreaming(false) })
+    es.addEventListener('error', () => { es.close(); setLogsStreaming(false) })
 
-    return () => { es.close() }
-  }, [showLogs, isAdmin, agent?.status, agentId, logSearch])
+    return () => { es.close(); setLogsStreaming(false) }
+  }, [activeTab, activityView, isAdmin, agent?.status, agentId, logSearch, logsPaused])
 
   const handleAction = async (action: 'start' | 'stop') => {
     setActionLoading(true)
@@ -348,20 +384,6 @@ export default function AgentDetailClient({
       console.error('Failed to clone:', err)
     } finally {
       setActionLoading(false)
-    }
-  }
-
-  const fetchLogs = async () => {
-    try {
-      const params = new URLSearchParams({ tail: '500' })
-      if (logSearch) params.set('search', logSearch)
-      const res = await fetch(`/api/agents/${agentId}/logs?${params}`)
-      if (res.ok) {
-        const data = await res.json()
-        setLogs(data.logs || '')
-      }
-    } catch (err) {
-      console.error('Failed to fetch logs:', err)
     }
   }
 
@@ -1253,41 +1275,54 @@ export default function AgentDetailClient({
       {activeTab === 'activity' && (
         <div className="space-y-4">
           {/* Sub-view toggle */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setActivityView('timeline')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                activityView === 'timeline'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-mountain-400 hover:text-white hover:bg-navy-700'
-              }`}
-              data-testid="timeline-toggle"
-            >
-              Timeline
-            </button>
-            <button
-              onClick={() => setActivityView('events')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                activityView === 'events'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-mountain-400 hover:text-white hover:bg-navy-700'
-              }`}
-              data-testid="events-toggle"
-            >
-              Detailed Events
-            </button>
-            {isAdmin && (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
               <button
-                onClick={() => setActivityView('logs')}
+                onClick={() => setActivityView('timeline')}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                  activityView === 'logs'
+                  activityView === 'timeline'
                     ? 'bg-brand-600 text-white'
                     : 'text-mountain-400 hover:text-white hover:bg-navy-700'
                 }`}
-                data-testid="raw-logs-toggle"
+                data-testid="timeline-toggle"
               >
-                Raw Logs
+                Timeline
               </button>
+              <button
+                onClick={() => setActivityView('events')}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                  activityView === 'events'
+                    ? 'bg-brand-600 text-white'
+                    : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+                }`}
+                data-testid="events-toggle"
+              >
+                Detailed Events
+              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setActivityView('logs')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                    activityView === 'logs'
+                      ? 'bg-brand-600 text-white'
+                      : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+                  }`}
+                  data-testid="raw-logs-toggle"
+                >
+                  Raw Logs
+                </button>
+              )}
+            </div>
+            {agent.status === 'running' && (
+              <a
+                href={`/api/agents/${agentId}/events/export?format=csv`}
+                download
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors"
+                data-testid="export-events"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </a>
             )}
           </div>
 
@@ -1302,7 +1337,15 @@ export default function AgentDetailClient({
           {activityView === 'logs' && isAdmin && (
             <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold text-white">Logs</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-white">Logs</h2>
+                  {logsStreaming && (
+                    <span className="flex items-center gap-1.5 text-xs text-brand-400">
+                      <span className="h-2 w-2 rounded-full bg-brand-500 animate-pulse" />
+                      Streaming
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
@@ -1313,28 +1356,32 @@ export default function AgentDetailClient({
                   />
                   {agent.status === 'running' && (
                     <button
-                      onClick={() => setShowLogs(!showLogs)}
-                      className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                      onClick={() => setLogsPaused(p => !p)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer ${
+                        logsPaused
+                          ? 'border-brand-600 text-brand-400 hover:bg-brand-900/30'
+                          : 'border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500'
+                      }`}
                     >
-                      {showLogs ? 'Stop Streaming' : 'Stream Live'}
+                      {logsPaused ? 'Resume' : 'Pause'}
                     </button>
                   )}
                   <button
-                    onClick={fetchLogs}
+                    onClick={() => { setLogs(''); setLogsFetched(false) }}
                     className="px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
                   >
-                    Fetch Logs
+                    Clear
                   </button>
                 </div>
               </div>
-              <div className="bg-navy-900 rounded-md p-3 h-64 overflow-y-auto font-mono text-xs text-mountain-300">
+              <div ref={logsContainerRef} className="bg-navy-900 rounded-md p-3 h-96 overflow-y-auto font-mono text-xs text-mountain-300">
                 {logs ? (
                   <>
                     <pre className="whitespace-pre-wrap">{logs}</pre>
                     <div ref={logsEndRef} />
                   </>
                 ) : (
-                  <p className="text-mountain-500">No logs available</p>
+                  <p className="text-mountain-500">{logsFetched ? 'No logs available' : 'Loading logs...'}</p>
                 )}
               </div>
             </div>
