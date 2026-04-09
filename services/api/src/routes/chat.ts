@@ -1024,6 +1024,65 @@ router.post('/threads/:id/messages', requireRole('user'), async (req: Request, r
 });
 
 // ───────────────────────────────────────────────────────────────────
+// GET /chat/threads/:id/search — full-text search messages in thread
+// ───────────────────────────────────────────────────────────────────
+
+router.get('/threads/:id/search', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+    const threadId = req.params.id;
+
+    if (!(await isParticipant(threadId, user.sub, admin))) {
+      res.status(404).json({ error: 'Thread not found' });
+      return;
+    }
+
+    const q = req.query.q;
+    if (!q || typeof q !== 'string' || !q.trim()) {
+      res.status(400).json({ error: 'q query parameter is required' });
+      return;
+    }
+
+    const searchTerm = q.trim();
+
+    // Sanitize for tsquery: split on whitespace, strip non-word chars, join with &
+    const tokens = searchTerm
+      .split(/\s+/)
+      .map(t => t.replace(/[^\w]/g, ''))
+      .filter(t => t.length > 0);
+
+    if (tokens.length === 0) {
+      res.json({ results: [], query: searchTerm });
+      return;
+    }
+
+    const tsquery = tokens.map(t => `${t}:*`).join(' & ');
+
+    const { rows } = await getPool().query(
+      `SELECT id, seq, author_id, author_type, role, content, status,
+              model, created_at,
+              ts_rank(to_tsvector('english', content), to_tsquery('english', $2)) AS rank,
+              ts_headline('english', content, to_tsquery('english', $2),
+                'StartSel=<mark>, StopSel=</mark>, MaxFragments=3, MaxWords=40, MinWords=15'
+              ) AS headline
+       FROM chat_messages
+       WHERE thread_id = $1
+         AND status = 'complete'
+         AND to_tsvector('english', content) @@ to_tsquery('english', $2)
+       ORDER BY rank DESC, seq DESC
+       LIMIT 50`,
+      [threadId, tsquery]
+    );
+
+    res.json({ results: rows, query: searchTerm });
+  } catch (err) {
+    console.error('[chat] Search error:', err);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
 // POST /chat/threads/:id/cancel — cancel all pending messages
 // ───────────────────────────────────────────────────────────────────
 

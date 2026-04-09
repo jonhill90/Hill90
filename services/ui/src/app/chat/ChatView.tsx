@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Send, Terminal, Users, Paperclip } from 'lucide-react'
+import { ArrowLeft, Send, Terminal, Users, Paperclip, Search, X } from 'lucide-react'
 import type { Session } from 'next-auth'
 import type { ChatThread } from './ChatLayout'
 import ChatMessage from './ChatMessage'
@@ -49,6 +49,12 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [fileToast, setFileToast] = useState(false)
   const [sessionPaneOpen, setSessionPaneOpen] = useState(false)
   const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<{ id: string; seq: number; author_type: string; role: string; headline: string; rank: number; created_at: string }[]>([])
+  const [searching, setSearching] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const refocusTimer = useRef<number | null>(null)
@@ -139,6 +145,30 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
     }
   }
 
+  const handleSearch = useCallback(async (query: string) => {
+    if (!query.trim()) { setSearchResults([]); return }
+    setSearching(true)
+    try {
+      const res = await fetch(`/api/chat/${threadId}/search?q=${encodeURIComponent(query.trim())}`)
+      if (res.ok) { const data = await res.json(); setSearchResults(data.results || []) }
+    } catch { /* best-effort */ } finally { setSearching(false) }
+  }, [threadId])
+
+  const onSearchInput = useCallback((value: string) => {
+    setSearchQuery(value)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => handleSearch(value), 300)
+  }, [handleSearch])
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const el = document.querySelector(`[data-message-id="${messageId}"]`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ring-2', 'ring-brand-400/50')
+      setTimeout(() => el.classList.remove('ring-2', 'ring-brand-400/50'), 2000)
+    }
+  }, [])
+
   const hasPending = messages.some(m => m.status === 'pending')
   const anyAgentRunning = agents.some(a => a.status === 'running')
   const agentName = thread?.agent?.name || 'Agent'
@@ -203,6 +233,22 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
             )}
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                setSearchOpen(prev => !prev)
+                if (!searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50)
+                if (searchOpen) { setSearchQuery(''); setSearchResults([]) }
+              }}
+              className={`p-1.5 rounded transition-colors ${
+                searchOpen
+                  ? 'bg-brand-600/20 text-brand-400'
+                  : 'text-mountain-400 hover:text-gray-200 hover:bg-navy-700'
+              }`}
+              title="Search messages"
+              data-testid="search-toggle"
+            >
+              <Search size={18} />
+            </button>
             <CancelButton
               threadId={threadId}
               hasPending={hasPending}
@@ -234,6 +280,66 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
             </button>
           </div>
         </div>
+
+        {/* Search panel */}
+        {searchOpen && (
+          <div className="border-b border-navy-700 bg-navy-900/80" data-testid="search-panel">
+            <div className="flex items-center gap-2 px-4 py-2">
+              <Search size={14} className="text-mountain-400 flex-shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => onSearchInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); setSearchResults([]) } }}
+                placeholder="Search messages..."
+                className="flex-1 bg-transparent text-sm text-gray-200 placeholder-mountain-500 outline-none"
+                data-testid="search-input"
+              />
+              {searching && <span className="text-xs text-mountain-400">Searching...</span>}
+              {searchResults.length > 0 && !searching && (
+                <span className="text-xs text-mountain-400">{searchResults.length} result{searchResults.length !== 1 ? 's' : ''}</span>
+              )}
+              <button
+                onClick={() => { setSearchOpen(false); setSearchQuery(''); setSearchResults([]) }}
+                className="p-1 text-mountain-400 hover:text-gray-200 transition-colors"
+                data-testid="search-close"
+              >
+                <X size={14} />
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="max-h-48 overflow-y-auto border-t border-navy-700/50">
+                {searchResults.map((r) => (
+                  <button
+                    key={r.id}
+                    onClick={() => scrollToMessage(r.id)}
+                    className="w-full text-left px-4 py-2 hover:bg-navy-800/50 transition-colors border-b border-navy-700/30 last:border-b-0"
+                    data-testid="search-result"
+                  >
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[10px] text-mountain-500">
+                        {r.author_type === 'human' ? 'You' : 'Agent'}
+                      </span>
+                      <span className="text-[10px] text-mountain-500">
+                        {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                    <p
+                      className="text-xs text-gray-300 line-clamp-2 [&>mark]:bg-brand-500/30 [&>mark]:text-brand-300 [&>mark]:rounded-sm [&>mark]:px-0.5"
+                      dangerouslySetInnerHTML={{ __html: r.headline }}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+            {searchQuery.trim() && !searching && searchResults.length === 0 && (
+              <div className="px-4 py-3 text-xs text-mountain-400 border-t border-navy-700/50">
+                No messages found for &ldquo;{searchQuery}&rdquo;
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Agent stopped warning */}
         {!anyAgentRunning && agents.length > 0 && (
