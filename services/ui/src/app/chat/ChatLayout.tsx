@@ -27,6 +27,7 @@ export interface ChatThread {
   agents?: ChatAgent[]
   // Backward compat: single agent for direct threads
   agent?: ChatAgent
+  archived?: boolean
 }
 
 interface Props {
@@ -41,10 +42,12 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
   const [showNewThread, setShowNewThread] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
 
   const fetchThreads = useCallback(async () => {
     try {
-      const res = await fetch('/api/chat')
+      const url = showArchived ? '/api/chat?include_archived=true' : '/api/chat'
+      const res = await fetch(url)
       if (res.ok) {
         const data = await res.json()
         setThreads(data)
@@ -54,7 +57,7 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [showArchived])
 
   useEffect(() => {
     fetchThreads()
@@ -82,6 +85,24 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
     } catch (err) {
       console.error('Failed to delete thread:', err)
       setError('Failed to delete thread')
+    }
+  }
+
+  const handleArchive = async (threadId: string) => {
+    try {
+      const res = await fetch(`/api/chat/${threadId}/archive`, { method: 'POST' })
+      if (res.ok) await fetchThreads()
+    } catch (err) {
+      console.error('Failed to archive thread:', err)
+    }
+  }
+
+  const handleUnarchive = async (threadId: string) => {
+    try {
+      const res = await fetch(`/api/chat/${threadId}/unarchive`, { method: 'POST' })
+      if (res.ok) await fetchThreads()
+    } catch (err) {
+      console.error('Failed to unarchive thread:', err)
     }
   }
 
@@ -139,6 +160,10 @@ export default function ChatLayout({ session, activeThreadId }: Props) {
             loading={loading}
             activeThreadId={activeThreadId}
             onDelete={handleDeleteThread}
+            onArchive={handleArchive}
+            onUnarchive={handleUnarchive}
+            showArchived={showArchived}
+            onToggleArchived={() => setShowArchived(!showArchived)}
           />
         </div>
       </div>

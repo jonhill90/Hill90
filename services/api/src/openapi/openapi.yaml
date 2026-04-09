@@ -3848,8 +3848,17 @@ paths:
       description: |
         Lists threads the caller participates in. Admin sees all threads.
         Returns last message preview (truncated to 100 chars).
+        Archived threads are excluded by default.
       security:
         - bearerAuth: []
+      parameters:
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["true", "false"]
+          description: Include archived threads in listing (default false)
       responses:
         "200":
           description: Thread list
@@ -3877,6 +3886,8 @@ paths:
                     last_author_type:
                       type: string
                       nullable: true
+                    archived:
+                      type: boolean
                     created_at:
                       type: string
                       format: date-time
@@ -4144,6 +4155,63 @@ paths:
                     description: Number of messages cancelled
         "404":
           description: Thread not found or not a participant
+
+  /chat/threads/{id}/archive:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      summary: Archive a thread
+      description: |
+        Marks the thread as archived. Archived threads are excluded from
+        listing by default. Owner or admin only.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread archived
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  archived:
+                    type: boolean
+        "404":
+          description: Thread not found or not owner
+
+  /chat/threads/{id}/unarchive:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      summary: Unarchive a thread
+      description: |
+        Removes the archived flag from a thread. Owner or admin only.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Thread unarchived
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  archived:
+                    type: boolean
+        "404":
+          description: Thread not found or not owner
 
   /chat/threads/{id}/stream:
     parameters:

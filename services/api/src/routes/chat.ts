@@ -264,16 +264,19 @@ router.get('/threads', requireRole('user'), async (req: Request, res: Response) 
     let params: any[];
 
     if (admin) {
-      query = `SELECT t.id, t.type, t.title, t.created_by, t.created_at, t.updated_at,
+      const includeArchived = req.query.include_archived === 'true';
+      query = `SELECT t.id, t.type, t.title, t.created_by, t.created_at, t.updated_at, t.archived,
                       (SELECT content FROM chat_messages
                        WHERE thread_id = t.id ORDER BY seq DESC LIMIT 1) AS last_message,
                       (SELECT author_type FROM chat_messages
                        WHERE thread_id = t.id ORDER BY seq DESC LIMIT 1) AS last_author_type
                FROM chat_threads t
+               ${includeArchived ? '' : 'WHERE t.archived = FALSE'}
                ORDER BY t.updated_at DESC`;
       params = [];
     } else {
-      query = `SELECT t.id, t.type, t.title, t.created_by, t.created_at, t.updated_at,
+      const includeArchived = req.query.include_archived === 'true';
+      query = `SELECT t.id, t.type, t.title, t.created_by, t.created_at, t.updated_at, t.archived,
                       (SELECT content FROM chat_messages
                        WHERE thread_id = t.id ORDER BY seq DESC LIMIT 1) AS last_message,
                       (SELECT author_type FROM chat_messages
@@ -281,6 +284,7 @@ router.get('/threads', requireRole('user'), async (req: Request, res: Response) 
                FROM chat_threads t
                JOIN chat_participants cp ON cp.thread_id = t.id
                WHERE cp.participant_id = $1 AND cp.participant_type = 'human' AND cp.left_at IS NULL
+               ${includeArchived ? '' : 'AND t.archived = FALSE'}
                ORDER BY t.updated_at DESC`;
       params = [user.sub];
     }
@@ -649,6 +653,58 @@ router.delete('/threads/:id', requireRole('user'), async (req: Request, res: Res
   } catch (err) {
     console.error('[chat] Delete thread error:', err);
     res.status(500).json({ error: 'Failed to delete thread' });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
+// POST /chat/threads/:id/archive — archive thread
+// ───────────────────────────────────────────────────────────────────
+
+router.post('/threads/:id/archive', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+
+    if (!(await isThreadOwner(req.params.id, user.sub, admin))) {
+      res.status(404).json({ error: 'Thread not found' });
+      return;
+    }
+
+    await getPool().query(
+      `UPDATE chat_threads SET archived = TRUE, updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+
+    res.json({ archived: true });
+  } catch (err) {
+    console.error('[chat] Archive thread error:', err);
+    res.status(500).json({ error: 'Failed to archive thread' });
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────
+// POST /chat/threads/:id/unarchive — unarchive thread
+// ───────────────────────────────────────────────────────────────────
+
+router.post('/threads/:id/unarchive', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+
+    if (!(await isThreadOwner(req.params.id, user.sub, admin))) {
+      res.status(404).json({ error: 'Thread not found' });
+      return;
+    }
+
+    await getPool().query(
+      `UPDATE chat_threads SET archived = FALSE, updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
+    );
+
+    res.json({ archived: false });
+  } catch (err) {
+    console.error('[chat] Unarchive thread error:', err);
+    res.status(500).json({ error: 'Failed to unarchive thread' });
   }
 });
 

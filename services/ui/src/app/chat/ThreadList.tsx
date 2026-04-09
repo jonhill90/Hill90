@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Users, Trash2 } from 'lucide-react'
+import { Users, Trash2, Archive, ArchiveRestore } from 'lucide-react'
 import type { ChatThread } from './ChatLayout'
 import AgentAvatar from '@/components/AgentAvatar'
 
@@ -34,6 +34,10 @@ interface Props {
   loading: boolean
   activeThreadId?: string
   onDelete: (threadId: string) => void
+  onArchive: (threadId: string) => void
+  onUnarchive: (threadId: string) => void
+  showArchived: boolean
+  onToggleArchived: () => void
 }
 
 function timeAgo(dateStr: string): string {
@@ -54,7 +58,7 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + '...'
 }
 
-export default function ThreadList({ threads, loading, activeThreadId, onDelete }: Props) {
+export default function ThreadList({ threads, loading, activeThreadId, onDelete, onArchive, onUnarchive, showArchived, onToggleArchived }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [seenMap, setSeenMap] = useState<Record<string, string>>({})
 
@@ -88,7 +92,21 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-navy-800">
+        <span className="text-xs text-mountain-500">{threads.length} thread{threads.length !== 1 ? 's' : ''}</span>
+        <button
+          onClick={onToggleArchived}
+          className={`text-xs px-2 py-0.5 rounded transition-colors cursor-pointer ${
+            showArchived
+              ? 'bg-brand-600 text-white'
+              : 'text-mountain-400 hover:text-white'
+          }`}
+        >
+          {showArchived ? 'Hide Archived' : 'Show Archived'}
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto">
       {threads.map(thread => {
         const isActive = thread.id === activeThreadId
         const isGroup = thread.type === 'group'
@@ -106,7 +124,7 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
               href={`/chat/${thread.id}`}
               className={`block px-3 py-2.5 border-b border-navy-800 hover:bg-navy-800 transition-colors ${
                 isActive ? 'bg-navy-800 border-l-2 border-l-brand-500' : ''
-              }`}
+              } ${thread.archived ? 'opacity-50' : ''}`}
             >
               <div className="flex items-start gap-2">
                 {/* Agent avatar */}
@@ -145,6 +163,21 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
                 </div>
                 <div className="flex items-start gap-1 flex-shrink-0 mt-0.5">
                   <span className="text-xs text-mountain-500">{time}</span>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (thread.archived) {
+                        onUnarchive(thread.id)
+                      } else {
+                        onArchive(thread.id)
+                      }
+                    }}
+                    className="p-0.5 text-mountain-500 hover:text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label={thread.archived ? `Unarchive thread ${displayTitle}` : `Archive thread ${displayTitle}`}
+                  >
+                    {thread.archived ? <ArchiveRestore size={12} /> : <Archive size={12} />}
+                  </button>
                   <button
                     onClick={(e) => {
                       e.preventDefault()
@@ -190,6 +223,7 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
           </div>
         )
       })}
+      </div>
     </div>
   )
 }
