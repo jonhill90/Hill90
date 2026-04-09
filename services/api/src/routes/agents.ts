@@ -2311,6 +2311,42 @@ router.get('/:id/metrics', requireRole('user'), async (req: Request, res: Respon
   }
 });
 
+// Agent runtime metrics — proxied from the agentbox container
+const AGENTBOX_PORT = 8054;
+
+router.get('/:id/runtime-metrics', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT * FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const agent = rows[0];
+
+    if (agent.status !== 'running') {
+      res.status(409).json({ error: 'Agent is not running' });
+      return;
+    }
+
+    const url = `http://agentbox-${agent.agent_id}:${AGENTBOX_PORT}/metrics`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err: any) {
+    if (err.name === 'TimeoutError' || err.code === 'UND_ERR_CONNECT_TIMEOUT') {
+      res.status(504).json({ error: 'Agentbox metrics timed out' });
+      return;
+    }
+    console.error('[agents] Runtime metrics proxy error:', err);
+    res.status(502).json({ error: 'Failed to get metrics from agentbox' });
+  }
+});
+
 // Agent progression — artifacts (computed on-demand from stats)
 const ARTIFACT_CATALOG = [
   { id: 'first_light', name: 'First Light', icon: '⚡', description: 'Completed first model inference', check: (s: any) => s.total_inferences >= 1 },
