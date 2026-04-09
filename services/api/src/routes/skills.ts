@@ -89,6 +89,50 @@ router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
   }
 });
 
+// Skill-tool dependency graph
+router.get('/graph', requireRole('user'), async (_req: Request, res: Response) => {
+  try {
+    const [skillResult, edgeResult] = await Promise.all([
+      getPool().query(
+        `SELECT s.id, s.name, s.scope, s.is_platform,
+                COALESCE(json_agg(json_build_object('id', t.id, 'name', t.name))
+                  FILTER (WHERE t.id IS NOT NULL), '[]') AS tools
+         FROM skills s
+         LEFT JOIN skill_tools st ON st.skill_id = s.id
+         LEFT JOIN tools t ON t.id = st.tool_id
+         GROUP BY s.id
+         ORDER BY s.name ASC`
+      ),
+      getPool().query(
+        `SELECT st.skill_id AS source, st.tool_id AS target FROM skill_tools st`
+      ),
+    ]);
+
+    const skillNodes = skillResult.rows.map((s: any) => ({
+      id: s.id, name: s.name, type: 'skill' as const, scope: s.scope, is_platform: s.is_platform,
+    }));
+
+    const toolMap = new Map<string, string>();
+    for (const row of skillResult.rows) {
+      for (const t of row.tools) {
+        if (t.id) toolMap.set(t.id, t.name);
+      }
+    }
+
+    const toolNodes = Array.from(toolMap.entries()).map(([id, name]) => ({
+      id, name, type: 'tool' as const,
+    }));
+
+    res.json({
+      nodes: [...skillNodes, ...toolNodes],
+      edges: edgeResult.rows.map((e: any) => ({ source: e.source, target: e.target })),
+    });
+  } catch (err) {
+    console.error('[skills] Graph error:', err);
+    res.status(500).json({ error: 'Failed to build skill graph' });
+  }
+});
+
 // Get single skill
 router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
   try {
