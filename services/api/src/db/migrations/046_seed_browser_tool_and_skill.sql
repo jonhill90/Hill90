@@ -14,11 +14,12 @@ VALUES (
   'Headless browser automation — navigate pages, take screenshots, click elements, extract text.',
   '{"shell":{"enabled":true,"allowed_binaries":["bash"],"denied_patterns":["rm -rf /"],"max_timeout":60},"filesystem":{"enabled":true,"read_only":false,"allowed_paths":["/workspace"],"denied_paths":["/etc/shadow","/etc/passwd","/root"]},"health":{"enabled":true}}',
   E'Automate a headless Chromium browser.\n- navigate: go to a URL and get page title/status\n- screenshot: capture the page to /workspace/screenshots/\n- click: click an element by CSS selector\n- get_text: extract visible text from a selector (default: body)\n- evaluate: run JavaScript in the page context\n\nScreenshots are saved to /workspace/screenshots/ with timestamp filenames.',
-  'container_local',
+  'host_docker',
   true
 )
 ON CONFLICT (name) DO UPDATE SET
   description = EXCLUDED.description,
+  scope = EXCLUDED.scope,
   tools_config = EXCLUDED.tools_config,
   instructions_md = EXCLUDED.instructions_md,
   scope = EXCLUDED.scope,
