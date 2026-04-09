@@ -2146,6 +2146,55 @@ router.get('/:id/stats', requireRole('user'), async (req: Request, res: Response
   }
 });
 
+// Agent metrics — computed operational metrics
+router.get('/:id/metrics', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT * FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const agent = rows[0];
+
+    const [messagesResult, eventsResult, lastActiveResult] = await Promise.all([
+      getPool().query(
+        `SELECT COUNT(*) AS total_messages
+         FROM chat_messages WHERE author_id = $1 AND author_type = 'agent'`,
+        [agent.id],
+      ),
+      getPool().query(
+        `SELECT COUNT(*) AS total_events
+         FROM model_usage WHERE agent_id = $1`,
+        [agent.agent_id],
+      ),
+      getPool().query(
+        `SELECT MAX(created_at) AS last_active FROM (
+           SELECT created_at FROM agent_sessions WHERE agent_id = $1
+           UNION ALL
+           SELECT created_at FROM chat_messages WHERE author_id = $1 AND author_type = 'agent'
+           UNION ALL
+           SELECT created_at FROM model_usage WHERE agent_id = $2
+         ) AS events`,
+        [agent.id, agent.agent_id],
+      ),
+    ]);
+
+    res.json({
+      total_messages: Number(messagesResult.rows[0].total_messages),
+      total_events: Number(eventsResult.rows[0].total_events),
+      last_active: lastActiveResult.rows[0].last_active || null,
+    });
+  } catch (err: any) {
+    console.error('[agents] Metrics error:', err);
+    res.status(500).json({ error: 'Failed to compute metrics' });
+  }
+});
+
 // Agent progression — artifacts (computed on-demand from stats)
 const ARTIFACT_CATALOG = [
   { id: 'first_light', name: 'First Light', icon: '⚡', description: 'Completed first model inference', check: (s: any) => s.total_inferences >= 1 },
