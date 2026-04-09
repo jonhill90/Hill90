@@ -3871,6 +3871,11 @@ paths:
                       nullable: true
                     created_by:
                       type: string
+                    lead_agent_id:
+                      type: string
+                      format: uuid
+                      nullable: true
+                      description: Lead agent for collaborative dispatch (null = broadcast)
                     last_message:
                       type: string
                       nullable: true
@@ -3918,6 +3923,15 @@ paths:
                 title:
                   type: string
                   nullable: true
+                lead_agent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: |
+                    Designate a lead agent for collaborative group threads.
+                    Must be one of the agent_ids. When set, only the lead agent
+                    receives dispatch with collaborator context. Other agents
+                    serve as queryable collaborators.
                 idempotency_key:
                   type: string
                   nullable: true
@@ -3980,8 +3994,11 @@ paths:
           description: Thread not found or not a participant
 
     put:
-      summary: Update thread title
-      description: Requires thread owner or admin role.
+      summary: Update thread
+      description: |
+        Update thread title and/or lead agent. Requires thread owner or admin role.
+        Set lead_agent_id to enable collaborative mode (lead agent produces single
+        combined response). Set to null to revert to broadcast dispatch.
       security:
         - bearerAuth: []
       requestBody:
@@ -3994,9 +4011,16 @@ paths:
                 title:
                   type: string
                   nullable: true
+                lead_agent_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: Set lead agent for collaborative dispatch (null to clear)
       responses:
         "200":
           description: Thread updated
+        "400":
+          description: lead_agent_id not an active participant
         "404":
           description: Thread not found or not owner
 
@@ -4722,6 +4746,93 @@ paths:
                     nullable: true
                   key_count:
                     type: integer
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Bucket not found
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/upload:
+    post:
+      summary: Upload a file to a bucket
+      tags: [Storage]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                key:
+                  type: string
+                  description: Object key (defaults to filename)
+      responses:
+        "200":
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  size:
+                    type: integer
+                  content_type:
+                    type: string
+        "400":
+          description: No file provided
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires admin role
+        "404":
+          description: Bucket not found
+        "502":
+          description: Storage service unavailable
+
+  /storage/buckets/{name}/objects/{key}:
+    delete:
+      summary: Delete an object from a bucket
+      tags: [Storage]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Object deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: string
         "401":
           description: Not authenticated
         "403":
