@@ -1651,6 +1651,22 @@ paths:
         "404":
           description: Agent not found
 
+  /agents/{id}/schedule:
+    put:
+      summary: Set agent auto-start schedule
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Schedule updated
+
   /agents/{id}/logs:
     parameters:
       - name: id

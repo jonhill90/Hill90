@@ -159,6 +159,7 @@ const EXPECTED_PATHS = [
   '/agents/{id}/webhooks',
   '/agents/{id}/webhooks/{webhookId}',
   '/agents/{id}/export',
+  '/agents/{id}/schedule',
   '/model-policies',
   '/model-policies/{id}',
   '/provider-connections',
