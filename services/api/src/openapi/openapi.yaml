@@ -1692,7 +1692,7 @@ paths:
           description: Agent created from import
 
   /agents/{id}/avatar:
-    put:
+    post:
       summary: Upload agent avatar
       security:
         - bearerAuth: []
