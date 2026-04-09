@@ -93,6 +93,7 @@ export default function AgentFormClient({
   const [error, setError] = useState('')
   const [validationError, setValidationError] = useState('')
   const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const [agentIdServerError, setAgentIdServerError] = useState('')
 
   const [agentId, setAgentId] = useState(initial?.agent_id || '')
   const [name, setName] = useState(initial?.name || '')
@@ -162,7 +163,9 @@ export default function AgentFormClient({
   }
 
   // Inline validation
-  const agentIdError = touched.agent_id && agentId.length > 0 && !AGENT_ID_REGEX.test(agentId)
+  const agentIdError = agentIdServerError
+    ? agentIdServerError
+    : touched.agent_id && agentId.length > 0 && !AGENT_ID_REGEX.test(agentId)
     ? 'Must be lowercase letters, numbers, and hyphens. Cannot start or end with a hyphen.'
     : touched.agent_id && agentId.length === 0
     ? 'Agent ID is required'
@@ -201,6 +204,7 @@ export default function AgentFormClient({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validateForm()) return
+    setAgentIdServerError('')
 
     setSaving(true)
     setError('')
@@ -240,6 +244,10 @@ export default function AgentFormClient({
 
       if (!res.ok) {
         const data = await res.json()
+        if (res.status === 409 && data.error?.toLowerCase().includes('agent_id')) {
+          setAgentIdServerError(data.error)
+          return
+        }
         setError(data.error || `Failed to ${isEdit ? 'update' : 'create'} agent`)
         return
       }
@@ -287,7 +295,7 @@ export default function AgentFormClient({
             id="agent_id"
             type="text"
             value={agentId}
-            onChange={(e) => setAgentId(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+            onChange={(e) => { setAgentId(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')); setAgentIdServerError('') }}
             onBlur={() => setTouched(prev => ({ ...prev, agent_id: true }))}
             disabled={isEdit}
             required
