@@ -475,7 +475,7 @@ describe('Chat multi-agent dispatch', () => {
   it('POST /chat/threads/:id/messages dispatches to all agents in group (I8, I11)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
       })
@@ -494,6 +494,9 @@ describe('Chat multi-agent dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // message history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt-1', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt-2', models: ['gpt-4o'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder agent 1
       .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder agent 2
 
@@ -514,7 +517,7 @@ describe('Chat multi-agent dispatch', () => {
   it('POST /chat/threads/:id/messages @-mention routes to single agent (I9)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
       })
@@ -531,6 +534,9 @@ describe('Chat multi-agent dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // message history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt-1', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt-2', models: ['gpt-4o'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });  // placeholder
 
     const res = await request(app)
@@ -547,7 +553,7 @@ describe('Chat multi-agent dispatch', () => {
   it('POST /chat/threads/:id/messages returns 400 for unknown @-mention (I10)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'agent-1' }],
       })
@@ -566,7 +572,7 @@ describe('Chat multi-agent dispatch', () => {
   it('POST /chat/threads/:id/messages skips agent with pending, dispatches others (I12)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
       })
@@ -583,6 +589,9 @@ describe('Chat multi-agent dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // message history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt-1', models: ['gpt-4o-mini'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt-2', models: ['gpt-4o'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder for agent 2
 
     const res = await request(app)
@@ -601,7 +610,7 @@ describe('Chat multi-agent dispatch', () => {
   it('POST /chat/threads/:id/messages strict elevated deny for group (I13)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'agent-1' }, { participant_id: 'agent-2' }],
       })
@@ -628,7 +637,7 @@ describe('Chat multi-agent dispatch', () => {
   it('POST /chat/threads/:id/messages sets reply_to on placeholders (I15)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'agent-1' }],
       })
@@ -640,6 +649,8 @@ describe('Chat multi-agent dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg-123', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [] })  // message history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });  // placeholder
 
     await request(app)
@@ -659,7 +670,7 @@ describe('Chat multi-agent dispatch', () => {
   it('POST /chat/threads/:id/messages stores target_agents for @-mentions (I16)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })
       .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-1' }] })
       .mockResolvedValueOnce({ rows: [{ slug: 'alpha', participant_id: 'agent-1' }] })  // resolveAgentSlugs
       .mockResolvedValueOnce({
@@ -670,6 +681,8 @@ describe('Chat multi-agent dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [] })  // message history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] });
 
     await request(app)
@@ -719,7 +732,7 @@ describe('Chat multi-agent dispatch', () => {
 
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({ rows: [{ participant_id: 'agent-1' }] })  // getThreadAgents
       .mockResolvedValueOnce({
         rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }],
@@ -729,6 +742,8 @@ describe('Chat multi-agent dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [] })  // message history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'agent-1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt', models: ['gpt-4o-mini'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder
       .mockResolvedValueOnce({ rowCount: 1 });  // UPDATE placeholder to error
 
@@ -1745,7 +1760,7 @@ describe('Group broadcast dispatch', () => {
 
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'a1' }, { participant_id: 'a2' }, { participant_id: 'a3' }],
       })
@@ -1761,6 +1776,10 @@ describe('Group broadcast dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'a1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt1', models: ['gpt-4o'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt2', models: ['gpt-4o'] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a3', agent_id: 'gamma', name: 'Gamma', status: 'running', work_token: 'wt3', models: ['gpt-4o'] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder a1
       .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] })  // placeholder a2
       .mockResolvedValueOnce({ rows: [{ id: 'ph-3' }] });  // placeholder a3
@@ -1785,7 +1804,7 @@ describe('Group broadcast dispatch', () => {
 
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'a1' }, { participant_id: 'a2' }, { participant_id: 'a3' }],
       })
@@ -1801,6 +1820,10 @@ describe('Group broadcast dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'a1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt1', models: [] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt2', models: [] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a3', agent_id: 'gamma', name: 'Gamma', status: 'running', work_token: 'wt3', models: [] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder a1
       .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] })  // placeholder a2
       .mockResolvedValueOnce({ rows: [{ id: 'ph-3' }] })  // placeholder a3
@@ -1820,7 +1843,7 @@ describe('Group broadcast dispatch', () => {
   it('group dispatch payload includes thread_type and participants (T3)', async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [{ id: 1 }] })  // isParticipant
-      .mockResolvedValueOnce({ rows: [{ type: 'group' }] })  // getThreadType
+      .mockResolvedValueOnce({ rows: [{ type: 'group', lead_agent_id: null }] })  // getThreadType
       .mockResolvedValueOnce({  // getThreadAgents
         rows: [{ participant_id: 'a1' }, { participant_id: 'a2' }],
       })
@@ -1833,6 +1856,9 @@ describe('Group broadcast dispatch', () => {
       .mockResolvedValueOnce({ rows: [{ id: 'user-msg', seq: 10 }] })  // INSERT user message
       .mockResolvedValueOnce({ rows: [] })  // UPDATE thread timestamp
       .mockResolvedValueOnce({ rows: [{ role: 'user', content: 'prev' }] })  // history
+      // getAgentForDispatch for participant list (group threads)
+      .mockResolvedValueOnce({ rows: [{ id: 'a1', agent_id: 'alpha', name: 'Alpha', status: 'running', work_token: 'wt1', models: [] }] })
+      .mockResolvedValueOnce({ rows: [{ id: 'a2', agent_id: 'beta', name: 'Beta', status: 'running', work_token: 'wt2', models: [] }] })
       .mockResolvedValueOnce({ rows: [{ id: 'ph-1' }] })  // placeholder a1
       .mockResolvedValueOnce({ rows: [{ id: 'ph-2' }] });  // placeholder a2
 

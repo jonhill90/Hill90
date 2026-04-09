@@ -15,6 +15,8 @@ interface ChatDispatchParams {
   callbackUrl: string;
   threadType?: string;   // 'direct' | 'group' — omitted for backward compat
   participants?: Array<{ agent_id: string; name: string }>;  // group thread participant list
+  isLead?: boolean;      // true when this agent is the lead in collaborative mode
+  collaborators?: Array<{ agent_id: string; name: string }>;  // other agents the lead can query
 }
 
 interface DispatchResult {
@@ -24,11 +26,11 @@ interface DispatchResult {
 }
 
 export async function dispatchChatWork(params: ChatDispatchParams): Promise<DispatchResult> {
-  const { agentId, workToken, threadId, messageId, messages, model, callbackUrl, threadType, participants } = params;
+  const { agentId, workToken, threadId, messageId, messages, model, callbackUrl, threadType, participants, isLead, collaborators } = params;
 
   const url = `http://agentbox-${agentId}:8054/work`;
 
-  console.log(`[chat-dispatch] Dispatching to ${agentId}: thread_id=${threadId} message_id=${messageId} model=${model}`);
+  console.log(`[chat-dispatch] Dispatching to ${agentId}: thread_id=${threadId} message_id=${messageId} model=${model} lead=${!!isLead}`);
 
   const payload: Record<string, unknown> = {
     thread_id: threadId,
@@ -39,6 +41,8 @@ export async function dispatchChatWork(params: ChatDispatchParams): Promise<Disp
   };
   if (threadType) payload.thread_type = threadType;
   if (participants && participants.length > 0) payload.participants = participants;
+  if (isLead) payload.is_lead = true;
+  if (collaborators && collaborators.length > 0) payload.collaborators = collaborators;
 
   const body = {
     type: 'chat',

@@ -130,7 +130,28 @@ def handle_chat(
     # Append group context if this is a group thread
     thread_type = payload.get("thread_type")
     participants = payload.get("participants")
-    if thread_type == "group" and participants and isinstance(participants, list):
+    is_lead = payload.get("is_lead", False)
+    collaborators = payload.get("collaborators")
+
+    if is_lead and collaborators and isinstance(collaborators, list):
+        # Collaborative mode: lead agent with queryable collaborators
+        collab_lines = "\n".join(
+            f"- @{c['agent_id']} ({c.get('name', c['agent_id'])})"
+            for c in collaborators if isinstance(c, dict) and "agent_id" in c
+        )
+        collab_block = (
+            "\n\n## Collaborative Group Thread — You Are the Lead Agent\n"
+            "You are the lead agent in this group thread. The user's message is directed to you.\n"
+            "You have these collaborator agents available:\n"
+            f"{collab_lines}\n\n"
+            "As the lead, you should:\n"
+            "1. Produce the primary response to the user.\n"
+            "2. If you need specialized input, mention a collaborator with @slug.\n"
+            "3. Synthesize collaborator input into a coherent answer.\n"
+            "You produce the primary response — collaborators provide input to help you."
+        )
+        system_content = f"{system_content}{collab_block}" if system_content else collab_block
+    elif thread_type == "group" and participants and isinstance(participants, list):
         agent_lines = "\n".join(
             f"- @{p['agent_id']}" for p in participants if isinstance(p, dict) and "agent_id" in p
         )
