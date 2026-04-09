@@ -4330,6 +4330,42 @@ paths:
       responses:
         "200":
           description: Matching messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        seq:
+                          type: integer
+                        author_id:
+                          type: string
+                        author_type:
+                          type: string
+                          enum: [human, agent]
+                        content:
+                          type: string
+                        headline:
+                          type: string
+                          description: FTS headline with **highlights**
+                        created_at:
+                          type: string
+                          format: date-time
+                  query:
+                    type: string
+                  total:
+                    type: integer
+        "400":
+          description: Missing q parameter
+        "404":
+          description: Thread not found
 
   # Task management
   /tasks:
