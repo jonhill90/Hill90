@@ -1475,6 +1475,53 @@ paths:
         "409":
           description: Agent is not running
 
+  /agents/{id}/events/export:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Export agent events as CSV
+      description: >
+        Returns agent events (container + inference) as a CSV file download.
+        Merges container events from the JSONL log with inference events from the
+        database, sorted chronologically. Scoped to ownership.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: ["csv"]
+            default: csv
+          description: Export format (currently only csv)
+        - name: tail
+          in: query
+          schema:
+            type: integer
+            default: 500
+            maximum: 5000
+          description: Number of tail events to export
+      responses:
+        "200":
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          description: Not authenticated
+        "403":
+          description: Requires user role
+        "404":
+          description: Agent not found
+        "409":
+          description: Agent is not running
+
   /agents/{id}/stats:
     get:
       summary: Get agent progression stats
