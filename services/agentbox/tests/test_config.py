@@ -99,5 +99,5 @@ class TestFilesystemConfig:
         config = FilesystemConfig()
         assert config.enabled is False
         assert config.read_only is False
-        assert config.allowed_paths == ["/workspace"]
+        assert config.allowed_paths == ["/home/agentuser", "/workspace"]
         assert "/etc/shadow" in config.denied_paths
