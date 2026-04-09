@@ -492,7 +492,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-              model_policy_id, a.autonomy_level, a.avatar_key, a.tags, a.container_profile_id,
+              model_policy_id, a.autonomy_level, a.avatar_key, a.tags, a.env_vars, a.container_profile_id,
               a.schedule_cron, a.schedule_enabled,
               cp.name AS cp_name, cp.docker_image AS cp_docker_image,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
@@ -751,7 +751,21 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const user = (req as any).user;
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id, autonomy_level, tags } = req.body;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id, autonomy_level, tags, env_vars } = req.body;
+
+    // Validate env_vars if provided
+    if (env_vars !== undefined) {
+      if (typeof env_vars !== 'object' || env_vars === null || Array.isArray(env_vars)) {
+        res.status(400).json({ error: 'env_vars must be an object with string key-value pairs' });
+        return;
+      }
+      for (const [k, v] of Object.entries(env_vars)) {
+        if (typeof v !== 'string') {
+          res.status(400).json({ error: `env_vars["${k}"] must be a string` });
+          return;
+        }
+      }
+    }
 
     // Validate tags if provided
     if (tags !== undefined) {
@@ -927,11 +941,12 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         container_profile_id = CASE WHEN $11::boolean THEN $12::uuid ELSE container_profile_id END,
         autonomy_level = COALESCE($13, autonomy_level),
         tags = COALESCE($14, tags),
+        env_vars = COALESCE($15, env_vars),
         updated_at = NOW()
-       WHERE id = $15
+       WHERE id = $16
        RETURNING id, agent_id, name, description, status, tools_config,
                  cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-                 model_policy_id, container_profile_id, autonomy_level, tags, error_message, created_at, updated_at, created_by`,
+                 model_policy_id, container_profile_id, autonomy_level, tags, env_vars, error_message, created_at, updated_at, created_by`,
       [
         name || null,
         description ?? null,
@@ -947,6 +962,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         containerProfileProvided ? (container_profile_id ?? null) : null,
         autonomy_level || null,
         tags !== undefined ? JSON.stringify(tags) : null,
+        env_vars !== undefined ? JSON.stringify(env_vars) : null,
         req.params.id,
       ]
     );
