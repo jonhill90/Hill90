@@ -13,6 +13,7 @@ import {
   createAndStartContainer,
   stopAndRemoveContainer,
   inspectContainer,
+  getContainerStats,
   getContainerLogs,
   execInContainer,
   removeAgentVolumes,
@@ -2398,6 +2399,33 @@ router.get('/:id/artifacts', requireRole('user'), async (req: Request, res: Resp
   } catch (err: any) {
     console.error('[agents] Artifacts error:', err);
     res.status(500).json({ error: 'Failed to compute artifacts' });
+  }
+});
+
+// Agent runtime metrics — live CPU/memory from Docker container stats
+router.get('/:id/runtime-metrics', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT agent_id FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const stats = await getContainerStats(rows[0].agent_id);
+    if (!stats) {
+      res.status(404).json({ error: 'Agent not running' });
+      return;
+    }
+
+    res.json(stats);
+  } catch (err: any) {
+    console.error('[agents] Runtime metrics error:', err);
+    res.status(500).json({ error: 'Failed to fetch runtime metrics' });
   }
 });
 

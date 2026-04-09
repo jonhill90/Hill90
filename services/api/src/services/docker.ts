@@ -186,6 +186,61 @@ export async function inspectContainer(agentId: string): Promise<{
   }
 }
 
+export async function getContainerStats(agentId: string): Promise<{
+  cpu_percent: number;
+  memory_usage_mb: number;
+  memory_limit_mb: number;
+  memory_percent: number;
+  pids: number;
+  net_rx_mb: number;
+  net_tx_mb: number;
+} | null> {
+  const containerName = `${CONTAINER_PREFIX}${agentId}`;
+  assertAgentboxName(containerName);
+
+  try {
+    const container = docker.getContainer(containerName);
+    const info = await container.inspect();
+    assertManagedLabel(info.Config.Labels);
+    if (info.State.Status !== 'running') return null;
+
+    const stats: any = await container.stats({ stream: false });
+
+    // CPU percentage: delta usage / delta system * num CPUs * 100
+    const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - (stats.precpu_stats.cpu_usage?.total_usage || 0);
+    const systemDelta = stats.cpu_stats.system_cpu_usage - (stats.precpu_stats.system_cpu_usage || 0);
+    const numCpus = stats.cpu_stats.online_cpus || stats.cpu_stats.cpu_usage.percpu_usage?.length || 1;
+    const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * numCpus * 100 : 0;
+
+    // Memory
+    const memUsage = stats.memory_stats.usage - (stats.memory_stats.stats?.cache || 0);
+    const memLimit = stats.memory_stats.limit;
+
+    // Network (sum all interfaces)
+    let netRx = 0;
+    let netTx = 0;
+    if (stats.networks) {
+      for (const iface of Object.values(stats.networks) as any[]) {
+        netRx += iface.rx_bytes || 0;
+        netTx += iface.tx_bytes || 0;
+      }
+    }
+
+    return {
+      cpu_percent: Math.round(cpuPercent * 100) / 100,
+      memory_usage_mb: Math.round((memUsage / 1048576) * 100) / 100,
+      memory_limit_mb: Math.round((memLimit / 1048576) * 100) / 100,
+      memory_percent: memLimit > 0 ? Math.round((memUsage / memLimit) * 10000) / 100 : 0,
+      pids: stats.pids_stats?.current || 0,
+      net_rx_mb: Math.round((netRx / 1048576) * 100) / 100,
+      net_tx_mb: Math.round((netTx / 1048576) * 100) / 100,
+    };
+  } catch (err: any) {
+    if (err.statusCode === 404) return null;
+    throw err;
+  }
+}
+
 export async function getContainerLogs(
   agentId: string,
   opts: { tail?: number; follow?: boolean } = {}
