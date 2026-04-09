@@ -1494,6 +1494,25 @@ paths:
         "404":
           description: Agent not found
 
+  /agents/{id}/metrics:
+    get:
+      summary: Get agent operational metrics
+      tags: [Agents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Computed operational metrics for the agent
+        "404":
+          description: Agent not found
+
   /agents/{id}/artifacts:
     get:
       summary: Get agent artifacts (badges)
