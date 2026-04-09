@@ -522,7 +522,7 @@ export default function SkillsClient() {
           className="flex items-center gap-2 text-sm text-mountain-400 hover:text-white transition-colors cursor-pointer"
         >
           {showGraph ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          Tool Dependencies
+          Dependency Graph
         </button>
 
         {showGraph && (
