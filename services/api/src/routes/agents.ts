@@ -1304,6 +1304,16 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       [containerId, workToken, req.params.id]
     );
 
+    // Record status transition
+    try {
+      await getPool().query(
+        `INSERT INTO agent_status_history (agent_id, old_status, new_status, changed_by) VALUES ($1, $2, 'running', $3)`,
+        [agent.id, agent.status, user.sub]
+      );
+    } catch (err) {
+      console.error(`[agents] Status history insert failed for ${agent.agent_id}:`, err);
+    }
+
     // Track session for uptime progression
     try {
       await getPool().query(
@@ -1330,6 +1340,10 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       await getPool().query(
         `UPDATE agents SET status = 'error', error_message = $1, updated_at = NOW() WHERE id = $2`,
         [err.message, req.params.id]
+      );
+      await getPool().query(
+        `INSERT INTO agent_status_history (agent_id, old_status, new_status, changed_by) VALUES ($1, $2, 'error', $3)`,
+        [req.params.id, 'starting', (req as any).user?.sub]
       );
     } catch { /* best effort */ }
 
@@ -1407,6 +1421,16 @@ router.post('/:id/stop', requireRole('admin'), async (req: Request, res: Respons
       `UPDATE agents SET status = 'stopped', container_id = NULL, work_token = NULL, akm_jti = NULL, akm_exp = NULL, model_router_jti = NULL, model_router_exp = NULL, model_router_refresh_hash = NULL, error_message = NULL, updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
+
+    // Record status transition
+    try {
+      await getPool().query(
+        `INSERT INTO agent_status_history (agent_id, old_status, new_status, changed_by) VALUES ($1, $2, 'stopped', $3)`,
+        [agent.id, agent.status, user.sub]
+      );
+    } catch (err) {
+      console.error(`[agents] Status history insert failed for ${agent.agent_id}:`, err);
+    }
 
     const stopCorrelationId = (req as any).correlationId;
     // AI-115: token_revoked audit events
@@ -2572,6 +2596,41 @@ router.put('/:id/schedule', requireRole('user'), async (req: Request, res: Respo
   } catch (err) {
     console.error('[agents] Schedule update error:', err);
     res.status(500).json({ error: 'Failed to update schedule' });
+  }
+});
+
+// ---------------------------------------------------------------
+// GET /agents/:id/status-history
+// ---------------------------------------------------------------
+
+router.get('/:id/status-history', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+
+    const { rows: agentRows } = await getPool().query(
+      `SELECT id FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (agentRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const { rows } = await getPool().query(
+      `SELECT id, agent_id, old_status, new_status, changed_at, changed_by
+       FROM agent_status_history
+       WHERE agent_id = $1
+       ORDER BY changed_at DESC
+       LIMIT $2`,
+      [req.params.id, limit]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('[agents] Status history error:', err);
+    res.status(500).json({ error: 'Failed to fetch status history' });
   }
 });
 
