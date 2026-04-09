@@ -1752,6 +1752,53 @@ paths:
         "404":
           description: Agent not running
 
+  /agents/{id}/workspace:
+    get:
+      summary: List agent workspace files
+      tags: [Agents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: path
+          in: query
+          schema:
+            type: string
+          description: Directory path to list (default /home/agentuser)
+      responses:
+        "200":
+          description: Directory listing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        type:
+                          type: string
+                          enum: [file, directory, unknown]
+                        size:
+                          type: integer
+        "404":
+          description: Agent not found
+        "409":
+          description: Agent is not running
+        "502":
+          description: Agentbox unreachable
+
   /agents/{id}/events/export:
     get:
       summary: Export agent events as CSV
