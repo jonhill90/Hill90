@@ -3440,6 +3440,36 @@ paths:
       responses:
         "200":
           description: Nodes and edges
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        type:
+                          type: string
+                          enum: [skill, tool]
+                        scope:
+                          type: string
+                        is_platform:
+                          type: boolean
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source:
+                          type: string
+                        target:
+                          type: string
 
   /skills/{id}:
     parameters:
