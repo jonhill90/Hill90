@@ -30,7 +30,10 @@ interface Agent {
   model_policy_id: string | null
   models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
+  tags: string[]
   autonomy_level: string | null
+  schedule_cron: string | null
+  schedule_enabled: boolean
   hasAvatar: boolean
   error_message: string | null
   created_at: string
@@ -143,6 +146,15 @@ export default function AgentDetailClient({
   const [identitySaving, setIdentitySaving] = useState(false)
   const [autonomySaving, setAutonomySaving] = useState(false)
 
+  // Schedule
+  const [scheduleCron, setScheduleCron] = useState('')
+  const [scheduleEnabled, setScheduleEnabled] = useState(false)
+  const [scheduleSaving, setScheduleSaving] = useState(false)
+
+  // Tags
+  const [tagInput, setTagInput] = useState('')
+  const [tagsSaving, setTagsSaving] = useState(false)
+
   // Avatar
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [avatarUploading, setAvatarUploading] = useState(false)
@@ -154,7 +166,10 @@ export default function AgentDetailClient({
     try {
       const res = await fetch(`/api/agents/${agentId}`)
       if (res.ok) {
-        setAgent(await res.json())
+        const data = await res.json()
+        setAgent(data)
+        setScheduleCron(data.schedule_cron || '')
+        setScheduleEnabled(data.schedule_enabled || false)
       } else if (res.status === 404) {
         router.push('/agents')
       }
@@ -460,6 +475,76 @@ export default function AgentDetailClient({
       alert('Failed to save autonomy level')
     } finally {
       setAutonomySaving(false)
+    }
+  }
+
+  const handleAddTag = async () => {
+    const tag = tagInput.trim().toLowerCase()
+    if (!tag || !agent) return
+    if (agent.tags?.includes(tag)) { setTagInput(''); return }
+    const newTags = [...(agent.tags || []), tag]
+    setTagsSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: newTags }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to save tags')
+        return
+      }
+      setTagInput('')
+      await fetchAgent()
+    } catch {
+      alert('Failed to save tags')
+    } finally {
+      setTagsSaving(false)
+    }
+  }
+
+  const handleRemoveTag = async (tag: string) => {
+    if (!agent) return
+    const newTags = (agent.tags || []).filter((t: string) => t !== tag)
+    setTagsSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: newTags }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to save tags')
+        return
+      }
+      await fetchAgent()
+    } catch {
+      alert('Failed to save tags')
+    } finally {
+      setTagsSaving(false)
+    }
+  }
+
+  const handleScheduleSave = async () => {
+    setScheduleSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/schedule`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule_cron: scheduleCron || null, schedule_enabled: scheduleEnabled }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to save schedule')
+        return
+      }
+      await fetchAgent()
+    } catch {
+      alert('Failed to save schedule')
+    } finally {
+      setScheduleSaving(false)
     }
   }
 
@@ -892,6 +977,86 @@ export default function AgentDetailClient({
             {agent.status === 'running' && (
               <p className="text-xs text-mountain-600 mt-2">Stop the agent to change autonomy level.</p>
             )}
+          </div>
+
+          {/* Tags */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-1">Tags</h2>
+            <p className="text-sm text-mountain-400 mb-3">Labels for organizing and filtering agents.</p>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {(agent.tags || []).map((tag: string) => (
+                <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-navy-900 text-mountain-300 border border-navy-600">
+                  {tag}
+                  {agent.status !== 'running' && (
+                    <button
+                      onClick={() => handleRemoveTag(tag)}
+                      disabled={tagsSaving}
+                      className="ml-0.5 text-mountain-500 hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </span>
+              ))}
+              {(!agent.tags || agent.tags.length === 0) && (
+                <span className="text-xs text-mountain-500">No tags</span>
+              )}
+            </div>
+            {agent.status !== 'running' && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddTag()}
+                  placeholder="Add tag..."
+                  className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                />
+                <button
+                  onClick={handleAddTag}
+                  disabled={tagsSaving || !tagInput.trim()}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {tagsSaving ? 'Saving...' : 'Add'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Schedule */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-1">Schedule</h2>
+            <p className="text-sm text-mountain-400 mb-4">Auto-start this agent on a cron schedule.</p>
+            <div className="flex items-center gap-3 mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                  className="accent-brand-500"
+                />
+                <span className="text-sm text-white">Enabled</span>
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={scheduleCron}
+                onChange={(e) => setScheduleCron(e.target.value)}
+                placeholder="*/30 * * * *"
+                className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+              />
+              <button
+                onClick={handleScheduleSave}
+                disabled={scheduleSaving}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {scheduleSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+            <p className="text-xs text-mountain-500 mt-2">
+              Standard 5-field cron: minute hour day month weekday. Example: <code className="text-mountain-400">0 9 * * 1-5</code> (weekdays at 9am).
+            </p>
           </div>
 
           {/* Identity — SOUL.md */}

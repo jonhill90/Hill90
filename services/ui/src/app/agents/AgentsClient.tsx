@@ -18,6 +18,7 @@ interface Agent {
   mem_limit: string
   pids_limit: number
   models: string[]
+  tags: string[]
   avatar_key: string | null
   skills: Array<{ id: string; name: string; scope: string }>
   hasAvatar: boolean
@@ -400,6 +401,22 @@ export default function AgentsClient({ session }: { session: Session }) {
                 <p className="text-sm text-mountain-400 mb-3 line-clamp-2 flex-1">
                   {agent.description || 'No description'}
                 </p>
+
+                {/* Tags */}
+                {agent.tags && agent.tags.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-1">
+                    {agent.tags.slice(0, 4).map((tag) => (
+                      <span key={tag} className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-navy-900 text-mountain-300 border border-navy-600">
+                        {tag}
+                      </span>
+                    ))}
+                    {agent.tags.length > 4 && (
+                      <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-navy-900 text-mountain-400 border border-navy-700">
+                        +{agent.tags.length - 4}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Skill Badges */}
                 <div className="mb-3 flex flex-wrap gap-1">

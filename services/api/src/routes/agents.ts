@@ -244,7 +244,7 @@ router.get('/', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               a.cpus, a.mem_limit, a.pids_limit, a.model_policy_id, a.autonomy_level,
-              a.avatar_key,
+              a.avatar_key, a.tags,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               a.created_at, a.updated_at, a.created_by,
               a.container_profile_id,
@@ -491,7 +491,8 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-              model_policy_id, a.autonomy_level, a.avatar_key, a.container_profile_id,
+              model_policy_id, a.autonomy_level, a.avatar_key, a.tags, a.container_profile_id,
+              a.schedule_cron, a.schedule_enabled,
               cp.name AS cp_name, cp.docker_image AS cp_docker_image,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
               error_message, a.created_at, a.updated_at, a.created_by
@@ -749,7 +750,15 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
     }
 
     const user = (req as any).user;
-    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id, autonomy_level } = req.body;
+    const { name, description, tools_config, cpus, mem_limit, pids_limit, soul_md, rules_md, model_policy_id, model_names, skill_ids, container_profile_id, autonomy_level, tags } = req.body;
+
+    // Validate tags if provided
+    if (tags !== undefined) {
+      if (!Array.isArray(tags) || !tags.every((t: unknown) => typeof t === 'string')) {
+        res.status(400).json({ error: 'tags must be an array of strings' });
+        return;
+      }
+    }
 
     // Validate autonomy_level if provided
     if (autonomy_level !== undefined) {
@@ -916,11 +925,12 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         model_policy_id = CASE WHEN $9::boolean THEN $10::uuid ELSE model_policy_id END,
         container_profile_id = CASE WHEN $11::boolean THEN $12::uuid ELSE container_profile_id END,
         autonomy_level = COALESCE($13, autonomy_level),
+        tags = COALESCE($14, tags),
         updated_at = NOW()
-       WHERE id = $14
+       WHERE id = $15
        RETURNING id, agent_id, name, description, status, tools_config,
                  cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-                 model_policy_id, container_profile_id, autonomy_level, error_message, created_at, updated_at, created_by`,
+                 model_policy_id, container_profile_id, autonomy_level, tags, error_message, created_at, updated_at, created_by`,
       [
         name || null,
         description ?? null,
@@ -935,6 +945,7 @@ router.put('/:id', requireRole('user'), async (req: Request, res: Response) => {
         containerProfileProvided,
         containerProfileProvided ? (container_profile_id ?? null) : null,
         autonomy_level || null,
+        tags !== undefined ? JSON.stringify(tags) : null,
         req.params.id,
       ]
     );
@@ -2451,6 +2462,67 @@ router.delete('/:id/webhooks/:webhookId', requireRole('admin'), async (req: Requ
   } catch (err) {
     console.error('[agents] Delete webhook error:', err);
     res.status(500).json({ error: 'Failed to delete webhook' });
+  }
+});
+
+
+// ───────────────────────────────────────────────────────────────────
+// PUT /agents/:id/schedule — update agent auto-start schedule
+// ───────────────────────────────────────────────────────────────────
+
+const CRON_FIELD_RE = /^(\*|[0-9,\-\/]+)$/;
+
+function isValidCron(expr: string): boolean {
+  const fields = expr.trim().split(/\s+/);
+  if (fields.length !== 5) return false;
+  return fields.every(f => CRON_FIELD_RE.test(f));
+}
+
+router.put('/:id/schedule', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+
+    const { rows: existing } = await getPool().query(
+      `SELECT id FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (existing.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const { schedule_cron, schedule_enabled } = req.body;
+
+    if (schedule_cron !== undefined && schedule_cron !== null && schedule_cron !== '') {
+      if (typeof schedule_cron !== 'string' || !isValidCron(schedule_cron)) {
+        res.status(400).json({ error: 'Invalid cron expression. Must be 5 fields: minute hour day month weekday' });
+        return;
+      }
+    }
+
+    const cronValue = (schedule_cron === '' || schedule_cron === null) ? null : schedule_cron;
+    const enabledValue = schedule_enabled === true;
+
+    if (enabledValue && !cronValue) {
+      res.status(400).json({ error: 'Cannot enable schedule without a cron expression' });
+      return;
+    }
+
+    const { rows } = await getPool().query(
+      `UPDATE agents
+       SET schedule_cron = COALESCE($1, schedule_cron),
+           schedule_enabled = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, agent_id, schedule_cron, schedule_enabled`,
+      [cronValue, enabledValue, req.params.id]
+    );
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('[agents] Schedule update error:', err);
+    res.status(500).json({ error: 'Failed to update schedule' });
   }
 });
 
