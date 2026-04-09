@@ -2445,6 +2445,41 @@ router.get('/:id/runtime-metrics', requireRole('user'), async (req: Request, res
   }
 });
 
+// Agent workspace file listing — proxied from agentbox container
+router.get('/:id/workspace', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT * FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const agent = rows[0];
+
+    if (agent.status !== 'running') {
+      res.status(409).json({ error: 'Agent is not running' });
+      return;
+    }
+
+    const path = (req.query.path as string) || '/home/agentuser';
+    const url = `http://agentbox-${agent.agent_id}:8054/files?path=${encodeURIComponent(path)}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (err: any) {
+    if (err.name === 'TimeoutError' || err.code === 'UND_ERR_CONNECT_TIMEOUT') {
+      res.status(504).json({ error: 'Agentbox timed out' });
+      return;
+    }
+    console.error('[agents] Workspace listing error:', err);
+    res.status(502).json({ error: 'Failed to list workspace files' });
+  }
+});
+
 // ───────────────────────────────────────────────────────────────────
 // POST /agents/:id/clone — clone an agent with a new name and ID
 // ───────────────────────────────────────────────────────────────────
