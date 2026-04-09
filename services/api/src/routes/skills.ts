@@ -70,6 +70,33 @@ async function setSkillTools(skillId: string, toolIds: string[]): Promise<void> 
   }
 }
 
+// Dependency graph: skills as nodes, tools as shared edges
+router.get('/graph', requireRole('user'), async (_req: Request, res: Response) => {
+  try {
+    const { rows: skillRows } = await getPool().query(
+      'SELECT id, name, scope, is_platform FROM skills ORDER BY name ASC'
+    );
+    const { rows: edgeRows } = await getPool().query(
+      `SELECT st.skill_id, st.tool_id, t.name AS tool_name
+       FROM skill_tools st
+       JOIN tools t ON t.id = st.tool_id
+       ORDER BY t.name ASC`
+    );
+    const toolMap = new Map<string, { id: string; name: string }>();
+    for (const e of edgeRows) {
+      if (!toolMap.has(e.tool_id)) toolMap.set(e.tool_id, { id: e.tool_id, name: e.tool_name });
+    }
+    res.json({
+      skills: skillRows.map((s: any) => ({ id: s.id, name: s.name, scope: s.scope, is_platform: s.is_platform })),
+      tools: Array.from(toolMap.values()),
+      edges: edgeRows.map((e: any) => ({ skill_id: e.skill_id, tool_id: e.tool_id })),
+    });
+  } catch (err) {
+    console.error('[skills] Graph error:', err);
+    res.status(500).json({ error: 'Failed to build dependency graph' });
+  }
+});
+
 // List all skills — all authenticated users see all skills
 router.get('/', requireRole('user'), async (_req: Request, res: Response) => {
   try {

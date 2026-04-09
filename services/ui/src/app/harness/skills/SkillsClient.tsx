@@ -2,7 +2,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
-import { AlertTriangle, Lock, Search, ChevronDown, ChevronRight } from 'lucide-react'
+import { AlertTriangle, Lock, Search, ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
+
+interface GraphData {
+  skills: Array<{ id: string; name: string; scope: string; is_platform: boolean }>
+  tools: Array<{ id: string; name: string }>
+  edges: Array<{ skill_id: string; tool_id: string }>
+}
 
 interface Tool {
   id: string
@@ -60,6 +66,8 @@ export default function SkillsClient() {
   const [formError, setFormError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedInstructions, setExpandedInstructions] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState<'list' | 'deps'>('list')
+  const [graph, setGraph] = useState<GraphData | null>(null)
 
   const filteredSkills = useMemo(() => {
     if (!searchQuery.trim()) return skills
@@ -86,6 +94,10 @@ export default function SkillsClient() {
     fetch('/api/tools')
       .then(res => res.ok ? res.json() : [])
       .then(data => setAllTools(data))
+      .catch(() => {})
+    fetch('/api/skills/graph')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setGraph(data))
       .catch(() => {})
   }, [fetchSkills])
 
@@ -203,6 +215,79 @@ export default function SkillsClient() {
         )}
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 border-b border-navy-700">
+        <button
+          onClick={() => setActiveTab('list')}
+          className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+            activeTab === 'list'
+              ? 'text-brand-400 border-b-2 border-brand-400'
+              : 'text-mountain-400 hover:text-white'
+          }`}
+        >
+          Skills
+        </button>
+        <button
+          onClick={() => setActiveTab('deps')}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+            activeTab === 'deps'
+              ? 'text-brand-400 border-b-2 border-brand-400'
+              : 'text-mountain-400 hover:text-white'
+          }`}
+        >
+          <GitBranch size={14} />
+          Dependencies
+        </button>
+      </div>
+
+      {activeTab === 'deps' && graph && (
+        <div className="rounded-lg border border-navy-700 bg-navy-900 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-navy-700 bg-navy-800">
+                <th className="text-left px-4 py-3 text-xs font-medium text-mountain-400 uppercase tracking-wide">Skill</th>
+                {graph.tools.map(tool => (
+                  <th key={tool.id} className="px-3 py-3 text-xs font-medium text-mountain-400 uppercase tracking-wide text-center whitespace-nowrap">
+                    {tool.name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {graph.skills.map(skill => {
+                const skillEdges = new Set(
+                  graph.edges.filter(e => e.skill_id === skill.id).map(e => e.tool_id)
+                )
+                const badge = scopeBadge(skill.scope)
+                return (
+                  <tr key={skill.id} className="border-b border-navy-800 hover:bg-navy-800/50">
+                    <td className="px-4 py-2.5 font-medium text-white whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        {skill.name}
+                        <span className={`px-1.5 py-0.5 text-[10px] rounded ${badge.colorClasses}`}>{badge.label}</span>
+                      </div>
+                    </td>
+                    {graph.tools.map(tool => (
+                      <td key={tool.id} className="px-3 py-2.5 text-center">
+                        {skillEdges.has(tool.id) ? (
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-brand-500" title={`${skill.name} uses ${tool.name}`} />
+                        ) : (
+                          <span className="inline-block w-2.5 h-2.5 rounded-full bg-navy-700" />
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {graph.tools.length === 0 && (
+            <p className="text-sm text-mountain-500 p-4">No tool dependencies declared.</p>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'list' && <>
       {/* Search */}
       <div className="relative mb-6">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-mountain-500" aria-hidden="true" />
@@ -495,6 +580,7 @@ export default function SkillsClient() {
           })}
         </div>
       )}
+      </>}
     </>
   )
 }
