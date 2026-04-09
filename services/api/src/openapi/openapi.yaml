@@ -1734,6 +1734,45 @@ paths:
         "200":
           description: Schedule updated
 
+  /agents/{id}/runtime-metrics:
+    get:
+      summary: Agent runtime CPU/memory metrics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Runtime metrics
+        "404":
+          description: Agent not running
+
+  /agents/{id}/events/export:
+    get:
+      summary: Export agent events as CSV
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [csv]
+      responses:
+        "200":
+          description: CSV download
+
   /agents/{id}/logs:
     parameters:
       - name: id
@@ -3393,6 +3432,15 @@ paths:
         "409":
           description: Duplicate skill name
 
+  /skills/graph:
+    get:
+      summary: Skill-tool dependency graph
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Nodes and edges
+
   /skills/{id}:
     parameters:
       - name: id
@@ -4261,6 +4309,27 @@ paths:
                     nullable: true
         "404":
           description: No running agent or no browser active
+
+  /chat/threads/{id}/search:
+    get:
+      summary: Search messages in a thread
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching messages
 
   # Task management
   /tasks:
