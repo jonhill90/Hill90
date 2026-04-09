@@ -58,8 +58,9 @@ COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 
 # Install Playwright chromium + system deps (AI-177: browser observation)
 # Runs as root — installs system libraries (libnss3, libatk, etc.) + chromium binary
-# playwright install --with-deps handles both apt packages and browser download
-RUN pip install --no-cache-dir playwright==1.52.0 && \
+# apt-get update required before --with-deps can install system packages
+RUN apt-get update && \
+    pip install --no-cache-dir playwright==1.51.0 && \
     playwright install chromium --with-deps && \
     rm -rf /var/lib/apt/lists/*
 
