@@ -31,6 +31,7 @@ interface Agent {
   models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
   tags: string[]
+  env_vars: Record<string, string>
   autonomy_level: string | null
   schedule_cron: string | null
   schedule_enabled: boolean
@@ -155,6 +156,11 @@ export default function AgentDetailClient({
   const [tagInput, setTagInput] = useState('')
   const [tagsSaving, setTagsSaving] = useState(false)
 
+  // Env vars
+  const [envVarRows, setEnvVarRows] = useState<{ key: string; value: string }[]>([])
+  const [envVarsSaving, setEnvVarsSaving] = useState(false)
+  const [envVarsInitialized, setEnvVarsInitialized] = useState(false)
+
   // Avatar
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [avatarUploading, setAvatarUploading] = useState(false)
@@ -230,6 +236,14 @@ export default function AgentDetailClient({
     fetchAllSkills()
     fetchToolInstalls()
   }, [fetchAgent, fetchAllSkills, fetchToolInstalls])
+
+  // Sync env var rows from agent data
+  useEffect(() => {
+    if (!agent || envVarsInitialized) return
+    const vars = agent.env_vars || {}
+    setEnvVarRows(Object.entries(vars).map(([key, value]) => ({ key, value })))
+    setEnvVarsInitialized(true)
+  }, [agent, envVarsInitialized])
 
   // Poll status while running
   useEffect(() => {
@@ -524,6 +538,34 @@ export default function AgentDetailClient({
       alert('Failed to save tags')
     } finally {
       setTagsSaving(false)
+    }
+  }
+
+  const handleEnvVarsSave = async () => {
+    if (!agent) return
+    const env_vars: Record<string, string> = {}
+    for (const row of envVarRows) {
+      const key = row.key.trim()
+      if (key) env_vars[key] = row.value
+    }
+    setEnvVarsSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/env`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ env_vars }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        alert(data.error || 'Failed to save environment variables')
+        return
+      }
+      await fetchAgent()
+      setEnvVarsInitialized(false)
+    } catch {
+      alert('Failed to save environment variables')
+    } finally {
+      setEnvVarsSaving(false)
     }
   }
 
@@ -1023,6 +1065,75 @@ export default function AgentDetailClient({
             )}
           </div>
 
+          {/* Environment Variables */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-1">Environment Variables</h2>
+            <p className="text-sm text-mountain-400 mb-4">Custom environment variables injected into the agent container on start.</p>
+            <div className="space-y-2 mb-3">
+              {envVarRows.map((row, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={row.key}
+                    onChange={(e) => {
+                      const next = [...envVarRows]
+                      next[i] = { ...next[i], key: e.target.value }
+                      setEnvVarRows(next)
+                    }}
+                    placeholder="KEY"
+                    disabled={agent.status === 'running'}
+                    className="w-1/3 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none disabled:opacity-50"
+                  />
+                  <span className="text-mountain-500">=</span>
+                  <input
+                    type="text"
+                    value={row.value}
+                    onChange={(e) => {
+                      const next = [...envVarRows]
+                      next[i] = { ...next[i], value: e.target.value }
+                      setEnvVarRows(next)
+                    }}
+                    placeholder="value"
+                    disabled={agent.status === 'running'}
+                    className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none disabled:opacity-50"
+                  />
+                  {agent.status !== 'running' && (
+                    <button
+                      onClick={() => setEnvVarRows(envVarRows.filter((_, j) => j !== i))}
+                      className="text-mountain-500 hover:text-red-400 transition-colors cursor-pointer px-1"
+                      title="Remove"
+                    >
+                      &times;
+                    </button>
+                  )}
+                </div>
+              ))}
+              {envVarRows.length === 0 && (
+                <span className="text-xs text-mountain-500">No environment variables configured.</span>
+              )}
+            </div>
+            {agent.status !== 'running' && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setEnvVarRows([...envVarRows, { key: '', value: '' }])}
+                  className="px-3 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-300 hover:border-navy-500 hover:text-white transition-colors cursor-pointer"
+                >
+                  + Add Variable
+                </button>
+                <button
+                  onClick={handleEnvVarsSave}
+                  disabled={envVarsSaving}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {envVarsSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            )}
+            {agent.status === 'running' && (
+              <p className="text-xs text-mountain-600 mt-2">Stop the agent to edit environment variables.</p>
+            )}
+          </div>
+
           {/* Schedule */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
             <h2 className="text-lg font-semibold text-white mb-1">Schedule</h2>
@@ -1243,7 +1354,7 @@ export default function AgentDetailClient({
       )}
 
       {activeTab === 'workspace' && agent && (
-        <WorkspaceBrowser agentId={agent.agent_id} />
+        <WorkspaceBrowser agentId={agent.agent_id} agentUuid={agent.id} status={agent.status} />
       )}
 
       {activeTab === 'knowledge' && agent && (

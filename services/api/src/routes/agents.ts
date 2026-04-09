@@ -491,7 +491,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
     const { rows } = await getPool().query(
       `SELECT a.id, a.agent_id, a.name, a.description, a.status, a.tools_config,
               cpus, mem_limit, pids_limit, soul_md, rules_md, container_id,
-              model_policy_id, a.autonomy_level, a.avatar_key, a.tags, a.container_profile_id,
+              model_policy_id, a.autonomy_level, a.avatar_key, a.tags, a.env_vars, a.container_profile_id,
               a.schedule_cron, a.schedule_enabled,
               cp.name AS cp_name, cp.docker_image AS cp_docker_image,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
@@ -1260,7 +1260,11 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
       cpus: agent.cpus,
       memLimit: agent.mem_limit,
       pidsLimit: agent.pids_limit,
-      env: [...akmEnv, ...modelRouterEnv, ...chatEnv, `WORK_TOKEN=${workToken}`, 'AGENT_USE_TERMINAL=1'],
+      env: [
+        ...akmEnv, ...modelRouterEnv, ...chatEnv,
+        `WORK_TOKEN=${workToken}`, 'AGENT_USE_TERMINAL=1',
+        ...Object.entries(agent.env_vars || {}).map(([k, v]: [string, any]) => `${k}=${v}`),
+      ],
       network,
       image: profileImage,
       metadata: profileMetadata,
@@ -1542,6 +1546,72 @@ router.post('/:id/reconcile-tools', requireRole('admin'), async (req: Request, r
   } catch (err: any) {
     console.error('[agents] Reconcile tools error:', err);
     res.status(500).json({ error: 'Failed to reconcile tools', detail: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Workspace file browser
+// ---------------------------------------------------------------------------
+
+router.get('/:id/workspace', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT agent_id, status FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    const agent = rows[0];
+    if (agent.status !== 'running') {
+      res.status(409).json({ error: 'Agent is not running' });
+      return;
+    }
+
+    const path = (req.query.path as string) || '/workspace';
+    if (path.includes('..')) {
+      res.status(400).json({ error: 'Invalid path' });
+      return;
+    }
+
+    const stream = await execInContainer(agent.agent_id, [
+      'find', path, '-maxdepth', '1', '-printf', '%y\\t%s\\t%T@\\t%f\\n',
+    ]);
+
+    const chunks: Buffer[] = [];
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', resolve);
+      stream.on('error', reject);
+    });
+
+    const raw = Buffer.concat(chunks).toString('utf-8');
+    const files = raw
+      .split('\n')
+      .filter(line => line.trim().length > 0)
+      .map(line => {
+        const [typeChar, sizeStr, mtimeStr, name] = line.split('\t');
+        if (!name || name === '.' || name === path.split('/').pop()) return null;
+        return {
+          name,
+          size: parseInt(sizeStr) || 0,
+          type: typeChar === 'd' ? 'directory' : 'file',
+          modified: new Date(parseFloat(mtimeStr) * 1000).toISOString(),
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+    res.json({ path, files });
+  } catch (err: any) {
+    console.error('[agents] Workspace list error:', err);
+    res.status(502).json({ error: 'Failed to list workspace files' });
   }
 });
 
@@ -2631,6 +2701,80 @@ router.get('/:id/status-history', requireRole('user'), async (req: Request, res:
   } catch (err) {
     console.error('[agents] Status history error:', err);
     res.status(500).json({ error: 'Failed to fetch status history' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PUT /agents/:id/env — update agent environment variables
+// ---------------------------------------------------------------------------
+
+const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MAX_ENV_VARS = 50;
+
+router.put('/:id/env', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+
+    const { rows: existing } = await getPool().query(
+      `SELECT id, status FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (existing.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+    if (existing[0].status === 'running') {
+      res.status(409).json({ error: 'Cannot update env vars on a running agent. Stop it first.' });
+      return;
+    }
+
+    const { env_vars } = req.body;
+    if (env_vars === undefined || env_vars === null || typeof env_vars !== 'object' || Array.isArray(env_vars)) {
+      res.status(400).json({ error: 'env_vars must be a JSON object of key-value string pairs' });
+      return;
+    }
+
+    const entries = Object.entries(env_vars);
+    if (entries.length > MAX_ENV_VARS) {
+      res.status(400).json({ error: `Maximum ${MAX_ENV_VARS} environment variables allowed` });
+      return;
+    }
+
+    // Validate keys and values
+    for (const [key, value] of entries) {
+      if (!ENV_KEY_PATTERN.test(key)) {
+        res.status(400).json({ error: `Invalid env var key: ${key}. Must match [A-Za-z_][A-Za-z0-9_]*` });
+        return;
+      }
+      if (typeof value !== 'string') {
+        res.status(400).json({ error: `Env var value for ${key} must be a string` });
+        return;
+      }
+    }
+
+    // Block overriding system-injected vars
+    const RESERVED_KEYS = [
+      'WORK_TOKEN', 'CHAT_CALLBACK_TOKEN', 'AGENT_USE_TERMINAL',
+      'AKM_TOKEN', 'AKM_URL', 'MODEL_ROUTER_TOKEN', 'MODEL_ROUTER_URL',
+      'MODEL_ROUTER_REFRESH_SECRET',
+    ];
+    for (const key of Object.keys(env_vars)) {
+      if (RESERVED_KEYS.includes(key)) {
+        res.status(400).json({ error: `${key} is a reserved environment variable` });
+        return;
+      }
+    }
+
+    await getPool().query(
+      `UPDATE agents SET env_vars = $1, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(env_vars), req.params.id]
+    );
+
+    res.json({ env_vars });
+  } catch (err) {
+    console.error('[agents] PUT env error:', err);
+    res.status(500).json({ error: 'Failed to update environment variables' });
   }
 });
 
