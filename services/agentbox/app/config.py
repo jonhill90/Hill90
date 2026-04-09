@@ -18,7 +18,7 @@ class ShellConfig(BaseModel):
 class FilesystemConfig(BaseModel):
     enabled: bool = False
     read_only: bool = False
-    allowed_paths: list[str] = Field(default_factory=lambda: ["/workspace"])
+    allowed_paths: list[str] = Field(default_factory=lambda: ["/home/agentuser", "/workspace"])
     denied_paths: list[str] = Field(
         default_factory=lambda: ["/etc/shadow", "/etc/passwd", "/root"]
     )

@@ -92,7 +92,7 @@ async def ws_terminal_handler(websocket: WebSocket, work_token: str | None) -> N
             os.close(slave_fd)
 
             try:
-                os.chdir("/workspace")
+                os.chdir(os.path.expanduser("~"))
             except OSError:
                 pass
 

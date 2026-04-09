@@ -67,7 +67,7 @@ class CommandPolicy:
 
         return True, "ok"
 
-    def build_argv_and_env(self, command: str, cwd: str = "/workspace") -> tuple[list[str], dict[str, str]] | tuple[None, str]:
+    def build_argv_and_env(self, command: str, cwd: str = "/home/agentuser") -> tuple[list[str], dict[str, str]] | tuple[None, str]:
         """Validate command and return (argv, env) or (None, error_reason)."""
         allowed, reason = self.check(command)
         if not allowed:
@@ -82,7 +82,7 @@ class CommandPolicy:
         }
         return (argv, safe_env), ""
 
-    def execute(self, command: str, timeout: int = 30, cwd: str = "/workspace") -> dict:
+    def execute(self, command: str, timeout: int = 30, cwd: str = "/home/agentuser") -> dict:
         """Execute command with shell=False, explicit argv, restricted env, pinned cwd."""
         allowed, reason = self.check(command)
         if not allowed:
@@ -124,7 +124,7 @@ class CommandPolicy:
         self,
         command: str,
         timeout: int = 30,
-        cwd: str = "/workspace",
+        cwd: str = "/home/agentuser",
         on_output: Callable[[str], None] | None = None,
         max_line_len: int = 4096,
         max_lines: int = 1000,

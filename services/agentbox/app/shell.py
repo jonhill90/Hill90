@@ -7,6 +7,7 @@ Any process inside the container can import and use these functions directly.
 from __future__ import annotations
 
 import json
+import os
 import time
 
 from app.config import ShellConfig
@@ -144,7 +145,7 @@ async def execute_command_pty(
         command=command,
         argv=argv,
         env=env,
-        cwd="/workspace",
+        cwd=os.path.expanduser("~"),
         timeout=timeout,
         command_id=cmd_id,
         emitter=_emitter,
