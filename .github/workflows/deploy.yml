@@ -28,7 +28,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, db, minio, vault, auth, api, ai, mcp, ui, knowledge, observability]
+        options: [all, db, minio, vault, auth, api, agentbox, ai, mcp, ui, knowledge, observability]
         default: 'all'
 
 permissions:
@@ -48,6 +48,7 @@ jobs:
       vault: ${{ steps.filter.outputs.vault }}
       auth: ${{ steps.filter.outputs.auth }}
       api: ${{ steps.filter.outputs.api }}
+      agentbox: ${{ steps.filter.outputs.agentbox }}
       ai: ${{ steps.filter.outputs.ai }}
       mcp: ${{ steps.filter.outputs.mcp }}
       ui: ${{ steps.filter.outputs.ui }}
@@ -71,8 +72,9 @@ jobs:
               - 'deploy/compose/prod/docker-compose.auth.yml'
             api:
               - 'services/api/**'
-              - 'services/agentbox/**'
               - 'deploy/compose/prod/docker-compose.api.yml'
+            agentbox:
+              - 'services/agentbox/**'
             ai:
               - 'services/ai/**'
               - 'deploy/compose/prod/docker-compose.ai.yml'
@@ -130,6 +132,14 @@ jobs:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: api
+    secrets: inherit
+
+  deploy-agentbox:
+    needs: [changes]
+    if: needs.changes.outputs.agentbox == 'true'
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service: agentbox
     secrets: inherit
 
   deploy-ai:
