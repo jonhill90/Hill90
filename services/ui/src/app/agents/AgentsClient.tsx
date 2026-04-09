@@ -73,6 +73,7 @@ export default function AgentsClient({ session }: { session: Session }) {
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [creatingFromTemplate, setCreatingFromTemplate] = useState<string | null>(null)
   const [errorDetails, setErrorDetails] = useState<Record<string, string>>({})
+  const [confirmStartId, setConfirmStartId] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -569,13 +570,44 @@ export default function AgentsClient({ session }: { session: Session }) {
                   {isAdmin && (
                     <>
                       {agent.status === 'stopped' || agent.status === 'error' ? (
-                        <button
-                          onClick={() => handleAction(agent.id, 'start')}
-                          disabled={actionLoading === agent.id}
-                          className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          {actionLoading === agent.id ? 'Starting...' : 'Start'}
-                        </button>
+                        <div className="relative">
+                          <button
+                            onClick={() => setConfirmStartId(confirmStartId === agent.id ? null : agent.id)}
+                            disabled={actionLoading === agent.id}
+                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                          >
+                            {actionLoading === agent.id ? 'Starting...' : 'Start'}
+                          </button>
+                          {confirmStartId === agent.id && actionLoading !== agent.id && (
+                            <div className="absolute left-0 top-full mt-2 z-20 w-64 rounded-lg border border-navy-600 bg-navy-800 shadow-xl p-3">
+                              <p className="text-xs font-medium text-white mb-2">Start {agent.name}?</p>
+                              {agent.models && agent.models.length > 0 && (
+                                <div className="mb-2">
+                                  <span className="text-[10px] text-mountain-500">Model: </span>
+                                  <span className="text-[10px] text-mountain-300">{agent.models[0]}{agent.models.length > 1 ? ` +${agent.models.length - 1}` : ''}</span>
+                                </div>
+                              )}
+                              <div className="mb-3">
+                                <span className="text-[10px] text-mountain-500">Resources: </span>
+                                <span className="text-[10px] text-mountain-300">{agent.cpus} CPU, {agent.mem_limit} RAM</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => { setConfirmStartId(null); handleAction(agent.id, 'start') }}
+                                  className="px-2.5 py-1 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  onClick={() => setConfirmStartId(null)}
+                                  className="px-2.5 py-1 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white transition-colors cursor-pointer"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       ) : agent.status === 'running' ? (
                         <>
                           <button
