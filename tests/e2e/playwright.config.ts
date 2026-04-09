@@ -19,7 +19,7 @@ export default defineConfig({
     },
     {
       name: "app",
-      testMatch: ["chat.spec.ts", "agent-chat-flow.spec.ts"],
+      testMatch: ["chat.spec.ts", "agent-chat-flow.spec.ts", "secrets.spec.ts"],
       use: {
         baseURL: "https://hill90.com",
         browserName: "chromium",
