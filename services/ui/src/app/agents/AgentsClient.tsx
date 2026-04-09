@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { Session } from 'next-auth'
-import { Trash2, Upload, LayoutTemplate, X } from 'lucide-react'
+import { Trash2, Upload, LayoutTemplate, X, Play, Square } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
 import AgentLevelBadge from '@/components/AgentLevelBadge'
 
@@ -66,6 +66,7 @@ export default function AgentsClient({ session }: { session: Session }) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkDeleting, setBulkDeleting] = useState(false)
+  const [bulkActioning, setBulkActioning] = useState<'start' | 'stop' | null>(null)
   const [importing, setImporting] = useState(false)
   const [showTemplates, setShowTemplates] = useState(false)
   const [templates, setTemplates] = useState<AgentTemplate[]>([])
@@ -143,6 +144,9 @@ export default function AgentsClient({ session }: { session: Session }) {
   const deletableInView = filteredAgents.filter(a => a.status === 'stopped' || a.status === 'error')
   const allDeletableSelected = deletableInView.length > 0 && deletableInView.every(a => selected.has(a.id))
 
+  const stoppedCount = agents.filter(a => a.status === 'stopped' || a.status === 'error').length
+  const runningCount = agents.filter(a => a.status === 'running').length
+
   const toggleSelectAll = () => {
     if (allDeletableSelected) {
       setSelected(new Set())
@@ -178,6 +182,56 @@ export default function AgentsClient({ session }: { session: Session }) {
 
     if (errors.length > 0) {
       alert(`Some deletions failed:\n${errors.join('\n')}`)
+    }
+  }
+
+  const handleBulkStart = async () => {
+    const targets = agents.filter(a => a.status === 'stopped' || a.status === 'error')
+    if (targets.length === 0) return
+    if (!confirm(`Start ${targets.length} stopped agent${targets.length > 1 ? 's' : ''}?`)) return
+
+    setBulkActioning('start')
+    const errors: string[] = []
+    for (const agent of targets) {
+      try {
+        const res = await fetch(`/api/agents/${agent.id}/start`, { method: 'POST' })
+        if (!res.ok) {
+          const data = await res.json()
+          errors.push(`${agent.name}: ${data.error || 'failed'}`)
+        }
+      } catch {
+        errors.push(`${agent.name}: request failed`)
+      }
+    }
+    await fetchData()
+    setBulkActioning(null)
+    if (errors.length > 0) {
+      alert(`Some agents failed to start:\n${errors.join('\n')}`)
+    }
+  }
+
+  const handleBulkStop = async () => {
+    const targets = agents.filter(a => a.status === 'running')
+    if (targets.length === 0) return
+    if (!confirm(`Stop ${targets.length} running agent${targets.length > 1 ? 's' : ''}?`)) return
+
+    setBulkActioning('stop')
+    const errors: string[] = []
+    for (const agent of targets) {
+      try {
+        const res = await fetch(`/api/agents/${agent.id}/stop`, { method: 'POST' })
+        if (!res.ok) {
+          const data = await res.json()
+          errors.push(`${agent.name}: ${data.error || 'failed'}`)
+        }
+      } catch {
+        errors.push(`${agent.name}: request failed`)
+      }
+    }
+    await fetchData()
+    setBulkActioning(null)
+    if (errors.length > 0) {
+      alert(`Some agents failed to stop:\n${errors.join('\n')}`)
     }
   }
 
@@ -300,6 +354,26 @@ export default function AgentsClient({ session }: { session: Session }) {
             >
               <Trash2 size={14} />
               {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+            </button>
+          )}
+          {isAdmin && stoppedCount > 0 && (
+            <button
+              onClick={handleBulkStart}
+              disabled={bulkActioning !== null}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Play size={14} />
+              {bulkActioning === 'start' ? 'Starting...' : `Start All (${stoppedCount})`}
+            </button>
+          )}
+          {isAdmin && runningCount > 0 && (
+            <button
+              onClick={handleBulkStop}
+              disabled={bulkActioning !== null}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <Square size={14} />
+              {bulkActioning === 'stop' ? 'Stopping...' : `Stop All (${runningCount})`}
             </button>
           )}
           <input
