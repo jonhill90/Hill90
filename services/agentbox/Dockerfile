@@ -58,13 +58,17 @@ COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 
 # Install Playwright chromium + system deps (AI-177: browser observation)
 # Install system deps manually (--with-deps fails on ttf-ubuntu-font-family)
+# PLAYWRIGHT_BROWSERS_PATH must be accessible by agentuser (non-root)
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
       libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
       libcairo2 libasound2 libxshmfence1 fonts-liberation fonts-noto-color-emoji && \
     pip install --no-cache-dir playwright==1.51.0 && \
+    mkdir -p /opt/playwright-browsers && \
     playwright install chromium && \
+    chmod -R 755 /opt/playwright-browsers && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with zsh as default shell
