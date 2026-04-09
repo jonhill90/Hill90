@@ -5,7 +5,7 @@
  * appropriate policy permissions (policy-secrets-admin).
  */
 
-const getVaultAddr = () =>
+export const getVaultAddr = () =>
   process.env.VAULT_ADDR || process.env.BAO_ADDR || 'http://openbao:8200';
 
 const getVaultToken = () => process.env.BAO_TOKEN || '';

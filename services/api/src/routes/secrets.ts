@@ -19,7 +19,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
-import { kvPut, kvDeleteKey, isVaultConfigured } from '../helpers/vault-client';
+import { kvPut, kvDeleteKey, isVaultConfigured, getVaultAddr } from '../helpers/vault-client';
 
 const router = Router();
 
@@ -112,7 +112,7 @@ router.get('/', async (_req: Request, res: Response) => {
 // ───────────────────────────────────────────────────────────────────
 
 router.get('/status', async (_req: Request, res: Response) => {
-  const vaultAddr = process.env.VAULT_ADDR || process.env.BAO_ADDR || 'http://127.0.0.1:8200';
+  const vaultAddr = getVaultAddr();
 
   try {
     const controller = new AbortController();
