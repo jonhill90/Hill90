@@ -34,7 +34,7 @@ class PtyResult:
 def execute_streaming(
     argv: list[str],
     env: dict[str, str],
-    cwd: str = "/workspace",
+    cwd: str = os.path.expanduser("~"),
     timeout: int = 300,
 ) -> Generator[bytes, None, PtyResult]:
     """Execute command in a PTY, yielding output chunks as they arrive.
