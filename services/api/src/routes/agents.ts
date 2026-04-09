@@ -1817,6 +1817,98 @@ router.get('/:id/events', requireRole('user'), async (req: Request, res: Respons
   }
 });
 
+
+// Export agent events as CSV download
+router.get('/:id/events/export', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const roles: string[] = user?.realm_roles || [];
+    const admin = roles.includes('admin');
+
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows } = await getPool().query(
+      `SELECT agent_id, name, status FROM agents WHERE id = $${paramOffset} AND ${scope.where}`,
+      [...scope.params, req.params.id]
+    );
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const agent = rows[0];
+    if (agent.status !== 'running') {
+      res.status(409).json({ error: 'Agent is not running. Event export is not available for stopped agents.' });
+      return;
+    }
+
+    const parsedTail = parseInt(req.query.tail as string);
+    const tail = Number.isNaN(parsedTail) ? 500 : Math.max(0, Math.min(parsedTail, 5000));
+
+    // Collect container events
+    let containerEvents: Record<string, unknown>[] = [];
+    try {
+      const stream = await execInContainer(agent.agent_id, [
+        'tail', '-n', String(tail), '/var/log/agentbox/events.jsonl',
+      ]);
+      const chunks: Buffer[] = [];
+      await new Promise<void>((resolve, reject) => {
+        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+        stream.on('end', () => resolve());
+        stream.on('error', reject);
+      });
+      const raw = Buffer.concat(chunks).toString('utf-8');
+      containerEvents = raw
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0)
+        .map(line => { try { return JSON.parse(line); } catch { return null; } })
+        .filter(e => e !== null);
+    } catch (err) {
+      console.error('[agents] CSV export container events failed:', err);
+    }
+
+    // Collect inference events
+    let inferenceEvents: Record<string, unknown>[] = [];
+    try {
+      const inferenceRows = await getRecentInference(agent.agent_id, tail, user.sub, admin);
+      inferenceEvents = inferenceRows.map(mapInferenceToEvent);
+    } catch (err) {
+      console.error('[agents] CSV export inference query failed:', err);
+    }
+
+    // Merge and sort
+    const merged = [...containerEvents, ...inferenceEvents].sort((a: any, b: any) => {
+      const tsCmp = (a.timestamp || '').localeCompare(b.timestamp || '');
+      if (tsCmp !== 0) return tsCmp;
+      return (a.id || '').localeCompare(b.id || '');
+    });
+
+    // Build CSV
+    const csvHeaders = ['timestamp', 'type', 'tool', 'success', 'duration_ms', 'input_summary', 'output_summary'];
+    const escapeCsv = (val: unknown): string => {
+      const s = val == null ? '' : String(val);
+      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+    const csvRows = merged.map((e: any) =>
+      csvHeaders.map(h => escapeCsv(e[h])).join(',')
+    );
+    const csv = [csvHeaders.join(','), ...csvRows].join('\n');
+
+    const safeName = (agent.name || agent.agent_id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}-events-${dateStr}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    console.error('[agents] Events export error:', err);
+    res.status(500).json({ error: 'Failed to export events' });
+  }
+});
+
 // Filter log lines by search term and timestamp range.
 function filterLogLines(lines: string[], search?: string, since?: string, until?: string): string[] {
   let filtered = lines;
