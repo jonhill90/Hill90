@@ -57,11 +57,14 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=akm-source /usr/local/bin/akm /usr/local/bin/akm
 
 # Install Playwright chromium + system deps (AI-177: browser observation)
-# Runs as root — installs system libraries (libnss3, libatk, etc.) + chromium binary
-# apt-get update required before --with-deps can install system packages
+# Install system deps manually (--with-deps fails on ttf-ubuntu-font-family)
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+      libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
+      libcairo2 libasound2 libxshmfence1 fonts-liberation fonts-noto-color-emoji && \
     pip install --no-cache-dir playwright==1.51.0 && \
-    playwright install chromium --with-deps && \
+    playwright install chromium && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user with zsh as default shell
