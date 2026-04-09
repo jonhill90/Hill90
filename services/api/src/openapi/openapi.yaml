@@ -1532,6 +1532,54 @@ paths:
         "404":
           description: Agent not found
 
+  /agents/{id}/status-history:
+    get:
+      summary: List agent status transitions
+      tags: [Agents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        "200":
+          description: Status history entries ordered by changed_at desc
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    agent_id:
+                      type: string
+                      format: uuid
+                    old_status:
+                      type: string
+                    new_status:
+                      type: string
+                    changed_at:
+                      type: string
+                      format: date-time
+                    changed_by:
+                      type: string
+                      nullable: true
+        "404":
+          description: Agent not found
+
   /agents/{id}/clone:
     post:
       summary: Clone an agent
