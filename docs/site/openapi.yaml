@@ -4806,7 +4806,7 @@ paths:
         "502":
           description: Storage service unavailable
 
-  /storage/buckets/{name}/objects/{key}:
+  /storage/buckets/{name}/objects/*:
     delete:
       summary: Delete an object from a bucket
       tags: [Storage]
