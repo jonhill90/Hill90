@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Activity, Server, Bot, Clock, RefreshCw } from 'lucide-react'
+import { Activity, Server, Bot, Clock, RefreshCw, ShieldCheck, HardDrive } from 'lucide-react'
 
 interface HealthStatus {
   service: string
@@ -43,9 +43,62 @@ function SectionHeading({ icon: Icon, title }: { icon: React.ComponentType<{ cla
   )
 }
 
+function HealthCard({
+  label,
+  icon: Icon,
+  status,
+  loading,
+}: {
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+  status: HealthStatus | null
+  loading: boolean
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+        <div className="h-4 w-24 bg-navy-700 rounded animate-pulse" />
+      </div>
+    )
+  }
+
+  if (!status) {
+    return (
+      <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex items-start gap-3">
+        <StatusDot healthy={false} />
+        <div>
+          <p className="text-sm font-medium text-white">{label}</p>
+          <p className="text-xs mt-0.5 text-navy-400">Unable to check</p>
+        </div>
+      </div>
+    )
+  }
+
+  const healthy = status.status === 'healthy'
+
+  return (
+    <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex items-start gap-3">
+      <StatusDot healthy={healthy} />
+      <div className="flex-1">
+        <div className="flex items-center gap-1.5">
+          <Icon className="h-4 w-4 text-navy-400" />
+          <p className="text-sm font-medium text-white">{label}</p>
+        </div>
+        <p className={`text-xs mt-0.5 ${healthy ? 'text-brand-400' : 'text-red-400'}`}>
+          {healthy ? 'Healthy' : status.error || 'Unhealthy'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function MonitoringClient() {
   const [health, setHealth] = useState<HealthStatus | null>(null)
   const [healthLoading, setHealthLoading] = useState(true)
+  const [vaultHealth, setVaultHealth] = useState<HealthStatus | null>(null)
+  const [vaultLoading, setVaultLoading] = useState(true)
+  const [storageHealth, setStorageHealth] = useState<HealthStatus | null>(null)
+  const [storageLoading, setStorageLoading] = useState(true)
   const [agentSummary, setAgentSummary] = useState<AgentSummary | null>(null)
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
@@ -64,6 +117,36 @@ export default function MonitoringClient() {
       setHealth({ service: 'api', status: 'unhealthy', error: 'Connection failed' })
     } finally {
       setHealthLoading(false)
+    }
+  }, [])
+
+  const fetchVault = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/secrets/status')
+      if (res.ok) {
+        setVaultHealth({ service: 'vault', status: 'healthy' })
+      } else {
+        setVaultHealth({ service: 'vault', status: 'unhealthy', error: `HTTP ${res.status}` })
+      }
+    } catch {
+      setVaultHealth({ service: 'vault', status: 'unhealthy', error: 'Connection failed' })
+    } finally {
+      setVaultLoading(false)
+    }
+  }, [])
+
+  const fetchStorage = useCallback(async () => {
+    try {
+      const res = await fetch('/api/storage/buckets')
+      if (res.ok) {
+        setStorageHealth({ service: 'storage', status: 'healthy' })
+      } else {
+        setStorageHealth({ service: 'storage', status: 'unhealthy', error: `HTTP ${res.status}` })
+      }
+    } catch {
+      setStorageHealth({ service: 'storage', status: 'unhealthy', error: 'Connection failed' })
+    } finally {
+      setStorageLoading(false)
     }
   }, [])
 
@@ -93,11 +176,13 @@ export default function MonitoringClient() {
   const refreshAll = useCallback(async () => {
     setRefreshing(true)
     setHealthLoading(true)
+    setVaultLoading(true)
+    setStorageLoading(true)
     setAgentsLoading(true)
-    await Promise.all([fetchHealth(), fetchAgents()])
+    await Promise.all([fetchHealth(), fetchVault(), fetchStorage(), fetchAgents()])
     setLastRefresh(new Date())
     setRefreshing(false)
-  }, [fetchHealth, fetchAgents])
+  }, [fetchHealth, fetchVault, fetchStorage, fetchAgents])
 
   useEffect(() => {
     refreshAll()
@@ -135,23 +220,9 @@ export default function MonitoringClient() {
       <section>
         <SectionHeading icon={Server} title="Service Health" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {healthLoading ? (
-            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
-              <div className="h-4 w-24 bg-navy-700 rounded animate-pulse" />
-            </div>
-          ) : health ? (
-            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 flex items-start gap-3">
-              <StatusDot healthy={health.status === 'healthy'} />
-              <div>
-                <p className="text-sm font-medium text-white capitalize">{health.service}</p>
-                <p className={`text-xs mt-0.5 ${health.status === 'healthy' ? 'text-brand-400' : 'text-red-400'}`}>
-                  {health.status === 'healthy' ? 'Healthy' : health.error || 'Unhealthy'}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-navy-400">Unable to fetch health status.</p>
-          )}
+          <HealthCard label="API" icon={Server} status={health} loading={healthLoading} />
+          <HealthCard label="Vault" icon={ShieldCheck} status={vaultHealth} loading={vaultLoading} />
+          <HealthCard label="Storage" icon={HardDrive} status={storageHealth} loading={storageLoading} />
         </div>
       </section>
 
