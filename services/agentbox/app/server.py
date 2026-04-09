@@ -9,8 +9,10 @@ import base64
 import json
 import logging
 import os
+import time
 
 import asyncio
+import psutil
 
 import uvicorn
 from starlette.applications import Starlette
@@ -43,6 +45,8 @@ def create_app(
     calls this with config loaded from agent.yml.
     """
     runtime = AgentRuntime(config, emitter, work_token)
+    start_time = time.monotonic()
+    process = psutil.Process()
 
     if config.tools.shell.enabled:
         shell.configure(config.tools.shell, emitter)
@@ -154,12 +158,32 @@ def create_app(
                 status_code=500,
             )
 
+    async def metrics_endpoint(request: Request):
+        """Return live CPU, memory and uptime metrics for this agentbox."""
+        try:
+            cpu_percent = process.cpu_percent(interval=None)
+            mem_info = process.memory_info()
+            memory_mb = round(mem_info.rss / (1024 * 1024), 1)
+            uptime_seconds = round(time.monotonic() - start_time, 1)
+            return JSONResponse({
+                "cpu_percent": cpu_percent,
+                "memory_mb": memory_mb,
+                "uptime_seconds": uptime_seconds,
+            })
+        except Exception as exc:
+            logger.error("Metrics collection failed: %s", exc, exc_info=True)
+            return JSONResponse(
+                {"error": str(exc)[:200]},
+                status_code=500,
+            )
+
     async def terminal_ws_endpoint(websocket):
         await ws_terminal_handler(websocket, work_token)
 
     return Starlette(routes=[
         Route("/health", health_endpoint, methods=["GET"]),
         Route("/work", work_endpoint, methods=["POST"]),
+        Route("/metrics", metrics_endpoint, methods=["GET"]),
         Route("/screenshot", screenshot_endpoint, methods=["GET"]),
         Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
         WebSocketRoute("/terminal/ws", terminal_ws_endpoint),
