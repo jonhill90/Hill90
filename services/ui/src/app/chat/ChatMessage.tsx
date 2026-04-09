@@ -80,7 +80,7 @@ export default function ChatMessage({ message, isOwnMessage, isGroup, agents = [
     : null
 
   return (
-    <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
+    <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : ''} transition-all duration-300 rounded-lg`} data-message-id={message.id}>
       {/* Avatar */}
       {isUser ? (
         <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-brand-600/30">
