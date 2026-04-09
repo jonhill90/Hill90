@@ -139,4 +139,86 @@ describe('Storage routes', () => {
     expect(res.status).toBe(404);
     expect(res.body.error).toContain('nonexistent');
   });
+
+  it('POST /storage/buckets/:name/upload requires admin role', async () => {
+    const res = await request(app)
+      .post('/storage/buckets/test-bucket/upload')
+      .set('Authorization', `Bearer ${userToken}`)
+      .attach('file', Buffer.from('test'), 'test.txt');
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /storage/buckets/:name/upload uploads a file', async () => {
+    mockS3Send.mockResolvedValueOnce({});
+
+    const res = await request(app)
+      .post('/storage/buckets/my-bucket/upload')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('file', Buffer.from('hello world'), 'test.txt')
+      .field('key', 'test.txt');
+
+    expect(res.status).toBe(200);
+    expect(res.body.key).toBe('test.txt');
+    expect(res.body.size).toBe(11);
+    const sendCall = mockS3Send.mock.calls[0][0];
+    expect(sendCall.input.Bucket).toBe('my-bucket');
+    expect(sendCall.input.Key).toBe('test.txt');
+  });
+
+  it('POST /storage/buckets/:name/upload returns 400 without file', async () => {
+    const res = await request(app)
+      .post('/storage/buckets/my-bucket/upload')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('No file');
+  });
+
+  it('POST /storage/buckets/:name/upload returns 404 for missing bucket', async () => {
+    const err: any = new Error('NoSuchBucket');
+    err.name = 'NoSuchBucket';
+    mockS3Send.mockRejectedValueOnce(err);
+
+    const res = await request(app)
+      .post('/storage/buckets/nonexistent/upload')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .attach('file', Buffer.from('test'), 'test.txt');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain('nonexistent');
+  });
+
+  it('DELETE /storage/buckets/:name/objects/* requires admin role', async () => {
+    const res = await request(app)
+      .delete('/storage/buckets/test-bucket/objects/file.txt')
+      .set('Authorization', `Bearer ${userToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('DELETE /storage/buckets/:name/objects/* deletes an object', async () => {
+    mockS3Send.mockResolvedValueOnce({});
+
+    const res = await request(app)
+      .delete('/storage/buckets/my-bucket/objects/path/to/file.txt')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.deleted).toBe('path/to/file.txt');
+    const sendCall = mockS3Send.mock.calls[0][0];
+    expect(sendCall.input.Bucket).toBe('my-bucket');
+    expect(sendCall.input.Key).toBe('path/to/file.txt');
+  });
+
+  it('DELETE /storage/buckets/:name/objects/* returns 404 for missing bucket', async () => {
+    const err: any = new Error('NoSuchBucket');
+    err.name = 'NoSuchBucket';
+    mockS3Send.mockRejectedValueOnce(err);
+
+    const res = await request(app)
+      .delete('/storage/buckets/nonexistent/objects/file.txt')
+      .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toContain('nonexistent');
+  });
 });
