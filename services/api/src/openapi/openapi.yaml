@@ -1513,6 +1513,42 @@ paths:
         "404":
           description: Agent not found
 
+  /agents/{id}/runtime-metrics:
+    get:
+      summary: Get live runtime metrics from agentbox
+      tags: [Agents]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Live CPU, memory, and uptime from agentbox
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cpu_percent:
+                    type: number
+                  memory_mb:
+                    type: number
+                  uptime_seconds:
+                    type: number
+        "404":
+          description: Agent not found
+        "409":
+          description: Agent is not running
+        "502":
+          description: Agentbox unreachable
+        "504":
+          description: Agentbox timed out
+
   /agents/{id}/artifacts:
     get:
       summary: Get agent artifacts (badges)
@@ -4186,6 +4222,70 @@ paths:
           description: Elevated scope requires admin role
         "404":
           description: Thread not found or not owner
+
+  /chat/threads/{id}/search:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Search messages in thread
+      description: |
+        Full-text search across completed messages in a thread using PostgreSQL
+        FTS. Returns matching messages ranked by relevance with highlighted snippets.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query (prefix matching, AND logic between words)
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        seq:
+                          type: integer
+                        author_id:
+                          type: string
+                        author_type:
+                          type: string
+                        role:
+                          type: string
+                        content:
+                          type: string
+                        headline:
+                          type: string
+                          description: HTML snippet with <mark> tags around matches
+                        rank:
+                          type: number
+                        created_at:
+                          type: string
+                          format: date-time
+                  query:
+                    type: string
+        "400":
+          description: Missing q parameter
+        "404":
+          description: Thread not found or not a participant
 
   /chat/threads/{id}/cancel:
     parameters:

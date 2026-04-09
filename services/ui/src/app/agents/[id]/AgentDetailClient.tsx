@@ -135,6 +135,13 @@ export default function AgentDetailClient({
   const [toolInstalls, setToolInstalls] = useState<ToolInstallStatus[]>([])
   const [toolInstallsLoading, setToolInstallsLoading] = useState(false)
 
+  // Runtime metrics (live from agentbox)
+  const [runtimeMetrics, setRuntimeMetrics] = useState<{
+    cpu_percent: number
+    memory_mb: number
+    uptime_seconds: number
+  } | null>(null)
+
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'timeline' | 'events' | 'logs'>('timeline')
 
@@ -240,6 +247,29 @@ export default function AgentDetailClient({
     const interval = setInterval(fetchAgent, 10000)
     return () => clearInterval(interval)
   }, [agent?.status, fetchAgent])
+
+  // Poll runtime metrics from agentbox while running
+  useEffect(() => {
+    if (agent?.status !== 'running') {
+      setRuntimeMetrics(null)
+      return
+    }
+    let cancelled = false
+    async function poll() {
+      try {
+        const res = await fetch(`/api/agents/${agentId}/runtime-metrics`)
+        if (cancelled) return
+        if (res.ok) {
+          setRuntimeMetrics(await res.json())
+        }
+      } catch {
+        // agentbox unreachable
+      }
+    }
+    poll()
+    const interval = setInterval(poll, 5000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [agent?.status, agentId])
 
   // Fetch model policy name
   useEffect(() => {
@@ -727,6 +757,33 @@ export default function AgentDetailClient({
               </div>
             )}
           </div>
+
+          {/* Runtime Metrics (live from agentbox) */}
+          {runtimeMetrics && agent.status === 'running' && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <h2 className="text-lg font-semibold text-white mb-3">Runtime Metrics</h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <dt className="text-mountain-400">CPU Usage</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{runtimeMetrics.cpu_percent.toFixed(1)}%</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Memory</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{runtimeMetrics.memory_mb.toFixed(1)} MB</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Process Uptime</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">
+                    {runtimeMetrics.uptime_seconds >= 3600
+                      ? `${Math.floor(runtimeMetrics.uptime_seconds / 3600)}h ${Math.floor((runtimeMetrics.uptime_seconds % 3600) / 60)}m`
+                      : runtimeMetrics.uptime_seconds >= 60
+                        ? `${Math.floor(runtimeMetrics.uptime_seconds / 60)}m ${Math.floor(runtimeMetrics.uptime_seconds % 60)}s`
+                        : `${Math.floor(runtimeMetrics.uptime_seconds)}s`}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )}
 
           {/* Description */}
           {agent.description && (
@@ -1313,6 +1370,18 @@ export default function AgentDetailClient({
                 </button>
               )}
             </div>
+            {agent.status === 'running' && (
+              <a
+                href={`/api/agents/${agentId}/events/export?format=csv`}
+                download
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors"
+                data-testid="export-events"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export CSV
+              </a>
+            )}
+          </div>
             {agent.status === 'running' && (
               <a
                 href={`/api/agents/${agentId}/events/export?format=csv`}
