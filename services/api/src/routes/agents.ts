@@ -2225,7 +2225,7 @@ router.get('/:id/stats', requireRole('user'), async (req: Request, res: Response
         `SELECT COUNT(*) AS total_inferences,
                 COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
                 COALESCE(SUM(cost_usd), 0) AS estimated_cost,
-                COUNT(DISTINCT model) AS distinct_models
+                COUNT(DISTINCT model_name) AS distinct_models
          FROM model_usage WHERE agent_id = $1`,
         [agent.agent_id],
       ),
