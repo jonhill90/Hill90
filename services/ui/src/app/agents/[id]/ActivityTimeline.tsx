@@ -30,8 +30,8 @@ interface ActivityEvent {
 type DotVariant = 'success' | 'error' | 'info' | 'warning'
 
 function classifyEvent(event: ActivityEvent): DotVariant {
-  if (event.success === false) return 'error'
-  if (event.type === 'work_failed' || event.type === 'command_complete' && event.success === false) return 'error'
+  if (event.success === null && event.type === 'work_failed') return 'error'
+  if (event.type === 'work_failed') return 'error'
   if (event.type === 'work_received' || event.type === 'command_start') return 'warning'
   if (event.success === true || event.type === 'work_completed' || event.type === 'command_complete') return 'success'
   return 'info'
