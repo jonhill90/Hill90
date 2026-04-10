@@ -19,6 +19,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,33 @@ import requests
 
 from app.config import ToolLoopConfig, ToolsConfig
 from app.tools import build_tool_definitions, execute_tool_call
+
+# Persistent event loop for async tool calls (browser, filesystem).
+# Using asyncio.run() per tool call destroys the loop after each call,
+# which kills Playwright's browser page. A persistent loop keeps the
+# browser alive between tool calls so /screenshot can access it.
+_tool_loop: asyncio.AbstractEventLoop | None = None
+_tool_loop_thread: threading.Thread | None = None
+
+
+def _get_tool_loop() -> asyncio.AbstractEventLoop:
+    """Get or create the persistent event loop for async tool execution."""
+    global _tool_loop, _tool_loop_thread
+    if _tool_loop is not None and _tool_loop.is_running():
+        return _tool_loop
+    _tool_loop = asyncio.new_event_loop()
+    _tool_loop_thread = threading.Thread(
+        target=_tool_loop.run_forever, daemon=True, name="tool-event-loop"
+    )
+    _tool_loop_thread.start()
+    return _tool_loop
+
+
+def _run_async(coro) -> any:
+    """Run an async coroutine on the persistent tool event loop and wait for result."""
+    loop = _get_tool_loop()
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    return future.result(timeout=120)
 
 if TYPE_CHECKING:
     from app.events import EventEmitter
@@ -802,7 +830,7 @@ def _run_tool_loop(
                     else:
                         tool_result = json.dumps({"success": False, "error": "No command provided"})
                 else:
-                    tool_result = asyncio.run(
+                    tool_result = _run_async(
                         execute_tool_call(func_name, func_args, work_id=work_id, emitter=emitter)
                     )
             except Exception as exc:
