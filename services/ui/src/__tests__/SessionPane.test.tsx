@@ -22,6 +22,7 @@ vi.mock('lucide-react', () => ({
   Terminal: ({ className }: any) => <span data-testid="icon-terminal" className={className} />,
   Activity: ({ className }: any) => <span data-testid="icon-activity" className={className} />,
   Globe: ({ className }: any) => <span data-testid="icon-globe" className={className} />,
+  MousePointer: ({ className }: any) => <span data-testid="icon-mousepointer" className={className} />,
 }))
 
 // Mock EventSource
