@@ -1820,6 +1820,81 @@ paths:
         "200":
           description: CSV download
 
+  /agents/{id}/journal:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: List agent journal entries
+      description: Returns memory journal entries for context persistence, newest first.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+      responses:
+        "200":
+          description: Journal entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      format: uuid
+                    agent_id:
+                      type: string
+                      format: uuid
+                    entry_type:
+                      type: string
+                      enum: [observation, decision, plan, note, error]
+                    content:
+                      type: string
+                    created_at:
+                      type: string
+                      format: date-time
+        "404":
+          description: Agent not found
+
+    post:
+      summary: Append journal entry
+      description: Add a memory journal entry to an agent for context persistence.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                entry_type:
+                  type: string
+                  enum: [observation, decision, plan, note, error]
+                  default: observation
+                content:
+                  type: string
+      responses:
+        "201":
+          description: Entry created
+        "400":
+          description: Missing content
+        "404":
+          description: Agent not found
+
   /agents/{id}/logs:
     parameters:
       - name: id

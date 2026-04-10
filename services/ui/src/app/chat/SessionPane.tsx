@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
-import { Terminal, Activity, Globe } from 'lucide-react'
+import { Terminal, Activity, Globe, MousePointerClick } from 'lucide-react'
 import EventCard, { type AgentEvent } from '@/app/agents/[id]/EventCard'
 
 const XTerminal = lazy(() => import('./XTerminal'))
@@ -95,6 +95,13 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
   const [screenshot, setScreenshot] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [takeControl, setTakeControl] = useState(false)
+  const [clickPoint, setClickPoint] = useState<{ x: number; y: number } | null>(null)
+  const [describing, setDescribing] = useState(false)
+  const [description, setDescription] = useState('')
+  const [sending, setSending] = useState(false)
+  const imgRef = useRef<HTMLImageElement>(null)
+  const descInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!active) return
@@ -132,6 +139,37 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     return () => { cancelled = true; clearInterval(interval) }
   }, [threadId, active])
 
+  const handleImageClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
+    if (!takeControl || !imgRef.current) return
+    const rect = imgRef.current.getBoundingClientRect()
+    const xPct = Math.round(((e.clientX - rect.left) / rect.width) * 10000) / 100
+    const yPct = Math.round(((e.clientY - rect.top) / rect.height) * 10000) / 100
+    setClickPoint({ x: xPct, y: yPct })
+    setDescribing(true)
+    setDescription('')
+    setTimeout(() => descInputRef.current?.focus(), 50)
+  }, [takeControl])
+
+  const handleSendClick = useCallback(async () => {
+    if (!clickPoint || sending) return
+    setSending(true)
+    const msg = description.trim()
+      ? `[Click at ${clickPoint.x}%, ${clickPoint.y}%] ${description.trim()}`
+      : `Click at position ${clickPoint.x}%, ${clickPoint.y}% on the page`
+    try {
+      await fetch(`/api/chat/threads/${threadId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: msg }),
+      })
+    } catch { /* ignore */ }
+    setSending(false)
+    setDescribing(false)
+    setDescription('')
+    // Keep clickPoint visible briefly then clear
+    setTimeout(() => setClickPoint(null), 1500)
+  }, [clickPoint, description, threadId, sending])
+
   if (error && !screenshot) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6" data-testid="browser-inactive">
@@ -154,20 +192,77 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="browser-view">
-      {url && (
-        <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
-          <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
-          <span className="text-xs text-mountain-400 truncate">{url}</span>
+      <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
+        {url && (
+          <>
+            <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
+            <span className="text-xs text-mountain-400 truncate flex-1">{url}</span>
+          </>
+        )}
+        <button
+          onClick={() => { setTakeControl(!takeControl); setDescribing(false); setClickPoint(null) }}
+          className={`ml-auto flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors cursor-pointer ${
+            takeControl
+              ? 'bg-amber-600 text-white'
+              : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
+          }`}
+          data-testid="take-control-toggle"
+        >
+          <MousePointerClick className="w-3 h-3" />
+          {takeControl ? 'Take Control: ON' : 'Take Control'}
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
+        <div className="relative inline-block">
+          <img
+            ref={imgRef}
+            src={`data:image/png;base64,${screenshot}`}
+            alt="Browser screenshot"
+            className={`max-w-full h-auto rounded border border-navy-700 ${takeControl ? 'cursor-crosshair' : ''}`}
+            onClick={handleImageClick}
+            data-testid="browser-screenshot"
+          />
+          {clickPoint && (
+            <div
+              className="absolute w-4 h-4 -ml-2 -mt-2 pointer-events-none"
+              style={{ left: `${clickPoint.x}%`, top: `${clickPoint.y}%` }}
+              data-testid="click-dot"
+            >
+              <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-75" />
+              <span className="absolute inset-0.5 rounded-full bg-amber-400" />
+            </div>
+          )}
+        </div>
+      </div>
+      {describing && (
+        <div className="px-3 py-2 border-t border-navy-700 bg-navy-800 flex items-center gap-2" data-testid="click-describe-bar">
+          <span className="text-xs text-mountain-400 flex-shrink-0">
+            Clicked {clickPoint?.x}%, {clickPoint?.y}%
+          </span>
+          <input
+            ref={descInputRef}
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSendClick()}
+            placeholder="Describe what to do here (optional)..."
+            className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-2 py-1 text-xs text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+          />
+          <button
+            onClick={handleSendClick}
+            disabled={sending}
+            className="px-3 py-1 text-xs font-medium rounded bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {sending ? 'Sending...' : 'Send'}
+          </button>
+          <button
+            onClick={() => { setDescribing(false); setClickPoint(null) }}
+            className="px-2 py-1 text-xs text-mountain-400 hover:text-white transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
         </div>
       )}
-      <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
-        <img
-          src={`data:image/png;base64,${screenshot}`}
-          alt="Browser screenshot"
-          className="max-w-full h-auto rounded border border-navy-700"
-          data-testid="browser-screenshot"
-        />
-      </div>
     </div>
   )
 }
