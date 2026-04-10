@@ -414,6 +414,18 @@ export default function AgentDetailClient({
     )
   }
 
+  const fetchJournal = useCallback(async () => {
+    setJournalLoading(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/journal?limit=100`)
+      if (res.ok) setJournalEntries(await res.json())
+    } catch { /* ignore */ } finally { setJournalLoading(false) }
+  }, [agentId])
+
+  useEffect(() => {
+    if (activeTab === 'journal' && journalEntries.length === 0 && !journalLoading) fetchJournal()
+  }, [activeTab, journalEntries.length, journalLoading, fetchJournal])
+
   if (!agent) return null
 
   const modelNames = agent.models || []
@@ -637,18 +649,6 @@ export default function AgentDetailClient({
       setScheduleSaving(false)
     }
   }
-
-  const fetchJournal = useCallback(async () => {
-    setJournalLoading(true)
-    try {
-      const res = await fetch(`/api/agents/${agentId}/journal?limit=100`)
-      if (res.ok) setJournalEntries(await res.json())
-    } catch { /* ignore */ } finally { setJournalLoading(false) }
-  }, [agentId])
-
-  useEffect(() => {
-    if (activeTab === 'journal' && journalEntries.length === 0 && !journalLoading) fetchJournal()
-  }, [activeTab, journalEntries.length, journalLoading, fetchJournal])
 
   const handleJournalSubmit = async () => {
     if (!journalContent.trim()) return
