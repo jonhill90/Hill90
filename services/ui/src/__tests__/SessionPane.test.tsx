@@ -24,6 +24,9 @@ vi.mock('lucide-react', () => ({
   Globe: ({ className }: any) => <span data-testid="icon-globe" className={className} />,
   Monitor: ({ className }: any) => <span data-testid="icon-monitor" className={className} />,
   MousePointerClick: ({ className }: any) => <span data-testid="icon-mouse" className={className} />,
+  ArrowLeft: ({ className }: any) => <span data-testid="icon-arrow-left" className={className} />,
+  ArrowRight: ({ className }: any) => <span data-testid="icon-arrow-right" className={className} />,
+  RotateCw: ({ className }: any) => <span data-testid="icon-rotate-cw" className={className} />,
 }))
 
 // Mock EventSource
@@ -382,7 +385,8 @@ describe('SessionPane — Browser tab', () => {
     await waitFor(() => {
       expect(screen.getByTestId('browser-screenshot')).toBeInTheDocument()
     })
-    expect(screen.getByText('https://example.com')).toBeInTheDocument()
+    const urlInput = screen.getByTestId('browser-url-input') as HTMLInputElement
+    expect(urlInput.value).toBe('https://example.com')
   })
 
   it('shows latest screenshot from polling', async () => {
@@ -397,7 +401,8 @@ describe('SessionPane — Browser tab', () => {
     switchToBrowser()
 
     await waitFor(() => {
-      expect(screen.getByText('https://latest.com')).toBeInTheDocument()
+      const urlInput = screen.getByTestId('browser-url-input') as HTMLInputElement
+      expect(urlInput.value).toBe('https://latest.com')
     })
   })
 })

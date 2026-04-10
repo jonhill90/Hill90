@@ -1363,60 +1363,95 @@ router.get('/threads/:id/screenshot', requireRole('user'), async (req: Request, 
 });
 
 // ───────────────────────────────────────────────────────────────────
-// POST /chat/threads/:id/browser-click — forward click to agentbox browser
+// POST /chat/threads/:id/browser/* — proxy browser control to agentbox
 // ───────────────────────────────────────────────────────────────────
 
-router.post('/threads/:id/browser-click', requireRole('user'), async (req: Request, res: Response) => {
+async function proxyBrowserAction(
+  req: Request,
+  res: Response,
+  action: 'click' | 'element' | 'navigate' | 'history',
+  body: any
+): Promise<void> {
+  const user = (req as any).user;
+  const admin = isAdmin(req);
+  const threadId = req.params.id;
+
+  if (!(await isParticipant(threadId, user.sub, admin))) {
+    res.status(404).json({ error: 'Thread not found' });
+    return;
+  }
+
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `SELECT a.agent_id
+     FROM chat_participants cp
+     JOIN agents a ON a.id = cp.participant_id::uuid
+     WHERE cp.thread_id = $1 AND cp.participant_type = 'agent' AND a.status = 'running'
+     LIMIT 1`,
+    [threadId]
+  );
+
+  if (rows.length === 0) {
+    res.status(404).json({ error: 'No running agent in thread' });
+    return;
+  }
+
+  const agentId = rows[0].agent_id;
+  const url = `http://agentbox-${agentId}:${AGENTBOX_PORT}/browser/${action}`;
+
   try {
-    const user = (req as any).user;
-    const admin = isAdmin(req);
-    const threadId = req.params.id;
-    const { x_percent, y_percent } = req.body;
-
-    if (typeof x_percent !== 'number' || typeof y_percent !== 'number') {
-      res.status(400).json({ error: 'x_percent and y_percent required' });
-      return;
-    }
-
-    if (!(await isParticipant(threadId, user.sub, admin))) {
-      res.status(404).json({ error: 'Thread not found' });
-      return;
-    }
-
-    const pool = getPool();
-    const { rows } = await pool.query(
-      `SELECT a.agent_id
-       FROM chat_participants cp
-       JOIN agents a ON a.id = cp.participant_id::uuid
-       WHERE cp.thread_id = $1 AND cp.participant_type = 'agent' AND a.status = 'running'
-       LIMIT 1`,
-      [threadId]
-    );
-
-    if (rows.length === 0) {
-      res.status(404).json({ error: 'No running agent in thread' });
-      return;
-    }
-
-    const agentId = rows[0].agent_id;
-    const url = `http://agentbox-${agentId}:${AGENTBOX_PORT}/browser/click`;
-
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ x_percent, y_percent }),
-      signal: AbortSignal.timeout(5000),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     });
     const data = await response.json();
     res.status(response.status).json(data);
   } catch (err: any) {
     if (err.name === 'TimeoutError') {
-      res.status(504).json({ error: 'Browser click timed out' });
+      res.status(504).json({ error: `Browser ${action} timed out` });
       return;
     }
-    console.error('[chat] Browser click proxy error:', err);
-    res.status(502).json({ error: 'Failed to forward click to agentbox' });
+    console.error(`[chat] Browser ${action} proxy error:`, err);
+    res.status(502).json({ error: `Failed to forward ${action} to agentbox` });
   }
+}
+
+router.post('/threads/:id/browser-click', requireRole('user'), async (req: Request, res: Response) => {
+  const { x_percent, y_percent } = req.body;
+  if (typeof x_percent !== 'number' || typeof y_percent !== 'number') {
+    res.status(400).json({ error: 'x_percent and y_percent required' });
+    return;
+  }
+  await proxyBrowserAction(req, res, 'click', { x_percent, y_percent });
+});
+
+router.post('/threads/:id/browser-element', requireRole('user'), async (req: Request, res: Response) => {
+  const { x_percent, y_percent } = req.body;
+  if (typeof x_percent !== 'number' || typeof y_percent !== 'number') {
+    res.status(400).json({ error: 'x_percent and y_percent required' });
+    return;
+  }
+  await proxyBrowserAction(req, res, 'element', { x_percent, y_percent });
+});
+
+router.post('/threads/:id/browser-navigate', requireRole('user'), async (req: Request, res: Response) => {
+  const { url } = req.body;
+  if (typeof url !== 'string' || !url) {
+    res.status(400).json({ error: 'url required' });
+    return;
+  }
+  await proxyBrowserAction(req, res, 'navigate', { url });
+});
+
+router.post('/threads/:id/browser-history', requireRole('user'), async (req: Request, res: Response) => {
+  const { action } = req.body;
+  if (!['back', 'forward', 'reload'].includes(action)) {
+    res.status(400).json({ error: 'action must be back|forward|reload' });
+    return;
+  }
+  await proxyBrowserAction(req, res, 'history', { action });
 });
 
 // ───────────────────────────────────────────────────────────────────
