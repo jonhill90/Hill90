@@ -2807,4 +2807,72 @@ router.get('/:id/status-history', requireRole('user'), async (req: Request, res:
   }
 });
 
+// ── Agent Journal ──────────────────────────────────────────────────
+
+const VALID_JOURNAL_TYPES = ['observation', 'decision', 'note', 'error', 'plan'] as const;
+
+// GET /agents/:id/journal — list journal entries (newest first)
+router.get('/:id/journal', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows: agentRows } = await getPool().query(
+      `SELECT id FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
+    );
+    if (agentRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const { rows } = await getPool().query(
+      `SELECT id, agent_id, entry_type, content, created_at
+       FROM agent_journal
+       WHERE agent_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [req.params.id, limit]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[agents] Journal list error:', err);
+    res.status(500).json({ error: 'Failed to fetch journal' });
+  }
+});
+
+// POST /agents/:id/journal — create a journal entry
+router.post('/:id/journal', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const scope = scopeToOwner(req);
+    const paramOffset = scope.params.length + 1;
+    const { rows: agentRows } = await getPool().query(
+      `SELECT id FROM agents WHERE id = $${paramOffset}${scope.where !== '1=1' ? ` AND ${scope.where}` : ''}`,
+      [...scope.params, req.params.id],
+    );
+    if (agentRows.length === 0) {
+      res.status(404).json({ error: 'Agent not found' });
+      return;
+    }
+
+    const { entry_type, content } = req.body;
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      res.status(400).json({ error: 'content is required' });
+      return;
+    }
+    const type = VALID_JOURNAL_TYPES.includes(entry_type) ? entry_type : 'observation';
+
+    const { rows } = await getPool().query(
+      `INSERT INTO agent_journal (agent_id, entry_type, content)
+       VALUES ($1, $2, $3)
+       RETURNING id, agent_id, entry_type, content, created_at`,
+      [req.params.id, type, content.trim()]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error('[agents] Journal create error:', err);
+    res.status(500).json({ error: 'Failed to create journal entry' });
+  }
+});
+
 export default router;

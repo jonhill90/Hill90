@@ -99,7 +99,7 @@ const STATUS_BADGE: Record<string, { dot: string; bg: string; text: string }> = 
   stopped: { dot: 'bg-mountain-500', bg: 'bg-navy-800/50 border-navy-700', text: 'text-mountain-400' },
 }
 
-type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'workspace' | 'knowledge' | 'activity'
+type TabId = 'overview' | 'configuration' | 'model-access' | 'memory' | 'notebook' | 'workspace' | 'knowledge' | 'journal' | 'activity'
 
 export default function AgentDetailClient({
   agentId,
@@ -169,6 +169,13 @@ export default function AgentDetailClient({
   const [envKey, setEnvKey] = useState('')
   const [envVal, setEnvVal] = useState('')
   const [envSaving, setEnvSaving] = useState(false)
+
+  // Journal
+  const [journalEntries, setJournalEntries] = useState<Array<{ id: string; entry_type: string; content: string; created_at: string }>>([])
+  const [journalLoading, setJournalLoading] = useState(false)
+  const [journalContent, setJournalContent] = useState('')
+  const [journalType, setJournalType] = useState('observation')
+  const [journalSaving, setJournalSaving] = useState(false)
 
   // Avatar
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -631,6 +638,37 @@ export default function AgentDetailClient({
     }
   }
 
+  const fetchJournal = useCallback(async () => {
+    setJournalLoading(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/journal?limit=100`)
+      if (res.ok) setJournalEntries(await res.json())
+    } catch { /* ignore */ } finally { setJournalLoading(false) }
+  }, [agentId])
+
+  useEffect(() => {
+    if (activeTab === 'journal' && journalEntries.length === 0 && !journalLoading) fetchJournal()
+  }, [activeTab, journalEntries.length, journalLoading, fetchJournal])
+
+  const handleJournalSubmit = async () => {
+    if (!journalContent.trim()) return
+    setJournalSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agentId}/journal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry_type: journalType, content: journalContent.trim() }),
+      })
+      if (res.ok) {
+        setJournalContent('')
+        await fetchJournal()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to save journal entry')
+      }
+    } catch { alert('Failed to save journal entry') } finally { setJournalSaving(false) }
+  }
+
   const tabs: { id: TabId; label: string; adminOnly?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'configuration', label: 'Configuration' },
@@ -639,6 +677,7 @@ export default function AgentDetailClient({
     { id: 'notebook', label: 'Notebook' },
     { id: 'workspace', label: 'Workspace' },
     { id: 'knowledge', label: 'Knowledge' },
+    { id: 'journal', label: 'Journal' },
     { id: 'activity', label: 'Activity' },
   ]
 
@@ -1451,6 +1490,73 @@ export default function AgentDetailClient({
 
       {activeTab === 'knowledge' && agent && (
         <AgentKnowledge agentName={agent.name} />
+      )}
+
+      {activeTab === 'journal' && (
+        <div className="space-y-4">
+          {/* New entry form */}
+          <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+            <h2 className="text-lg font-semibold text-white mb-3">New Entry</h2>
+            <div className="flex items-center gap-2 mb-3">
+              <select
+                value={journalType}
+                onChange={(e) => setJournalType(e.target.value)}
+                className="rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none"
+              >
+                <option value="observation">Observation</option>
+                <option value="decision">Decision</option>
+                <option value="plan">Plan</option>
+                <option value="note">Note</option>
+                <option value="error">Error</option>
+              </select>
+            </div>
+            <textarea
+              value={journalContent}
+              onChange={(e) => setJournalContent(e.target.value)}
+              rows={3}
+              placeholder="What did the agent observe, decide, or learn?"
+              className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono placeholder-mountain-500 focus:border-brand-500 focus:outline-none mb-3"
+            />
+            <button
+              onClick={handleJournalSubmit}
+              disabled={journalSaving || !journalContent.trim()}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+            >
+              {journalSaving ? 'Saving...' : 'Add Entry'}
+            </button>
+          </div>
+
+          {/* Entries list */}
+          {journalLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+            </div>
+          ) : journalEntries.length === 0 ? (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-8 text-center">
+              <p className="text-mountain-400 text-sm">No journal entries yet. Add observations, decisions, or notes to persist context between sessions.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {journalEntries.map((entry) => (
+                <div key={entry.id} className="rounded-lg border border-navy-700 bg-navy-800 px-4 py-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className={`px-2 py-0.5 text-xs font-medium rounded-md ${
+                      entry.entry_type === 'decision' ? 'bg-amber-900/50 text-amber-400 border border-amber-700'
+                      : entry.entry_type === 'error' ? 'bg-red-900/50 text-red-400 border border-red-700'
+                      : entry.entry_type === 'plan' ? 'bg-blue-900/50 text-blue-400 border border-blue-700'
+                      : entry.entry_type === 'note' ? 'bg-purple-900/50 text-purple-400 border border-purple-700'
+                      : 'bg-brand-900/50 text-brand-400 border border-brand-700'
+                    }`}>
+                      {entry.entry_type}
+                    </span>
+                    <span className="text-xs text-mountain-500">{new Date(entry.created_at).toLocaleString()}</span>
+                  </div>
+                  <p className="text-sm text-mountain-300 whitespace-pre-wrap font-mono">{entry.content}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'activity' && (
