@@ -17,7 +17,7 @@ vi.mock('@/app/chat/XTerminal', () => ({
   ),
 }))
 
-// Mock lucide-react icons
+// Mock lucide-react icons (incl MousePointer for Take Control)
 vi.mock('lucide-react', () => ({
   Terminal: ({ className }: any) => <span data-testid="icon-terminal" className={className} />,
   Activity: ({ className }: any) => <span data-testid="icon-activity" className={className} />,
