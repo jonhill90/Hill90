@@ -4462,6 +4462,35 @@ paths:
         "404":
           description: No running agent or no browser active
 
+  /chat/threads/{id}/browser-click:
+    post:
+      summary: Forward a user click to the agent browser
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [x_percent, y_percent]
+              properties:
+                x_percent:
+                  type: number
+                y_percent:
+                  type: number
+      responses:
+        "200":
+          description: Click executed
+        "404":
+          description: Browser not active
+
   /chat/threads/{id}/search:
     get:
       summary: Search messages in a thread
