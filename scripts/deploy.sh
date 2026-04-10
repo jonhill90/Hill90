@@ -84,6 +84,7 @@ cmd_verify() {
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
+        agentbox)      check_cmd='docker image inspect hill90/agentbox:latest >/dev/null 2>&1'; diag_container="" ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
     esac
 
@@ -224,6 +225,47 @@ cmd_infra() {
 cmd_service() {
     local service="$1"
     local env="${2:-prod}"
+
+    # --- Agentbox image-only deploy (no compose file) ---
+    if [[ "$service" == "agentbox" ]]; then
+        echo ""
+        echo "================================"
+        echo " Agentbox Image Build"
+        echo "================================"
+
+        if ! docker image inspect hill90/knowledge:latest >/dev/null 2>&1; then
+            die "Cannot build agentbox: hill90/knowledge:latest not found. Deploy knowledge first: bash scripts/deploy.sh knowledge prod"
+        fi
+
+        echo "Building hill90/agentbox:latest..."
+        docker build --no-cache -t hill90/agentbox:latest services/agentbox/
+        echo "Agentbox image built successfully"
+
+        # Recycle running agentbox containers so they pick up the new image
+        local agentbox_containers
+        agentbox_containers=$(docker ps -q --filter "label=managed-by=hill90-api" --filter "name=agentbox-" 2>/dev/null || true)
+        if [ -n "$agentbox_containers" ]; then
+            echo "Recycling running agentbox containers..."
+            echo "$agentbox_containers" | while read -r cid; do
+                local cname
+                cname=$(docker inspect --format '{{.Name}}' "$cid" | sed 's|^/||')
+                echo "  Stopping $cname..."
+                docker stop "$cid" 2>/dev/null || true
+                docker rm "$cid" 2>/dev/null || true
+            done
+            echo "Agentbox containers recycled — agents will start fresh on next request"
+        else
+            echo "No running agentbox containers to recycle"
+        fi
+
+        echo ""
+        echo "================================"
+        echo " Agentbox Image Build Complete!"
+        echo "================================"
+        echo "Image: hill90/agentbox:latest"
+        docker image inspect hill90/agentbox:latest --format 'Built: {{.Created}}  Size: {{.Size}}' 2>/dev/null || true
+        return 0
+    fi
 
     local compose_file banner containers summary stack stateful
     case "$service" in

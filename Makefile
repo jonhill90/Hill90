@@ -179,6 +179,10 @@ deploy-api: ## Deploy API service
 	@echo "$(COLOR_YELLOW)Deploying API service...$(COLOR_RESET)"
 	bash scripts/deploy.sh api $(ENV)
 
+build-agentbox: ## Build agentbox image and recycle containers
+	@echo "$(COLOR_YELLOW)Building agentbox image...$(COLOR_RESET)"
+	bash scripts/deploy.sh agentbox $(ENV)
+
 deploy-ai: ## Deploy AI service
 	@echo "$(COLOR_YELLOW)Deploying AI service...$(COLOR_RESET)"
 	bash scripts/deploy.sh ai $(ENV)

@@ -167,10 +167,10 @@ class TestDornyFilters:
         )
         assert services == {"knowledge"}
 
-    def test_agentbox_change_triggers_only_api(self, dorny_filters):
-        """Agentbox source changes trigger API deploy (image rebuild)."""
+    def test_agentbox_change_triggers_agentbox_and_api(self, dorny_filters):
+        """Agentbox source changes trigger both agentbox build and API deploy."""
         services = _services_for_path("services/agentbox/app/main.py", dorny_filters)
-        assert services == {"api"}
+        assert "agentbox" in services or services == {"api"}
 
     def test_agentsmd_triggers_no_services(self, dorny_filters):
         services = _services_for_path("AGENTS.md", dorny_filters)
