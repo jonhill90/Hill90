@@ -21,6 +21,9 @@ vi.mock('lucide-react', () => ({
   Paperclip: (props: any) => <span data-testid="icon-paperclip" {...props} />,
   Search: (props: any) => <span data-testid="icon-search" {...props} />,
   X: (props: any) => <span data-testid="icon-x" {...props} />,
+  Globe: (props: any) => <span data-testid="icon-globe" {...props} />,
+  Monitor: (props: any) => <span data-testid="icon-monitor" {...props} />,
+  Activity: (props: any) => <span data-testid="icon-activity" {...props} />,
 }))
 
 vi.mock('@/app/chat/ChatMessage', () => ({

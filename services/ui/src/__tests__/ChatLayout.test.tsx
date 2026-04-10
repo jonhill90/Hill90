@@ -459,7 +459,7 @@ describe('ChatView via ChatLayout', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId('session-toggle')).toBeInTheDocument()
+      expect(screen.getByTestId('session-tabs')).toBeInTheDocument()
     })
   })
 

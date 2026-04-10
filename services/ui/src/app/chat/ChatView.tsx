@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Send, Terminal, Users, Paperclip, Search, X } from 'lucide-react'
+import { ArrowLeft, Send, Monitor, Terminal, Activity, Globe, Users, Paperclip, Search, X } from 'lucide-react'
 import type { Session } from 'next-auth'
 import type { ChatThread } from './ChatLayout'
 import ChatMessage from './ChatMessage'
@@ -48,6 +48,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [error, setError] = useState<string | null>(null)
   const [fileToast, setFileToast] = useState(false)
   const [sessionPaneOpen, setSessionPaneOpen] = useState(false)
+  const [activeSessionTab, setActiveSessionTab] = useState<'terminal' | 'events' | 'browser'>('terminal')
   const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -191,7 +192,7 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
       {/* Terminal (main stage) — shown when Live Session is open */}
       {sessionPaneOpen && (
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden border-r border-[#292e42] bg-[#1a1b26]">
-          <SessionPane threadId={threadId} />
+          <SessionPane threadId={threadId} initialTab={activeSessionTab} />
         </div>
       )}
 
@@ -267,18 +268,34 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
             >
               <Users size={18} />
             </button>
-            <button
-              onClick={() => setSessionPaneOpen(prev => !prev)}
-              className={`p-1.5 rounded transition-colors ${
-                sessionPaneOpen
-                  ? 'bg-brand-600/20 text-brand-400'
-                  : 'text-mountain-400 hover:text-gray-200 hover:bg-navy-700'
-              }`}
-              title="Toggle Live Session"
-              data-testid="session-toggle"
-            >
-              <Terminal size={18} />
-            </button>
+            <div className="flex items-center border-l border-navy-700 ml-1 pl-1 gap-0.5" data-testid="session-tabs">
+              {([
+                { key: 'terminal' as const, icon: Terminal, label: 'Terminal' },
+                { key: 'browser' as const, icon: Globe, label: 'Browser' },
+                { key: 'events' as const, icon: Activity, label: 'Events' },
+              ]).map(({ key, icon: Icon, label }) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    if (activeSessionTab === key && sessionPaneOpen) {
+                      setSessionPaneOpen(false)
+                    } else {
+                      setActiveSessionTab(key)
+                      setSessionPaneOpen(true)
+                    }
+                  }}
+                  className={`p-1.5 rounded transition-colors ${
+                    sessionPaneOpen && activeSessionTab === key
+                      ? 'bg-brand-600/20 text-brand-400'
+                      : 'text-mountain-400 hover:text-gray-200 hover:bg-navy-700'
+                  }`}
+                  title={label}
+                  data-testid={`session-tab-${key}`}
+                >
+                  <Icon size={16} />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
