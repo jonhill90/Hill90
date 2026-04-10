@@ -1820,6 +1820,67 @@ paths:
         "200":
           description: CSV download
 
+  /agents/{id}/journal:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get agent journal entries
+      description: Returns memory journal entries for context persistence.
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Journal entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        content:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+        "404":
+          description: Agent not found
+
+    post:
+      summary: Append journal entry
+      description: Add a memory journal entry to an agent.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+      responses:
+        "201":
+          description: Entry created
+        "400":
+          description: Missing content
+        "404":
+          description: Agent not found
+
   /agents/{id}/logs:
     parameters:
       - name: id
