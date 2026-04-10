@@ -191,7 +191,20 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
       {/* Terminal (main stage) — shown when Live Session is open */}
       {sessionPaneOpen && (
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden border-r border-[#292e42] bg-[#1a1b26]">
-          <SessionPane threadId={threadId} />
+          <SessionPane
+            threadId={threadId}
+            onBrowserClick={(x, y, pageUrl) => {
+              const prefix = `Click at (${x}, ${y})${pageUrl ? ` on ${pageUrl}` : ''} — `
+              setInput(prefix)
+              setTimeout(() => {
+                const el = document.querySelector('[data-testid="mention-input"]') as HTMLTextAreaElement
+                if (el) {
+                  el.focus()
+                  el.setSelectionRange(prefix.length, prefix.length)
+                }
+              }, 50)
+            }}
+          />
         </div>
       )}
 

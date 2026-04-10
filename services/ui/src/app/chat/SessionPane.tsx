@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
-import { Terminal, Activity, Globe } from 'lucide-react'
+import { Terminal, Activity, Globe, MousePointer } from 'lucide-react'
 import EventCard, { type AgentEvent } from '@/app/agents/[id]/EventCard'
 
 const XTerminal = lazy(() => import('./XTerminal'))
@@ -14,6 +14,7 @@ type ViewMode = 'events' | 'terminal' | 'browser'
 
 interface Props {
   threadId: string
+  onBrowserClick?: (x: number, y: number, pageUrl: string) => void
 }
 
 function TerminalBlock({ lines }: { lines: string[] }) {
@@ -90,10 +91,13 @@ function groupEventsWithTerminal(events: AgentEvent[]): GroupedItem[] {
 
 const SCREENSHOT_POLL_MS = 2000
 
-function BrowserView({ threadId, active }: { threadId: string; active: boolean }) {
+function BrowserView({ threadId, active, onBrowserClick }: { threadId: string; active: boolean; onBrowserClick?: (x: number, y: number, pageUrl: string) => void }) {
   const [screenshot, setScreenshot] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [takeControl, setTakeControl] = useState(false)
+  const [clickPoint, setClickPoint] = useState<{ x: number; y: number; px: number; py: number } | null>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
     if (!active) return
@@ -151,27 +155,65 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     )
   }
 
+  const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    if (!takeControl || !imgRef.current || !onBrowserClick) return
+    const rect = imgRef.current.getBoundingClientRect()
+    const scaleX = 1280 / rect.width
+    const scaleY = 720 / rect.height
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+    const x = Math.round(px * scaleX)
+    const y = Math.round(py * scaleY)
+    setClickPoint({ x, y, px, py })
+    onBrowserClick(x, y, url || '')
+    setTimeout(() => setClickPoint(null), 2000)
+  }
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="browser-view">
-      {url && (
-        <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
-          <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
-          <span className="text-xs text-mountain-400 truncate">{url}</span>
-        </div>
-      )}
+      <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
+        {url && (
+          <>
+            <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
+            <span className="text-xs text-mountain-400 truncate flex-1">{url}</span>
+          </>
+        )}
+        <button
+          onClick={() => setTakeControl(prev => !prev)}
+          className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors ml-auto flex-shrink-0 ${
+            takeControl
+              ? 'bg-brand-600 text-white'
+              : 'text-mountain-400 hover:text-white hover:bg-navy-700'
+          }`}
+          data-testid="browser-take-control"
+        >
+          <MousePointer className="w-3 h-3" />
+          {takeControl ? 'Click Mode' : 'Take Control'}
+        </button>
+      </div>
       <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
-        <img
-          src={`data:image/png;base64,${screenshot}`}
-          alt="Browser screenshot"
-          className="max-w-full h-auto rounded border border-navy-700"
-          data-testid="browser-screenshot"
-        />
+        <div className="relative inline-block">
+          <img
+            ref={imgRef}
+            src={`data:image/png;base64,${screenshot}`}
+            alt="Browser screenshot"
+            onClick={handleImageClick}
+            className={`max-w-full h-auto rounded border ${takeControl ? 'border-brand-500 cursor-crosshair' : 'border-navy-700'}`}
+            data-testid="browser-screenshot"
+          />
+          {clickPoint && (
+            <div
+              className="absolute w-6 h-6 -ml-3 -mt-3 rounded-full border-2 border-brand-400 bg-brand-500/30 animate-ping pointer-events-none"
+              style={{ left: clickPoint.px, top: clickPoint.py }}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-export default function SessionPane({ threadId }: Props) {
+export default function SessionPane({ threadId, onBrowserClick }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>('terminal')
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [filter, setFilter] = useState<ToolFilter>('All')
@@ -290,7 +332,7 @@ export default function SessionPane({ threadId }: Props) {
           <XTerminal threadId={threadId} />
         </Suspense>
       ) : viewMode === 'browser' ? (
-        <BrowserView threadId={threadId} active={viewMode === 'browser'} />
+        <BrowserView threadId={threadId} active={viewMode === 'browser'} onBrowserClick={onBrowserClick} />
       ) : (
         <div
           ref={containerRef}
