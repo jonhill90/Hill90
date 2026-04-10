@@ -326,6 +326,8 @@ async def _execute_tmux(args: dict) -> str:
 _browser_context: object | None = None  # playwright BrowserContext
 _browser_page: object | None = None     # playwright Page
 _playwright_instance: object | None = None
+_browser_last_screenshot: bytes | None = None  # cached PNG for cross-loop screenshot endpoint
+_browser_last_url: str | None = None           # URL at time of last screenshot
 
 MAX_TEXT_LENGTH = 4000
 SCREENSHOT_DIR = "/workspace/screenshots"
@@ -356,6 +358,23 @@ async def _get_browser_page():
     return _browser_page
 
 
+async def _capture_live_screenshot(page) -> None:
+    """Capture screenshot on the browser's owning loop and cache it.
+
+    The screenshot endpoint runs on uvicorn's event loop, which differs from
+    the loop that owns the Playwright browser (created via asyncio.run() in
+    the chat handler thread). Calling page.screenshot() cross-loop deadlocks.
+    We cache screenshot bytes after every state-changing browser action so the
+    endpoint can serve them without touching Playwright.
+    """
+    global _browser_last_screenshot, _browser_last_url
+    try:
+        _browser_last_screenshot = await page.screenshot(full_page=False)
+        _browser_last_url = page.url
+    except Exception:
+        pass  # Non-blocking — stale screenshot is better than none
+
+
 async def _execute_browser(args: dict) -> str:
     """Execute a browser action via Playwright. Returns JSON result."""
     action = args.get("action", "")
@@ -369,6 +388,7 @@ async def _execute_browser(args: dict) -> str:
                 return json.dumps({"success": False, "error": "url is required"})
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             title = await page.title()
+            await _capture_live_screenshot(page)
             return json.dumps({
                 "success": True,
                 "title": title,
@@ -382,6 +402,7 @@ async def _execute_browser(args: dict) -> str:
             filename = f"screenshot-{int(time.time())}.png"
             path = f"{SCREENSHOT_DIR}/{filename}"
             await page.screenshot(path=path, full_page=full_page)
+            await _capture_live_screenshot(page)
             return json.dumps({
                 "success": True,
                 "path": path,
@@ -394,6 +415,7 @@ async def _execute_browser(args: dict) -> str:
                 return json.dumps({"success": False, "error": "selector is required"})
             await page.click(selector, timeout=10000)
             await page.wait_for_load_state("domcontentloaded", timeout=10000)
+            await _capture_live_screenshot(page)
             return json.dumps({
                 "success": True,
                 "url": page.url,
@@ -416,6 +438,7 @@ async def _execute_browser(args: dict) -> str:
             text = json.dumps(result, default=str)
             if len(text) > MAX_TEXT_LENGTH:
                 text = text[:MAX_TEXT_LENGTH] + "...(truncated)"
+            await _capture_live_screenshot(page)
             return json.dumps({"success": True, "result": text})
 
         else:

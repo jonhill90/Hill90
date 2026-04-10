@@ -131,28 +131,25 @@ def create_app(
         )
 
     async def screenshot_endpoint(request: Request):
-        """Return a live Playwright screenshot as base64 PNG + current URL."""
+        """Return cached Playwright screenshot as base64 PNG + current URL.
+
+        The browser runs on a different event loop (created via asyncio.run()
+        in the chat handler thread). Calling page.screenshot() from uvicorn's
+        loop deadlocks. Instead, _execute_browser caches a screenshot after
+        every state-changing action, and this endpoint serves the cached bytes.
+        """
         import app.tools as _tools
 
-        if _tools._browser_page is None:
+        if _tools._browser_last_screenshot is None:
             return JSONResponse(
                 {"screenshot": None, "url": None, "error": "Browser not active"},
                 status_code=404,
             )
 
-        try:
-            page = _tools._browser_page
-            png_bytes = await page.screenshot(full_page=False)
-            return JSONResponse({
-                "screenshot": base64.b64encode(png_bytes).decode("ascii"),
-                "url": page.url,
-            })
-        except Exception as exc:
-            logger.error("Screenshot failed: %s", exc, exc_info=True)
-            return JSONResponse(
-                {"screenshot": None, "url": None, "error": str(exc)[:200]},
-                status_code=500,
-            )
+        return JSONResponse({
+            "screenshot": base64.b64encode(_tools._browser_last_screenshot).decode("ascii"),
+            "url": _tools._browser_last_url,
+        })
 
     async def files_endpoint(request: Request):
         """List files in the agent workspace directory."""
