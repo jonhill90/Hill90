@@ -129,22 +129,25 @@ function FileRowWithPath({
   depth,
   agentId,
   parentPath,
+  onFileClick,
 }: {
   entry: FileEntry
   depth: number
   agentId: string
   parentPath: string
+  onFileClick?: (path: string, name: string) => void
 }) {
   const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name
 
   if (entry.type === 'directory') {
-    return <DirNode entry={entry} depth={depth} agentId={agentId} path={fullPath} />
+    return <DirNode entry={entry} depth={depth} agentId={agentId} path={fullPath} onFileClick={onFileClick} />
   }
 
   const paddingLeft = depth * 16 + 8 + 18
   return (
-    <div
-      className="flex items-center gap-1.5 py-1 px-2 text-sm text-mountain-400 hover:text-white hover:bg-navy-700/50 rounded transition-colors"
+    <button
+      onClick={() => onFileClick?.(fullPath, entry.name)}
+      className="flex items-center gap-1.5 w-full py-1 px-2 text-sm text-mountain-400 hover:text-white hover:bg-navy-700/50 rounded transition-colors cursor-pointer text-left"
       style={{ paddingLeft }}
     >
       <File size={14} className="text-mountain-500 flex-shrink-0" />
@@ -152,7 +155,7 @@ function FileRowWithPath({
       {entry.size > 0 && (
         <span className="text-xs text-mountain-600 ml-auto">{formatSize(entry.size)}</span>
       )}
-    </div>
+    </button>
   )
 }
 
@@ -161,11 +164,13 @@ function DirNode({
   depth,
   agentId,
   path,
+  onFileClick,
 }: {
   entry: FileEntry
   depth: number
   agentId: string
   path: string
+  onFileClick?: (path: string, name: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [children, setChildren] = useState<FileEntry[] | null>(null)
@@ -229,6 +234,7 @@ function DirNode({
                 depth={depth + 1}
                 agentId={agentId}
                 parentPath={path}
+                onFileClick={onFileClick}
               />
             ))}
         </div>
@@ -237,7 +243,7 @@ function DirNode({
   )
 }
 
-export default function WorkspaceBrowser({ agentId }: { agentId: string }) {
+export default function WorkspaceBrowser({ agentId, onFileClick }: { agentId: string; onFileClick?: (path: string, name: string) => void }) {
   const [entries, setEntries] = useState<FileEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -308,6 +314,7 @@ export default function WorkspaceBrowser({ agentId }: { agentId: string }) {
                 depth={0}
                 agentId={agentId}
                 parentPath="/home/agentuser"
+                onFileClick={onFileClick}
               />
             ))}
         </div>

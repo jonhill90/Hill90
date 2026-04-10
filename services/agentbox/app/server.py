@@ -180,6 +180,27 @@ def create_app(
         except PermissionError:
             return JSONResponse({"error": f"Permission denied: {path}"}, status_code=403)
 
+
+    async def file_read_endpoint(request: Request):
+        """Read file contents from the agent workspace (max 512 KB)."""
+        path = request.query_params.get("path", "")
+        real = os.path.realpath(path)
+        if not (real.startswith("/home/agentuser") or real.startswith("/workspace")):
+            return JSONResponse({"error": "Path not allowed"}, status_code=403)
+        try:
+            size = os.path.getsize(real)
+            if size > 512 * 1024:
+                return JSONResponse({"error": f"File too large ({size} bytes, max 512 KB)"}, status_code=413)
+            with open(real, "r", errors="replace") as f:
+                content = f.read()
+            return JSONResponse({"path": path, "content": content, "size": size})
+        except IsADirectoryError:
+            return JSONResponse({"error": "Path is a directory"}, status_code=400)
+        except FileNotFoundError:
+            return JSONResponse({"error": f"Not found: {path}"}, status_code=404)
+        except PermissionError:
+            return JSONResponse({"error": f"Permission denied: {path}"}, status_code=403)
+
     async def terminal_ws_endpoint(websocket):
         await ws_terminal_handler(websocket, work_token)
 
@@ -187,6 +208,7 @@ def create_app(
         Route("/health", health_endpoint, methods=["GET"]),
         Route("/work", work_endpoint, methods=["POST"]),
         Route("/files", files_endpoint, methods=["GET"]),
+        Route("/file-read", file_read_endpoint, methods=["GET"]),
         Route("/screenshot", screenshot_endpoint, methods=["GET"]),
         Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
         WebSocketRoute("/terminal/ws", terminal_ws_endpoint),
