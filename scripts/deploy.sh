@@ -652,7 +652,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|api|ai|mcp|minio|vault|ui|knowledge|observability) cmd_service "$cmd" "$@" ;;
+        db|auth|api|ai|mcp|minio|vault|ui|knowledge|observability|agentbox) cmd_service "$cmd" "$@" ;;
         all)            cmd_all "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;
