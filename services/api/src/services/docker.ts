@@ -146,6 +146,19 @@ export async function createAndStartContainer(opts: CreateAgentContainerOpts): P
   });
 
   await container.start();
+
+  // Agents with host_docker or vps_system scope need external internet access.
+  // The primary network (agent_internal) is internal-only, so we attach the
+  // edge network as a secondary to provide DNS + outbound HTTP.
+  if (opts.network === AGENT_NETWORK) {
+    try {
+      const edgeNetwork = docker.getNetwork('hill90_edge');
+      await edgeNetwork.connect({ Container: containerName });
+    } catch (err) {
+      console.error(`[docker] Failed to attach edge network to ${containerName}:`, err);
+    }
+  }
+
   const info = await container.inspect();
   return info.Id;
 }
