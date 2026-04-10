@@ -211,6 +211,7 @@ const EXPECTED_PATHS = [
   '/chat/threads/{id}/stream',
   '/chat/threads/{id}/events',
   '/chat/threads/{id}/screenshot',
+  '/chat/threads/{id}/browser-click',
   '/chat/threads/{id}/search',
   '/tasks',
   '/tasks/{id}',

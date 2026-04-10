@@ -96,6 +96,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [takeControl, setTakeControl] = useState(false)
+  const [describeMode, setDescribeMode] = useState(false)
   const [clickPoint, setClickPoint] = useState<{ x: number; y: number } | null>(null)
   const [describing, setDescribing] = useState(false)
   const [description, setDescription] = useState('')
@@ -139,16 +140,30 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     return () => { cancelled = true; clearInterval(interval) }
   }, [threadId, active])
 
-  const handleImageClick = useCallback((e: React.MouseEvent<HTMLImageElement>) => {
+  const handleImageClick = useCallback(async (e: React.MouseEvent<HTMLImageElement>) => {
     if (!takeControl || !imgRef.current) return
     const rect = imgRef.current.getBoundingClientRect()
     const xPct = Math.round(((e.clientX - rect.left) / rect.width) * 10000) / 100
     const yPct = Math.round(((e.clientY - rect.top) / rect.height) * 10000) / 100
     setClickPoint({ x: xPct, y: yPct })
-    setDescribing(true)
-    setDescription('')
-    setTimeout(() => descInputRef.current?.focus(), 50)
-  }, [takeControl])
+
+    if (describeMode) {
+      // Capture coordinates for description (don't click the page)
+      setDescribing(true)
+      setDescription('')
+      setTimeout(() => descInputRef.current?.focus(), 50)
+    } else {
+      // Actually click the page via agent browser tool
+      try {
+        await fetch(`/api/chat/threads/${threadId}/browser-click`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ x_percent: xPct, y_percent: yPct }),
+        })
+      } catch { /* ignore */ }
+      setTimeout(() => setClickPoint(null), 800)
+    }
+  }, [takeControl, describeMode, threadId])
 
   const handleSendClick = useCallback(async () => {
     if (!clickPoint || sending) return
@@ -199,18 +214,34 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
             <span className="text-xs text-mountain-400 truncate flex-1">{url}</span>
           </>
         )}
-        <button
-          onClick={() => { setTakeControl(!takeControl); setDescribing(false); setClickPoint(null) }}
-          className={`ml-auto flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors cursor-pointer ${
-            takeControl
-              ? 'bg-amber-600 text-white'
-              : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
-          }`}
-          data-testid="take-control-toggle"
-        >
-          <MousePointerClick className="w-3 h-3" />
-          {takeControl ? 'Take Control: ON' : 'Take Control'}
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          {takeControl && (
+            <button
+              onClick={() => { setDescribeMode(!describeMode); setDescribing(false); setClickPoint(null) }}
+              className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors cursor-pointer ${
+                describeMode
+                  ? 'bg-brand-600 text-white'
+                  : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
+              }`}
+              data-testid="describe-mode-toggle"
+              title="When on, clicks capture coordinates for agent instead of clicking the page"
+            >
+              {describeMode ? 'Describe: ON' : 'Describe'}
+            </button>
+          )}
+          <button
+            onClick={() => { setTakeControl(!takeControl); setDescribeMode(false); setDescribing(false); setClickPoint(null) }}
+            className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors cursor-pointer ${
+              takeControl
+                ? 'bg-amber-600 text-white'
+                : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
+            }`}
+            data-testid="take-control-toggle"
+          >
+            <MousePointerClick className="w-3 h-3" />
+            {takeControl ? 'Take Control: ON' : 'Take Control'}
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
         <div className="relative inline-block">

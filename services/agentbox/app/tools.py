@@ -328,6 +328,7 @@ _browser_page: object | None = None     # playwright Page
 _playwright_instance: object | None = None
 _browser_last_screenshot: bytes | None = None  # cached PNG for cross-loop screenshot endpoint
 _browser_last_url: str | None = None           # URL at time of last screenshot
+_browser_loop: object | None = None             # asyncio loop that owns the browser (for cross-loop click)
 
 MAX_TEXT_LENGTH = 4000
 SCREENSHOT_DIR = "/workspace/screenshots"
@@ -335,15 +336,19 @@ SCREENSHOT_DIR = "/workspace/screenshots"
 
 async def _get_browser_page():
     """Get or create the singleton browser page."""
-    global _playwright_instance, _browser_context, _browser_page
+    global _playwright_instance, _browser_context, _browser_page, _browser_loop
 
     if _browser_page is not None:
         return _browser_page
 
     import os
+    import asyncio
     os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
     from playwright.async_api import async_playwright
+
+    # Record the event loop that owns this browser for cross-loop access
+    _browser_loop = asyncio.get_running_loop()
 
     _playwright_instance = await async_playwright().start()
     browser = await _playwright_instance.chromium.launch(
@@ -356,6 +361,33 @@ async def _get_browser_page():
     )
     _browser_page = await _browser_context.new_page()
     return _browser_page
+
+
+def click_browser_at_percent(x_percent: float, y_percent: float, timeout: float = 5.0) -> dict:
+    """Click the browser page at (x%, y%) from a foreign event loop.
+
+    Called by the server's /browser/click endpoint (uvicorn loop).
+    Schedules the click on the browser's owning loop via run_coroutine_threadsafe.
+    """
+    import asyncio
+
+    if _browser_page is None or _browser_loop is None:
+        return {"success": False, "error": "Browser not active"}
+
+    async def _do_click():
+        page = _browser_page
+        viewport = page.viewport_size or {"width": 1280, "height": 720}
+        x = int(viewport["width"] * x_percent / 100)
+        y = int(viewport["height"] * y_percent / 100)
+        await page.mouse.click(x, y)
+        await _capture_live_screenshot(page)
+        return {"success": True, "x": x, "y": y, "url": page.url}
+
+    try:
+        future = asyncio.run_coroutine_threadsafe(_do_click(), _browser_loop)
+        return future.result(timeout=timeout)
+    except Exception as exc:
+        return {"success": False, "error": str(exc)[:200]}
 
 
 async def _capture_live_screenshot(page) -> None:
