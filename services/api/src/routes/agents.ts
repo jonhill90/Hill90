@@ -2466,7 +2466,9 @@ router.get('/:id/workspace', requireRole('user'), async (req: Request, res: Resp
     }
 
     const path = (req.query.path as string) || '/home/agentuser';
-    const url = `http://agentbox-${agent.agent_id}:8054/files?path=${encodeURIComponent(path)}`;
+    const read = req.query.read === 'true';
+    const endpoint = read ? 'file-read' : 'files';
+    const url = `http://agentbox-${agent.agent_id}:8054/${endpoint}?path=${encodeURIComponent(path)}`;
     const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
     const data = await response.json();
     res.status(response.status).json(data);

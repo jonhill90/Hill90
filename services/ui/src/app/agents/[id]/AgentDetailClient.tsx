@@ -136,6 +136,12 @@ export default function AgentDetailClient({
   const [toolInstalls, setToolInstalls] = useState<ToolInstallStatus[]>([])
   const [toolInstallsLoading, setToolInstallsLoading] = useState(false)
 
+  // Workspace file viewer state
+  const [viewingFile, setViewingFile] = useState<{ path: string; name: string } | null>(null)
+  const [fileContent, setFileContent] = useState<string | null>(null)
+  const [fileLoading, setFileLoading] = useState(false)
+  const [fileError, setFileError] = useState<string | null>(null)
+
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'timeline' | 'events' | 'logs'>('timeline')
 
@@ -1386,7 +1392,61 @@ export default function AgentDetailClient({
       )}
 
       {activeTab === 'workspace' && agent && (
-        <WorkspaceBrowser agentId={agent.agent_id} />
+        <div className="space-y-4">
+          <WorkspaceBrowser
+            agentId={agent.agent_id}
+            onFileClick={(path: string, name: string) => {
+              setViewingFile({ path, name })
+              setFileContent(null)
+              setFileError(null)
+              setFileLoading(true)
+              fetch(`/api/agents/${agentId}/workspace?path=${encodeURIComponent(path)}&read=true`)
+                .then(res => {
+                  if (!res.ok) throw new Error(`${res.status}`)
+                  return res.json()
+                })
+                .then(data => {
+                  if (data.content !== undefined) {
+                    setFileContent(data.content)
+                  } else {
+                    setFileError(data.error || 'Could not read file')
+                  }
+                })
+                .catch(() => setFileError('Failed to read file'))
+                .finally(() => setFileLoading(false))
+            }}
+          />
+
+          {viewingFile && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-navy-700 bg-navy-900/50">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-sm font-medium text-white truncate">{viewingFile.name}</span>
+                  <span className="text-xs text-mountain-500 truncate hidden sm:block">{viewingFile.path}</span>
+                </div>
+                <button
+                  onClick={() => { setViewingFile(null); setFileContent(null); setFileError(null) }}
+                  className="text-mountain-400 hover:text-white transition-colors text-sm px-2 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+              <div className="max-h-[500px] overflow-auto bg-[#0d1117]">
+                {fileLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                  </div>
+                ) : fileError ? (
+                  <p className="text-sm text-mountain-500 px-4 py-6 text-center">{fileError}</p>
+                ) : fileContent !== null ? (
+                  <pre className="p-4 text-sm font-mono text-green-400 whitespace-pre-wrap break-words leading-relaxed">
+                    <code>{fileContent}</code>
+                  </pre>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'knowledge' && agent && (
