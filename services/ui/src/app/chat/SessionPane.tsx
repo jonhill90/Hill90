@@ -158,12 +158,10 @@ function BrowserView({ threadId, active, onBrowserClick }: { threadId: string; a
   const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
     if (!takeControl || !imgRef.current || !onBrowserClick) return
     const rect = imgRef.current.getBoundingClientRect()
-    const scaleX = 1280 / rect.width
-    const scaleY = 720 / rect.height
     const px = e.clientX - rect.left
     const py = e.clientY - rect.top
-    const x = Math.round(px * scaleX)
-    const y = Math.round(py * scaleY)
+    const x = Math.round(px * (1280 / rect.width))
+    const y = Math.round(py * (720 / rect.height))
     setClickPoint({ x, y, px, py })
     onBrowserClick(x, y, url || '')
     setTimeout(() => setClickPoint(null), 2000)
