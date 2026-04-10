@@ -1528,9 +1528,17 @@ export async function chatCallbackHandler(req: Request, res: Response): Promise<
 
   console.info(`[chat-callback] Updated message ${message_id}: status=${finalStatus}`);
 
-  // Update thread timestamp
+  // Update thread timestamp + auto-name untitled threads from first user message
   await pool.query(
-    `UPDATE chat_threads SET updated_at = NOW()
+    `UPDATE chat_threads SET updated_at = NOW(),
+       title = CASE
+         WHEN title IS NULL THEN (
+           SELECT LEFT(content, 50) FROM chat_messages
+           WHERE thread_id = chat_threads.id AND author_type = 'human'
+           ORDER BY created_at ASC LIMIT 1
+         )
+         ELSE title
+       END
      WHERE id = (SELECT thread_id FROM chat_messages WHERE id = $1)`,
     [message_id]
   );
