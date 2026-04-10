@@ -24,6 +24,7 @@ vi.mock('lucide-react', () => ({
   Globe: (props: any) => <span data-testid="icon-globe" {...props} />,
   Monitor: (props: any) => <span data-testid="icon-monitor" {...props} />,
   Activity: (props: any) => <span data-testid="icon-activity" {...props} />,
+  MousePointerClick: (props: any) => <span data-testid="icon-mouse" {...props} />,
 }))
 
 vi.mock('@/app/chat/ChatMessage', () => ({
