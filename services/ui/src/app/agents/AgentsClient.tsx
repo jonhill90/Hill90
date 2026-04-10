@@ -73,6 +73,7 @@ export default function AgentsClient({ session }: { session: Session }) {
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [creatingFromTemplate, setCreatingFromTemplate] = useState<string | null>(null)
   const [errorDetails, setErrorDetails] = useState<Record<string, string>>({})
+  const [soulPreviews, setSoulPreviews] = useState<Record<string, string | null>>({})
   const importInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
@@ -279,6 +280,18 @@ export default function AgentsClient({ session }: { session: Session }) {
       if (importInputRef.current) importInputRef.current.value = ''
     }
   }
+
+  const fetchSoulPreview = useCallback(async (agentId: string) => {
+    if (soulPreviews[agentId] !== undefined) return
+    setSoulPreviews(prev => ({ ...prev, [agentId]: null }))
+    try {
+      const res = await fetch(`/api/agents/${agentId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setSoulPreviews(prev => ({ ...prev, [agentId]: data.soul_md || '' }))
+      }
+    } catch { /* ignore */ }
+  }, [soulPreviews])
 
   const openTemplates = async () => {
     setShowTemplates(true)
@@ -492,6 +505,23 @@ export default function AgentsClient({ session }: { session: Session }) {
                 <p className="text-sm text-mountain-400 mb-3 line-clamp-2 flex-1">
                   {agent.description || 'No description'}
                 </p>
+
+                {/* SOUL.md preview */}
+                {soulPreviews[agent.id] ? (
+                  <div className="mb-3 px-2.5 py-2 rounded-md bg-navy-900 border border-navy-700">
+                    <p className="text-[10px] font-medium text-mountain-500 uppercase tracking-wide mb-1">SOUL.md</p>
+                    <p className="text-xs text-mountain-300 line-clamp-2 font-mono">
+                      {soulPreviews[agent.id]!.slice(0, 100)}{soulPreviews[agent.id]!.length > 100 ? '...' : ''}
+                    </p>
+                  </div>
+                ) : soulPreviews[agent.id] === undefined ? (
+                  <button
+                    onClick={() => fetchSoulPreview(agent.id)}
+                    className="mb-3 text-xs text-mountain-500 hover:text-mountain-300 transition-colors cursor-pointer"
+                  >
+                    Show SOUL.md preview
+                  </button>
+                ) : null}
 
                 {/* Error message */}
                 {agent.status === 'error' && (errorDetails[agent.id] || agent.error_message) && (
