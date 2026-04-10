@@ -167,7 +167,7 @@ export default function ThreadList({ threads, loading, activeThreadId, onDelete 
                 className="absolute inset-0 z-10 flex items-center justify-center bg-navy-900/95 border-b border-navy-800 px-3"
                 data-testid={`confirm-delete-${thread.id}`}
               >
-                <span className="text-xs text-gray-300 mr-2">Delete this thread?</span>
+                <span className="text-xs text-gray-300 mr-2">Delete? Cannot be undone.</span>
                 <button
                   onClick={() => {
                     onDelete(thread.id)
