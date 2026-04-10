@@ -44,7 +44,7 @@ services:
       # Deny everything else
       - EVENTS=0
       - IMAGES=0
-      - NETWORKS=0
+      - NETWORKS=1
       - VERSION=0
       - SERVICES=0
       - TASKS=0
