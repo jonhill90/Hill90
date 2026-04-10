@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
-import { Terminal, Activity, Globe, MousePointerClick } from 'lucide-react'
+import { Terminal, Activity, Globe, MousePointerClick, ArrowLeft, ArrowRight, RotateCw } from 'lucide-react'
 import EventCard, { type AgentEvent } from '@/app/agents/[id]/EventCard'
 
 const XTerminal = lazy(() => import('./XTerminal'))
@@ -91,41 +91,49 @@ function groupEventsWithTerminal(events: AgentEvent[]): GroupedItem[] {
 
 const SCREENSHOT_POLL_MS = 2000
 
+interface ElementInfo {
+  tag: string
+  id: string | null
+  classes: string[]
+  text: string
+  selector: string
+  box: { x: number; y: number; w: number; h: number }
+  outerHTML: string
+}
+
 function BrowserView({ threadId, active }: { threadId: string; active: boolean }) {
   const [screenshot, setScreenshot] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
+  const [urlInput, setUrlInput] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [takeControl, setTakeControl] = useState(false)
   const [describeMode, setDescribeMode] = useState(false)
-  const [clickPoint, setClickPoint] = useState<{ x: number; y: number } | null>(null)
-  const [describing, setDescribing] = useState(false)
+  const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null)
+  const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null)
   const [description, setDescription] = useState('')
   const [sending, setSending] = useState(false)
   const imgRef = useRef<HTMLImageElement>(null)
   const descInputRef = useRef<HTMLInputElement>(null)
+  const urlInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!active) return
-
     let cancelled = false
 
     async function poll() {
       try {
         const res = await fetch(`/api/chat/${threadId}/screenshot`)
         if (cancelled) return
-        if (res.status === 404) {
-          setError('Browser not active')
-          return
-        }
-        if (!res.ok) {
-          setError(`Screenshot failed (${res.status})`)
-          return
-        }
+        if (res.status === 404) { setError('Browser not active'); return }
+        if (!res.ok) { setError(`Screenshot failed (${res.status})`); return }
         const data = await res.json()
         if (cancelled) return
         if (data.screenshot) {
           setScreenshot(data.screenshot)
           setUrl(data.url || null)
+          if (!urlInputRef.current || document.activeElement !== urlInputRef.current) {
+            setUrlInput(data.url || '')
+          }
           setError(null)
         } else {
           setError(data.error || 'No screenshot available')
@@ -134,7 +142,6 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
         if (!cancelled) setError('Failed to fetch screenshot')
       }
     }
-
     poll()
     const interval = setInterval(poll, SCREENSHOT_POLL_MS)
     return () => { cancelled = true; clearInterval(interval) }
@@ -145,15 +152,26 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     const rect = imgRef.current.getBoundingClientRect()
     const xPct = Math.round(((e.clientX - rect.left) / rect.width) * 10000) / 100
     const yPct = Math.round(((e.clientY - rect.top) / rect.height) * 10000) / 100
-    setClickPoint({ x: xPct, y: yPct })
 
     if (describeMode) {
-      // Capture coordinates for description (don't click the page)
-      setDescribing(true)
-      setDescription('')
-      setTimeout(() => descInputRef.current?.focus(), 50)
+      // Fetch element info at coordinates, then show floating popover
+      try {
+        const res = await fetch(`/api/chat/threads/${threadId}/browser-element`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ x_percent: xPct, y_percent: yPct }),
+        })
+        const data = await res.json()
+        if (data.success && data.element) {
+          setSelectedElement(data.element)
+          // Position popover below the click (in screen coords)
+          setPopoverPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+          setDescription('')
+          setTimeout(() => descInputRef.current?.focus(), 50)
+        }
+      } catch { /* ignore */ }
     } else {
-      // Actually click the page via agent browser tool
+      // Real click via browser tool
       try {
         await fetch(`/api/chat/threads/${threadId}/browser-click`, {
           method: 'POST',
@@ -161,16 +179,38 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
           body: JSON.stringify({ x_percent: xPct, y_percent: yPct }),
         })
       } catch { /* ignore */ }
-      setTimeout(() => setClickPoint(null), 800)
     }
   }, [takeControl, describeMode, threadId])
 
-  const handleSendClick = useCallback(async () => {
-    if (!clickPoint || sending) return
+  const handleNavigate = useCallback(async () => {
+    const target = urlInput.trim()
+    if (!target) return
+    const finalUrl = target.startsWith('http') ? target : `https://${target}`
+    try {
+      await fetch(`/api/chat/threads/${threadId}/browser-navigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: finalUrl }),
+      })
+    } catch { /* ignore */ }
+  }, [urlInput, threadId])
+
+  const handleHistory = useCallback(async (action: 'back' | 'forward' | 'reload') => {
+    try {
+      await fetch(`/api/chat/threads/${threadId}/browser-history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+    } catch { /* ignore */ }
+  }, [threadId])
+
+  const handleSendDescription = useCallback(async () => {
+    if (!selectedElement || sending) return
     setSending(true)
-    const msg = description.trim()
-      ? `[Click at ${clickPoint.x}%, ${clickPoint.y}%] ${description.trim()}`
-      : `Click at position ${clickPoint.x}%, ${clickPoint.y}% on the page`
+    const el = selectedElement
+    const desc = description.trim() || '(no description)'
+    const msg = `[Selected ${el.tag}${el.id ? '#' + el.id : ''}${el.classes.length ? '.' + el.classes.slice(0,2).join('.') : ''} "${el.text.slice(0, 50)}"] ${desc}`
     try {
       await fetch(`/api/chat/threads/${threadId}/messages`, {
         method: 'POST',
@@ -179,11 +219,10 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
       })
     } catch { /* ignore */ }
     setSending(false)
-    setDescribing(false)
+    setSelectedElement(null)
+    setPopoverPos(null)
     setDescription('')
-    // Keep clickPoint visible briefly then clear
-    setTimeout(() => setClickPoint(null), 1500)
-  }, [clickPoint, description, threadId, sending])
+  }, [selectedElement, description, threadId, sending])
 
   if (error && !screenshot) {
     return (
@@ -205,36 +244,73 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     )
   }
 
+  // Calculate selected element bounding box in image-relative percentages
+  // selectedElement.box is in page coordinates; convert to image percent
+  // Note: viewport is 1280x720 from agentbox
+  const VIEWPORT_W = 1280
+  const VIEWPORT_H = 720
+  const elBox = selectedElement ? {
+    left: (selectedElement.box.x / VIEWPORT_W) * 100,
+    top: (selectedElement.box.y / VIEWPORT_H) * 100,
+    width: (selectedElement.box.w / VIEWPORT_W) * 100,
+    height: (selectedElement.box.h / VIEWPORT_H) * 100,
+  } : null
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden" data-testid="browser-view">
-      <div className="px-3 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-2 min-h-0">
-        {url && (
-          <>
-            <Globe className="w-3 h-3 text-mountain-400 flex-shrink-0" />
-            <span className="text-xs text-mountain-400 truncate flex-1">{url}</span>
-          </>
-        )}
-        <div className="ml-auto flex items-center gap-1">
+      {/* Browser chrome: back/forward/reload + URL bar + Take Control/Describe */}
+      <div className="px-2 py-1.5 border-b border-navy-700 bg-navy-800/50 flex items-center gap-1 min-h-0">
+        <button
+          onClick={() => handleHistory('back')}
+          className="p-1 rounded text-mountain-400 hover:text-white hover:bg-navy-700 cursor-pointer"
+          title="Back"
+          data-testid="browser-back"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => handleHistory('forward')}
+          className="p-1 rounded text-mountain-400 hover:text-white hover:bg-navy-700 cursor-pointer"
+          title="Forward"
+          data-testid="browser-forward"
+        >
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => handleHistory('reload')}
+          className="p-1 rounded text-mountain-400 hover:text-white hover:bg-navy-700 cursor-pointer"
+          title="Reload"
+          data-testid="browser-reload"
+        >
+          <RotateCw className="w-3.5 h-3.5" />
+        </button>
+        <input
+          ref={urlInputRef}
+          type="text"
+          value={urlInput}
+          onChange={(e) => setUrlInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleNavigate()}
+          placeholder="Enter URL..."
+          className="flex-1 rounded border border-navy-600 bg-navy-900 px-2 py-0.5 text-xs text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none min-w-0"
+          data-testid="browser-url-input"
+        />
+        <div className="flex items-center gap-1 flex-shrink-0">
           {takeControl && (
             <button
-              onClick={() => { setDescribeMode(!describeMode); setDescribing(false); setClickPoint(null) }}
+              onClick={() => { setDescribeMode(!describeMode); setSelectedElement(null); setPopoverPos(null) }}
               className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors cursor-pointer ${
-                describeMode
-                  ? 'bg-brand-600 text-white'
-                  : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
+                describeMode ? 'bg-brand-600 text-white' : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
               }`}
               data-testid="describe-mode-toggle"
-              title="When on, clicks capture coordinates for agent instead of clicking the page"
+              title="When on, clicking an element opens a chat popover instead of clicking the page"
             >
               {describeMode ? 'Describe: ON' : 'Describe'}
             </button>
           )}
           <button
-            onClick={() => { setTakeControl(!takeControl); setDescribeMode(false); setDescribing(false); setClickPoint(null) }}
+            onClick={() => { setTakeControl(!takeControl); setDescribeMode(false); setSelectedElement(null); setPopoverPos(null) }}
             className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded transition-colors cursor-pointer ${
-              takeControl
-                ? 'bg-amber-600 text-white'
-                : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
+              takeControl ? 'bg-amber-600 text-white' : 'text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600'
             }`}
             data-testid="take-control-toggle"
           >
@@ -253,47 +329,64 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
             onClick={handleImageClick}
             data-testid="browser-screenshot"
           />
-          {clickPoint && (
+          {elBox && (
             <div
-              className="absolute w-4 h-4 -ml-2 -mt-2 pointer-events-none"
-              style={{ left: `${clickPoint.x}%`, top: `${clickPoint.y}%` }}
-              data-testid="click-dot"
+              className="absolute pointer-events-none border-2 border-brand-500 bg-brand-500/10 rounded-sm"
+              style={{ left: `${elBox.left}%`, top: `${elBox.top}%`, width: `${elBox.width}%`, height: `${elBox.height}%` }}
+              data-testid="element-highlight"
+            />
+          )}
+          {selectedElement && popoverPos && (
+            <div
+              className="absolute z-20 w-72 rounded-lg border border-navy-600 bg-navy-800 shadow-xl p-2"
+              style={{
+                left: `${popoverPos.x}px`,
+                top: `${popoverPos.y + 20}px`,
+                transform: popoverPos.y > 200 ? 'translateY(-100%) translateY(-30px)' : 'none',
+              }}
+              data-testid="describe-popover"
             >
-              <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-75" />
-              <span className="absolute inset-0.5 rounded-full bg-amber-400" />
+              <div className="text-xs text-mountain-400 mb-1 truncate">
+                <span className="text-brand-400 font-mono">{selectedElement.tag}</span>
+                {selectedElement.id && <span className="text-mountain-500">#{selectedElement.id}</span>}
+                {selectedElement.classes.length > 0 && (
+                  <span className="text-mountain-500">.{selectedElement.classes.slice(0, 2).join('.')}</span>
+                )}
+              </div>
+              {selectedElement.text && (
+                <div className="text-xs text-mountain-300 mb-2 italic truncate">"{selectedElement.text.slice(0, 60)}"</div>
+              )}
+              <input
+                ref={descInputRef}
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSendDescription()
+                  if (e.key === 'Escape') { setSelectedElement(null); setPopoverPos(null) }
+                }}
+                placeholder="What should change here?"
+                className="w-full rounded border border-navy-600 bg-navy-900 px-2 py-1 text-xs text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none mb-2"
+              />
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleSendDescription}
+                  disabled={sending}
+                  className="flex-1 px-2 py-1 text-xs font-medium rounded bg-brand-600 hover:bg-brand-500 text-white disabled:opacity-50 cursor-pointer"
+                >
+                  {sending ? 'Sending...' : 'Send'}
+                </button>
+                <button
+                  onClick={() => { setSelectedElement(null); setPopoverPos(null) }}
+                  className="px-2 py-1 text-xs text-mountain-400 hover:text-white cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
         </div>
       </div>
-      {describing && (
-        <div className="px-3 py-2 border-t border-navy-700 bg-navy-800 flex items-center gap-2" data-testid="click-describe-bar">
-          <span className="text-xs text-mountain-400 flex-shrink-0">
-            Clicked {clickPoint?.x}%, {clickPoint?.y}%
-          </span>
-          <input
-            ref={descInputRef}
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendClick()}
-            placeholder="Describe what to do here (optional)..."
-            className="flex-1 rounded-md border border-navy-600 bg-navy-900 px-2 py-1 text-xs text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
-          />
-          <button
-            onClick={handleSendClick}
-            disabled={sending}
-            className="px-3 py-1 text-xs font-medium rounded bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            {sending ? 'Sending...' : 'Send'}
-          </button>
-          <button
-            onClick={() => { setDescribing(false); setClickPoint(null) }}
-            className="px-2 py-1 text-xs text-mountain-400 hover:text-white transition-colors cursor-pointer"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
     </div>
   )
 }
