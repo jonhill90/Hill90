@@ -4491,6 +4491,60 @@ paths:
         "404":
           description: Browser not active
 
+  /chat/threads/{id}/browser-element:
+    post:
+      summary: Get DOM element at coordinates (Describe mode)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Element info
+        "404":
+          description: Browser not active
+
+  /chat/threads/{id}/browser-navigate:
+    post:
+      summary: Navigate browser to URL
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Navigated
+        "404":
+          description: Browser not active
+
+  /chat/threads/{id}/browser-history:
+    post:
+      summary: Navigate browser history (back/forward/reload)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: History navigation complete
+        "404":
+          description: Browser not active
+
   /chat/threads/{id}/search:
     get:
       summary: Search messages in a thread

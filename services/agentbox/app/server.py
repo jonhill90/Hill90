@@ -152,23 +152,60 @@ def create_app(
         })
 
     async def browser_click_endpoint(request: Request):
-        """Forward a user click from the UI into the live Playwright browser.
-
-        Runs on uvicorn's event loop; dispatches to the browser-owning loop
-        via run_coroutine_threadsafe (see tools.click_browser_at_percent).
-        """
+        """Forward a user click into the live Playwright browser."""
         import app.tools as _tools
         try:
             body = await request.json()
         except Exception:
             return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
-
         x_pct = body.get("x_percent")
         y_pct = body.get("y_percent")
         if not isinstance(x_pct, (int, float)) or not isinstance(y_pct, (int, float)):
             return JSONResponse({"success": False, "error": "x_percent and y_percent required"}, status_code=400)
-
         result = _tools.click_browser_at_percent(float(x_pct), float(y_pct))
+        status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
+        return JSONResponse(result, status_code=status)
+
+    async def browser_element_endpoint(request: Request):
+        """Get DOM element info at a coordinate (for Describe mode)."""
+        import app.tools as _tools
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+        x_pct = body.get("x_percent")
+        y_pct = body.get("y_percent")
+        if not isinstance(x_pct, (int, float)) or not isinstance(y_pct, (int, float)):
+            return JSONResponse({"success": False, "error": "x_percent and y_percent required"}, status_code=400)
+        result = _tools.get_element_at_percent(float(x_pct), float(y_pct))
+        status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
+        return JSONResponse(result, status_code=status)
+
+    async def browser_navigate_endpoint(request: Request):
+        """Navigate the browser to a URL."""
+        import app.tools as _tools
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+        url = body.get("url")
+        if not isinstance(url, str) or not url:
+            return JSONResponse({"success": False, "error": "url required"}, status_code=400)
+        result = _tools.navigate_browser(url)
+        status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
+        return JSONResponse(result, status_code=status)
+
+    async def browser_history_endpoint(request: Request):
+        """Navigate browser history: back, forward, reload."""
+        import app.tools as _tools
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+        action = body.get("action")
+        if action not in ("back", "forward", "reload"):
+            return JSONResponse({"success": False, "error": "action must be back|forward|reload"}, status_code=400)
+        result = _tools.browser_history(action)
         status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
         return JSONResponse(result, status_code=status)
 
@@ -229,6 +266,9 @@ def create_app(
         Route("/file-read", file_read_endpoint, methods=["GET"]),
         Route("/screenshot", screenshot_endpoint, methods=["GET"]),
         Route("/browser/click", browser_click_endpoint, methods=["POST"]),
+        Route("/browser/element", browser_element_endpoint, methods=["POST"]),
+        Route("/browser/navigate", browser_navigate_endpoint, methods=["POST"]),
+        Route("/browser/history", browser_history_endpoint, methods=["POST"]),
         Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
         WebSocketRoute("/terminal/ws", terminal_ws_endpoint),
     ])

@@ -363,31 +363,91 @@ async def _get_browser_page():
     return _browser_page
 
 
-def click_browser_at_percent(x_percent: float, y_percent: float, timeout: float = 5.0) -> dict:
-    """Click the browser page at (x%, y%) from a foreign event loop.
-
-    Called by the server's /browser/click endpoint (uvicorn loop).
-    Schedules the click on the browser's owning loop via run_coroutine_threadsafe.
-    """
+def _run_on_browser_loop(coro_fn, timeout: float = 10.0) -> dict:
+    """Schedule a coroutine on the browser's owning loop and wait for result."""
     import asyncio
-
     if _browser_page is None or _browser_loop is None:
         return {"success": False, "error": "Browser not active"}
+    try:
+        future = asyncio.run_coroutine_threadsafe(coro_fn(), _browser_loop)
+        return future.result(timeout=timeout)
+    except Exception as exc:
+        return {"success": False, "error": str(exc)[:200]}
 
+
+def click_browser_at_percent(x_percent: float, y_percent: float, timeout: float = 5.0) -> dict:
+    """Click the browser page at (x%, y%) from a foreign event loop."""
     async def _do_click():
         page = _browser_page
         viewport = page.viewport_size or {"width": 1280, "height": 720}
         x = int(viewport["width"] * x_percent / 100)
         y = int(viewport["height"] * y_percent / 100)
         await page.mouse.click(x, y)
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=3000)
+        except Exception:
+            pass  # Not all clicks navigate
         await _capture_live_screenshot(page)
         return {"success": True, "x": x, "y": y, "url": page.url}
+    return _run_on_browser_loop(_do_click, timeout)
 
-    try:
-        future = asyncio.run_coroutine_threadsafe(_do_click(), _browser_loop)
-        return future.result(timeout=timeout)
-    except Exception as exc:
-        return {"success": False, "error": str(exc)[:200]}
+
+def get_element_at_percent(x_percent: float, y_percent: float, timeout: float = 5.0) -> dict:
+    """Identify the DOM element at (x%, y%) without clicking it.
+
+    Returns element tag, id, classes, text, bounding box for Describe mode.
+    """
+    async def _get_element():
+        page = _browser_page
+        viewport = page.viewport_size or {"width": 1280, "height": 720}
+        x = int(viewport["width"] * x_percent / 100)
+        y = int(viewport["height"] * y_percent / 100)
+        info = await page.evaluate(
+            """([x, y]) => {
+                const el = document.elementFromPoint(x, y);
+                if (!el) return null;
+                const rect = el.getBoundingClientRect();
+                return {
+                    tag: el.tagName.toLowerCase(),
+                    id: el.id || null,
+                    classes: Array.from(el.classList),
+                    text: (el.textContent || '').trim().slice(0, 100),
+                    selector: el.id ? `#${el.id}` : el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).trim().split(/\\s+/).slice(0,2).join('.') : ''),
+                    box: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+                    outerHTML: el.outerHTML.slice(0, 300),
+                };
+            }""",
+            [x, y]
+        )
+        return {"success": True, "element": info, "url": page.url}
+    return _run_on_browser_loop(_get_element, timeout)
+
+
+def navigate_browser(url: str, timeout: float = 15.0) -> dict:
+    """Navigate the browser to a URL."""
+    async def _navigate():
+        page = _browser_page
+        resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await _capture_live_screenshot(page)
+        return {"success": True, "url": page.url, "status": resp.status if resp else None, "title": await page.title()}
+    return _run_on_browser_loop(_navigate, timeout)
+
+
+def browser_history(action: str, timeout: float = 5.0) -> dict:
+    """Navigate browser history: back, forward, or reload."""
+    async def _nav():
+        page = _browser_page
+        if action == "back":
+            await page.go_back(wait_until="domcontentloaded", timeout=10000)
+        elif action == "forward":
+            await page.go_forward(wait_until="domcontentloaded", timeout=10000)
+        elif action == "reload":
+            await page.reload(wait_until="domcontentloaded", timeout=10000)
+        else:
+            return {"success": False, "error": f"Unknown action: {action}"}
+        await _capture_live_screenshot(page)
+        return {"success": True, "url": page.url, "title": await page.title()}
+    return _run_on_browser_loop(_nav, timeout)
 
 
 async def _capture_live_screenshot(page) -> None:
