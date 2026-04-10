@@ -14,6 +14,7 @@ type ViewMode = 'events' | 'terminal' | 'browser'
 
 interface Props {
   threadId: string
+  initialTab?: ViewMode
 }
 
 function TerminalBlock({ lines }: { lines: string[] }) {
@@ -171,8 +172,13 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
   )
 }
 
-export default function SessionPane({ threadId }: Props) {
-  const [viewMode, setViewMode] = useState<ViewMode>('terminal')
+export default function SessionPane({ threadId, initialTab }: Props) {
+  const [viewMode, setViewMode] = useState<ViewMode>(initialTab || 'terminal')
+
+  useEffect(() => {
+    if (initialTab) setViewMode(initialTab)
+  }, [initialTab])
+
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [filter, setFilter] = useState<ToolFilter>('All')
   const [autoScroll, setAutoScroll] = useState(true)
