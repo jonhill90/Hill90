@@ -134,7 +134,7 @@ jobs:
       service: api
     secrets: inherit
 
-  deploy-agentbox:
+  build-agentbox:
     needs: [changes]
     if: needs.changes.outputs.agentbox == 'true'
     uses: ./.github/workflows/reusable-deploy-service.yml
