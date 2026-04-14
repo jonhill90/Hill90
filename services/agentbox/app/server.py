@@ -209,6 +209,49 @@ def create_app(
         status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
         return JSONResponse(result, status_code=status)
 
+    async def browser_type_endpoint(request: Request):
+        """Type text into the focused element."""
+        import app.tools as _tools
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+        text = body.get("text", "")
+        if not isinstance(text, str):
+            return JSONResponse({"success": False, "error": "text must be a string"}, status_code=400)
+        result = _tools.type_in_browser(text)
+        status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
+        return JSONResponse(result, status_code=status)
+
+    async def browser_keypress_endpoint(request: Request):
+        """Press a keyboard key (Enter, Tab, Escape, etc.)."""
+        import app.tools as _tools
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+        key = body.get("key", "")
+        if not isinstance(key, str) or not key:
+            return JSONResponse({"success": False, "error": "key required"}, status_code=400)
+        result = _tools.press_key_in_browser(key)
+        status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
+        return JSONResponse(result, status_code=status)
+
+    async def browser_scroll_endpoint(request: Request):
+        """Scroll the browser page."""
+        import app.tools as _tools
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"success": False, "error": "Invalid JSON"}, status_code=400)
+        delta_x = body.get("delta_x", 0)
+        delta_y = body.get("delta_y", 0)
+        if not isinstance(delta_x, (int, float)) or not isinstance(delta_y, (int, float)):
+            return JSONResponse({"success": False, "error": "delta_x and delta_y must be numbers"}, status_code=400)
+        result = _tools.scroll_browser(float(delta_x), float(delta_y))
+        status = 200 if result.get("success") else 404 if "not active" in (result.get("error") or "").lower() else 500
+        return JSONResponse(result, status_code=status)
+
     async def files_endpoint(request: Request):
         """List files in the agent workspace directory."""
         path = request.query_params.get("path", "/home/agentuser")
@@ -269,6 +312,9 @@ def create_app(
         Route("/browser/element", browser_element_endpoint, methods=["POST"]),
         Route("/browser/navigate", browser_navigate_endpoint, methods=["POST"]),
         Route("/browser/history", browser_history_endpoint, methods=["POST"]),
+        Route("/browser/scroll", browser_scroll_endpoint, methods=["POST"]),
+        Route("/browser/type", browser_type_endpoint, methods=["POST"]),
+        Route("/browser/keypress", browser_keypress_endpoint, methods=["POST"]),
         Route("/terminal/stream", terminal_stream_endpoint, methods=["GET"]),
         WebSocketRoute("/terminal/ws", terminal_ws_endpoint),
     ])

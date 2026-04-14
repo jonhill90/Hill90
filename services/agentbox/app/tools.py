@@ -483,6 +483,35 @@ def navigate_browser(url: str, timeout: float = 35.0) -> dict:
     return _run_browser_op(_navigate, timeout)
 
 
+def type_in_browser(text: str, timeout: float = 10.0) -> dict:
+    """Type text into the currently focused element."""
+    async def _type(page):
+        await page.keyboard.type(text, delay=30)
+        await _capture_live_screenshot_on_loop()
+        return {"success": True, "url": page.url}
+    return _run_browser_op(_type, timeout)
+
+
+def press_key_in_browser(key: str, timeout: float = 5.0) -> dict:
+    """Press a keyboard key (Enter, Tab, Escape, Backspace, etc.)."""
+    async def _press(page):
+        await page.keyboard.press(key)
+        await asyncio.sleep(0.15)
+        await _capture_live_screenshot_on_loop()
+        return {"success": True, "url": page.url}
+    return _run_browser_op(_press, timeout)
+
+
+def scroll_browser(delta_x: float = 0, delta_y: float = 0, timeout: float = 5.0) -> dict:
+    """Scroll the browser page by (deltaX, deltaY) pixels."""
+    async def _scroll(page):
+        await page.mouse.wheel(delta_x, delta_y)
+        await asyncio.sleep(0.15)  # Let scroll settle before screenshot
+        await _capture_live_screenshot_on_loop()
+        return {"success": True, "url": page.url}
+    return _run_browser_op(_scroll, timeout)
+
+
 def browser_history(action: str, timeout: float = 15.0) -> dict:
     """Navigate browser history: back, forward, or reload."""
     async def _nav(page):

@@ -1369,7 +1369,7 @@ router.get('/threads/:id/screenshot', requireRole('user'), async (req: Request, 
 async function proxyBrowserAction(
   req: Request,
   res: Response,
-  action: 'click' | 'element' | 'navigate' | 'history',
+  action: 'click' | 'element' | 'navigate' | 'history' | 'scroll' | 'type' | 'keypress',
   body: any
 ): Promise<void> {
   const user = (req as any).user;
@@ -1452,6 +1452,29 @@ router.post('/threads/:id/browser-history', requireRole('user'), async (req: Req
     return;
   }
   await proxyBrowserAction(req, res, 'history', { action });
+});
+
+router.post('/threads/:id/browser-scroll', requireRole('user'), async (req: Request, res: Response) => {
+  const { delta_x, delta_y } = req.body;
+  await proxyBrowserAction(req, res, 'scroll', { delta_x: delta_x || 0, delta_y: delta_y || 0 });
+});
+
+router.post('/threads/:id/browser-type', requireRole('user'), async (req: Request, res: Response) => {
+  const { text } = req.body;
+  if (typeof text !== 'string') {
+    res.status(400).json({ error: 'text required' });
+    return;
+  }
+  await proxyBrowserAction(req, res, 'type', { text });
+});
+
+router.post('/threads/:id/browser-keypress', requireRole('user'), async (req: Request, res: Response) => {
+  const { key } = req.body;
+  if (typeof key !== 'string' || !key) {
+    res.status(400).json({ error: 'key required' });
+    return;
+  }
+  await proxyBrowserAction(req, res, 'keypress', { key });
 });
 
 // ───────────────────────────────────────────────────────────────────
