@@ -156,7 +156,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     if (describeMode) {
       // Fetch element info at coordinates, then show floating popover
       try {
-        const res = await fetch(`/api/chat/threads/${threadId}/browser-element`, {
+        const res = await fetch(`/api/chat/${threadId}/browser-element`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ x_percent: xPct, y_percent: yPct }),
@@ -173,7 +173,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     } else {
       // Real click via browser tool
       try {
-        await fetch(`/api/chat/threads/${threadId}/browser-click`, {
+        await fetch(`/api/chat/${threadId}/browser-click`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ x_percent: xPct, y_percent: yPct }),
@@ -187,7 +187,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     if (!target) return
     const finalUrl = target.startsWith('http') ? target : `https://${target}`
     try {
-      await fetch(`/api/chat/threads/${threadId}/browser-navigate`, {
+      await fetch(`/api/chat/${threadId}/browser-navigate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: finalUrl }),
@@ -197,7 +197,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
 
   const handleHistory = useCallback(async (action: 'back' | 'forward' | 'reload') => {
     try {
-      await fetch(`/api/chat/threads/${threadId}/browser-history`, {
+      await fetch(`/api/chat/${threadId}/browser-history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
@@ -212,7 +212,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     const desc = description.trim() || '(no description)'
     const msg = `[Selected ${el.tag}${el.id ? '#' + el.id : ''}${el.classes.length ? '.' + el.classes.slice(0,2).join('.') : ''} "${el.text.slice(0, 50)}"] ${desc}`
     try {
-      await fetch(`/api/chat/threads/${threadId}/messages`, {
+      await fetch(`/api/chat/${threadId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: msg }),
@@ -412,7 +412,7 @@ export default function SessionPane({ threadId, initialTab }: Props) {
   }, [])
 
   useEffect(() => {
-    const es = new EventSource(`/api/chat/threads/${threadId}/events?follow=true&tail=20`)
+    const es = new EventSource(`/api/chat/${threadId}/events?follow=true&tail=20`)
 
     es.onmessage = (msg) => {
       try {
