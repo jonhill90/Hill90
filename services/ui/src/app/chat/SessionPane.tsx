@@ -116,36 +116,35 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
   const descInputRef = useRef<HTMLInputElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
 
+  const refreshScreenshot = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/chat/${threadId}/screenshot`)
+      if (res.status === 404) { setError('Browser not active'); return }
+      if (!res.ok) { setError(`Screenshot failed (${res.status})`); return }
+      const data = await res.json()
+      if (data.screenshot) {
+        setScreenshot(data.screenshot)
+        setUrl(data.url || null)
+        if (!urlInputRef.current || document.activeElement !== urlInputRef.current) {
+          setUrlInput(data.url || '')
+        }
+        setError(null)
+      } else {
+        setError(data.error || 'No screenshot available')
+      }
+    } catch {
+      setError('Failed to fetch screenshot')
+    }
+  }, [threadId])
+
   useEffect(() => {
     if (!active) return
     let cancelled = false
-
-    async function poll() {
-      try {
-        const res = await fetch(`/api/chat/${threadId}/screenshot`)
-        if (cancelled) return
-        if (res.status === 404) { setError('Browser not active'); return }
-        if (!res.ok) { setError(`Screenshot failed (${res.status})`); return }
-        const data = await res.json()
-        if (cancelled) return
-        if (data.screenshot) {
-          setScreenshot(data.screenshot)
-          setUrl(data.url || null)
-          if (!urlInputRef.current || document.activeElement !== urlInputRef.current) {
-            setUrlInput(data.url || '')
-          }
-          setError(null)
-        } else {
-          setError(data.error || 'No screenshot available')
-        }
-      } catch {
-        if (!cancelled) setError('Failed to fetch screenshot')
-      }
-    }
+    const poll = () => { if (!cancelled) refreshScreenshot() }
     poll()
     const interval = setInterval(poll, SCREENSHOT_POLL_MS)
     return () => { cancelled = true; clearInterval(interval) }
-  }, [threadId, active])
+  }, [threadId, active, refreshScreenshot])
 
   const handleImageClick = useCallback(async (e: React.MouseEvent<HTMLImageElement>) => {
     if (!takeControl || !imgRef.current) return
@@ -171,16 +170,17 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
         }
       } catch { /* ignore */ }
     } else {
-      // Real click via browser tool
+      // Real click via browser tool — refresh screenshot after
       try {
         await fetch(`/api/chat/${threadId}/browser-click`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ x_percent: xPct, y_percent: yPct }),
         })
+        await refreshScreenshot()
       } catch { /* ignore */ }
     }
-  }, [takeControl, describeMode, threadId])
+  }, [takeControl, describeMode, threadId, refreshScreenshot])
 
   const handleNavigate = useCallback(async () => {
     const target = urlInput.trim()
@@ -192,8 +192,9 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: finalUrl }),
       })
+      await refreshScreenshot()
     } catch { /* ignore */ }
-  }, [urlInput, threadId])
+  }, [urlInput, threadId, refreshScreenshot])
 
   const handleHistory = useCallback(async (action: 'back' | 'forward' | 'reload') => {
     try {
@@ -202,8 +203,9 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
       })
+      await refreshScreenshot()
     } catch { /* ignore */ }
-  }, [threadId])
+  }, [threadId, refreshScreenshot])
 
   const handleSendDescription = useCallback(async () => {
     if (!selectedElement || sending) return
