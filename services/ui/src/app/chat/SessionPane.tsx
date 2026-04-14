@@ -260,7 +260,15 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     setSending(true)
     const el = selectedElement
     const desc = description.trim() || '(no description)'
-    const msg = `[Selected ${el.tag}${el.id ? '#' + el.id : ''}${el.classes.length ? '.' + el.classes.slice(0,2).join('.') : ''} "${el.text.slice(0, 50)}"] ${desc}`
+    const selector = el.selector || `${el.tag}${el.id ? '#' + el.id : ''}`
+    const classes = el.classes.length ? `.${el.classes.slice(0, 3).join('.')}` : ''
+    const msg = [
+      `**Element:** \`<${el.tag}${el.id ? ' id="' + el.id + '"' : ''}${classes}>\``,
+      el.text ? `**Text:** "${el.text.slice(0, 80)}"` : null,
+      `**Selector:** \`${selector}\``,
+      el.outerHTML ? `**HTML:** \`${el.outerHTML.slice(0, 200)}\`` : null,
+      `**Request:** ${desc}`,
+    ].filter(Boolean).join('\n')
     try {
       await fetch(`/api/chat/${threadId}/messages`, {
         method: 'POST',
