@@ -112,8 +112,9 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null)
   const [description, setDescription] = useState('')
   const [sending, setSending] = useState(false)
-  const [typeText, setTypeText] = useState('')
+  const [browserFocused, setBrowserFocused] = useState(false)
   const imgRef = useRef<HTMLImageElement>(null)
+  const browserRef = useRef<HTMLDivElement>(null)
   const descInputRef = useRef<HTMLInputElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -231,29 +232,42 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
     }, 100)
   }, [takeControl, threadId, refreshScreenshot])
 
-  const handleType = useCallback(async () => {
-    if (!typeText) return
-    try {
-      await fetch(`/api/chat/${threadId}/browser-type`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: typeText }),
-      })
-      setTypeText('')
-      await refreshScreenshot()
-    } catch { /* ignore */ }
-  }, [typeText, threadId, refreshScreenshot])
+  const handleBrowserKeyDown = useCallback(async (e: React.KeyboardEvent) => {
+    if (!takeControl || describeMode) return
+    // Don't capture when typing in URL bar or describe popover
+    if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return
 
-  const handleKeyPress = useCallback(async (key: string) => {
-    try {
-      await fetch(`/api/chat/${threadId}/browser-keypress`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key }),
-      })
-      await refreshScreenshot()
-    } catch { /* ignore */ }
-  }, [threadId, refreshScreenshot])
+    const specialKeys: Record<string, string> = {
+      Enter: 'Enter', Tab: 'Tab', Escape: 'Escape', Backspace: 'Backspace',
+      Delete: 'Delete', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown',
+      ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
+      Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+    }
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    if (specialKeys[e.key]) {
+      try {
+        await fetch(`/api/chat/${threadId}/browser-keypress`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: specialKeys[e.key] }),
+        })
+        await refreshScreenshot()
+      } catch { /* ignore */ }
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      // Regular character
+      try {
+        await fetch(`/api/chat/${threadId}/browser-type`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: e.key }),
+        })
+        await refreshScreenshot()
+      } catch { /* ignore */ }
+    }
+  }, [takeControl, describeMode, threadId, refreshScreenshot])
 
   const handleSendDescription = useCallback(async () => {
     if (!selectedElement || sending) return
@@ -377,14 +391,21 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50">
+      <div
+        ref={browserRef}
+        tabIndex={takeControl ? 0 : undefined}
+        onKeyDown={handleBrowserKeyDown}
+        onFocus={() => setBrowserFocused(true)}
+        onBlur={() => setBrowserFocused(false)}
+        className={`flex-1 overflow-auto p-2 flex items-start justify-center bg-navy-900/50 outline-none ${takeControl && browserFocused ? 'ring-1 ring-amber-500/30' : ''}`}
+      >
         <div className="relative inline-block">
           <img
             ref={imgRef}
             src={`data:image/png;base64,${screenshot}`}
             alt="Browser screenshot"
             className={`max-w-full h-auto rounded border border-navy-700 ${takeControl ? 'cursor-crosshair' : ''}`}
-            onClick={handleImageClick}
+            onClick={(e) => { handleImageClick(e); browserRef.current?.focus() }}
             onWheel={handleScroll}
             data-testid="browser-screenshot"
           />
@@ -446,25 +467,6 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
           )}
         </div>
       </div>
-      {takeControl && !describeMode && (
-        <div className="px-2 py-1.5 border-t border-navy-700 bg-navy-800/50 flex items-center gap-1">
-          <input
-            type="text"
-            value={typeText}
-            onChange={(e) => setTypeText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); handleType() }
-            }}
-            placeholder="Type text into focused element..."
-            className="flex-1 rounded border border-navy-600 bg-navy-900 px-2 py-1 text-xs text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
-            data-testid="browser-type-input"
-          />
-          <button onClick={handleType} className="px-2 py-1 text-xs rounded bg-brand-600 hover:bg-brand-500 text-white cursor-pointer" title="Send text">Type</button>
-          <button onClick={() => handleKeyPress('Enter')} className="px-1.5 py-1 text-xs rounded text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600 cursor-pointer" title="Press Enter">Enter</button>
-          <button onClick={() => handleKeyPress('Tab')} className="px-1.5 py-1 text-xs rounded text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600 cursor-pointer" title="Press Tab">Tab</button>
-          <button onClick={() => handleKeyPress('Escape')} className="px-1.5 py-1 text-xs rounded text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600 cursor-pointer" title="Press Escape">Esc</button>
-        </div>
-      )}
     </div>
   )
 }
