@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import subprocess
+import threading
 import uuid
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,39 @@ if TYPE_CHECKING:
     from app.events import EventEmitter
 
 logger = logging.getLogger(__name__)
+
+
+# ── Persistent background event loop for Playwright browser ──────────
+#
+# The Playwright Page is bound to the asyncio event loop on which it was
+# created. Agentbox has two distinct execution contexts:
+#   1. The chat handler thread, which calls tools via asyncio.run() —
+#      that loop is created and destroyed per chat turn.
+#   2. The uvicorn HTTP endpoints (/browser/click, /browser/element, etc.)
+#      which run on uvicorn's long-lived loop.
+#
+# Neither of those is safe to own the browser: (1) dies between turns,
+# (2) can't be reached from the chat handler thread. We solve this by
+# creating a dedicated daemon thread running a forever-loop that owns
+# the browser. Both contexts dispatch into this loop via
+# asyncio.run_coroutine_threadsafe(), which is thread-safe and loop-safe.
+_browser_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+_browser_loop_thread = threading.Thread(
+    target=_browser_loop.run_forever,
+    name="agentbox-browser-loop",
+    daemon=True,
+)
+_browser_loop_thread.start()
+
+
+def _run_on_browser_loop_sync(coro, timeout: float = 15.0) -> object:
+    """Dispatch a coroutine onto the persistent browser loop (thread-safe).
+
+    Blocks the caller until the coroutine completes or timeout expires.
+    Safe to call from any thread (HTTP handlers, chat handler thread, tests).
+    """
+    future = asyncio.run_coroutine_threadsafe(coro, _browser_loop)
+    return future.result(timeout=timeout)
 
 SHELL_TOOL = {
     "type": "function",
@@ -321,34 +355,33 @@ async def _execute_tmux(args: dict) -> str:
 
 
 # ── Browser (Playwright chromium) ────────────────────────────────────
-
-# Lazy singleton — launched on first use, reused across calls within a work item
+#
+# All Playwright state lives on the persistent background loop
+# `_browser_loop` started at module import. Any caller (chat handler
+# thread or uvicorn HTTP handler) must dispatch via
+# `_run_on_browser_loop_sync()`, which uses
+# asyncio.run_coroutine_threadsafe to cross thread/loop boundaries.
 _browser_context: object | None = None  # playwright BrowserContext
 _browser_page: object | None = None     # playwright Page
 _playwright_instance: object | None = None
-_browser_last_screenshot: bytes | None = None  # cached PNG for cross-loop screenshot endpoint
-_browser_last_url: str | None = None           # URL at time of last screenshot
-_browser_loop: object | None = None             # asyncio loop that owns the browser (for cross-loop click)
+_browser_last_screenshot: bytes | None = None  # cached PNG (populated on _browser_loop)
+_browser_last_url: str | None = None           # URL captured alongside screenshot
 
 MAX_TEXT_LENGTH = 4000
 SCREENSHOT_DIR = "/workspace/screenshots"
 
 
-async def _get_browser_page():
-    """Get or create the singleton browser page."""
-    global _playwright_instance, _browser_context, _browser_page, _browser_loop
+async def _ensure_browser_page_on_loop():
+    """Create Playwright objects. MUST run on _browser_loop."""
+    global _playwright_instance, _browser_context, _browser_page
 
     if _browser_page is not None:
         return _browser_page
 
     import os
-    import asyncio
     os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
     from playwright.async_api import async_playwright
-
-    # Record the event loop that owns this browser for cross-loop access
-    _browser_loop = asyncio.get_running_loop()
 
     _playwright_instance = await async_playwright().start()
     browser = await _playwright_instance.chromium.launch(
@@ -363,22 +396,36 @@ async def _get_browser_page():
     return _browser_page
 
 
-def _run_on_browser_loop(coro_fn, timeout: float = 10.0) -> dict:
-    """Schedule a coroutine on the browser's owning loop and wait for result."""
-    import asyncio
-    if _browser_page is None or _browser_loop is None:
-        return {"success": False, "error": "Browser not active"}
+async def _capture_live_screenshot_on_loop() -> None:
+    """Capture screenshot into module-level cache. MUST run on _browser_loop."""
+    global _browser_last_screenshot, _browser_last_url
+    if _browser_page is None:
+        return
     try:
-        future = asyncio.run_coroutine_threadsafe(coro_fn(), _browser_loop)
-        return future.result(timeout=timeout)
+        _browser_last_screenshot = await _browser_page.screenshot(full_page=False)
+        _browser_last_url = _browser_page.url
+    except Exception:
+        pass  # Non-blocking — stale screenshot is better than none
+
+
+def _run_browser_op(coro_fn, timeout: float = 15.0) -> dict:
+    """Run a browser coroutine on the persistent loop and return result dict.
+
+    Ensures the browser page exists first, then dispatches the operation.
+    Catches all exceptions and converts them to structured error dicts.
+    """
+    async def _wrapped():
+        await _ensure_browser_page_on_loop()
+        return await coro_fn(_browser_page)
+    try:
+        return _run_on_browser_loop_sync(_wrapped(), timeout=timeout)
     except Exception as exc:
-        return {"success": False, "error": str(exc)[:200]}
+        return {"success": False, "error": str(exc)[:300]}
 
 
-def click_browser_at_percent(x_percent: float, y_percent: float, timeout: float = 5.0) -> dict:
-    """Click the browser page at (x%, y%) from a foreign event loop."""
-    async def _do_click():
-        page = _browser_page
+def click_browser_at_percent(x_percent: float, y_percent: float, timeout: float = 10.0) -> dict:
+    """Click the browser page at (x%, y%). Safe to call from any thread/loop."""
+    async def _do_click(page):
         viewport = page.viewport_size or {"width": 1280, "height": 720}
         x = int(viewport["width"] * x_percent / 100)
         y = int(viewport["height"] * y_percent / 100)
@@ -387,18 +434,17 @@ def click_browser_at_percent(x_percent: float, y_percent: float, timeout: float 
             await page.wait_for_load_state("domcontentloaded", timeout=3000)
         except Exception:
             pass  # Not all clicks navigate
-        await _capture_live_screenshot(page)
+        await _capture_live_screenshot_on_loop()
         return {"success": True, "x": x, "y": y, "url": page.url}
-    return _run_on_browser_loop(_do_click, timeout)
+    return _run_browser_op(_do_click, timeout)
 
 
-def get_element_at_percent(x_percent: float, y_percent: float, timeout: float = 5.0) -> dict:
+def get_element_at_percent(x_percent: float, y_percent: float, timeout: float = 10.0) -> dict:
     """Identify the DOM element at (x%, y%) without clicking it.
 
     Returns element tag, id, classes, text, bounding box for Describe mode.
     """
-    async def _get_element():
-        page = _browser_page
+    async def _get_element(page):
         viewport = page.viewport_size or {"width": 1280, "height": 720}
         x = int(viewport["width"] * x_percent / 100)
         y = int(viewport["height"] * y_percent / 100)
@@ -420,23 +466,26 @@ def get_element_at_percent(x_percent: float, y_percent: float, timeout: float = 
             [x, y]
         )
         return {"success": True, "element": info, "url": page.url}
-    return _run_on_browser_loop(_get_element, timeout)
+    return _run_browser_op(_get_element, timeout)
 
 
-def navigate_browser(url: str, timeout: float = 15.0) -> dict:
-    """Navigate the browser to a URL."""
-    async def _navigate():
-        page = _browser_page
+def navigate_browser(url: str, timeout: float = 35.0) -> dict:
+    """Navigate the browser to a URL. Safe to call from any thread/loop."""
+    async def _navigate(page):
         resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        await _capture_live_screenshot(page)
-        return {"success": True, "url": page.url, "status": resp.status if resp else None, "title": await page.title()}
-    return _run_on_browser_loop(_navigate, timeout)
+        await _capture_live_screenshot_on_loop()
+        return {
+            "success": True,
+            "url": page.url,
+            "status": resp.status if resp else None,
+            "title": await page.title(),
+        }
+    return _run_browser_op(_navigate, timeout)
 
 
-def browser_history(action: str, timeout: float = 5.0) -> dict:
+def browser_history(action: str, timeout: float = 15.0) -> dict:
     """Navigate browser history: back, forward, or reload."""
-    async def _nav():
-        page = _browser_page
+    async def _nav(page):
         if action == "back":
             await page.go_back(wait_until="domcontentloaded", timeout=10000)
         elif action == "forward":
@@ -445,93 +494,76 @@ def browser_history(action: str, timeout: float = 5.0) -> dict:
             await page.reload(wait_until="domcontentloaded", timeout=10000)
         else:
             return {"success": False, "error": f"Unknown action: {action}"}
-        await _capture_live_screenshot(page)
+        await _capture_live_screenshot_on_loop()
         return {"success": True, "url": page.url, "title": await page.title()}
-    return _run_on_browser_loop(_nav, timeout)
-
-
-async def _capture_live_screenshot(page) -> None:
-    """Capture screenshot on the browser's owning loop and cache it.
-
-    The screenshot endpoint runs on uvicorn's event loop, which differs from
-    the loop that owns the Playwright browser (created via asyncio.run() in
-    the chat handler thread). Calling page.screenshot() cross-loop deadlocks.
-    We cache screenshot bytes after every state-changing browser action so the
-    endpoint can serve them without touching Playwright.
-    """
-    global _browser_last_screenshot, _browser_last_url
-    try:
-        _browser_last_screenshot = await page.screenshot(full_page=False)
-        _browser_last_url = page.url
-    except Exception:
-        pass  # Non-blocking — stale screenshot is better than none
+    return _run_browser_op(_nav, timeout)
 
 
 async def _execute_browser(args: dict) -> str:
-    """Execute a browser action via Playwright. Returns JSON result."""
+    """Execute a browser action from the LLM tool loop.
+
+    This runs in the chat handler thread's asyncio loop. We dispatch every
+    Playwright operation onto the persistent browser loop so the Page stays
+    bound to a single long-lived loop across turns and HTTP endpoints.
+    """
     action = args.get("action", "")
 
     try:
-        page = await _get_browser_page()
-
         if action == "navigate":
             url = args.get("url", "")
             if not url:
                 return json.dumps({"success": False, "error": "url is required"})
-            resp = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            title = await page.title()
-            await _capture_live_screenshot(page)
-            return json.dumps({
-                "success": True,
-                "title": title,
-                "url": page.url,
-                "status": resp.status if resp else None,
-            })
+            result = navigate_browser(url)
+            return json.dumps(result)
 
         elif action == "screenshot":
             import time
             full_page = args.get("full_page", True)
             filename = f"screenshot-{int(time.time())}.png"
             path = f"{SCREENSHOT_DIR}/{filename}"
-            await page.screenshot(path=path, full_page=full_page)
-            await _capture_live_screenshot(page)
-            return json.dumps({
-                "success": True,
-                "path": path,
-                "url": page.url,
-            })
+
+            async def _screenshot(page):
+                await page.screenshot(path=path, full_page=full_page)
+                await _capture_live_screenshot_on_loop()
+                return {"success": True, "path": path, "url": page.url}
+            return json.dumps(_run_browser_op(_screenshot))
 
         elif action == "click":
             selector = args.get("selector", "")
             if not selector:
                 return json.dumps({"success": False, "error": "selector is required"})
-            await page.click(selector, timeout=10000)
-            await page.wait_for_load_state("domcontentloaded", timeout=10000)
-            await _capture_live_screenshot(page)
-            return json.dumps({
-                "success": True,
-                "url": page.url,
-                "title": await page.title(),
-            })
+
+            async def _click_selector(page):
+                await page.click(selector, timeout=10000)
+                await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                await _capture_live_screenshot_on_loop()
+                return {"success": True, "url": page.url, "title": await page.title()}
+            return json.dumps(_run_browser_op(_click_selector))
 
         elif action == "get_text":
             selector = args.get("selector", "body")
-            element = page.locator(selector).first
-            text = await element.inner_text(timeout=10000)
-            if len(text) > MAX_TEXT_LENGTH:
-                text = text[:MAX_TEXT_LENGTH] + f"\n...(truncated, {len(text)} total chars)"
-            return json.dumps({"success": True, "text": text})
+
+            async def _get_text(page):
+                element = page.locator(selector).first
+                text = await element.inner_text(timeout=10000)
+                if len(text) > MAX_TEXT_LENGTH:
+                    text = text[:MAX_TEXT_LENGTH] + f"\n...(truncated, {len(text)} total chars)"
+                return {"success": True, "text": text}
+            return json.dumps(_run_browser_op(_get_text))
 
         elif action == "evaluate":
             script = args.get("script", "")
             if not script:
                 return json.dumps({"success": False, "error": "script is required"})
-            result = await page.evaluate(script)
-            text = json.dumps(result, default=str)
-            if len(text) > MAX_TEXT_LENGTH:
-                text = text[:MAX_TEXT_LENGTH] + "...(truncated)"
-            await _capture_live_screenshot(page)
-            return json.dumps({"success": True, "result": text})
+
+            async def _evaluate(page):
+                result = await page.evaluate(script)
+                text = json.dumps(result, default=str)
+                if len(text) > MAX_TEXT_LENGTH:
+                    text = text[:MAX_TEXT_LENGTH] + "...(truncated)"
+                await _capture_live_screenshot_on_loop()
+                return {"success": True, "result": text}
+            return json.dumps(_run_browser_op(_evaluate))
 
         else:
             return json.dumps({"success": False, "error": f"Unknown browser action: {action}"})
