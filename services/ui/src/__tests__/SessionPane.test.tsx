@@ -146,7 +146,7 @@ describe('SessionPane — Events view', () => {
     render(<SessionPane threadId="thread-42" />)
 
     expect(latestES).not.toBeNull()
-    expect(latestES.url).toBe('/api/chat/threads/thread-42/events?follow=true&tail=20')
+    expect(latestES.url).toBe('/api/chat/thread-42/events?follow=true&tail=20')
   })
 
   it('shows "Waiting for events..." when empty', () => {
