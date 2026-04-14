@@ -4545,6 +4545,60 @@ paths:
         "404":
           description: Browser not active
 
+  /chat/threads/{id}/browser-scroll:
+    post:
+      summary: Scroll the browser page
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Scrolled
+        "404":
+          description: Browser not active
+
+  /chat/threads/{id}/browser-type:
+    post:
+      summary: Type text into the focused element
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Text typed
+        "404":
+          description: Browser not active
+
+  /chat/threads/{id}/browser-keypress:
+    post:
+      summary: Press a keyboard key (Enter, Tab, Escape, etc.)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Key pressed
+        "404":
+          description: Browser not active
+
   /chat/threads/{id}/search:
     get:
       summary: Search messages in a thread

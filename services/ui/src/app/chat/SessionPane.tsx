@@ -112,9 +112,12 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
   const [popoverPos, setPopoverPos] = useState<{ x: number; y: number } | null>(null)
   const [description, setDescription] = useState('')
   const [sending, setSending] = useState(false)
+  const [typeText, setTypeText] = useState('')
   const imgRef = useRef<HTMLImageElement>(null)
   const descInputRef = useRef<HTMLInputElement>(null)
   const urlInputRef = useRef<HTMLInputElement>(null)
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollAccRef = useRef({ x: 0, y: 0 })
 
   const refreshScreenshot = useCallback(async () => {
     try {
@@ -202,6 +205,51 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),
+      })
+      await refreshScreenshot()
+    } catch { /* ignore */ }
+  }, [threadId, refreshScreenshot])
+
+  const handleScroll = useCallback((e: React.WheelEvent) => {
+    if (!takeControl) return
+    e.preventDefault()
+    // Accumulate scroll deltas and debounce — wheel fires very fast
+    scrollAccRef.current.x += e.deltaX
+    scrollAccRef.current.y += e.deltaY
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    scrollTimerRef.current = setTimeout(async () => {
+      const { x, y } = scrollAccRef.current
+      scrollAccRef.current = { x: 0, y: 0 }
+      try {
+        await fetch(`/api/chat/${threadId}/browser-scroll`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ delta_x: x, delta_y: y }),
+        })
+        await refreshScreenshot()
+      } catch { /* ignore */ }
+    }, 100)
+  }, [takeControl, threadId, refreshScreenshot])
+
+  const handleType = useCallback(async () => {
+    if (!typeText) return
+    try {
+      await fetch(`/api/chat/${threadId}/browser-type`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: typeText }),
+      })
+      setTypeText('')
+      await refreshScreenshot()
+    } catch { /* ignore */ }
+  }, [typeText, threadId, refreshScreenshot])
+
+  const handleKeyPress = useCallback(async (key: string) => {
+    try {
+      await fetch(`/api/chat/${threadId}/browser-keypress`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
       })
       await refreshScreenshot()
     } catch { /* ignore */ }
@@ -329,6 +377,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
             alt="Browser screenshot"
             className={`max-w-full h-auto rounded border border-navy-700 ${takeControl ? 'cursor-crosshair' : ''}`}
             onClick={handleImageClick}
+            onWheel={handleScroll}
             data-testid="browser-screenshot"
           />
           {elBox && (
@@ -389,6 +438,25 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
           )}
         </div>
       </div>
+      {takeControl && !describeMode && (
+        <div className="px-2 py-1.5 border-t border-navy-700 bg-navy-800/50 flex items-center gap-1">
+          <input
+            type="text"
+            value={typeText}
+            onChange={(e) => setTypeText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); handleType() }
+            }}
+            placeholder="Type text into focused element..."
+            className="flex-1 rounded border border-navy-600 bg-navy-900 px-2 py-1 text-xs text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+            data-testid="browser-type-input"
+          />
+          <button onClick={handleType} className="px-2 py-1 text-xs rounded bg-brand-600 hover:bg-brand-500 text-white cursor-pointer" title="Send text">Type</button>
+          <button onClick={() => handleKeyPress('Enter')} className="px-1.5 py-1 text-xs rounded text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600 cursor-pointer" title="Press Enter">Enter</button>
+          <button onClick={() => handleKeyPress('Tab')} className="px-1.5 py-1 text-xs rounded text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600 cursor-pointer" title="Press Tab">Tab</button>
+          <button onClick={() => handleKeyPress('Escape')} className="px-1.5 py-1 text-xs rounded text-mountain-400 hover:text-white hover:bg-navy-700 border border-navy-600 cursor-pointer" title="Press Escape">Esc</button>
+        </div>
+      )}
     </div>
   )
 }
