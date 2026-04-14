@@ -273,7 +273,7 @@ function BrowserView({ threadId, active }: { threadId: string; active: boolean }
       await fetch(`/api/chat/${threadId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: msg }),
+        body: JSON.stringify({ message: msg }),
       })
     } catch { /* ignore */ }
     setSending(false)
