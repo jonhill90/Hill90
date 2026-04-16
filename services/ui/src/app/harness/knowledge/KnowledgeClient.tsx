@@ -43,7 +43,7 @@ interface Agent {
   agent_id: string
 }
 
-const ENTRY_TYPES = ['note', 'plan', 'decision', 'journal', 'research'] as const
+const ENTRY_TYPES = ['note', 'plan', 'decision', 'journal', 'research', 'notebook'] as const
 
 type SortField = 'title' | 'updated_at'
 type SortDir = 'asc' | 'desc'

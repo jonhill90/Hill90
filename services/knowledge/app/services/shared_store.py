@@ -66,22 +66,29 @@ async def list_collections(
     If owner is None, return all collections (admin).
     Otherwise return owner's private + all shared.
     """
+    base = """SELECT c.*,
+               COUNT(DISTINCT s.id) AS source_count,
+               COUNT(DISTINCT d.id) AS document_count
+           FROM shared_collections c
+           LEFT JOIN shared_sources s ON s.collection_id = c.id
+           LEFT JOIN shared_documents d ON d.source_id = s.id"""
+
     if owner is None:
         rows = await pool.fetch(
-            "SELECT * FROM shared_collections ORDER BY updated_at DESC"
+            f"{base} GROUP BY c.id ORDER BY c.updated_at DESC"
         )
     elif include_shared:
         rows = await pool.fetch(
-            """SELECT * FROM shared_collections
-               WHERE created_by = $1 OR visibility = 'shared'
-               ORDER BY updated_at DESC""",
+            f"""{base}
+               WHERE c.created_by = $1 OR c.visibility = 'shared'
+               GROUP BY c.id ORDER BY c.updated_at DESC""",
             owner,
         )
     else:
         rows = await pool.fetch(
-            """SELECT * FROM shared_collections
-               WHERE created_by = $1
-               ORDER BY updated_at DESC""",
+            f"""{base}
+               WHERE c.created_by = $1
+               GROUP BY c.id ORDER BY c.updated_at DESC""",
             owner,
         )
     return [_serialize(dict(r)) for r in rows]
