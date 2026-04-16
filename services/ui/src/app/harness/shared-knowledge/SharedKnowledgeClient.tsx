@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Database, FileText, FolderOpen, Globe, Search, Plus, AlertCircle } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Database, FileText, FolderOpen, Globe, Search, Plus, AlertCircle, Upload, Trash2 } from 'lucide-react'
 
 /**
  * Highlight search terms in content by wrapping them in <b> tags.
@@ -153,6 +153,7 @@ export default function SharedKnowledgeClient() {
   const [collectionFormError, setCollectionFormError] = useState('')
   const [sourceForm, setSourceForm] = useState({ title: '', source_type: 'text', raw_content: '', source_url: '' })
   const [sourceFormError, setSourceFormError] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Fetch collections
   const fetchCollections = useCallback(async () => {
@@ -355,6 +356,52 @@ export default function SharedKnowledgeClient() {
     } finally {
       setActionLoading(null)
     }
+  }
+
+
+  // --- File Upload ---
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedCollection) return
+    try {
+      const text = await file.text()
+      const isMarkdown = file.name.endsWith('.md')
+      const body = {
+        collection_id: selectedCollection.id,
+        title: file.name,
+        source_type: isMarkdown ? 'markdown' : 'text',
+        raw_content: text,
+      }
+      const res = await fetch('/api/shared-knowledge/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (res.ok) {
+        await fetchSources(selectedCollection.id)
+      } else {
+        const data = await res.json()
+        alert(data.error || data.detail || 'Failed to upload file')
+      }
+    } catch {
+      alert('Failed to read file')
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  // --- Bulk delete error sources ---
+  const handleCleanupErrors = async () => {
+    if (!selectedCollection) return
+    const errorSources = sources.filter(s => s.status === 'error' || s.status === 'failed')
+    if (errorSources.length === 0) return
+    if (!confirm(`Delete ${errorSources.length} error source${errorSources.length !== 1 ? 's' : ''}?`)) return
+    for (const src of errorSources) {
+      try {
+        await fetch(`/api/shared-knowledge/sources/${src.id}`, { method: 'DELETE' })
+      } catch { /* continue */ }
+    }
+    await fetchSources(selectedCollection.id)
   }
 
   // --- Search ---
@@ -638,12 +685,37 @@ export default function SharedKnowledgeClient() {
                       {sources.length} source{sources.length !== 1 ? 's' : ''}
                     </span>
                   </h2>
-                  <button
-                    onClick={() => { resetSourceForm(); setShowSourceForm(true) }}
-                    className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
-                  >
-                    Add Source
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {sources.some(s => s.status === 'error' || s.status === 'failed') && (
+                      <button
+                        onClick={handleCleanupErrors}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-red-700 text-red-400 hover:bg-red-900/30 transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={14} />
+                        Clean Up Errors
+                      </button>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".txt,.md"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer"
+                    >
+                      <Upload size={14} />
+                      Upload File
+                    </button>
+                    <button
+                      onClick={() => { resetSourceForm(); setShowSourceForm(true) }}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+                    >
+                      Add Source
+                    </button>
+                  </div>
                 </div>
 
                 {/* Source form */}
