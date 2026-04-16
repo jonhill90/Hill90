@@ -273,6 +273,33 @@ SEARCH_KNOWLEDGE_TOOL = {
 }
 
 
+SEARCH_SHARED_KNOWLEDGE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_shared_knowledge",
+        "description": (
+            "Search the shared knowledge library for information across all collections "
+            "you have access to. Returns relevant text chunks with source citations. "
+            "Use this to find documentation, research, or shared notes from the team."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (e.g. 'deployment process', 'API authentication')",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results to return (default 10, max 50)",
+                    "default": 10,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
 def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     """Build the tools array for the LLM request based on agent config."""
     definitions: list[dict] = []
@@ -294,6 +321,7 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     if os.environ.get("AKM_TOKEN") and os.environ.get("AKM_SERVICE_URL"):
         definitions.append(SAVE_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_KNOWLEDGE_TOOL)
+        definitions.append(SEARCH_SHARED_KNOWLEDGE_TOOL)
     return definitions
 
 
@@ -348,6 +376,9 @@ async def execute_tool_call(
 
     if name == "search_knowledge":
         return await _execute_search_knowledge(arguments)
+
+    if name == "search_shared_knowledge":
+        return await _execute_search_shared_knowledge(arguments)
 
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
@@ -416,6 +447,59 @@ async def _execute_search_knowledge(args: dict) -> str:
             if res.status_code == 200:
                 data = res.json()
                 return json.dumps({"success": True, **data})
+            else:
+                return json.dumps({"success": False, "error": f"Search failed: {res.status_code}"})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)[:200]})
+
+
+async def _execute_search_shared_knowledge(args: dict) -> str:
+    """Search shared knowledge library via the knowledge service."""
+    import os
+    import httpx
+
+    query = args.get("query", "")
+    if not query:
+        return json.dumps({"success": False, "error": "query is required"})
+
+    limit = args.get("limit", 10)
+    if not isinstance(limit, int):
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = 10
+    limit = max(1, min(limit, 50))
+
+    akm_url = os.environ.get("AKM_SERVICE_URL", "")
+    akm_token = os.environ.get("AKM_TOKEN", "")
+    if not akm_url or not akm_token:
+        return json.dumps({"success": False, "error": "Knowledge service not configured"})
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            res = await client.get(
+                f"{akm_url}/api/v1/shared/search",
+                params={"q": query, "limit": limit},
+                headers={"Authorization": f"Bearer {akm_token}"},
+            )
+            if res.status_code == 200:
+                data = res.json()
+                results = data.get("results", [])
+                formatted = []
+                for r in results:
+                    formatted.append({
+                        "content": r.get("content", ""),
+                        "headline": r.get("headline", ""),
+                        "source_title": r.get("source_title", ""),
+                        "collection_name": r.get("collection_name", ""),
+                        "rank": r.get("rank"),
+                    })
+                return json.dumps({
+                    "success": True,
+                    "query": query,
+                    "count": len(formatted),
+                    "results": formatted,
+                })
             else:
                 return json.dumps({"success": False, "error": f"Search failed: {res.status_code}"})
     except Exception as exc:
