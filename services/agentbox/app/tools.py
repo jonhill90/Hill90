@@ -228,6 +228,51 @@ TMUX_TOOL = {
 }
 
 
+SAVE_KNOWLEDGE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "save_knowledge",
+        "description": (
+            "Save a knowledge entry to your persistent memory. Entries persist across sessions "
+            "and are searchable. Use this to remember important findings, decisions, plans, "
+            "or notes. Path determines the type: notes/*, plans/*, decisions/*, journal/*, research/*"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Entry path (e.g. 'notes/deployment-fix.md', 'decisions/use-postgres.md', 'journal/2026-04-15.md')",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Markdown content of the knowledge entry",
+                },
+            },
+            "required": ["path", "content"],
+        },
+    },
+}
+
+SEARCH_KNOWLEDGE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_knowledge",
+        "description": "Search your persistent knowledge entries using full-text search. Returns matching entries from your memory.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (e.g. 'deployment postgres', 'API auth fix')",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
 def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     """Build the tools array for the LLM request based on agent config."""
     definitions: list[dict] = []
@@ -244,6 +289,11 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     # browser is available when shell is enabled (chromium is pre-installed)
     if tools_config.shell.enabled:
         definitions.append(BROWSER_TOOL)
+    # knowledge tools available when AKM is configured
+    import os
+    if os.environ.get("AKM_TOKEN") and os.environ.get("AKM_SERVICE_URL"):
+        definitions.append(SAVE_KNOWLEDGE_TOOL)
+        definitions.append(SEARCH_KNOWLEDGE_TOOL)
     return definitions
 
 
@@ -293,7 +343,83 @@ async def execute_tool_call(
     if name == "browser":
         return await _execute_browser(arguments)
 
+    if name == "save_knowledge":
+        return await _execute_save_knowledge(arguments)
+
+    if name == "search_knowledge":
+        return await _execute_search_knowledge(arguments)
+
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
+
+
+async def _execute_save_knowledge(args: dict) -> str:
+    """Save a knowledge entry to the AKM service."""
+    import os
+    import httpx
+
+    path = args.get("path", "")
+    content = args.get("content", "")
+    if not path or not content:
+        return json.dumps({"success": False, "error": "path and content are required"})
+
+    akm_url = os.environ.get("AKM_SERVICE_URL", "")
+    akm_token = os.environ.get("AKM_TOKEN", "")
+    if not akm_url or not akm_token:
+        return json.dumps({"success": False, "error": "AKM not configured"})
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            res = await client.post(
+                f"{akm_url}/api/v1/entries",
+                json={"path": path, "content": content},
+                headers={"Authorization": f"Bearer {akm_token}"},
+            )
+            if res.status_code == 201:
+                return json.dumps({"success": True, "path": path, "message": "Knowledge entry saved"})
+            elif res.status_code == 409:
+                # Entry exists — update it
+                res2 = await client.put(
+                    f"{akm_url}/api/v1/entries/{path}",
+                    json={"content": content},
+                    headers={"Authorization": f"Bearer {akm_token}"},
+                )
+                if res2.status_code == 200:
+                    return json.dumps({"success": True, "path": path, "message": "Knowledge entry updated"})
+                return json.dumps({"success": False, "error": f"Update failed: {res2.status_code} {res2.text[:200]}"})
+            else:
+                return json.dumps({"success": False, "error": f"AKM returned {res.status_code}: {res.text[:200]}"})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)[:200]})
+
+
+async def _execute_search_knowledge(args: dict) -> str:
+    """Search knowledge entries via the AKM service."""
+    import os
+    import httpx
+
+    query = args.get("query", "")
+    if not query:
+        return json.dumps({"success": False, "error": "query is required"})
+
+    akm_url = os.environ.get("AKM_SERVICE_URL", "")
+    akm_token = os.environ.get("AKM_TOKEN", "")
+    if not akm_url or not akm_token:
+        return json.dumps({"success": False, "error": "AKM not configured"})
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            res = await client.get(
+                f"{akm_url}/api/v1/search",
+                params={"q": query},
+                headers={"Authorization": f"Bearer {akm_token}"},
+            )
+            if res.status_code == 200:
+                data = res.json()
+                return json.dumps({"success": True, **data})
+            else:
+                return json.dumps({"success": False, "error": f"Search failed: {res.status_code}"})
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)[:200]})
 
 
 TMUX_SESSION = "agent"
