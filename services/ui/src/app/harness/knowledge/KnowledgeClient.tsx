@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { RefreshCw } from 'lucide-react'
 
 interface KnowledgeAgent {
   agent_id: string
@@ -315,7 +316,12 @@ export default function KnowledgeClient() {
                         : 'bg-navy-800 border-navy-700 text-mountain-300 hover:border-navy-500'
                     }`}
                   >
-                    <div className="font-medium text-sm">{agentName(ka.agent_id)}</div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm">{agentName(ka.agent_id)}</span>
+                      <span className="px-1.5 py-0.5 text-xs font-medium rounded-full bg-navy-700 text-mountain-300 border border-navy-600">
+                        {ka.entry_count}
+                      </span>
+                    </div>
                     <div className="text-xs text-mountain-500 mt-1">
                       {ka.entry_count} entr{ka.entry_count !== 1 ? 'ies' : 'y'}
                       {ka.last_updated && (
@@ -339,6 +345,26 @@ export default function KnowledgeClient() {
               </div>
             ) : (
               <>
+                {/* Agent header with count + refresh */}
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-semibold text-white">{agentName(selectedAgent)}</h3>
+                    {entries.length > 0 && (
+                      <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-brand-900/40 text-brand-400 border border-brand-800">
+                        {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => fetchEntries(selectedAgent)}
+                    disabled={entriesLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-navy-600 text-mountain-400 hover:text-white hover:border-navy-500 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} className={entriesLoading ? 'animate-spin' : ''} />
+                    Refresh
+                  </button>
+                </div>
+
                 {/* Type filter */}
                 <div className="flex items-center gap-2 mb-4">
                   <span className="text-sm text-mountain-400">Type:</span>
