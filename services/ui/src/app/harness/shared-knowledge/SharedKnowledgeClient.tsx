@@ -903,19 +903,28 @@ export default function SharedKnowledgeClient() {
             </div>
           ) : (
             <div className="space-y-3">
-              {qualitySummary && (
-                <div className="flex items-center gap-4 rounded-lg border border-navy-700 bg-navy-800 px-4 py-2 text-xs text-mountain-400" data-testid="quality-summary">
-                  <span>Avg: {Number(qualitySummary.avg_score).toFixed(2)}</span>
-                  <span className="text-green-400">{qualitySummary.distribution.high} high</span>
-                  <span className="text-yellow-400">{qualitySummary.distribution.medium} medium</span>
-                  <span className="text-red-400">{qualitySummary.distribution.low} low</span>
-                </div>
-              )}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-mountain-400">
+                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for &ldquo;{searchQuery}&rdquo;
+                </p>
+                {qualitySummary && (
+                  <div className="flex items-center gap-3 text-xs text-mountain-400" data-testid="quality-summary">
+                    <span>Avg: {Number(qualitySummary.avg_score).toFixed(2)}</span>
+                    <span className="text-green-400">{qualitySummary.distribution.high} high</span>
+                    <span className="text-yellow-400">{qualitySummary.distribution.medium} medium</span>
+                    <span className="text-red-400">{qualitySummary.distribution.low} low</span>
+                  </div>
+                )}
+              </div>
               {searchResults.map((r, i) => (
                 <div key={`${r.chunk_id}-${i}`} className="rounded-lg border border-navy-700 bg-navy-800 p-4">
                   <div className="flex items-center gap-2 mb-2">
+                    <FileText size={14} className="text-mountain-500 flex-shrink-0" />
                     <span className="text-sm font-medium text-white">{r.source_title}</span>
                     <span className="text-xs text-mountain-500">in {r.collection_name}</span>
+                    {r.chunk_index != null && (
+                      <span className="text-xs text-mountain-600">chunk {r.chunk_index + 1}</span>
+                    )}
                     {r.source_url && (
                       <a href={r.source_url} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-400 hover:text-brand-300">
                         Source
@@ -929,11 +938,11 @@ export default function SharedKnowledgeClient() {
                       {r.quality_label}
                     </span>
                     <span className="text-xs text-mountain-500 ml-auto">
-                      Score: {Number(r.quality_score ?? r.score).toFixed(4)}
+                      {Number(r.quality_score ?? r.score).toFixed(3)}
                     </span>
                   </div>
                   <p
-                    className="text-sm text-mountain-300 leading-relaxed [&_b]:text-white [&_b]:font-semibold"
+                    className="text-sm text-mountain-300 leading-relaxed max-h-32 overflow-hidden [&_b]:text-white [&_b]:font-semibold"
                     dangerouslySetInnerHTML={{ __html: r.headline || highlightTerms(r.content, searchQuery) }}
                   />
                 </div>
