@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Terminal, FolderOpen, User, HeartPulse, Cog, Sparkles, ChevronDown, ChevronRight } from 'lucide-react'
+import { Terminal, FolderOpen, User, HeartPulse, Cog, Sparkles, ChevronDown, ChevronRight, MessageSquare, Globe, BookOpen, LayoutGrid } from 'lucide-react'
 
 export interface AgentEvent {
   id: string
@@ -63,6 +63,10 @@ const TOOL_ICONS: Record<string, typeof Terminal> = {
   identity: User,
   health: HeartPulse,
   inference: Sparkles,
+  chat: MessageSquare,
+  browser: Globe,
+  knowledge: BookOpen,
+  tmux: LayoutGrid,
 }
 
 function relativeTime(timestamp: string): string {
@@ -75,7 +79,23 @@ function relativeTime(timestamp: string): string {
 
 export default function EventCard({ event }: { event: AgentEvent }) {
   const [expanded, setExpanded] = useState(false)
-  const Icon = TOOL_ICONS[event.tool] || Terminal
+  // Extract inner tool name from input_summary (e.g. "tool=save_knowledge args=...")
+  const innerToolMatch = event.input_summary?.match(/^tool=(\S+)/)
+  const innerTool = innerToolMatch?.[1] || null
+
+  // Pick icon: use inner tool's icon if it's a known tool, otherwise the event tool's icon
+  const INNER_TOOL_ICONS: Record<string, typeof Terminal> = {
+    save_knowledge: BookOpen,
+    search_knowledge: BookOpen,
+    search_shared_knowledge: BookOpen,
+    execute_command: Terminal,
+    read_file: FolderOpen,
+    write_file: FolderOpen,
+    list_directory: FolderOpen,
+    browser: Globe,
+    tmux: LayoutGrid,
+  }
+  const Icon = (innerTool && INNER_TOOL_ICONS[innerTool]) || TOOL_ICONS[event.tool] || Terminal
 
   const borderColor =
     event.success === true ? 'border-l-brand-500'
@@ -90,8 +110,10 @@ export default function EventCard({ event }: { event: AgentEvent }) {
     >
       <div className="flex items-center gap-2 text-sm">
         <Icon className="h-4 w-4 text-mountain-400 shrink-0" />
-        <span className="text-mountain-300 font-medium">{event.tool}</span>
-        <span className="text-mountain-500 text-xs truncate flex-1">{event.input_summary}</span>
+        <span className="text-mountain-300 font-medium">{innerTool || event.tool}</span>
+        <span className="text-mountain-500 text-xs truncate flex-1">
+          {innerTool ? event.input_summary.replace(/^tool=\S+\s*/, '') : event.input_summary}
+        </span>
         {(() => {
           const lifecycle = getLifecycleInfo(event)
           if (lifecycle) {

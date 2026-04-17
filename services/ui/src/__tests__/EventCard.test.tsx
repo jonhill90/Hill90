@@ -12,6 +12,10 @@ vi.mock('lucide-react', () => ({
   Sparkles: (props: any) => <span data-testid="icon-sparkles" {...props} />,
   ChevronDown: (props: any) => <span data-testid="icon-chevron-down" {...props} />,
   ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
+  MessageSquare: (props: any) => <span data-testid="icon-message" {...props} />,
+  Globe: (props: any) => <span data-testid="icon-globe" {...props} />,
+  BookOpen: (props: any) => <span data-testid="icon-book" {...props} />,
+  LayoutGrid: (props: any) => <span data-testid="icon-grid" {...props} />,
 }))
 
 import EventCard, { parseExitCode, getLifecycleInfo, formatDuration } from '@/app/agents/[id]/EventCard'
