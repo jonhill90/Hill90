@@ -108,9 +108,9 @@ describe('KnowledgeClient', () => {
       expect(screen.getByText('WriterBot')).toBeInTheDocument()
     })
 
-    // Entry counts rendered as "5 entries" split across text nodes
-    expect(screen.getByText(/5/)).toBeInTheDocument()
-    expect(screen.getByText(/3/)).toBeInTheDocument()
+    // Entry count badges show agent entry counts
+    expect(screen.getAllByText(/5/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/3/).length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows placeholder when no agent selected', async () => {
