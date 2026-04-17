@@ -398,10 +398,15 @@ async def _execute_save_knowledge(args: dict) -> str:
     if not akm_url or not akm_token:
         return json.dumps({"success": False, "error": "AKM not configured"})
 
-    # AKM requires YAML frontmatter — wrap content if not already present
+    # AKM requires YAML frontmatter with title + type — wrap if not present
     if not content.startswith("---"):
-        entry_type = path.split("/")[0] if "/" in path else "note"
-        content = f"---\ntype: {entry_type}\n---\n{content}"
+        valid_types = {"plan", "decision", "journal", "research", "context", "note", "notebook"}
+        path_prefix = path.split("/")[0].rstrip("s") if "/" in path else "note"
+        entry_type = path_prefix if path_prefix in valid_types else "note"
+        # Derive title from filename
+        filename = path.rsplit("/", 1)[-1].rsplit(".", 1)[0] if "/" in path else path.rsplit(".", 1)[0]
+        title = filename.replace("-", " ").replace("_", " ").title()
+        content = f"---\ntitle: {title}\ntype: {entry_type}\n---\n{content}"
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
