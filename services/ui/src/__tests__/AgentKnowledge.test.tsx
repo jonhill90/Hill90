@@ -46,7 +46,7 @@ describe('AgentKnowledge', () => {
   })
 
   it('renders search input and collections heading', async () => {
-    render(<AgentKnowledge agentName="TestBot" />)
+    render(<AgentKnowledge agentName="TestBot" agentId="test-bot" />)
 
     expect(screen.getByText('Search Knowledge')).toBeInTheDocument()
     expect(screen.getByTestId('knowledge-search-input')).toBeInTheDocument()
@@ -57,7 +57,7 @@ describe('AgentKnowledge', () => {
   })
 
   it('fetches and displays collections', async () => {
-    render(<AgentKnowledge agentName="TestBot" />)
+    render(<AgentKnowledge agentName="TestBot" agentId="test-bot" />)
 
     await waitFor(() => {
       expect(screen.getByTestId('collections-list')).toBeInTheDocument()
@@ -67,7 +67,7 @@ describe('AgentKnowledge', () => {
   })
 
   it('shows visibility badges', async () => {
-    render(<AgentKnowledge agentName="TestBot" />)
+    render(<AgentKnowledge agentName="TestBot" agentId="test-bot" />)
 
     await waitFor(() => {
       expect(screen.getByText('shared')).toBeInTheDocument()
@@ -80,7 +80,7 @@ describe('AgentKnowledge', () => {
       Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
     )
 
-    render(<AgentKnowledge agentName="TestBot" />)
+    render(<AgentKnowledge agentName="TestBot" agentId="test-bot" />)
 
     await waitFor(() => {
       expect(screen.getByTestId('no-collections')).toBeInTheDocument()
@@ -88,7 +88,7 @@ describe('AgentKnowledge', () => {
   })
 
   it('searches and displays results', async () => {
-    render(<AgentKnowledge agentName="TestBot" />)
+    render(<AgentKnowledge agentName="TestBot" agentId="test-bot" />)
 
     await waitFor(() => {
       expect(screen.getByText('Platform Docs')).toBeInTheDocument()
@@ -116,7 +116,7 @@ describe('AgentKnowledge', () => {
       return Promise.resolve({ ok: false })
     })
 
-    render(<AgentKnowledge agentName="TestBot" />)
+    render(<AgentKnowledge agentName="TestBot" agentId="test-bot" />)
 
     await waitFor(() => {
       expect(screen.getByText('Platform Docs')).toBeInTheDocument()
@@ -132,7 +132,7 @@ describe('AgentKnowledge', () => {
   })
 
   it('includes agent name in description', async () => {
-    render(<AgentKnowledge agentName="ResearchBot" />)
+    render(<AgentKnowledge agentName="ResearchBot" agentId="research-bot" />)
 
     expect(screen.getByText(/ResearchBot/)).toBeInTheDocument()
   })
