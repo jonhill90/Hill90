@@ -398,6 +398,11 @@ async def _execute_save_knowledge(args: dict) -> str:
     if not akm_url or not akm_token:
         return json.dumps({"success": False, "error": "AKM not configured"})
 
+    # AKM requires YAML frontmatter — wrap content if not already present
+    if not content.startswith("---"):
+        entry_type = path.split("/")[0] if "/" in path else "note"
+        content = f"---\ntype: {entry_type}\n---\n{content}"
+
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             res = await client.post(
