@@ -180,6 +180,33 @@ class _ServiceClaims:
     sub: str
 
 
+class EntryCreateBody(BaseModel):
+    path: str
+    content: str
+
+
+@router.post("/entries/{agent_id}", status_code=201)
+async def create_entry(
+    agent_id: str,
+    body: EntryCreateBody,
+    request: Request,
+) -> dict[str, Any]:
+    """Create a knowledge entry for an agent (service-to-service)."""
+    _verify_service_token(request)
+    pool = request.app.state.pool
+    data_dir = request.app.state.settings.data_dir
+
+    claims = _ServiceClaims(sub=agent_id)
+    try:
+        entry = await knowledge_store.create_entry(
+            pool, data_dir, claims, body.path, body.content
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return _serialize(entry)
+
+
 class JournalAppendBody(BaseModel):
     content: str
 

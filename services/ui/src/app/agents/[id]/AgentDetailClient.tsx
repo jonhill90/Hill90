@@ -1450,7 +1450,7 @@ export default function AgentDetailClient({
       )}
 
       {activeTab === 'knowledge' && agent && (
-        <AgentKnowledge agentName={agent.name} />
+        <AgentKnowledge agentName={agent.name} agentId={agent.agent_id} />
       )}
 
       {activeTab === 'activity' && (

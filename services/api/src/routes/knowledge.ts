@@ -108,6 +108,28 @@ router.get('/entries/:agentId/:path(*)', requireRole('user'), async (req: Reques
   }
 });
 
+// Create entry
+router.post('/entries', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const { agent_id, path, content } = req.body;
+    if (!agent_id || !path || !content) {
+      res.status(400).json({ error: 'agent_id, path, and content are required' });
+      return;
+    }
+
+    if (!await isAgentOwned(req, agent_id)) {
+      res.status(403).json({ error: 'Not authorized to create entries for this agent' });
+      return;
+    }
+
+    const result = await akmProxy.createEntry(agent_id, path, content);
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    console.error('[knowledge] Create entry error:', err);
+    res.status(500).json({ error: 'Failed to create knowledge entry' });
+  }
+});
+
 // Search entries
 router.get('/search', requireRole('user'), async (req: Request, res: Response) => {
   try {

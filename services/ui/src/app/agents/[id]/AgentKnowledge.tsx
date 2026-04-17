@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Search, BookOpen, FileText } from 'lucide-react'
+import { Search, BookOpen, FileText, Plus, X } from 'lucide-react'
 
 interface Collection {
   id: string
@@ -21,13 +21,18 @@ interface SearchResult {
   collection_name: string
 }
 
-export default function AgentKnowledge({ agentName }: { agentName: string }) {
+export default function AgentKnowledge({ agentName, agentId }: { agentName: string; agentId: string }) {
   const [collections, setCollections] = useState<Collection[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [results, setResults] = useState<SearchResult[]>([])
   const [searched, setSearched] = useState(false)
+  const [showCreate, setShowCreate] = useState(false)
+  const [newPath, setNewPath] = useState('')
+  const [newContent, setNewContent] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const fetchCollections = useCallback(async () => {
     try {
@@ -66,8 +71,88 @@ export default function AgentKnowledge({ agentName }: { agentName: string }) {
     }
   }
 
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newPath.trim() || !newContent.trim()) return
+
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const res = await fetch('/api/knowledge/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, path: newPath.trim(), content: newContent.trim() }),
+      })
+      if (res.ok) {
+        setShowCreate(false)
+        setNewPath('')
+        setNewContent('')
+      } else {
+        const data = await res.json()
+        setCreateError(data.error || data.detail || 'Failed to create entry')
+      }
+    } catch {
+      setCreateError('Failed to create entry')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
+      {/* Create entry toggle */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => setShowCreate(prev => !prev)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-brand-600 hover:bg-brand-500 text-white transition-colors cursor-pointer"
+        >
+          {showCreate ? <X size={14} /> : <Plus size={14} />}
+          {showCreate ? 'Cancel' : 'New Entry'}
+        </button>
+      </div>
+
+      {/* Create entry form */}
+      {showCreate && (
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+          <h2 className="text-lg font-semibold text-white mb-3">Create Knowledge Entry</h2>
+          <form onSubmit={handleCreate} className="space-y-3">
+            <div>
+              <label className="block text-xs text-mountain-400 mb-1">Path</label>
+              <input
+                type="text"
+                value={newPath}
+                onChange={(e) => setNewPath(e.target.value)}
+                placeholder="notes/my-entry.md"
+                className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                data-testid="create-path-input"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-mountain-400 mb-1">Content</label>
+              <textarea
+                value={newContent}
+                onChange={(e) => setNewContent(e.target.value)}
+                placeholder={"---\ntitle: My Entry\ntype: note\n---\n\nEntry content here..."}
+                rows={8}
+                className="w-full rounded-md border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none font-mono resize-y"
+                data-testid="create-content-input"
+              />
+              <p className="text-xs text-mountain-500 mt-1">Include YAML frontmatter with title, type (note/plan/decision/journal/research), and optional tags.</p>
+            </div>
+            {createError && (
+              <p className="text-sm text-red-400">{createError}</p>
+            )}
+            <button
+              type="submit"
+              disabled={!newPath.trim() || !newContent.trim() || creating}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {creating ? 'Creating...' : 'Create Entry'}
+            </button>
+          </form>
+        </div>
+      )}
+
       {/* Search */}
       <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
         <h2 className="text-lg font-semibold text-white mb-3">Search Knowledge</h2>
