@@ -18,7 +18,7 @@ function getPrivateKey(): crypto.KeyObject {
   if (!MODEL_ROUTER_SIGNING_PRIVATE_KEY) {
     throw new Error('MODEL_ROUTER_SIGNING_PRIVATE_KEY not configured');
   }
-  cachedPrivateKey = crypto.createPrivateKey(MODEL_ROUTER_SIGNING_PRIVATE_KEY);
+  cachedPrivateKey = crypto.createPrivateKey(MODEL_ROUTER_SIGNING_PRIVATE_KEY.replace(/\\n/g, '\n'));
   return cachedPrivateKey;
 }
 
