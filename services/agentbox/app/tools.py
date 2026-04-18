@@ -336,6 +336,44 @@ HTTP_REQUEST_TOOL = {
 }
 
 
+GIT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "git",
+        "description": (
+            "Version-control the agent workspace with git. "
+            "Actions: init (initialize repo), status, add (stage files), "
+            "commit (commit staged changes), diff (show changes), "
+            "log (show commit history), reset (unstage files)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["init", "status", "add", "commit", "diff", "log", "reset"],
+                    "description": "The git action to perform",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Commit message (for commit action)",
+                },
+                "paths": {
+                    "type": "string",
+                    "description": "File paths, space-separated (for add/reset, default '.' for all)",
+                    "default": ".",
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "Number of log entries to show (for log, default 10)",
+                    "default": 10,
+                },
+            },
+            "required": ["action"],
+        },
+    },
+}
+
 def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     """Build the tools array for the LLM request based on agent config."""
     definitions: list[dict] = []
@@ -358,6 +396,9 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
         definitions.append(SAVE_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_SHARED_KNOWLEDGE_TOOL)
+    # git available when shell is enabled
+    if tools_config.shell.enabled:
+        definitions.append(GIT_TOOL)
     # http_request available when shell is enabled
     if tools_config.shell.enabled:
         definitions.append(HTTP_REQUEST_TOOL)
@@ -421,6 +462,9 @@ async def execute_tool_call(
 
     if name == "http_request":
         return await _execute_http_request(arguments)
+
+    if name == "git":
+        return await _execute_git(arguments)
 
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
@@ -627,6 +671,126 @@ async def _execute_http_request(args: dict) -> str:
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)[:300]})
 
+
+WORKSPACE = "/workspace"
+
+
+async def _execute_git(args: dict) -> str:
+    """Execute git operations in the agent workspace."""
+    import asyncio
+    import os
+
+    action = args.get("action", "")
+
+    # Auto-init on first use if no repo exists
+    git_dir = os.path.join(WORKSPACE, ".git")
+    if not os.path.isdir(git_dir) and action != "init":
+        # Silently init so git commands work even without explicit init
+        init_cmds = [
+            ["git", "init"],
+            ["git", "config", "user.name", "Agent"],
+            ["git", "config", "user.email", "agent@hill90.com"],
+        ]
+        for cmd in init_cmds:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, cwd=WORKSPACE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.wait()
+
+    try:
+        if action == "init":
+            agent_id = os.environ.get("AGENT_ID", "agent")
+            cmds = [
+                (["git", "init"], None),
+                (["git", "config", "user.name", agent_id], None),
+                (["git", "config", "user.email", f"{agent_id}@hill90.com"], None),
+            ]
+            outputs = []
+            for cmd, _ in cmds:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd, cwd=WORKSPACE,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+                outputs.append((stdout or b"").decode().strip())
+            return json.dumps({"success": True, "output": "\n".join(filter(None, outputs)) or "Git repo initialized"})
+
+        elif action == "status":
+            proc = await asyncio.create_subprocess_exec(
+                "git", "status", "--short", cwd=WORKSPACE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            output = (stdout or b"").decode().strip()
+            return json.dumps({"success": True, "output": output or "Working tree clean"})
+
+        elif action == "add":
+            paths = args.get("paths", ".").split()
+            proc = await asyncio.create_subprocess_exec(
+                "git", "add", *paths, cwd=WORKSPACE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                return json.dumps({"success": False, "error": (stderr or b"").decode().strip()})
+            return json.dumps({"success": True, "output": f"Staged: {' '.join(paths)}"})
+
+        elif action == "commit":
+            message = args.get("message", "")
+            if not message:
+                return json.dumps({"success": False, "error": "message is required for commit"})
+            proc = await asyncio.create_subprocess_exec(
+                "git", "commit", "-m", message, cwd=WORKSPACE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            output = (stdout or b"").decode().strip()
+            if proc.returncode != 0:
+                err = (stderr or b"").decode().strip()
+                if "nothing to commit" in err or "nothing to commit" in output:
+                    return json.dumps({"success": True, "output": "Nothing to commit"})
+                return json.dumps({"success": False, "error": err or output})
+            return json.dumps({"success": True, "output": output})
+
+        elif action == "diff":
+            proc = await asyncio.create_subprocess_exec(
+                "git", "diff", "--stat", cwd=WORKSPACE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            output = (stdout or b"").decode().strip()
+            return json.dumps({"success": True, "output": output or "No changes"})
+
+        elif action == "log":
+            count = min(args.get("count", 10) or 10, 50)
+            proc = await asyncio.create_subprocess_exec(
+                "git", "log", f"--oneline", f"-{count}", cwd=WORKSPACE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            output = (stdout or b"").decode().strip()
+            if proc.returncode != 0:
+                err = (stderr or b"").decode().strip()
+                if "does not have any commits" in err:
+                    return json.dumps({"success": True, "output": "No commits yet"})
+                return json.dumps({"success": False, "error": err})
+            return json.dumps({"success": True, "output": output or "No commits yet"})
+
+        elif action == "reset":
+            paths = args.get("paths", ".").split()
+            proc = await asyncio.create_subprocess_exec(
+                "git", "reset", "HEAD", "--", *paths, cwd=WORKSPACE,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            return json.dumps({"success": True, "output": (stdout or b"").decode().strip() or "Unstaged"})
+
+        else:
+            return json.dumps({"success": False, "error": f"Unknown git action: {action}"})
+
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)[:300]})
 
 TMUX_SESSION = "agent"
 
