@@ -46,7 +46,8 @@ services:
       - AKM_DATA_DIR=/data/knowledge
       - AKM_CONTEXT_TOKEN_BUDGET=2000
       - AKM_INTERNAL_SERVICE_TOKEN=${AKM_INTERNAL_SERVICE_TOKEN}
-      - AI_SERVICE_URL=http://ai:8000
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY}
       - EMBEDDING_MODEL=text-embedding-3-small
       - OTEL_SERVICE_NAME=knowledge
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
