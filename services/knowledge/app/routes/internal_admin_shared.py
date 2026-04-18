@@ -237,21 +237,29 @@ async def search_shared(
     if requester_type not in ("user", "agent"):
         raise HTTPException(status_code=422, detail="requester_type must be 'user' or 'agent'")
 
+    from app.services.embeddings import generate_embedding
+
     t0 = time.monotonic()
-    results = await shared_store.search_chunks(
-        pool,
-        q,
-        owner=owner,
-        collection_id=collection_id,
-        limit=limit,
-    )
+    query_embedding = await generate_embedding(q)
+
+    if query_embedding:
+        results = await shared_store.hybrid_search_chunks(
+            pool, q, query_embedding,
+            owner=owner, collection_id=collection_id, limit=limit,
+        )
+        search_type = "hybrid"
+    else:
+        results = await shared_store.search_chunks(
+            pool, q,
+            owner=owner, collection_id=collection_id, limit=limit,
+        )
+        search_type = "fts"
     duration_ms = int((time.monotonic() - t0) * 1000)
 
     results = enrich_results_with_quality(results)
     quality_summary = compute_quality_summary(results)
 
     chunk_ids = [r["chunk_id"] for r in results]
-    # Use the explicit collection_id param, or infer from first result
     resolved_collection_id = collection_id
     if resolved_collection_id is None and results:
         resolved_collection_id = results[0].get("collection_id")
@@ -271,7 +279,7 @@ async def search_shared(
         "query": q,
         "results": results,
         "count": len(results),
-        "search_type": "fts",
+        "search_type": search_type,
         "score_type": "ts_rank",
         "quality_summary": quality_summary,
     }
