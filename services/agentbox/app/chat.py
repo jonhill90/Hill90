@@ -604,6 +604,31 @@ def _build_tool_instruction(tool_names: str, tool_defs: list[dict]) -> str:
             "- Keep changes minimal and focused on the task at hand."
         )
 
+    # Knowledge tool guidance
+    has_search_knowledge = any(t["function"]["name"] == "search_knowledge" for t in tool_defs)
+    has_search_shared = any(t["function"]["name"] == "search_shared_knowledge" for t in tool_defs)
+    has_save_knowledge = any(t["function"]["name"] == "save_knowledge" for t in tool_defs)
+
+    if has_search_knowledge or has_search_shared:
+        knowledge_parts = ["\n\n## Knowledge"]
+        if has_search_shared:
+            knowledge_parts.append(
+                "You have access to a shared knowledge library with platform documentation. "
+                "When asked about the platform, deployment, architecture, secrets, or how things work, "
+                "use `search_shared_knowledge` first to find relevant information before answering."
+            )
+        if has_search_knowledge:
+            knowledge_parts.append(
+                "You also have persistent memory via `search_knowledge` (search your past notes) "
+                "and `save_knowledge` (save new notes, plans, decisions, journals for future reference)."
+            )
+        if has_save_knowledge:
+            knowledge_parts.append(
+                "After completing significant work, save a knowledge entry summarizing what you did "
+                "and any important findings."
+            )
+        parts.extend(knowledge_parts)
+
     return "\n".join(parts)
 
 
