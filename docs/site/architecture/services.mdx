@@ -13,7 +13,7 @@ Hill90 is composed of application services, infrastructure services, and an obse
 |---------|----------|-----|-------------|
 | **API** | TypeScript (Express) | `api.hill90.com` | REST API gateway — agent CRUD, model management, user profiles |
 | **AI (Model-Router)** | Python (FastAPI) | Internal only | Policy-gated LLM inference gateway for agents |
-| **Knowledge (AKM)** | Python (FastAPI) | Internal only | Persistent agent memory with full-text search |
+| **Knowledge (AKM)** | Python (FastAPI) | Internal only | Persistent agent memory with hybrid search (FTS + pgvector) and shared knowledge library |
 | **MCP** | Python (FastAPI) | `ai.hill90.com/mcp` | Model Context Protocol gateway (JWT-authenticated) |
 | **Agentbox** | Python (Starlette/uvicorn) | Internal only | Sandboxed agent runtime containers |
 | **Keycloak** | Java | `auth.hill90.com` | OIDC/OAuth2 identity provider |
@@ -37,7 +37,13 @@ The AI service is an internal model-router gateway — it is not publicly access
 
 ### Knowledge Service (AKM)
 
-The Agent Knowledge Manager provides persistent memory for agent containers. Agents write knowledge entries (plans, decisions, journals, research notes) that survive across sessions. The service provides full-text search, append-only journaling, and intelligent context assembly with configurable token budgets. Knowledge is scoped per agent — agents cannot read each other's entries. Users can browse and search their agents' knowledge via the API service proxy.
+The Agent Knowledge Manager provides persistent memory for agent containers and hosts the shared knowledge library. Agents write knowledge entries (plans, decisions, journals, research notes) that survive across sessions.
+
+**Search** uses a hybrid approach: PostgreSQL full-text search (tsvector/GIN) combined with pgvector semantic similarity. During ingestion, content is chunked and embedded using `text-embedding-3-small` (1536-dimensional vectors via LiteLLM). Queries run both FTS and vector similarity, then merge results with reciprocal rank fusion for better recall than either method alone.
+
+**Shared Knowledge Library** lets users curate collections of documents (text/markdown and web pages) that agents can search during inference. Collections have owner-scoped or shared visibility. Web page ingestion includes SSRF protection (blocked private/loopback CIDRs, DNS pre-check, redirect validation).
+
+The service also provides append-only journaling, intelligent context assembly with configurable token budgets, and aggregate quality metrics (zero-result rates, ingest health, source/corpus stats). Knowledge is scoped per agent — agents cannot read each other's private entries, but can search shared collections. Users can browse and search their agents' knowledge via the API service proxy.
 
 ### Agentbox
 

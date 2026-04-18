@@ -1,0 +1,151 @@
+---
+title: Agent Tools
+description: Complete reference for the 11 tools available to agents running in the agentbox sandbox.
+---
+
+# Agent Tools
+
+Every agent runs inside an agentbox container with access to a set of tools. Tools are registered at agent startup based on the agent's configuration and the services available on the internal network. Some tools are always available; others require specific configuration flags or service connectivity.
+
+## Tool Overview
+
+| Tool | Description | Availability |
+|------|-------------|--------------|
+| `execute_command` | Shell command execution with PTY | `shell.enabled = true` |
+| `read_file` | Read workspace files | `shell.enabled = true` |
+| `write_file` | Write files to workspace | `shell.enabled = true` |
+| `list_directory` | List directory contents | `shell.enabled = true` |
+| `tmux` | Persistent terminal sessions | `shell.enabled = true` |
+| `browser` | Playwright Chromium automation | `shell.enabled = true` |
+| `git` | Workspace version control | `shell.enabled = true` |
+| `http_request` | SSRF-protected external HTTP requests | Always |
+| `save_knowledge` | Persist notes to agent memory | AKM configured |
+| `search_knowledge` | Full-text search of agent memory | AKM configured |
+| `search_shared_knowledge` | Hybrid search across shared knowledge library | AKM configured |
+
+## Shell & Filesystem Tools
+
+These tools require `shell.enabled = true` in the agent's tools configuration.
+
+### execute_command
+
+Executes a shell command inside the agent container with a PTY (pseudo-terminal). Commands run against a binary allowlist -- only explicitly permitted binaries can be invoked. Deny patterns block dangerous operations (e.g., `rm -rf /`, network reconfiguration).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `command` | string | The shell command to execute |
+| `timeout` | integer | Optional execution timeout in seconds |
+
+### read_file
+
+Reads the contents of a file in the agent's workspace. Files up to 1 MB are returned in full. Paths are resolved relative to the workspace root.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | string | Relative or absolute path to the file |
+
+### write_file
+
+Writes content to a file in the agent's workspace. Parent directories are created automatically if they do not exist.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | string | Relative or absolute path to the file |
+| `content` | string | The content to write |
+
+### list_directory
+
+Lists the contents of a directory, returning each entry's name, type (file or directory), and size.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `path` | string | Directory path to list (defaults to workspace root) |
+
+## Terminal & Browser Tools
+
+### tmux
+
+Provides persistent terminal sessions via tmux. Agents can create named sessions, send commands to them, and read their output. Useful for long-running processes, background tasks, and managing multiple concurrent workstreams.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `action` | string | The tmux operation (`create`, `send`, `read`, `list`, `kill`) |
+| `session` | string | Session name |
+| `command` | string | Command to send (for `send` action) |
+
+### browser
+
+Controls a headless Playwright Chromium instance for web interaction. Supports navigation, screenshots, element clicking, text extraction, and JavaScript evaluation.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `action` | string | The browser operation (`navigate`, `screenshot`, `click`, `get_text`, `evaluate`) |
+| `url` | string | Target URL (for `navigate`) |
+| `selector` | string | CSS selector (for `click`, `get_text`) |
+| `script` | string | JavaScript to evaluate (for `evaluate`) |
+| `x` | integer | Click x-coordinate (for `click` without selector) |
+| `y` | integer | Click y-coordinate (for `click` without selector) |
+
+See [Browser Viewer](/features/browser-viewer) for the user-facing observation and control interface.
+
+## Version Control
+
+### git
+
+Workspace-scoped Git operations. Agents can track changes, create commits, view diffs, and inspect history within their workspace.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `action` | string | The git operation (`status`, `add`, `commit`, `diff`, `log`, `init`) |
+| `args` | string | Additional arguments for the operation |
+| `message` | string | Commit message (for `commit`) |
+| `path` | string | File path (for `add`, `diff`) |
+
+## HTTP
+
+### http_request
+
+Makes HTTP requests to external APIs with built-in SSRF protection. Blocks requests to internal/private IP ranges (loopback, RFC 1918, link-local, Tailscale/CGNAT). Responses are capped at 50 KB and requests time out after 30 seconds.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `method` | string | HTTP method (`GET` or `POST`) |
+| `url` | string | Target URL (must resolve to a public IP) |
+| `headers` | object | Optional request headers |
+| `body` | string | Optional request body (for `POST`) |
+
+**Blocked IP ranges:** loopback (`127.0.0.0/8`), RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local (`169.254.0.0/16`), Tailscale/CGNAT (`100.64.0.0/10`), IPv6 private and loopback.
+
+## Knowledge Tools
+
+These tools require the AKM (Agent Knowledge Manager) service to be configured and reachable on the internal network. Knowledge is scoped per agent -- agents cannot access each other's entries.
+
+### save_knowledge
+
+Saves a knowledge entry to the agent's persistent AKM memory. Entries survive across sessions and container restarts. Supports categorization by type for structured retrieval.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `title` | string | Entry title |
+| `content` | string | Entry body (markdown supported) |
+| `type` | string | Entry type (`note`, `plan`, `decision`, `journal`) |
+
+### search_knowledge
+
+Full-text search across the agent's own knowledge entries. Uses PostgreSQL FTS with ranking and snippet highlighting.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | string | Search query (supports natural language) |
+| `type` | string | Optional filter by entry type |
+| `limit` | integer | Maximum number of results to return |
+
+### search_shared_knowledge
+
+Searches the shared knowledge library using hybrid FTS and pgvector semantic search. Returns results from collections visible to the agent's owner (owner-scoped and shared collections). Results include source citations.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `query` | string | Search query |
+| `collection_id` | string | Optional filter by collection |
+| `limit` | integer | Maximum number of results to return |

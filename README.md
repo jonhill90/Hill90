@@ -19,6 +19,18 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - **CI/CD**: GitHub Actions
 - **DNS**: Hostinger DNS API (automated via MCP tools)
 
+## Key Features
+
+- **AI Agent Platform** — Create, configure, and manage AI agents with sandboxed Docker containers
+- **Browser Viewer** — Browser-in-browser experience: Take Control (click, scroll, type), Describe (element picker with chat), URL navigation
+- **Knowledge System** — Dual-layer: agent persistent memory (AKM) + shared knowledge library with pgvector semantic search
+- **11 Agent Tools** — Shell, filesystem, browser, tmux, git, http_request, save/search knowledge, search shared knowledge
+- **Model Management** — BYOK provider connections, model policies, rate limits, usage tracking via LiteLLM
+- **Chat** — Direct and group threads with agents, live session pane (terminal, browser, events)
+- **Claude Code Integration** — ANTHROPIC_API_KEY injected into agent containers for Claude CLI
+- **Vault-First Secrets** — OpenBao vault with SOPS/age backup, AppRole per service, auto-unseal
+- **Full Observability** — Prometheus, Grafana, Loki, Tempo with OpenTelemetry instrumentation
+
 ## Services
 
 | Service | Language | URL | Description |
@@ -31,7 +43,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 | LiteLLM | - | https://litellm.hill90.com | LLM proxy gateway (model routing) |
 | DNS Manager | Python | Internal | DNS-01 challenge webhook for Let's Encrypt |
 | API | TypeScript | https://api.hill90.com | API Gateway |
-| AI | Python | https://ai.hill90.com | LangChain/LangGraph agents |
+| AI | Python | https://ai.hill90.com | Model-router gateway (policy-gated LLM inference) |
 | MCP | Python | https://ai.hill90.com/mcp | MCP Gateway (authenticated) |
 | Keycloak | Java | https://auth.hill90.com | OIDC/OAuth2 identity provider |
 | UI | TypeScript | https://hill90.com | Frontend |
