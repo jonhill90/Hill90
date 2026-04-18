@@ -45,13 +45,14 @@ class TestBuildToolDefinitions:
         )
         defs = build_tool_definitions(config)
         names = [d["function"]["name"] for d in defs]
-        assert len(names) == 6
+        assert len(names) == 7
         assert "execute_command" in names
         assert "read_file" in names
         assert "browser" in names
         assert "write_file" in names
         assert "list_directory" in names
         assert "tmux" in names
+        assert "http_request" in names
 
     def test_tool_definitions_are_valid_openai_format(self):
         config = ToolsConfig(
