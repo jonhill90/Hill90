@@ -1,12 +1,8 @@
-"""Background token refresh for model-router JWT.
+"""Background token refresh for model-router and AKM JWTs.
 
-Runs in a daemon thread. Wakes up periodically and renews the token
-before the 1h expiry. Updates the MODEL_ROUTER_TOKEN env var in-place
-so that subsequent chat.py requests use the new token.
-
-Design mirrors the AKM refresh pattern (single-use refresh secret),
-but calls the API service's /internal/model-router/refresh-token
-endpoint instead of the knowledge service.
+Runs in daemon threads. Wakes up periodically and renews tokens
+before the 1h expiry. Updates env vars in-place so that subsequent
+requests use the new tokens.
 """
 
 import logging
@@ -111,5 +107,53 @@ def start_model_router_refresh_loop() -> threading.Thread | None:
                 logger.warning("Model-router token refresh failed — will retry in %ds", CHECK_INTERVAL_S)
 
     t = threading.Thread(target=_loop, daemon=True, name="model-router-refresh")
+    t.start()
+    return t
+
+
+def start_akm_refresh_loop() -> threading.Thread | None:
+    """Start the AKM token refresh thread if configured. Returns the thread or None."""
+    refresh_url = os.environ.get("AKM_REFRESH_URL")
+    token = os.environ.get("AKM_TOKEN")
+    secret = os.environ.get("AKM_REFRESH_SECRET")
+
+    if not refresh_url or not token or not secret:
+        logger.info("AKM refresh not configured — skipping refresh loop")
+        return None
+
+    def _loop():
+        nonlocal token, secret
+        logger.info("AKM token refresh loop started (margin=%ds)", REFRESH_MARGIN_S)
+
+        while True:
+            time.sleep(CHECK_INTERVAL_S)
+
+            current_token = os.environ.get("AKM_TOKEN", token)
+            exp = _decode_exp(current_token)
+            if exp is None:
+                logger.warning("Cannot decode AKM_TOKEN exp — skipping refresh cycle")
+                continue
+
+            remaining = exp - time.time()
+            if remaining > REFRESH_MARGIN_S:
+                continue
+
+            logger.info("AKM token expires in %.0fs — refreshing", remaining)
+            result = _do_refresh(refresh_url, current_token, secret)
+            if result:
+                new_token = result.get("token")
+                new_secret = result.get("refresh_secret")
+                if new_token and new_secret:
+                    os.environ["AKM_TOKEN"] = new_token
+                    secret = new_secret
+                    os.environ["AKM_REFRESH_SECRET"] = new_secret
+                    token = new_token
+                    logger.info("AKM token refreshed successfully")
+                else:
+                    logger.warning("AKM refresh response missing token or secret")
+            else:
+                logger.warning("AKM token refresh failed — will retry in %ds", CHECK_INTERVAL_S)
+
+    t = threading.Thread(target=_loop, daemon=True, name="akm-refresh")
     t.start()
     return t
