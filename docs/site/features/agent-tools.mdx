@@ -114,7 +114,7 @@ Makes HTTP requests to external APIs with built-in SSRF protection. Blocks reque
 | `headers` | object | Optional request headers |
 | `body` | string | Optional request body (for `POST`) |
 
-**Blocked IP ranges:** loopback (`127.0.0.0/8`), RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), link-local (`169.254.0.0/16`), Tailscale/CGNAT (`100.64.0.0/10`), IPv6 private and loopback.
+**Blocked IP ranges:** loopback, RFC 1918 private ranges, link-local, Tailscale/CGNAT, and IPv6 private/loopback addresses are all blocked to prevent SSRF attacks.
 
 ## Knowledge Tools
 
