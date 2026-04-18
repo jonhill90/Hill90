@@ -18,7 +18,7 @@ function getPrivateKey(): crypto.KeyObject {
   if (!AKM_SIGNING_PRIVATE_KEY) {
     throw new Error('AKM_SIGNING_PRIVATE_KEY not configured');
   }
-  cachedPrivateKey = crypto.createPrivateKey(AKM_SIGNING_PRIVATE_KEY);
+  cachedPrivateKey = crypto.createPrivateKey(AKM_SIGNING_PRIVATE_KEY.replace(/\\n/g, '\n'));
   return cachedPrivateKey;
 }
 
