@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, KeyRound, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity, Zap, Box } from 'lucide-react'
+import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, Plug, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity, Zap, Box } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavLink {
@@ -35,7 +35,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Harness',
     icon: Layers,
     children: [
-      { type: 'link', id: 'connections', label: 'Connections', href: '/harness/connections', icon: KeyRound },
+      { type: 'link', id: 'connections', label: 'Connections', href: '/harness/connections', icon: Plug },
       { type: 'link', id: 'models', label: 'Models', href: '/harness/models', icon: Cpu },
       { type: 'link', id: 'skills', label: 'Skills', href: '/harness/skills', icon: Wrench },
       { type: 'link', id: 'dependencies', label: 'Dependencies', href: '/harness/tools', icon: Package, adminOnly: true },
