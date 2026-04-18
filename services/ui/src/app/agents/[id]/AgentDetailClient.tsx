@@ -142,6 +142,13 @@ export default function AgentDetailClient({
   const [fileLoading, setFileLoading] = useState(false)
   const [fileError, setFileError] = useState<string | null>(null)
 
+  // Summary stats
+  const [summaryStats, setSummaryStats] = useState<{
+    total_inferences: number; total_tokens: number; estimated_cost: number;
+    chat_messages: number; knowledge_entries: number; total_uptime_seconds: number;
+    skills_assigned: number; distinct_models: number;
+  } | null>(null)
+
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'timeline' | 'events' | 'logs'>('timeline')
 
@@ -252,6 +259,15 @@ export default function AgentDetailClient({
     const interval = setInterval(fetchAgent, 10000)
     return () => clearInterval(interval)
   }, [agent?.status, fetchAgent])
+
+  // Fetch summary stats for overview tab
+  useEffect(() => {
+    if (activeTab !== 'overview' || !agent) return
+    fetch(`/api/agents/${agentId}/stats`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setSummaryStats(data) })
+      .catch(() => {})
+  }, [activeTab, agent, agentId])
 
   // Fetch model policy name
   useEffect(() => {
@@ -788,6 +804,53 @@ export default function AgentDetailClient({
               </div>
             )}
           </div>
+
+          {/* Activity Summary */}
+          {summaryStats && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <h2 className="text-lg font-semibold text-white mb-3">Activity Summary</h2>
+              <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <dt className="text-mountain-400">Messages</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{summaryStats.chat_messages.toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Inferences</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{summaryStats.total_inferences.toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Tokens Used</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{summaryStats.total_tokens.toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Est. Cost</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">${summaryStats.estimated_cost.toFixed(2)}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Knowledge Entries</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{summaryStats.knowledge_entries}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Skills</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{summaryStats.skills_assigned}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Models Used</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{summaryStats.distinct_models}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Total Uptime</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">
+                    {summaryStats.total_uptime_seconds >= 86400
+                      ? `${Math.floor(summaryStats.total_uptime_seconds / 86400)}d ${Math.floor((summaryStats.total_uptime_seconds % 86400) / 3600)}h`
+                      : summaryStats.total_uptime_seconds >= 3600
+                        ? `${Math.floor(summaryStats.total_uptime_seconds / 3600)}h ${Math.floor((summaryStats.total_uptime_seconds % 3600) / 60)}m`
+                        : `${Math.floor(summaryStats.total_uptime_seconds / 60)}m`}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )}
 
           {/* Description */}
           {agent.description && (
