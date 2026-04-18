@@ -1248,6 +1248,10 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     if (process.env.CHAT_CALLBACK_TOKEN) {
       chatEnv.push(`CHAT_CALLBACK_TOKEN=${process.env.CHAT_CALLBACK_TOKEN}`);
     }
+    // Claude Code CLI credential handoff (AI-185)
+    if (process.env.ANTHROPIC_API_KEY) {
+      chatEnv.push(`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}`);
+    }
 
     // Resolve agent scope for network assignment
     const effectiveScope = await getAgentEffectiveScope(agent.id);
