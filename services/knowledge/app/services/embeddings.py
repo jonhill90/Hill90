@@ -61,7 +61,9 @@ async def _via_model_router(texts: list[str]) -> list[list[float]] | None:
                 logger.warning("AI service embedding failed: %d %s", resp.status_code, resp.text[:200])
                 return None
             data = resp.json()
-            embeddings = [item["embedding"] for item in data["data"]]
+            # AI service wraps response: {status_code, body: {data: [...]}, ...}
+            body = data.get("body", data)
+            embeddings = [item["embedding"] for item in body["data"]]
             logger.info("Generated %d embeddings via model-router (model=%s, dim=%d)",
                         len(embeddings), EMBEDDING_MODEL, len(embeddings[0]) if embeddings else 0)
             return embeddings
