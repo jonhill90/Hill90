@@ -300,6 +300,42 @@ SEARCH_SHARED_KNOWLEDGE_TOOL = {
     },
 }
 
+HTTP_REQUEST_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "http_request",
+        "description": (
+            "Make an HTTP request to an external API. "
+            "Supports GET and POST. Response body is truncated to 50KB. "
+            "Blocked: internal IPs, localhost, and private ranges."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST"],
+                    "description": "HTTP method",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Full URL (must be https:// or http://)",
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "Optional request headers",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Request body (for POST)",
+                },
+            },
+            "required": ["method", "url"],
+        },
+    },
+}
+
+
 def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     """Build the tools array for the LLM request based on agent config."""
     definitions: list[dict] = []
@@ -322,6 +358,9 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
         definitions.append(SAVE_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_SHARED_KNOWLEDGE_TOOL)
+    # http_request available when shell is enabled
+    if tools_config.shell.enabled:
+        definitions.append(HTTP_REQUEST_TOOL)
     return definitions
 
 
@@ -379,6 +418,9 @@ async def execute_tool_call(
 
     if name == "search_shared_knowledge":
         return await _execute_search_shared_knowledge(arguments)
+
+    if name == "http_request":
+        return await _execute_http_request(arguments)
 
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
@@ -514,6 +556,76 @@ async def _execute_search_shared_knowledge(args: dict) -> str:
                 return json.dumps({"success": False, "error": f"Search failed: {res.status_code}"})
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)[:200]})
+
+
+import ipaddress
+import urllib.parse
+
+_BLOCKED_CIDRS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("100.64.0.0/10"),
+]
+
+
+def _is_blocked_host(hostname: str) -> bool:
+    """Check if hostname resolves to a blocked IP range."""
+    import socket
+    try:
+        addrs = socket.getaddrinfo(hostname, None, socket.AF_INET)
+        for _, _, _, _, (ip, _) in addrs:
+            addr = ipaddress.ip_address(ip)
+            for cidr in _BLOCKED_CIDRS:
+                if addr in cidr:
+                    return True
+    except socket.gaierror:
+        return True  # Can't resolve — block
+    return False
+
+
+async def _execute_http_request(args: dict) -> str:
+    """Make an HTTP request to an external API with SSRF protection."""
+    import httpx
+
+    method = args.get("method", "GET").upper()
+    url = args.get("url", "")
+    headers = args.get("headers") or {}
+    body = args.get("body", "")
+
+    if method not in ("GET", "POST"):
+        return json.dumps({"success": False, "error": "method must be GET or POST"})
+    if not url or not url.startswith(("http://", "https://")):
+        return json.dumps({"success": False, "error": "url must start with http:// or https://"})
+
+    # SSRF protection
+    parsed = urllib.parse.urlparse(url)
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return json.dumps({"success": False, "error": "Invalid URL"})
+    if _is_blocked_host(hostname):
+        return json.dumps({"success": False, "error": "Blocked: internal/private IP range"})
+
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, max_redirects=3) as client:
+            if method == "GET":
+                res = await client.get(url, headers=headers)
+            else:
+                res = await client.post(url, headers=headers, content=body)
+
+            # Truncate response
+            text = res.text[:50_000]
+            return json.dumps({
+                "success": True,
+                "status": res.status_code,
+                "headers": dict(list(res.headers.items())[:20]),
+                "body": text,
+                "truncated": len(res.text) > 50_000,
+            })
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)[:300]})
 
 
 TMUX_SESSION = "agent"
