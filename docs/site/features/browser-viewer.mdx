@@ -1,0 +1,62 @@
+---
+title: Browser Viewer
+description: Live browser-in-browser experience for observing and controlling agent Playwright sessions.
+---
+
+# Browser Viewer
+
+The Browser Viewer is a browser-in-browser pane embedded in the Chat page's session panel. It renders live screenshots from a Playwright Chromium instance running inside the agent container, giving real-time visibility into what an agent sees and does on the web.
+
+## Interaction Modes
+
+### Take Control
+
+Direct interaction with the remote browser. All input is forwarded to the Playwright instance:
+
+- **Click** -- click through to elements on the page.
+- **Scroll** -- mouse wheel events forwarded as-is.
+- **Keyboard** -- keystrokes sent directly to Playwright.
+
+### Describe
+
+Guided interaction for instructing the agent about a specific element:
+
+1. Click an element to select it.
+2. A floating popover appears showing element details (tag, id, classes, CSS selector, raw HTML).
+3. Type a natural-language description of what the agent should do with that element.
+4. Send the description to the chat thread for the agent to act on.
+
+## Navigation Controls
+
+| Control | Behavior |
+|---------|----------|
+| Address bar | Displays current URL. Type a new URL and press Enter to navigate. |
+| Back button | Navigate to the previous page in session history. |
+| Forward button | Navigate to the next page in session history. |
+| Reload button | Reload the current page. |
+
+## Screenshot Refresh
+
+Screenshots refresh automatically after every action (click, navigate, scroll, keypress, type). No manual refresh is required.
+
+## Proxy Chain
+
+All interactions are proxied through the full service stack:
+
+```
+UI (browser) -> Next.js API route -> Express API -> Agentbox (Starlette)
+```
+
+The UI never communicates directly with the agent container.
+
+## Agentbox Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `/browser/click` | Click at coordinates on the page |
+| `/browser/element` | Get element details at coordinates (Describe mode) |
+| `/browser/navigate` | Navigate to a URL |
+| `/browser/history` | Go back or forward in session history |
+| `/browser/scroll` | Scroll the page by a delta |
+| `/browser/type` | Type text into the focused element |
+| `/browser/keypress` | Send a single keystroke to the page |

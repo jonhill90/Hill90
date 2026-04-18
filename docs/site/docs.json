@@ -38,6 +38,13 @@
         ]
       },
       {
+        "group": "Features",
+        "pages": [
+          "features/agent-tools",
+          "features/browser-viewer"
+        ]
+      },
+      {
         "group": "Architecture",
         "pages": [
           "architecture/overview",
