@@ -23,7 +23,7 @@ from app.config import AgentConfig
 from app.ws_terminal import ws_terminal_handler
 from app.events import EventEmitter
 from app.runtime import AgentRuntime
-from app.token_refresh import start_model_router_refresh_loop
+from app.token_refresh import start_model_router_refresh_loop, start_akm_refresh_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -331,6 +331,7 @@ if __name__ == "__main__":
 
     # Start background token refresh loops
     start_model_router_refresh_loop()
+    start_akm_refresh_loop()
 
     logger.info(f"Starting AgentBox-{config.id} server...")
     logger.info(f"  Runtime: /work endpoint {'enabled' if work_token else 'disabled (no WORK_TOKEN)'}")
