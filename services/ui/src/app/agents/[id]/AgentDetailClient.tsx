@@ -142,6 +142,9 @@ export default function AgentDetailClient({
   const [fileLoading, setFileLoading] = useState(false)
   const [fileError, setFileError] = useState<string | null>(null)
 
+  // Activity summary stats
+  const [activityStats, setActivityStats] = useState<Record<string, number> | null>(null)
+
   // Activity sub-view state
   const [activityView, setActivityView] = useState<'timeline' | 'events' | 'logs'>('timeline')
 
@@ -261,6 +264,15 @@ export default function AgentDetailClient({
       .then(data => { if (data?.name) setPolicyName(data.name) })
       .catch(() => {})
   }, [agent?.model_policy_id])
+
+  // Fetch activity summary stats
+  useEffect(() => {
+    if (!agent) return
+    fetch(`/api/agents/${agentId}/stats`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data) setActivityStats(data) })
+      .catch(() => {})
+  }, [agent, agentId])
 
   // Lazy-load usage when Model Access tab selected
   useEffect(() => {
@@ -788,6 +800,54 @@ export default function AgentDetailClient({
               </div>
             )}
           </div>
+
+          {/* Activity Summary */}
+          {activityStats && (
+            <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+              <h2 className="text-lg font-semibold text-white mb-3">Activity Summary</h2>
+              <dl className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <dt className="text-mountain-400">Messages</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{(activityStats.chat_messages ?? 0).toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Inferences</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{(activityStats.total_inferences ?? 0).toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Tokens</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{(activityStats.total_tokens ?? 0).toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Cost</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">${(activityStats.estimated_cost ?? 0).toFixed(2)}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Knowledge</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{activityStats.knowledge_entries ?? 0}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Skills</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{activityStats.skills_assigned ?? 0}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Models</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">{activityStats.distinct_models ?? 0}</dd>
+                </div>
+                <div>
+                  <dt className="text-mountain-400">Uptime</dt>
+                  <dd className="text-white mt-1 text-lg font-mono">
+                    {(() => {
+                      const s = activityStats.total_uptime_seconds ?? 0
+                      if (s >= 86400) return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`
+                      if (s >= 3600) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`
+                      return `${Math.floor(s / 60)}m`
+                    })()}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          )}
 
           {/* Description */}
           {agent.description && (
