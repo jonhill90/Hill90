@@ -12,9 +12,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-AI_SERVICE_URL = os.environ.get("AI_SERVICE_URL", "http://ai:8000")
+LITELLM_URL = os.environ.get("LITELLM_URL", "http://litellm:4000")
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
-AKM_INTERNAL_SERVICE_TOKEN = os.environ.get("AKM_INTERNAL_SERVICE_TOKEN", "")
+LITELLM_MASTER_KEY = os.environ.get("LITELLM_MASTER_KEY", "")
 
 
 async def generate_embeddings(texts: list[str]) -> list[list[float]] | None:
@@ -26,20 +26,20 @@ async def generate_embeddings(texts: list[str]) -> list[list[float]] | None:
     if not texts:
         return []
 
-    if not AKM_INTERNAL_SERVICE_TOKEN:
-        logger.warning("AKM_INTERNAL_SERVICE_TOKEN not set — skipping embeddings")
+    if not LITELLM_MASTER_KEY:
+        logger.warning("LITELLM_MASTER_KEY not set — skipping embeddings")
         return None
 
     try:
         async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
-                f"{AI_SERVICE_URL}/v1/embeddings",
+                f"{LITELLM_URL}/v1/embeddings",
                 json={
                     "model": EMBEDDING_MODEL,
                     "input": texts,
                 },
                 headers={
-                    "Authorization": f"Bearer {AKM_INTERNAL_SERVICE_TOKEN}",
+                    "Authorization": f"Bearer {LITELLM_MASTER_KEY}",
                     "Content-Type": "application/json",
                 },
             )
