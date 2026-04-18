@@ -115,11 +115,17 @@ async def ingest_source(
             chunk_count=len(chunks),
         )
 
-        # Store chunks
+        # Generate embeddings for chunks (best-effort — ingest succeeds without them)
+        from app.services.embeddings import generate_embeddings
+
+        chunk_texts = [c.content for c in chunks]
+        embeddings = await generate_embeddings(chunk_texts)
+
+        # Store chunks (with embeddings if available)
         chunk_tuples = [
             (c.index, c.content, c.token_estimate) for c in chunks
         ]
-        await shared_store.create_chunks(pool, document["id"], chunk_tuples)
+        await shared_store.create_chunks(pool, document["id"], chunk_tuples, embeddings=embeddings)
 
         # Mark job completed
         await shared_store.update_ingest_job(

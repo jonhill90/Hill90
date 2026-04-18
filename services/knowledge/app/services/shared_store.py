@@ -306,22 +306,39 @@ async def create_chunks(
     pool: asyncpg.Pool,
     document_id: str,
     chunks: list[tuple[int, str, int]],
+    embeddings: list[list[float]] | None = None,
 ) -> int:
     """Bulk-insert chunks. Each tuple is (chunk_index, content, token_estimate).
 
+    If embeddings are provided, stores them alongside the chunks.
     Returns the number of chunks inserted.
     """
     doc_uuid = UUID(document_id)
-    records = [
-        (doc_uuid, idx, content, tokens)
-        for idx, content, tokens in chunks
-    ]
-    await pool.executemany(
-        """INSERT INTO shared_chunks (document_id, chunk_index, content, token_estimate)
-           VALUES ($1, $2, $3, $4)""",
-        records,
-    )
-    return len(records)
+
+    if embeddings and len(embeddings) == len(chunks):
+        # Insert with embeddings
+        import json
+        records = [
+            (doc_uuid, idx, content, tokens, json.dumps(emb))
+            for (idx, content, tokens), emb in zip(chunks, embeddings)
+        ]
+        await pool.executemany(
+            """INSERT INTO shared_chunks (document_id, chunk_index, content, token_estimate, embedding)
+               VALUES ($1, $2, $3, $4, $5::vector)""",
+            records,
+        )
+    else:
+        # Insert without embeddings (FTS-only)
+        records = [
+            (doc_uuid, idx, content, tokens)
+            for idx, content, tokens in chunks
+        ]
+        await pool.executemany(
+            """INSERT INTO shared_chunks (document_id, chunk_index, content, token_estimate)
+               VALUES ($1, $2, $3, $4)""",
+            records,
+        )
+    return len(chunks)
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +408,134 @@ async def search_chunks(
     )
 
     return [_serialize(dict(r)) for r in rows]
+
+
+async def vector_search_chunks(
+    pool: asyncpg.Pool,
+    query_embedding: list[float],
+    *,
+    owner: str | None = None,
+    collection_id: str | None = None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Semantic vector search using pgvector cosine similarity.
+
+    Falls back gracefully if embedding column doesn't exist or has no data.
+    """
+    import json
+
+    params: list[Any] = [json.dumps(query_embedding)]
+    conditions = ["sch.embedding IS NOT NULL"]
+    idx = 2
+
+    if owner is not None:
+        conditions.append(
+            f"(sc.created_by = ${idx} OR sc.visibility = 'shared')"
+        )
+        params.append(owner)
+        idx += 1
+
+    if collection_id is not None:
+        conditions.append(f"sc.id = ${idx}")
+        params.append(UUID(collection_id))
+        idx += 1
+
+    where = " AND ".join(conditions)
+    params.append(limit)
+
+    try:
+        rows = await pool.fetch(
+            f"""SELECT
+                    sch.id AS chunk_id,
+                    sch.content,
+                    sch.chunk_index,
+                    sch.token_estimate,
+                    1 - (sch.embedding <=> $1::vector) AS score,
+                    sd.id AS document_id,
+                    sd.title AS document_title,
+                    ss.id AS source_id,
+                    ss.title AS source_title,
+                    ss.source_url,
+                    sc.id AS collection_id,
+                    sc.name AS collection_name
+                FROM shared_chunks sch
+                JOIN shared_documents sd ON sch.document_id = sd.id
+                JOIN shared_sources ss ON sd.source_id = ss.id
+                JOIN shared_collections sc ON ss.collection_id = sc.id
+                WHERE {where}
+                  AND ss.status = 'active'
+                ORDER BY sch.embedding <=> $1::vector
+                LIMIT ${idx}""",
+            *params,
+        )
+        return [_serialize(dict(r)) for r in rows]
+    except Exception as exc:
+        logger.warning("Vector search failed (falling back to FTS): %s", exc)
+        return []
+
+
+async def hybrid_search_chunks(
+    pool: asyncpg.Pool,
+    query: str,
+    query_embedding: list[float] | None = None,
+    *,
+    owner: str | None = None,
+    collection_id: str | None = None,
+    limit: int = 20,
+    vector_weight: float = 0.6,
+) -> list[dict[str, Any]]:
+    """Hybrid search combining FTS keyword matching and vector similarity.
+
+    If no embedding is provided, falls back to FTS-only.
+    Deduplicates results and blends scores with configurable weighting.
+    """
+    # Always run FTS
+    fts_results = await search_chunks(
+        pool, query, owner=owner, collection_id=collection_id, limit=limit
+    )
+
+    if not query_embedding:
+        return fts_results
+
+    # Run vector search
+    vec_results = await vector_search_chunks(
+        pool, query_embedding, owner=owner, collection_id=collection_id, limit=limit
+    )
+
+    if not vec_results:
+        return fts_results
+
+    # Merge: build a map of chunk_id -> result, blend scores
+    merged: dict[str, dict[str, Any]] = {}
+    fts_weight = 1.0 - vector_weight
+
+    for r in fts_results:
+        cid = str(r["chunk_id"])
+        merged[cid] = {**r, "fts_score": float(r.get("score", 0)), "vec_score": 0.0}
+
+    for r in vec_results:
+        cid = str(r["chunk_id"])
+        if cid in merged:
+            merged[cid]["vec_score"] = float(r.get("score", 0))
+        else:
+            merged[cid] = {**r, "fts_score": 0.0, "vec_score": float(r.get("score", 0))}
+            # No headline for vector-only results
+            if "headline" not in merged[cid]:
+                merged[cid]["headline"] = r.get("content", "")[:200]
+
+    # Compute blended score
+    for item in merged.values():
+        item["score"] = (
+            fts_weight * item["fts_score"] + vector_weight * item["vec_score"]
+        )
+        item["search_type"] = (
+            "hybrid" if item["fts_score"] > 0 and item["vec_score"] > 0
+            else "vector" if item["vec_score"] > 0
+            else "fts"
+        )
+
+    results = sorted(merged.values(), key=lambda x: x["score"], reverse=True)[:limit]
+    return results
 
 
 # ---------------------------------------------------------------------------
