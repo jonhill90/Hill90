@@ -1035,6 +1035,33 @@ class ValidateProviderRequest(BaseModel):
     api_base_url: str | None = None
 
 
+@app.post("/internal/embeddings")
+async def internal_embeddings(request: Request, authorization: str = Header(...)):
+    """Generate embeddings for internal services (knowledge). Service-token auth."""
+    settings = get_settings()
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=403, detail="Missing Bearer token")
+    token = authorization[7:]
+    if not hmac.compare_digest(token, settings.model_router_internal_service_token):
+        raise HTTPException(status_code=403, detail="Invalid service token")
+
+    body = await request.json()
+    if _http_client is None:
+        raise HTTPException(status_code=503, detail="HTTP client not initialized")
+
+    try:
+        result = await proxy_embeddings(
+            client=_http_client,
+            litellm_url=settings.litellm_url,
+            litellm_master_key=settings.litellm_master_key,
+            request_body=body,
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error("internal_embeddings_error", error=str(e))
+        raise HTTPException(status_code=502, detail=f"Embedding proxy error: {str(e)[:200]}")
+
+
 @app.post("/internal/validate-provider")
 async def validate_provider(body: ValidateProviderRequest, authorization: str = Header(...)):
     """Validate a provider connection by sending a test request through LiteLLM.
