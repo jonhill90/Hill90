@@ -49,14 +49,31 @@ async def search_shared(
             detail="agent JWT missing owner claim — cannot determine visibility scope",
         )
 
+    # Try hybrid search (FTS + vector) if embeddings are available
+    from app.services.embeddings import generate_embedding
+
     t0 = time.monotonic()
-    results = await shared_store.search_chunks(
-        pool,
-        q,
-        owner=owner,
-        collection_id=collection_id,
-        limit=limit,
-    )
+    query_embedding = await generate_embedding(q)
+
+    if query_embedding:
+        results = await shared_store.hybrid_search_chunks(
+            pool,
+            q,
+            query_embedding,
+            owner=owner,
+            collection_id=collection_id,
+            limit=limit,
+        )
+        search_type = "hybrid"
+    else:
+        results = await shared_store.search_chunks(
+            pool,
+            q,
+            owner=owner,
+            collection_id=collection_id,
+            limit=limit,
+        )
+        search_type = "fts"
     duration_ms = int((time.monotonic() - t0) * 1000)
 
     results = enrich_results_with_quality(results)
@@ -84,8 +101,8 @@ async def search_shared(
         "query": q,
         "results": results,
         "count": len(results),
-        "search_type": "fts",
-        "score_type": "ts_rank",
+        "search_type": search_type,
+        "score_type": "hybrid" if search_type == "hybrid" else "ts_rank",
         "quality_summary": quality_summary,
     }
 
