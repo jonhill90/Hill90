@@ -358,8 +358,9 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
         definitions.append(SAVE_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_SHARED_KNOWLEDGE_TOOL)
-    # http_request always available (SSRF-protected)
-    definitions.append(HTTP_REQUEST_TOOL)
+    # http_request available when shell is enabled
+    if tools_config.shell.enabled:
+        definitions.append(HTTP_REQUEST_TOOL)
     return definitions
 
 
