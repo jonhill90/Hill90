@@ -300,6 +300,42 @@ SEARCH_SHARED_KNOWLEDGE_TOOL = {
     },
 }
 
+HTTP_REQUEST_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "http_request",
+        "description": (
+            "Make an HTTP request to an external API. Supports GET and POST. "
+            "Blocked: internal IPs, loopback, RFC1918, Tailscale/CGNAT ranges. "
+            "Max response 1MB, 30s timeout. Use for calling public REST APIs."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST"],
+                    "description": "HTTP method",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Full URL (must be https:// or http://)",
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "Optional request headers (e.g. {\"Authorization\": \"Bearer ...\"})",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Request body for POST (JSON string)",
+                },
+            },
+            "required": ["method", "url"],
+        },
+    },
+}
+
+
 def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     """Build the tools array for the LLM request based on agent config."""
     definitions: list[dict] = []
@@ -316,6 +352,9 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     # browser is available when shell is enabled (chromium is pre-installed)
     if tools_config.shell.enabled:
         definitions.append(BROWSER_TOOL)
+    # http_request available when shell is enabled
+    if tools_config.shell.enabled:
+        definitions.append(HTTP_REQUEST_TOOL)
     # knowledge tools available when AKM is configured
     import os
     if os.environ.get("AKM_TOKEN") and os.environ.get("AKM_SERVICE_URL"):
@@ -379,6 +418,9 @@ async def execute_tool_call(
 
     if name == "search_shared_knowledge":
         return await _execute_search_shared_knowledge(arguments)
+
+    if name == "http_request":
+        return await _execute_http_request(arguments)
 
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
@@ -817,5 +859,95 @@ async def _execute_browser(args: dict) -> str:
         else:
             return json.dumps({"success": False, "error": f"Unknown browser action: {action}"})
 
+    except Exception as exc:
+        return json.dumps({"success": False, "error": str(exc)[:300]})
+
+
+# ── HTTP Request tool ────────────────────────────────────────────────
+
+_MAX_RESPONSE_BYTES = 1024 * 1024  # 1 MB
+_HTTP_TIMEOUT = 30.0
+
+
+def _is_blocked_ip(host: str) -> bool:
+    """Check if a hostname resolves to a blocked IP range (SSRF protection).
+
+    Blocks: loopback, RFC1918 (10/8, 172.16/12, 192.168/16), link-local,
+    reserved, Tailscale/CGNAT (100.64.0.0/10), IPv6 private/loopback.
+    """
+    import ipaddress
+    import socket
+
+    try:
+        addrs = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False  # DNS failure handled by httpx
+
+    for _family, _, _, _, sockaddr in addrs:
+        try:
+            addr = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            continue
+        if addr.is_loopback or addr.is_private or addr.is_link_local or addr.is_reserved:
+            return True
+        if isinstance(addr, ipaddress.IPv4Address):
+            if addr in ipaddress.ip_network("100.64.0.0/10"):
+                return True
+    return False
+
+
+async def _execute_http_request(args: dict) -> str:
+    """Make an HTTP GET/POST request to an external API with safety checks."""
+    import httpx
+    from urllib.parse import urlparse
+
+    method = args.get("method", "GET").upper()
+    url = args.get("url", "")
+    headers = args.get("headers") or {}
+    body = args.get("body", "")
+
+    if method not in ("GET", "POST"):
+        return json.dumps({"success": False, "error": "method must be GET or POST"})
+    if not url:
+        return json.dumps({"success": False, "error": "url is required"})
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return json.dumps({"success": False, "error": "url must use http:// or https://"})
+    if not parsed.hostname:
+        return json.dumps({"success": False, "error": "url has no hostname"})
+    if _is_blocked_ip(parsed.hostname):
+        return json.dumps({"success": False, "error": "blocked: internal/private IP address"})
+
+    # Sanitize headers
+    safe_headers = {}
+    for k, v in headers.items():
+        if k.lower() not in ("host", "transfer-encoding"):
+            safe_headers[k] = str(v)
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=_HTTP_TIMEOUT,
+            follow_redirects=True,
+            max_redirects=5,
+        ) as client:
+            if method == "GET":
+                resp = await client.get(url, headers=safe_headers)
+            else:
+                resp = await client.post(url, headers=safe_headers, content=body)
+
+            resp_body = resp.text
+            if len(resp_body) > _MAX_RESPONSE_BYTES:
+                resp_body = resp_body[:_MAX_RESPONSE_BYTES] + "\n...(truncated at 1MB)"
+
+            return json.dumps({
+                "success": True,
+                "status": resp.status_code,
+                "headers": dict(list(resp.headers.items())[:20]),
+                "body": resp_body,
+                "url": str(resp.url),
+            })
+    except httpx.TimeoutException:
+        return json.dumps({"success": False, "error": f"Request timed out after {_HTTP_TIMEOUT}s"})
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)[:300]})
