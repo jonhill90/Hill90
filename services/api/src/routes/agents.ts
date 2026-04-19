@@ -496,6 +496,7 @@ router.get('/:id', requireRole('user'), async (req: Request, res: Response) => {
               a.schedule_cron, a.schedule_enabled,
               cp.name AS cp_name, cp.docker_image AS cp_docker_image,
               COALESCE(mp.allowed_models, '[]'::jsonb) AS models,
+              mp.name AS model_policy_name,
               error_message, a.created_at, a.updated_at, a.created_by
        FROM agents a
        LEFT JOIN model_policies mp ON mp.id = a.model_policy_id

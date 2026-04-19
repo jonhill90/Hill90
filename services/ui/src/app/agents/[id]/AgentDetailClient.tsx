@@ -31,6 +31,7 @@ interface Agent {
   rules_md: string
   container_id: string | null
   model_policy_id: string | null
+  model_policy_name: string | null
   models: string[]
   skills: Array<{ id: string; name: string; scope: string; tools?: Array<{ id: string; name: string }>; instructions_md?: string }>
   tags: string[]
@@ -794,7 +795,7 @@ export default function AgentDetailClient({
             {agent.model_policy_id && (
               <div className="mt-3 pt-3 border-t border-navy-700">
                 <dt className="text-mountain-400 text-sm">Model Policy</dt>
-                <dd className="text-white text-sm mt-1">{policyName || agent.model_policy_id}</dd>
+                <dd className="text-white text-sm mt-1">{policyName || agent.model_policy_name || agent.model_policy_id}</dd>
               </div>
             )}
             {agent.error_message && (
@@ -1041,7 +1042,7 @@ export default function AgentDetailClient({
 
           {/* Meta */}
           <div className="text-xs text-mountain-500">
-            Created {new Date(agent.created_at).toLocaleString()} by {agent.created_by}
+            Created {new Date(agent.created_at).toLocaleString()} by {(session as any).user?.sub === agent.created_by ? ((session as any).user?.name || 'you') : agent.created_by?.slice(0, 8) + '…'}
           </div>
 
           {/* Progression: Stats + Artifacts */}
