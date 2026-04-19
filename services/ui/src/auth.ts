@@ -104,6 +104,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       }
       if (session.user) {
         session.user.roles = token.roles
+        session.user.sub = token.sub
       }
       return session
     },
