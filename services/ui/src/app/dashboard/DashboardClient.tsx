@@ -444,7 +444,7 @@ export default function DashboardClient({ session }: { session: Session }) {
       {/* Harness overview */}
       {harness && (
         <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-8">
-          <h2 className="text-lg font-semibold text-white mb-3">Harness Overview</h2>
+          <h2 className="text-lg font-semibold text-white mb-3">Platform Overview</h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             <div>
               <dt className="text-mountain-400">Agents</dt>

@@ -134,13 +134,12 @@ describe('ToolsClient', () => {
     })
   })
 
-  it('nav items include Dependencies entry', () => {
-    const harness = NAV_ITEMS.find((item) => item.type === 'group' && item.id === 'harness') as NavGroup
-    expect(harness).toBeDefined()
-    const deps = harness.children.find((c) => c.id === 'dependencies')
+  it('nav items include Dependencies entry in Admin group', () => {
+    const admin = NAV_ITEMS.find((item) => item.type === 'group' && item.id === 'admin') as NavGroup
+    expect(admin).toBeDefined()
+    const deps = admin.children.find((c) => c.id === 'dependencies')
     expect(deps).toBeDefined()
     expect(deps!.label).toBe('Dependencies')
     expect(deps!.href).toBe('/harness/tools')
-    expect(deps!.adminOnly).toBe(true)
   })
 })

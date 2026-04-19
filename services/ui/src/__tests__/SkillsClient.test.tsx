@@ -370,11 +370,11 @@ describe('SkillsClient', () => {
     expect(scopeSelect.value).toBe('host_docker')
   })
 
-  // T11: Nav says "Skills" with /harness/skills href
-  it('nav items include Skills entry', () => {
-    const harness = NAV_ITEMS.find((item) => item.type === 'group' && item.id === 'harness') as NavGroup
-    expect(harness).toBeDefined()
-    const skills = harness.children.find((c) => c.id === 'skills')
+  // T11: Nav says "Skills" with /harness/skills href inside Build group
+  it('nav items include Skills entry in Build group', () => {
+    const build = NAV_ITEMS.find((item) => item.type === 'group' && item.id === 'build') as NavGroup
+    expect(build).toBeDefined()
+    const skills = build.children.find((c) => c.id === 'skills')
     expect(skills).toBeDefined()
     expect(skills!.label).toBe('Skills')
     expect(skills!.href).toBe('/harness/skills')

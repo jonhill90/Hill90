@@ -86,7 +86,7 @@ describe('Admin nav group in Sidebar', () => {
     expect(servicesLink).toHaveAttribute('href', '/admin/services')
   })
 
-  it('preserves Harness group visibility for non-admin users', () => {
+  it('preserves Build/Connect/Observe groups for non-admin users', () => {
     mockSession = {
       data: { user: { roles: ['user'] } },
       status: 'authenticated',
@@ -94,7 +94,9 @@ describe('Admin nav group in Sidebar', () => {
 
     render(<Sidebar />)
 
-    expect(screen.getByRole('button', { name: /harness/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /build/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /connect/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /observe/i })).toBeInTheDocument()
   })
 })
 
