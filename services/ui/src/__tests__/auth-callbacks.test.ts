@@ -133,8 +133,9 @@ describe('jwt callback', () => {
 })
 
 describe('session callback', () => {
-  it('exposes accessToken and roles on session', async () => {
+  it('exposes accessToken, roles, and sub on session', async () => {
     const token = {
+      sub: 'user-uuid-123',
       accessToken: 'at-123',
       roles: ['admin', 'user'],
       error: undefined,
@@ -148,6 +149,7 @@ describe('session callback', () => {
 
     expect(result.accessToken).toBe('at-123')
     expect(result.user.roles).toEqual(['admin', 'user'])
+    expect(result.user.sub).toBe('user-uuid-123')
     expect(result.error).toBeUndefined()
   })
 
