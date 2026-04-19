@@ -38,7 +38,7 @@ interface RecentThread {
   updated_at: string
 }
 
-const REFRESH_INTERVAL = 60_000
+const REFRESH_INTERVAL = 30_000
 
 function sevenDaysAgo(): string {
   const d = new Date()
