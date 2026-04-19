@@ -80,6 +80,10 @@ export default function WorkflowsClient() {
   const [runs, setRuns] = useState<WorkflowRun[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
   const [running, setRunning] = useState<string | null>(null)
+  const [steps, setSteps] = useState<Array<{ id: string; agent_id: string; agent_name: string; agent_slug: string; prompt: string; step_order: number }>>([])
+  const [stepsLoading, setStepsLoading] = useState(false)
+  const [rightTab, setRightTab] = useState<'runs' | 'steps'>('runs')
+  const [stepForm, setStepForm] = useState({ agent_id: '', prompt: '' })
 
   const [form, setForm] = useState({
     name: '', description: '', agent_id: '', schedule_cron: '*/30 * * * *', prompt: '', output_type: 'none', output_config: '{}', trigger_type: 'cron'
@@ -111,9 +115,18 @@ export default function WorkflowsClient() {
     finally { setRunsLoading(false) }
   }, [])
 
+  const fetchSteps = useCallback(async (workflowId: string) => {
+    setStepsLoading(true)
+    try {
+      const res = await fetch(`/api/workflows/${workflowId}/steps`)
+      if (res.ok) setSteps(await res.json())
+    } catch { /* ignore */ }
+    finally { setStepsLoading(false) }
+  }, [])
+
   useEffect(() => {
-    if (selectedId) fetchRuns(selectedId)
-  }, [selectedId, fetchRuns])
+    if (selectedId) { fetchRuns(selectedId); fetchSteps(selectedId) }
+  }, [selectedId, fetchRuns, fetchSteps])
 
   const handleSubmit = async () => {
     const body = { ...form, output_config: JSON.parse(form.output_config || '{}'), schedule_cron: form.trigger_type === 'webhook' ? null : form.schedule_cron }
@@ -157,6 +170,22 @@ export default function WorkflowsClient() {
       }
     } catch { alert('Failed to run workflow') }
     finally { setRunning(null) }
+  }
+
+  const handleAddStep = async () => {
+    if (!selectedId || !stepForm.agent_id || !stepForm.prompt) return
+    await fetch(`/api/workflows/${selectedId}/steps`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stepForm),
+    })
+    setStepForm({ agent_id: '', prompt: '' })
+    fetchSteps(selectedId)
+  }
+
+  const handleDeleteStep = async (stepId: string) => {
+    if (!selectedId) return
+    await fetch(`/api/workflows/${selectedId}/steps/${stepId}`, { method: 'DELETE' })
+    fetchSteps(selectedId)
   }
 
   const handleEdit = (wf: Workflow) => {
@@ -326,45 +355,89 @@ export default function WorkflowsClient() {
             ))}
           </div>
 
-          {/* Right: Run history */}
+          {/* Right: Runs + Steps */}
           <div className="rounded-lg border border-navy-700 bg-navy-800 p-4">
             {selectedId ? (
               <>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-white">Run History</h3>
-                  <button onClick={() => fetchRuns(selectedId)} className="text-xs text-mountain-400 hover:text-white cursor-pointer">Refresh</button>
+                <div className="flex items-center gap-2 mb-3 border-b border-navy-700 pb-2">
+                  <button onClick={() => setRightTab('runs')} className={`text-sm font-medium px-2 py-1 rounded cursor-pointer ${rightTab === 'runs' ? 'text-brand-400 bg-brand-600/10' : 'text-mountain-400 hover:text-white'}`}>Runs</button>
+                  <button onClick={() => setRightTab('steps')} className={`text-sm font-medium px-2 py-1 rounded cursor-pointer ${rightTab === 'steps' ? 'text-brand-400 bg-brand-600/10' : 'text-mountain-400 hover:text-white'}`}>Steps ({steps.length})</button>
+                  <div className="flex-1" />
+                  <button onClick={() => rightTab === 'runs' ? fetchRuns(selectedId) : fetchSteps(selectedId)} className="text-xs text-mountain-400 hover:text-white cursor-pointer">Refresh</button>
                 </div>
-                {runsLoading ? (
-                  <div className="flex justify-center py-8"><div className="h-5 w-5 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" /></div>
-                ) : runs.length === 0 ? (
-                  <p className="text-sm text-mountain-500 text-center py-8">No runs yet</p>
-                ) : (
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {runs.map(run => (
-                      <div key={run.id} className="rounded border border-navy-600 bg-navy-900 px-3 py-2 text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                            run.status === 'completed' ? 'bg-brand-600/20 text-brand-400' :
-                            run.status === 'running' ? 'bg-amber-600/20 text-amber-400' :
-                            run.status === 'error' ? 'bg-red-600/20 text-red-400' :
-                            'bg-navy-700 text-mountain-400'
-                          }`}>{run.status}</span>
-                          <span className="text-mountain-500">{relativeTime(run.started_at)}</span>
+
+                {rightTab === 'runs' && (
+                  runsLoading ? (
+                    <div className="flex justify-center py-8"><div className="h-5 w-5 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" /></div>
+                  ) : runs.length === 0 ? (
+                    <p className="text-sm text-mountain-500 text-center py-8">No runs yet</p>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto">
+                      {runs.map(run => (
+                        <div key={run.id} className="rounded border border-navy-600 bg-navy-900 px-3 py-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              run.status === 'completed' ? 'bg-brand-600/20 text-brand-400' :
+                              run.status === 'running' ? 'bg-amber-600/20 text-amber-400' :
+                              run.status === 'error' ? 'bg-red-600/20 text-red-400' :
+                              'bg-navy-700 text-mountain-400'
+                            }`}>{run.status}</span>
+                            <span className="text-mountain-500">{relativeTime(run.started_at)}</span>
+                          </div>
+                          {run.duration_ms != null && <div className="text-mountain-500 mt-1">{(run.duration_ms / 1000).toFixed(1)}s</div>}
+                          {run.error && <div className="text-red-400 mt-1 truncate">{run.error}</div>}
+                          {run.thread_id && (
+                            <a href={`/chat/${run.thread_id}`} className="text-brand-400 hover:underline mt-1 inline-block">View chat →</a>
+                          )}
                         </div>
-                        {run.duration_ms != null && <div className="text-mountain-500 mt-1">{(run.duration_ms / 1000).toFixed(1)}s</div>}
-                        {run.error && <div className="text-red-400 mt-1 truncate">{run.error}</div>}
-                        {run.thread_id && (
-                          <a href={`/chat/${run.thread_id}`} className="text-brand-400 hover:underline mt-1 inline-block">View chat →</a>
+                      ))}
+                    </div>
+                  )
+                )}
+
+                {rightTab === 'steps' && (
+                  <div>
+                    {stepsLoading ? (
+                      <div className="flex justify-center py-8"><div className="h-5 w-5 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" /></div>
+                    ) : (
+                      <>
+                        {steps.length === 0 ? (
+                          <p className="text-sm text-mountain-500 text-center py-4">No steps — this workflow runs a single agent. Add steps to chain multiple agents.</p>
+                        ) : (
+                          <div className="space-y-2 mb-3">
+                            {steps.map((step, i) => (
+                              <div key={step.id} className="rounded border border-navy-600 bg-navy-900 px-3 py-2 text-xs flex items-start justify-between">
+                                <div>
+                                  <div className="text-mountain-300 font-medium">Step {i + 1}: <span className="text-white">{step.agent_name}</span></div>
+                                  <div className="text-mountain-500 mt-1 truncate max-w-xs">{step.prompt}</div>
+                                </div>
+                                <button onClick={() => handleDeleteStep(step.id)} className="p-1 text-mountain-400 hover:text-red-400 cursor-pointer"><Trash2 className="w-3 h-3" /></button>
+                              </div>
+                            ))}
+                          </div>
                         )}
-                      </div>
-                    ))}
+                        <div className="border-t border-navy-700 pt-3 mt-3">
+                          <p className="text-xs text-mountain-400 mb-2">Add step</p>
+                          <select value={stepForm.agent_id} onChange={e => setStepForm(f => ({ ...f, agent_id: e.target.value }))}
+                            className="w-full rounded border border-navy-600 bg-navy-900 px-2 py-1.5 text-xs text-white mb-2 focus:border-brand-500 focus:outline-none">
+                            <option value="">Select agent...</option>
+                            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                          <textarea value={stepForm.prompt} onChange={e => setStepForm(f => ({ ...f, prompt: e.target.value }))}
+                            placeholder="Prompt for this step..."
+                            className="w-full rounded border border-navy-600 bg-navy-900 px-2 py-1.5 text-xs text-white mb-2 focus:border-brand-500 focus:outline-none" rows={2} />
+                          <button onClick={handleAddStep} disabled={!stepForm.agent_id || !stepForm.prompt}
+                            className="px-3 py-1 text-xs rounded bg-brand-600 hover:bg-brand-500 text-white disabled:opacity-50 cursor-pointer">Add Step</button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Clock className="w-8 h-8 text-mountain-500 mb-2" />
-                <p className="text-sm text-mountain-400">Select a workflow to see run history</p>
+                <p className="text-sm text-mountain-400">Select a workflow to see details</p>
               </div>
             )}
           </div>
