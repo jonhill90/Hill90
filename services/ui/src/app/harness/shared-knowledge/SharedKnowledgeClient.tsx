@@ -1,7 +1,166 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Database, FileText, FolderOpen, Globe, Search, Plus, AlertCircle, Upload, Trash2 } from 'lucide-react'
+import { Database, FileText, FolderOpen, Globe, Search, Plus, AlertCircle, Upload, Trash2, GitBranch } from 'lucide-react'
+
+// ── Knowledge Graph Component ──────────────────────────────────────
+
+interface GraphNode { id: string; type: string; label: string; meta?: Record<string, unknown> }
+interface GraphEdge { source: string; target: string; label?: string }
+
+function KnowledgeGraph() {
+  const [data, setData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[]; stats: Record<string, number> } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    fetch('/api/shared-knowledge/graph')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { setData(d); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    if (!data || !canvasRef.current) return
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = window.devicePixelRatio || 1
+    const w = canvas.clientWidth
+    const h = canvas.clientHeight
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    ctx.scale(dpr, dpr)
+
+    ctx.fillStyle = '#0f1923'
+    ctx.fillRect(0, 0, w, h)
+
+    const typeColors: Record<string, string> = {
+      collection: '#5b9a2f',
+      source: '#3b82f6',
+      agent: '#f59e0b',
+    }
+    const typeRadius: Record<string, number> = {
+      collection: 24,
+      source: 12,
+      agent: 18,
+    }
+
+    // Layout: collections in center ring, sources around them, agents on right
+    const positions = new Map<string, { x: number; y: number }>()
+    const collections = data.nodes.filter(n => n.type === 'collection')
+    const sources = data.nodes.filter(n => n.type === 'source')
+    const agents = data.nodes.filter(n => n.type === 'agent')
+
+    const cx = w / 2
+    const cy = h / 2
+
+    // Collections in center
+    collections.forEach((c, i) => {
+      const angle = (i / Math.max(collections.length, 1)) * Math.PI * 2 - Math.PI / 2
+      const r = Math.min(w, h) * 0.15
+      positions.set(c.id, { x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r })
+    })
+
+    // Sources around their parent collection
+    const sourcesByCollection = new Map<string, GraphNode[]>()
+    for (const edge of data.edges) {
+      if (!sourcesByCollection.has(edge.source)) sourcesByCollection.set(edge.source, [])
+      const srcNode = sources.find(s => s.id === edge.target)
+      if (srcNode) sourcesByCollection.get(edge.source)!.push(srcNode)
+    }
+
+    for (const [colId, srcs] of sourcesByCollection) {
+      const colPos = positions.get(colId)
+      if (!colPos) continue
+      srcs.forEach((s, i) => {
+        const angle = (i / srcs.length) * Math.PI * 2 - Math.PI / 2
+        const r = Math.min(w, h) * 0.3
+        positions.set(s.id, { x: colPos.x + Math.cos(angle) * r, y: colPos.y + Math.sin(angle) * r })
+      })
+    }
+
+    // Agents on the right side
+    agents.forEach((a, i) => {
+      positions.set(a.id, { x: w - 80, y: 60 + i * 50 })
+    })
+
+    // Draw edges
+    ctx.strokeStyle = '#2d3f54'
+    ctx.lineWidth = 1
+    for (const edge of data.edges) {
+      const from = positions.get(edge.source)
+      const to = positions.get(edge.target)
+      if (!from || !to) continue
+      ctx.beginPath()
+      ctx.moveTo(from.x, from.y)
+      ctx.lineTo(to.x, to.y)
+      ctx.stroke()
+    }
+
+    // Draw nodes
+    for (const node of data.nodes) {
+      const pos = positions.get(node.id)
+      if (!pos) continue
+      const r = typeRadius[node.type] || 10
+      const color = typeColors[node.type] || '#6b7280'
+
+      ctx.fillStyle = color + '33'
+      ctx.strokeStyle = color
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.stroke()
+
+      // Label
+      ctx.fillStyle = '#c9d1d9'
+      ctx.font = `${node.type === 'collection' ? 11 : 9}px system-ui, sans-serif`
+      ctx.textAlign = 'center'
+      const label = node.label.length > 18 ? node.label.slice(0, 16) + '…' : node.label
+      ctx.fillText(label, pos.x, pos.y + r + 14)
+
+      // Chunk count for sources
+      if (node.type === 'source' && node.meta?.chunk_count) {
+        ctx.fillStyle = '#6b7280'
+        ctx.font = '8px system-ui'
+        ctx.fillText(`${node.meta.chunk_count} chunks`, pos.x, pos.y + r + 24)
+      }
+    }
+
+    // Legend
+    ctx.font = '11px system-ui'
+    ctx.textAlign = 'left'
+    let ly = 20
+    for (const [type, color] of Object.entries(typeColors)) {
+      ctx.fillStyle = color
+      ctx.beginPath()
+      ctx.arc(20, ly, 5, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#c9d1d9'
+      ctx.fillText(type.charAt(0).toUpperCase() + type.slice(1), 32, ly + 4)
+      ly += 20
+    }
+  }, [data])
+
+  if (loading) return <div className="flex justify-center py-12"><div className="h-6 w-6 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" /></div>
+  if (!data) return <p className="text-mountain-500 text-center py-8">Failed to load graph</p>
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <GitBranch className="w-4 h-4 text-mountain-400" />
+          <span className="text-sm text-mountain-300">{data.stats.collections} collections · {data.stats.sources} sources · {data.stats.agents_with_knowledge} agents</span>
+        </div>
+      </div>
+      <div className="rounded-lg border border-navy-700 bg-[#0f1923] overflow-hidden">
+        <canvas ref={canvasRef} className="w-full" style={{ height: '450px' }} />
+      </div>
+    </div>
+  )
+}
 
 /**
  * Highlight search terms in content by wrapping them in <b> tags.
@@ -124,7 +283,7 @@ interface SharedStats {
   since: string | null
 }
 
-type Tab = 'collections' | 'search' | 'quality'
+type Tab = 'collections' | 'search' | 'quality' | 'graph'
 
 export default function SharedKnowledgeClient() {
   // Data state
@@ -530,7 +689,20 @@ export default function SharedKnowledgeClient() {
         >
           Quality
         </button>
+        <button
+          onClick={() => setActiveTab('graph')}
+          className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
+            activeTab === 'graph'
+              ? 'text-brand-400 border-b-2 border-brand-500'
+              : 'text-mountain-400 hover:text-white'
+          }`}
+        >
+          Graph
+        </button>
       </div>
+
+      {/* Knowledge Graph Tab */}
+      {activeTab === 'graph' && <KnowledgeGraph />}
 
       {/* Collections & Sources Tab */}
       {activeTab === 'collections' && (

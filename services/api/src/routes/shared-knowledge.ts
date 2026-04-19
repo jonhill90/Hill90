@@ -14,6 +14,71 @@ import * as skProxy from '../services/shared-knowledge-proxy';
 const router = Router();
 
 // ---------------------------------------------------------------------------
+// Knowledge Graph — visual graph of collections, sources, and agent entries
+// ---------------------------------------------------------------------------
+
+router.get('/graph', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const { getPool } = await import('../db/pool');
+    const pool = getPool();
+
+    // Collections
+    const { rows: collections } = await pool.query(
+      `SELECT id, name, visibility FROM shared_collections ORDER BY name`
+    );
+
+    // Sources with chunk counts
+    const { rows: sources } = await pool.query(
+      `SELECT ss.id, ss.title, ss.source_type, ss.collection_id,
+              (SELECT count(*) FROM shared_chunks sc
+               JOIN shared_documents sd ON sc.document_id = sd.id
+               WHERE sd.source_id = ss.id) AS chunk_count
+       FROM shared_sources ss WHERE ss.status = 'active' ORDER BY ss.title`
+    );
+
+    // Agent knowledge entries
+    const { rows: agentEntries } = await pool.query(
+      `SELECT agent_id, count(*) AS entry_count, max(updated_at) AS last_updated
+       FROM knowledge_entries WHERE status = 'active'
+       GROUP BY agent_id`
+    );
+
+    // Build graph
+    const nodes: Array<{ id: string; type: string; label: string; meta?: Record<string, unknown> }> = [];
+    const edges: Array<{ source: string; target: string; label?: string }> = [];
+
+    // Add collection nodes
+    for (const c of collections) {
+      nodes.push({ id: `col-${c.id}`, type: 'collection', label: c.name, meta: { visibility: c.visibility } });
+    }
+
+    // Add source nodes + edges to collections
+    for (const s of sources) {
+      nodes.push({ id: `src-${s.id}`, type: 'source', label: s.title, meta: { source_type: s.source_type, chunk_count: Number(s.chunk_count) } });
+      edges.push({ source: `col-${s.collection_id}`, target: `src-${s.id}`, label: 'contains' });
+    }
+
+    // Add agent nodes + edges
+    for (const a of agentEntries) {
+      nodes.push({ id: `agent-${a.agent_id}`, type: 'agent', label: a.agent_id, meta: { entry_count: Number(a.entry_count) } });
+    }
+
+    res.json({
+      nodes,
+      edges,
+      stats: {
+        collections: collections.length,
+        sources: sources.length,
+        agents_with_knowledge: agentEntries.length,
+      },
+    });
+  } catch (err) {
+    console.error('[shared-knowledge] Graph error:', err);
+    res.status(500).json({ error: 'Failed to build knowledge graph' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Stats
 // ---------------------------------------------------------------------------
 
