@@ -19,7 +19,7 @@ export default defineConfig({
     },
     {
       name: "app",
-      testMatch: ["chat.spec.ts", "agent-chat-flow.spec.ts", "secrets.spec.ts", "workflows.spec.ts", "mcp-servers.spec.ts", "library-search.spec.ts"],
+      testMatch: ["chat.spec.ts", "agent-chat-flow.spec.ts", "secrets.spec.ts", "workflows.spec.ts", "mcp-servers.spec.ts", "library-search.spec.ts", "topbar-features.spec.ts", "storage-upload.spec.ts"],
       use: {
         baseURL: "https://hill90.com",
         browserName: "chromium",
