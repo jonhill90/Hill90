@@ -104,6 +104,10 @@ components:
           format: uuid
           nullable: true
           description: Internal policy reference used by backend model-router plumbing.
+        model_policy_name:
+          type: string
+          nullable: true
+          description: Human-readable name of the model policy (resolved via JOIN).
         models:
           type: array
           items:
