@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import type { Session } from 'next-auth'
-import { Bot, MessageSquare, MessagesSquare, Activity, Plus, BarChart3, ExternalLink, Zap, BookOpen } from 'lucide-react'
+import { Bot, MessageSquare, MessagesSquare, Activity, Plus, BarChart3, ExternalLink, Zap, BookOpen, Clock } from 'lucide-react'
 import StatusBadge from '@/components/StatusBadge'
 
 interface ServiceHealth {
@@ -84,6 +84,7 @@ export default function DashboardClient({ session }: { session: Session }) {
   const [recentThreads, setRecentThreads] = useState<RecentThread[]>([])
   const [workflowCount, setWorkflowCount] = useState(0)
   const [knowledgeSources, setKnowledgeSources] = useState(0)
+  const [recentActivity, setRecentActivity] = useState<Array<{ id: string; message: string; type: string; created_at: string; metadata: any }>>([])
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchChat = useCallback(async () => {
@@ -188,6 +189,7 @@ export default function DashboardClient({ session }: { session: Session }) {
     // Fetch workflow + knowledge counts
     fetch('/api/workflows').then(r => r.ok ? r.json() : []).then(d => setWorkflowCount(Array.isArray(d) ? d.length : 0)).catch(() => {})
     fetch('/api/shared-knowledge/stats').then(r => r.ok ? r.json() : null).then(d => { if (d?.sources?.by_status?.active) setKnowledgeSources(d.sources.by_status.active) }).catch(() => {})
+    fetch('/api/notifications?limit=10').then(r => r.ok ? r.json() : null).then(d => { if (d?.notifications) setRecentActivity(d.notifications.slice(0, 8)) }).catch(() => {})
   }, [checkHealth, fetchHarness, fetchChat])
 
   useEffect(() => {
@@ -389,6 +391,32 @@ export default function DashboardClient({ session }: { session: Session }) {
           )}
         </div>
       </div>
+
+      {/* Recent Activity Feed */}
+      {recentActivity.length > 0 && (
+        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-8">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="h-5 w-5 text-mountain-400" />
+            <h2 className="text-lg font-semibold text-white">Recent Activity</h2>
+          </div>
+          <ul className="space-y-2">
+            {recentActivity.map((event) => (
+              <li key={event.id} className="flex items-start gap-3 py-1.5">
+                <span className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${
+                  event.type === 'agent_error' ? 'bg-red-400' :
+                  event.type === 'agent_start' ? 'bg-brand-400' :
+                  event.type === 'agent_stop' ? 'bg-amber-400' :
+                  'bg-mountain-500'
+                }`} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-white truncate">{event.message}</p>
+                  <p className="text-xs text-mountain-500">{timeAgo(event.created_at)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Session info card */}
       <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 mb-8">
