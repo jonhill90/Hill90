@@ -204,7 +204,7 @@ export default function DashboardClient({ session }: { session: Session }) {
     <>
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+        <Link href="/agents" className="rounded-lg border border-navy-700 bg-navy-800 p-5 hover:border-navy-600 transition-colors">
           <div className="flex items-center gap-3 mb-3">
             <div className="rounded-md bg-brand-400/10 p-2">
               <Bot className="h-5 w-5 text-brand-400" />
@@ -219,9 +219,9 @@ export default function DashboardClient({ session }: { session: Session }) {
               of {harness.agents.total} total
             </p>
           )}
-        </div>
+        </Link>
 
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+        <Link href="/chat" className="rounded-lg border border-navy-700 bg-navy-800 p-5 hover:border-navy-600 transition-colors">
           <div className="flex items-center gap-3 mb-3">
             <div className="rounded-md bg-brand-400/10 p-2">
               <MessageSquare className="h-5 w-5 text-brand-400" />
@@ -229,9 +229,9 @@ export default function DashboardClient({ session }: { session: Session }) {
             <h3 className="text-sm font-medium text-mountain-400">Chat Threads</h3>
           </div>
           <p className="text-3xl font-bold text-white">{chat.threads}</p>
-        </div>
+        </Link>
 
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+        <Link href="/chat" className="rounded-lg border border-navy-700 bg-navy-800 p-5 hover:border-navy-600 transition-colors">
           <div className="flex items-center gap-3 mb-3">
             <div className="rounded-md bg-brand-400/10 p-2">
               <MessagesSquare className="h-5 w-5 text-brand-400" />
@@ -239,9 +239,9 @@ export default function DashboardClient({ session }: { session: Session }) {
             <h3 className="text-sm font-medium text-mountain-400">Messages Today</h3>
           </div>
           <p className="text-3xl font-bold text-white">{chat.messagesToday}</p>
-        </div>
+        </Link>
 
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
+        <Link href="/harness/monitoring" className="rounded-lg border border-navy-700 bg-navy-800 p-5 hover:border-navy-600 transition-colors">
           <div className="flex items-center gap-3 mb-3">
             <div className="rounded-md bg-brand-400/10 p-2">
               <Activity className="h-5 w-5 text-brand-400" />
@@ -260,7 +260,7 @@ export default function DashboardClient({ session }: { session: Session }) {
               {healthyCount === services.length ? 'Operational' : 'Degraded'}
             </p>
           )}
-        </div>
+        </Link>
       </div>
 
       {/* Secondary stats */}
