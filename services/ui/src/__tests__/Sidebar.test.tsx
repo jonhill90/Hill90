@@ -114,7 +114,7 @@ describe('Sidebar', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith('sidebar-collapsed', 'true')
   })
 
-  it('renders Harness nav group', () => {
+  it('renders Build/Connect/Observe nav groups', () => {
     mockSession = {
       data: { user: { roles: ['user'] } },
       status: 'authenticated',
@@ -122,19 +122,21 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    const harnessButton = screen.getByRole('button', { name: /harness/i })
-    expect(harnessButton).toBeInTheDocument()
+    const buildButton = screen.getByRole('button', { name: /build/i })
+    expect(buildButton).toBeInTheDocument()
+    fireEvent.click(buildButton)
+    expect(screen.getByRole('link', { name: /skills/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^library$/i })).toBeInTheDocument()
 
-    fireEvent.click(harnessButton)
-
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }))
     expect(screen.getByRole('link', { name: /connections/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /models/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /observe/i }))
     expect(screen.getByRole('link', { name: /usage/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^knowledge$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^library$/i })).toBeInTheDocument()
   })
 
-  it('highlights active harness route', () => {
+  it('highlights active route in Connect group', () => {
     mockPathname = '/harness/connections'
     mockSession = {
       data: { user: { roles: ['user'] } },
@@ -143,8 +145,7 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    // Expand the Harness group first
-    fireEvent.click(screen.getByRole('button', { name: /harness/i }))
+    fireEvent.click(screen.getByRole('button', { name: /connect/i }))
 
     const connectionsLink = screen.getByRole('link', { name: /connections/i })
     expect(connectionsLink.getAttribute('aria-current')).toBe('page')
@@ -165,7 +166,7 @@ describe('Sidebar', () => {
     expect(label).toHaveClass('sr-only')
   })
 
-  it('T1: nav shows Library label in Harness group', () => {
+  it('T1: nav shows Library label in Build group', () => {
     mockSession = {
       data: { user: { roles: ['user'] } },
       status: 'authenticated',
@@ -173,29 +174,25 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    // Verify sidebar rendered with content (not null)
-    expect(screen.getByRole('link', { name: /home/i })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /harness/i }))
+    fireEvent.click(screen.getByRole('button', { name: /build/i }))
 
     expect(screen.getByText('Library')).toBeInTheDocument()
     expect(screen.queryByText('Shared Knowledge')).not.toBeInTheDocument()
   })
 
-  it('T2: nav shows Dependencies label for admin in Harness group', () => {
+  it('T2: nav shows Dependencies label for admin in Admin group', () => {
     mockSession = {
       data: { user: { roles: ['admin'] } },
       status: 'authenticated',
     }
 
     render(<Sidebar />)
-    fireEvent.click(screen.getByRole('button', { name: /harness/i }))
+    fireEvent.click(screen.getByRole('button', { name: /admin/i }))
 
-    expect(screen.getByText('Connections')).toBeInTheDocument()
     expect(screen.getByText('Dependencies')).toBeInTheDocument()
   })
 
-  it('T3: nav shows Knowledge outside Harness group', () => {
+  it('T3: nav shows Knowledge inside Build group', () => {
     mockSession = {
       data: { user: { roles: ['user'] } },
       status: 'authenticated',
@@ -203,7 +200,7 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    // Knowledge should be visible without expanding Harness
+    fireEvent.click(screen.getByRole('button', { name: /build/i }))
     expect(screen.getByRole('link', { name: /knowledge/i })).toBeInTheDocument()
   })
 

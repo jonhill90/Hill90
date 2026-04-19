@@ -110,11 +110,11 @@ describe('DashboardClient', () => {
     expect(screen.getByText('admin')).toBeInTheDocument()
   })
 
-  it('renders harness overview with agent counts', async () => {
+  it('renders platform overview with agent counts', async () => {
     render(<DashboardClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Harness Overview')).toBeInTheDocument()
+      expect(screen.getByText('Platform Overview')).toBeInTheDocument()
     })
 
     // Total agents
@@ -124,11 +124,11 @@ describe('DashboardClient', () => {
     expect(screen.getByText(/2 stopped/)).toBeInTheDocument()
   })
 
-  it('renders harness overview with model count', async () => {
+  it('renders platform overview with model count', async () => {
     render(<DashboardClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Harness Overview')).toBeInTheDocument()
+      expect(screen.getByText('Platform Overview')).toBeInTheDocument()
     })
 
     expect(screen.getByText('Models')).toBeInTheDocument()
@@ -136,11 +136,11 @@ describe('DashboardClient', () => {
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('renders harness overview with usage totals', async () => {
+  it('renders platform overview with usage totals', async () => {
     render(<DashboardClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Harness Overview')).toBeInTheDocument()
+      expect(screen.getByText('Platform Overview')).toBeInTheDocument()
     })
 
     expect(screen.getByText('Requests (7d)')).toBeInTheDocument()
@@ -161,7 +161,7 @@ describe('DashboardClient', () => {
     expect(screen.getByText('MCP')).toBeInTheDocument()
   })
 
-  it('shows harness overview even when some fetches fail', async () => {
+  it('shows platform overview even when some fetches fail', async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url === '/api/services/health') {
         return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_HEALTH) })
@@ -184,7 +184,7 @@ describe('DashboardClient', () => {
     render(<DashboardClient session={MOCK_SESSION as any} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Harness Overview')).toBeInTheDocument()
+      expect(screen.getByText('Platform Overview')).toBeInTheDocument()
     })
 
     // Should show 0 for everything gracefully (multiple 0s across cards)

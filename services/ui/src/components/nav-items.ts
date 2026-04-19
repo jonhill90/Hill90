@@ -1,4 +1,4 @@
-import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, Plug, Cpu, BarChart3, BookOpen, Library, Wrench, Layers, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity, Zap, Box } from 'lucide-react'
+import { Home, LayoutDashboard, Bot, FileText, Book, ExternalLink, Plug, Cpu, BarChart3, BookOpen, Library, Wrench, Settings, Server, MessageSquare, Package, CheckSquare, Shield, HardDrive, Activity, Zap, Box, Hammer, Link2, Eye } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavLink {
@@ -28,24 +28,39 @@ export const NAV_ITEMS: NavItem[] = [
   { type: 'link', id: 'agents', label: 'Agents', href: '/agents', icon: Bot },
   { type: 'link', id: 'chat', label: 'Chat', href: '/chat', icon: MessageSquare },
   { type: 'link', id: 'tasks', label: 'Tasks', href: '/tasks', icon: CheckSquare },
-  { type: 'link', id: 'knowledge', label: 'Knowledge', href: '/harness/knowledge', icon: BookOpen },
   {
     type: 'group',
-    id: 'harness',
-    label: 'Harness',
-    icon: Layers,
+    id: 'build',
+    label: 'Build',
+    icon: Hammer,
+    children: [
+      { type: 'link', id: 'skills', label: 'Skills', href: '/harness/skills', icon: Wrench },
+      { type: 'link', id: 'workflows', label: 'Workflows', href: '/harness/workflows', icon: Zap },
+      { type: 'link', id: 'knowledge', label: 'Knowledge', href: '/harness/knowledge', icon: BookOpen },
+      { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
+      { type: 'link', id: 'mcp-servers', label: 'MCP Servers', href: '/harness/mcp-servers', icon: Server },
+    ],
+  },
+  {
+    type: 'group',
+    id: 'connect',
+    label: 'Connect',
+    icon: Link2,
     children: [
       { type: 'link', id: 'connections', label: 'Connections', href: '/harness/connections', icon: Plug },
       { type: 'link', id: 'models', label: 'Models', href: '/harness/models', icon: Cpu },
-      { type: 'link', id: 'skills', label: 'Skills', href: '/harness/skills', icon: Wrench },
-      { type: 'link', id: 'dependencies', label: 'Dependencies', href: '/harness/tools', icon: Package, adminOnly: true },
-      { type: 'link', id: 'mcp-servers', label: 'MCP Servers', href: '/harness/mcp-servers', icon: Server },
-      { type: 'link', id: 'usage', label: 'Usage', href: '/harness/usage', icon: BarChart3 },
-      { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
       { type: 'link', id: 'storage', label: 'Storage', href: '/harness/storage', icon: HardDrive },
-      { type: 'link', id: 'monitoring', label: 'Monitoring', href: '/harness/monitoring', icon: Activity },
-      { type: 'link', id: 'workflows', label: 'Workflows', href: '/harness/workflows', icon: Zap },
       { type: 'link', id: 'secrets', label: 'Secrets', href: '/harness/secrets', icon: Shield, adminOnly: true },
+    ],
+  },
+  {
+    type: 'group',
+    id: 'observe',
+    label: 'Observe',
+    icon: Eye,
+    children: [
+      { type: 'link', id: 'usage', label: 'Usage', href: '/harness/usage', icon: BarChart3 },
+      { type: 'link', id: 'monitoring', label: 'Monitoring', href: '/harness/monitoring', icon: Activity },
     ],
   },
   {
@@ -67,6 +82,7 @@ export const NAV_ITEMS: NavItem[] = [
     children: [
       { type: 'link', id: 'admin-services', label: 'Services', href: '/admin/services', icon: Server },
       { type: 'link', id: 'admin-profiles', label: 'Profiles', href: '/admin/profiles', icon: Box },
+      { type: 'link', id: 'dependencies', label: 'Dependencies', href: '/harness/tools', icon: Package },
       { type: 'link', id: 'settings', label: 'Settings', href: '/settings', icon: Settings },
     ],
   },
