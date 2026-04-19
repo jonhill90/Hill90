@@ -2294,6 +2294,15 @@ paths:
         "403":
           description: Not authorized to search this agent's knowledge
 
+  /shared-knowledge/graph:
+    get:
+      summary: Knowledge graph — nodes and edges for visualization
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Graph data with collections, sources, and agent nodes
+
   /shared-knowledge/stats:
     get:
       summary: Shared knowledge quality stats
