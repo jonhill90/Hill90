@@ -28,7 +28,10 @@ export default function McpServersClient() {
   const fetchServers = useCallback(async () => {
     try {
       const res = await fetch('/api/mcp-servers')
-      if (res.ok) setServers(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) setServers(data)
+      }
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [])
