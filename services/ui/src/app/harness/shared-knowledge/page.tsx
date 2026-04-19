@@ -1,12 +1,15 @@
 'use client'
 
 import { useSession } from 'next-auth/react'
-import { redirect } from 'next/navigation'
+import { redirect, useSearchParams } from 'next/navigation'
 import AppShell from '@/components/AppShell'
 import SharedKnowledgeClient from './SharedKnowledgeClient'
 
 export default function SharedKnowledgePage() {
   const { data: session, status } = useSession()
+  const searchParams = useSearchParams()
+  const initialTab = searchParams.get('tab') as 'search' | null
+  const initialQuery = searchParams.get('q') || ''
 
   if (status === 'loading') {
     return (
@@ -23,7 +26,7 @@ export default function SharedKnowledgePage() {
   return (
     <AppShell>
       <main className="flex-1 px-6 py-12 max-w-6xl mx-auto w-full">
-        <SharedKnowledgeClient />
+        <SharedKnowledgeClient initialTab={initialTab || undefined} initialQuery={initialQuery || undefined} />
       </main>
     </AppShell>
   )
