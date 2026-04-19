@@ -5,7 +5,7 @@ description: Hill90 REST API endpoint documentation.
 
 # API Reference
 
-The Hill90 API provides endpoints for agent management, model access configuration, agent knowledge, user profiles, and platform health checks.
+The Hill90 API provides endpoints for agent management, chat, knowledge, model configuration, and platform operations.
 
 ## Base URL
 
@@ -15,119 +15,82 @@ https://api.hill90.com
 
 ## Authentication
 
-Most endpoints require a valid JWT bearer token issued by Keycloak. Include it in the `Authorization` header:
+Most endpoints require a valid JWT bearer token issued by Keycloak:
 
 ```
 Authorization: Bearer YOUR_JWT_TOKEN
 ```
 
-See [Authentication](/getting-started/authentication) for details on obtaining tokens.
+See [Authentication](/getting-started/authentication) for details on obtaining tokens. Health endpoints (`/health`, `/health/detailed`) are public.
 
 ## Endpoint Groups
 
-### Health
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/api-reference/overview#agents">
+    Create, configure, start, stop agents. Manage skills, webhooks, and runtime.
+  </Card>
+  <Card title="Chat" icon="comments" href="/api-reference/overview#chat">
+    Create threads, send messages, stream responses, browser control.
+  </Card>
+  <Card title="Knowledge" icon="book-open" href="/api-reference/knowledge">
+    Agent memory (AKM), shared knowledge library, hybrid search with pgvector.
+  </Card>
+  <Card title="Models & Policies" icon="sliders" href="/api-reference/overview#models">
+    Provider connections, user models, model policies, usage tracking.
+  </Card>
+</CardGroup>
 
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /health` | None | Service health check |
-
-### User
-
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /me` | Bearer | Get current user JWT claims |
-| `GET /profile` | Bearer | Get user profile |
-| `PATCH /profile` | Bearer | Update display name |
-| `POST /profile/avatar` | Bearer | Upload avatar image |
-| `GET /profile/avatar` | Bearer | Get avatar image |
-| `DELETE /profile/avatar` | Bearer | Delete avatar |
-| `POST /profile/password` | Bearer | Change password (not yet implemented) |
+---
 
 ### Agents
 
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /agents` | Bearer | List agents |
-| `POST /agents` | Bearer | Create agent |
-| `GET /agents/{id}` | Bearer | Get agent detail |
-| `PUT /agents/{id}` | Bearer | Update agent |
-| `DELETE /agents/{id}` | Bearer (admin) | Delete agent |
-| `POST /agents/{id}/start` | Bearer (admin) | Start agent container |
-| `POST /agents/{id}/stop` | Bearer (admin) | Stop agent container |
-| `GET /agents/{id}/status` | Bearer | Get agent status |
-| `GET /agents/{id}/logs` | Bearer (admin) | Get agent logs (JSON or SSE stream) |
+Agent lifecycle management — CRUD, start/stop, status, logs, skills, webhooks.
 
-### Knowledge
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/agents` | List agents |
+| `POST` | `/agents` | Create agent |
+| `GET` | `/agents/{id}` | Get agent detail |
+| `PUT` | `/agents/{id}` | Update agent |
+| `DELETE` | `/agents/{id}` | Delete agent (admin) |
+| `POST` | `/agents/{id}/start` | Start container (admin) |
+| `POST` | `/agents/{id}/stop` | Stop container (admin) |
+| `GET` | `/agents/{id}/status` | Get runtime status |
+| `GET` | `/agents/{id}/logs` | Stream logs (admin) |
 
-Browse and search agent knowledge entries. Agents write knowledge; humans browse it here.
+### Chat
 
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /knowledge/agents` | Bearer | List agents with knowledge stats |
-| `GET /knowledge/entries` | Bearer | List entries for an agent |
-| `GET /knowledge/entries/{agentId}/{path}` | Bearer | Read a specific entry |
-| `GET /knowledge/search` | Bearer | Full-text search across entries |
+Real-time chat with agents — threads, messages, SSE streaming, browser control.
 
-See [Knowledge API](/api-reference/knowledge) for details on access scoping.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/chat/threads` | List threads |
+| `POST` | `/chat/threads` | Create thread |
+| `POST` | `/chat/threads/{id}/messages` | Send message |
+| `GET` | `/chat/threads/{id}/stream` | SSE response stream |
+| `GET` | `/chat/threads/{id}/screenshot` | Browser screenshot |
+| `POST` | `/chat/threads/{id}/browser-click` | Click in browser |
+| `POST` | `/chat/threads/{id}/browser-navigate` | Navigate browser |
+| `POST` | `/chat/threads/{id}/browser-element` | Get element info |
+| `POST` | `/chat/threads/{id}/browser-scroll` | Scroll browser |
+| `POST` | `/chat/threads/{id}/browser-type` | Type in browser |
 
-### Provider Connections
+### Models
 
-Manage your own API key connections to LLM providers. Keys are encrypted at rest and never returned in responses.
+Provider connections, user models, and model policies for BYOK inference.
 
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /provider-connections` | Bearer | List your provider connections |
-| `POST /provider-connections` | Bearer | Create a provider connection |
-| `PUT /provider-connections/{id}` | Bearer | Update a provider connection |
-| `DELETE /provider-connections/{id}` | Bearer | Delete a provider connection |
-| `POST /provider-connections/{id}/validate` | Bearer | Test if a provider key is valid |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET/POST` | `/provider-connections` | Manage API key connections |
+| `POST` | `/provider-connections/{id}/validate` | Test provider key |
+| `GET/POST` | `/user-models` | Manage models |
+| `GET/POST` | `/model-policies` | Manage access policies |
+| `GET` | `/usage` | Query usage statistics |
 
-### User Models
+<Tip>
+Model names are resolved through a chain: **requested model** → **alias resolution** → **BYOK provider model**. See the [OpenAPI spec](/openapi.yaml) for full schema details.
+</Tip>
 
-Define models that reference your provider connections. Model names must not conflict with platform models.
+## Auto-Generated Pages
 
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /user-models` | Bearer | List your models |
-| `POST /user-models` | Bearer | Create a user model |
-| `PUT /user-models/{id}` | Bearer | Update a user model |
-| `DELETE /user-models/{id}` | Bearer | Delete a user model |
-
-### Model Policies
-
-Control which models an agent can access, with optional rate limits and token budgets. Users can create and manage their own policies; admins can also create platform-wide policies.
-
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /model-policies` | Bearer | List policies (own + platform) |
-| `POST /model-policies` | Bearer | Create a model policy |
-| `GET /model-policies/{id}` | Bearer | Get policy detail |
-| `PUT /model-policies/{id}` | Bearer | Update a policy |
-| `DELETE /model-policies/{id}` | Bearer | Delete a policy |
-
-### Usage
-
-Query model usage statistics with filtering and grouping options. Users see their own usage; admins see all.
-
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /usage` | Bearer | Query usage (filter by agent, model, date; group by agent, model, day) |
-
-### Model Naming & Resolution
-
-When an agent makes an inference request, the model name goes through a resolution chain:
-
-1. **Requested model** — the model name in the HTTP request body (`body.model`). May be an alias or a direct model name.
-2. **Resolved model** — after alias resolution. If the requested name is an alias defined in the agent's model policy, it resolves to the target model name. Otherwise, the requested name passes through unchanged. Alias resolution is single-pass (no recursion).
-3. **Provider model ID** — after BYOK resolution. If the resolved model matches a user model backed by a provider connection, the provider-prefixed model ID (e.g., `openai/gpt-4o-mini`) is sent to the provider. This is the actual model identifier used for inference.
-
-Usage records store all three values:
-- `model_name` — the resolved model name (step 2)
-- `requested_model` — the original request name (step 1, may equal `model_name` if no alias was used)
-- `provider_model_id` — the provider-side identifier (step 3, null for denial paths and pre-BYOK errors)
-
-Model aliases are defined per policy via `model_aliases` (a JSON object mapping alias to real model name). Alias targets must be in the policy's `allowed_models` list.
-
-## Auto-Generated Documentation
-
-The endpoint pages in this section are auto-generated from the [OpenAPI specification](/openapi.yaml). Each endpoint page includes request/response schemas, parameter details, and example payloads.
+The individual endpoint pages below are auto-generated from the [OpenAPI specification](/openapi.yaml) with request/response schemas and example payloads.
