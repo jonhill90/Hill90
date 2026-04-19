@@ -1046,7 +1046,7 @@ export default function AgentDetailClient({
 
           {/* Meta */}
           <div className="text-xs text-mountain-500">
-            Created {new Date(agent.created_at).toLocaleString()} by {(session as any).user?.sub === agent.created_by ? ((session as any).user?.name || 'you') : agent.created_by?.slice(0, 8) + '…'}
+            Created {new Date(agent.created_at).toLocaleString()} by {session.user?.sub === agent.created_by ? (session.user?.name || 'you') : agent.created_by?.slice(0, 8) + '…'}
           </div>
 
           {/* Progression: Stats + Artifacts */}
