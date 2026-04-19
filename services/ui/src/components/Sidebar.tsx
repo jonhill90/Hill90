@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
@@ -34,6 +34,26 @@ export default function Sidebar() {
   const { data: session } = useSession()
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [expanded, setExpanded] = useState(readExpandState)
+
+  // Auto-expand group containing the active route on first visit
+  useEffect(() => {
+    setExpanded((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const item of NAV_ITEMS) {
+        if (item.type !== 'group') continue
+        if (next[item.id] !== undefined) continue // already has stored preference
+        try {
+          if (localStorage.getItem(`nav-expanded-${item.id}`) !== null) continue
+        } catch { /* SSR */ }
+        const hasActiveChild = item.children.some(
+          (c) => pathname === c.href || pathname.startsWith(c.href + '/')
+        )
+        if (hasActiveChild) { next[item.id] = true; changed = true }
+      }
+      return changed ? next : prev
+    })
+  }, [pathname])
 
   if (!session) return null
 
