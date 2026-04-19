@@ -795,7 +795,11 @@ export default function AgentDetailClient({
             {agent.model_policy_id && (
               <div className="mt-3 pt-3 border-t border-navy-700">
                 <dt className="text-mountain-400 text-sm">Model Policy</dt>
-                <dd className="text-white text-sm mt-1">{policyName || agent.model_policy_name || agent.model_policy_id}</dd>
+                <dd className="text-white text-sm mt-1">{(() => {
+                  const name = policyName || agent.model_policy_name || agent.model_policy_id
+                  if (name?.startsWith('agent-models-')) return `Auto (${agent.agent_id})`
+                  return name
+                })()}</dd>
               </div>
             )}
             {agent.error_message && (
