@@ -46,7 +46,8 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [fileToast, setFileToast] = useState(false)
+  const [fileToast, setFileToast] = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [sessionPaneOpen, setSessionPaneOpen] = useState(false)
   const [activeSessionTab, setActiveSessionTab] = useState<'terminal' | 'events' | 'browser'>('terminal')
   const [participantPanelOpen, setParticipantPanelOpen] = useState(false)
@@ -409,21 +410,45 @@ export default function ChatView({ threadId, session, thread, onBack, onThreadUp
           </div>
         )}
 
-        {/* File upload toast */}
+        {/* File upload feedback */}
         {fileToast && (
           <div className="px-4 py-2 bg-navy-800 border-t border-navy-700" data-testid="file-toast">
-            <p className="text-sm text-mountain-400">File upload coming soon</p>
+            <p className="text-sm text-brand-400">{fileToast}</p>
           </div>
         )}
 
         {/* Input */}
         <div className="px-4 py-3 border-t border-navy-700 bg-navy-900/50">
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file) return
+              setFileToast(`Uploading ${file.name}...`)
+              try {
+                const formData = new FormData()
+                formData.append('file', file)
+                const res = await fetch('/api/storage/buckets/chat-attachments/upload', { method: 'POST', body: formData })
+                if (res.ok) {
+                  const data = await res.json()
+                  const fileUrl = data.url || `[Attached: ${file.name}]`
+                  setInput(prev => prev + (prev ? '\n' : '') + `[File: ${file.name}](${fileUrl})`)
+                  setFileToast(`${file.name} attached`)
+                } else {
+                  setFileToast('Upload failed')
+                }
+              } catch {
+                setFileToast('Upload failed')
+              }
+              setTimeout(() => setFileToast(''), 3000)
+              e.target.value = ''
+            }}
+          />
           <div className="flex gap-2 items-end">
             <button
-              onClick={() => {
-                setFileToast(true)
-                setTimeout(() => setFileToast(false), 3000)
-              }}
+              onClick={() => fileInputRef.current?.click()}
               className="p-2 text-mountain-400 hover:text-white hover:bg-navy-700 rounded-lg transition-colors flex-shrink-0"
               aria-label="Attach file"
               data-testid="attach-file-button"
