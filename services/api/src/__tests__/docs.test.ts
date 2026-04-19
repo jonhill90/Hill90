@@ -237,6 +237,7 @@ const EXPECTED_PATHS = [
   '/workflows/{id}',
   '/workflows/{id}/run',
   '/workflows/{id}/runs',
+  '/workflows/webhook/{token}',
   '/mcp-servers',
   '/mcp-servers/{id}',
 ];
@@ -323,7 +324,7 @@ describe('Spec contract enforcement', () => {
       for (const [method, operation] of Object.entries(pathItem)) {
         if (method === 'parameters') continue;
         const op = operation as any;
-        if (pathKey === '/health' || pathKey === '/health/detailed') {
+        if (pathKey === '/health' || pathKey === '/health/detailed' || pathKey.includes('/webhook/')) {
           expect(op.security).toEqual([]);
         } else {
           expect(op.security).toBeDefined();

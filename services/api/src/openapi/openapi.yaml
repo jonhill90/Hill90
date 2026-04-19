@@ -5400,3 +5400,22 @@ paths:
       responses:
         "200":
           description: MCP server deleted
+
+  /workflows/webhook/{token}:
+
+    post:
+      summary: Inbound webhook trigger (public, no auth)
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow triggered
+        "404":
+          description: Webhook not found
+        "409":
+          description: Agent not running
