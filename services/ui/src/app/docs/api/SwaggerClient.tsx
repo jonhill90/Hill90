@@ -104,6 +104,44 @@ export default function SwaggerClient({ url }: { url: string }) {
         .swagger-dark .swagger-ui .wrapper {
           padding: 0;
         }
+        .swagger-dark .swagger-ui .btn {
+          color: #c9d1d9;
+          border-color: #2d3f54;
+        }
+        .swagger-dark .swagger-ui .btn:hover {
+          background: #1a2332;
+        }
+        .swagger-dark .swagger-ui .btn.execute {
+          background: #6db33a;
+          color: white;
+          border-color: #6db33a;
+        }
+        .swagger-dark .swagger-ui .btn.try-out__btn {
+          color: #6db33a;
+          border-color: #6db33a;
+        }
+        .swagger-dark .swagger-ui .responses-inner {
+          background: transparent;
+        }
+        .swagger-dark .swagger-ui .response-col_description__inner p,
+        .swagger-dark .swagger-ui .response-col_description__inner div {
+          color: #c9d1d9;
+        }
+        .swagger-dark .swagger-ui .renderedMarkdown p {
+          color: #c9d1d9;
+        }
+        .swagger-dark .swagger-ui .model-toggle::after {
+          filter: invert(0.7);
+        }
+        .swagger-dark .swagger-ui .loading-container .loading::after {
+          color: #c9d1d9;
+        }
+        .swagger-dark .swagger-ui .download-contents {
+          color: #6db33a;
+        }
+        .swagger-dark .swagger-ui .copy-to-clipboard {
+          filter: invert(0.7);
+        }
       `}</style>
     </div>
   )
