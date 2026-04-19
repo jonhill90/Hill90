@@ -39,6 +39,7 @@ export const NAV_ITEMS: NavItem[] = [
       { type: 'link', id: 'models', label: 'Models', href: '/harness/models', icon: Cpu },
       { type: 'link', id: 'skills', label: 'Skills', href: '/harness/skills', icon: Wrench },
       { type: 'link', id: 'dependencies', label: 'Dependencies', href: '/harness/tools', icon: Package, adminOnly: true },
+      { type: 'link', id: 'mcp-servers', label: 'MCP Servers', href: '/harness/mcp-servers', icon: Server },
       { type: 'link', id: 'usage', label: 'Usage', href: '/harness/usage', icon: BarChart3 },
       { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
       { type: 'link', id: 'storage', label: 'Storage', href: '/harness/storage', icon: HardDrive },
