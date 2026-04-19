@@ -24,7 +24,10 @@ export default function AgentWebhooks({ agentId }: { agentId: string }) {
   const fetchWebhooks = useCallback(async () => {
     try {
       const res = await fetch(`/api/agents/${agentId}/webhooks`)
-      if (res.ok) setWebhooks(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) setWebhooks(data)
+      }
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [agentId])
