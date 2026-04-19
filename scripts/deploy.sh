@@ -180,7 +180,7 @@ cmd_infra() {
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
             echo "Building and pulling images..."
-            docker compose -p "hill90-${env}-edge" -f "$compose_file" build --parallel
+            docker compose -p "hill90-${env}-edge" -f "$compose_file" build --parallel --no-cache
             docker compose -p "hill90-${env}-edge" -f "$compose_file" pull --ignore-buildable
 
             echo "Deploying edge stack (traefik, dns-manager, portainer)..."
@@ -501,7 +501,7 @@ cmd_service() {
                     docker rm -f "$container" 2>/dev/null || true
                 done
                 echo "Building and pulling images..."
-                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel --no-cache
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
                 echo "Deploying '"$service"' service..."
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d
@@ -509,7 +509,7 @@ cmd_service() {
         else
             sops exec-env "$secrets_file" '
                 echo "Building and pulling images..."
-                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel --no-cache
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
                 echo "Deploying '"$service"' service..."
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d --force-recreate --no-deps
