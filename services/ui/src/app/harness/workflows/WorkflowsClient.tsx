@@ -136,7 +136,7 @@ export default function WorkflowsClient() {
     if (res.ok) {
       setShowForm(false)
       setEditingId(null)
-      setForm({ name: '', description: '', agent_id: '', schedule_cron: '*/30 * * * *', prompt: '', output_type: 'none', output_config: '{}' })
+      setForm({ name: '', description: '', agent_id: '', schedule_cron: '*/30 * * * *', prompt: '', output_type: 'none', output_config: '{}', trigger_type: 'cron' })
       fetchWorkflows()
     }
   }
@@ -193,10 +193,11 @@ export default function WorkflowsClient() {
       name: wf.name,
       description: wf.description || '',
       agent_id: wf.agent_id,
-      schedule_cron: wf.schedule_cron,
+      schedule_cron: wf.schedule_cron || '*/30 * * * *',
       prompt: wf.prompt,
       output_type: wf.output_type,
       output_config: JSON.stringify(wf.output_config || {}),
+      trigger_type: wf.trigger_type || 'cron',
     })
     setEditingId(wf.id)
     setShowForm(true)
@@ -214,7 +215,7 @@ export default function WorkflowsClient() {
           <p className="text-mountain-400 text-sm mt-1">{workflows.length} workflow{workflows.length !== 1 ? 's' : ''}</p>
         </div>
         <button
-          onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', description: '', agent_id: '', schedule_cron: '*/30 * * * *', prompt: '', output_type: 'none', output_config: '{}' }) }}
+          onClick={() => { setShowForm(true); setEditingId(null); setForm({ name: '', description: '', agent_id: '', schedule_cron: '*/30 * * * *', prompt: '', output_type: 'none', output_config: '{}', trigger_type: 'cron' }) }}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium cursor-pointer"
         >
           <Plus className="w-4 h-4" /> New Workflow
