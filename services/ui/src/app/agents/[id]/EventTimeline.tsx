@@ -294,7 +294,7 @@ export default function EventTimeline({
     filter === 'All'
       ? events
       : filter === 'Runtime'
-        ? events.filter((e) => e.tool !== 'inference')
+        ? events.filter((e) => e.tool === 'runtime')
         : events.filter((e) => e.tool === filter.toLowerCase())
 
   const segments = useMemo(() => buildSegments(filtered, groups), [filtered, groups])
