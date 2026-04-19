@@ -99,25 +99,30 @@ export default function TopBar({ navExtra }: TopBarProps) {
   const notifRef = useRef<HTMLDivElement>(null)
   const { data: session } = useSession()
 
-  // Fetch real notifications from API
+  // Fetch real notifications from API (poll every 60s)
   useEffect(() => {
     if (!session) return
-    fetch('/api/notifications')
-      .then(r => r.ok ? r.json() : [])
-      .then(data => {
-        if (Array.isArray(data)) {
-          setNotifications(data.slice(0, 20).map((n: any) => ({
-            id: n.id,
-            type: n.type === 'agent_error' ? 'error' : n.type === 'agent_start' ? 'success' : 'info',
-            title: n.message?.split(':')[0] || n.type || 'Notification',
-            message: n.message || '',
-            agentName: n.metadata?.agent_slug || '',
-            timestamp: n.created_at,
-            read: n.read,
-          })))
-        }
-      })
-      .catch(() => {})
+    const fetchNotifs = () => {
+      fetch('/api/notifications')
+        .then(r => r.ok ? r.json() : [])
+        .then(data => {
+          if (Array.isArray(data)) {
+            setNotifications(data.slice(0, 20).map((n: any) => ({
+              id: n.id,
+              type: n.type === 'agent_error' ? 'error' : n.type === 'agent_start' ? 'success' : 'info',
+              title: n.message?.split(':')[0] || n.type || 'Notification',
+              message: n.message || '',
+              agentName: n.metadata?.agent_slug || '',
+              timestamp: n.created_at,
+              read: n.read,
+            })))
+          }
+        })
+        .catch(() => {})
+    }
+    fetchNotifs()
+    const interval = setInterval(fetchNotifs, 60_000)
+    return () => clearInterval(interval)
   }, [session])
 
   const unreadCount = notifications.filter(n => !n.read).length
