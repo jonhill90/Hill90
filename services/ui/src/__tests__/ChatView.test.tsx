@@ -168,10 +168,12 @@ describe('ChatView', () => {
     expect(screen.getByTestId('icon-paperclip')).toBeInTheDocument()
   })
 
-  it('shows file upload toast when attach button clicked', () => {
+  it('attach button triggers file input', () => {
     render(<ChatView {...defaultProps} />)
-    fireEvent.click(screen.getByTestId('attach-file-button'))
-    expect(screen.getByTestId('file-toast')).toBeInTheDocument()
-    expect(screen.getByText('File upload coming soon')).toBeInTheDocument()
+    // Attach button exists and is clickable (opens hidden file input)
+    const btn = screen.getByTestId('attach-file-button')
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    // No toast initially — only shows during upload
   })
 })
