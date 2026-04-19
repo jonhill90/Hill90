@@ -9,7 +9,7 @@
  */
 
 import { getPool } from '../db/pool';
-import { parseExpression } from 'cron-parser';
+import cronParser from 'cron-parser';
 import { dispatchChatWork } from './chat-dispatch';
 
 const CHECK_INTERVAL_MS = 60_000;
@@ -193,7 +193,7 @@ async function executeWorkflow(pool: any, wf: any): Promise<void> {
 
 function computeNextRun(cronExpr: string): Date | null {
   try {
-    const interval = parseExpression(cronExpr);
+    const interval = cronParser.parseExpression(cronExpr);
     return interval.next().toDate();
   } catch {
     return null;
