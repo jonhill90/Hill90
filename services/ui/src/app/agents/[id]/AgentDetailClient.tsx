@@ -11,6 +11,7 @@ import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
 import WorkspaceBrowser from './WorkspaceBrowser'
 import AgentMcpServers from './AgentMcpServers'
+import AgentWebhooks from './AgentWebhooks'
 import AgentKnowledge from './AgentKnowledge'
 import { Camera, Download } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
@@ -1375,6 +1376,9 @@ export default function AgentDetailClient({
 
           {/* MCP Servers */}
           <AgentMcpServers agentId={agent.id} agentStatus={agent.status} />
+
+          {/* Webhooks & Discord */}
+          <AgentWebhooks agentId={agent.id} />
         </div>
       )}
 
