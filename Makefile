@@ -113,13 +113,19 @@ dev-logs: ## Show development logs
 dev-down: ## Stop development environment
 	docker compose -f deploy/compose/dev/docker-compose.yml down
 
-test: ## Run all tests
-	@echo "$(COLOR_BOLD)Running tests...$(COLOR_RESET)"
-	@echo "$(COLOR_BLUE)Testing API service...$(COLOR_RESET)"
-	cd services/api && npm test || true
-	@echo "$(COLOR_BLUE)Testing AI service...$(COLOR_RESET)"
-	cd services/ai && poetry run pytest || true
-	@echo "$(COLOR_GREEN)Tests complete!$(COLOR_RESET)"
+test: ## Run all tests (API + UI + agentbox + infra + checks)
+	@echo "$(COLOR_BOLD)Running all test suites...$(COLOR_RESET)"
+	@echo "$(COLOR_BLUE)API tests (jest)...$(COLOR_RESET)"
+	cd services/api && npx jest --silent || true
+	@echo "$(COLOR_BLUE)UI tests (vitest)...$(COLOR_RESET)"
+	cd services/ui && npx vitest run || true
+	@echo "$(COLOR_BLUE)Agentbox tests (pytest)...$(COLOR_RESET)"
+	cd services/agentbox && python3 -m pytest tests/ -q || true
+	@echo "$(COLOR_BLUE)Infrastructure tests (bats)...$(COLOR_RESET)"
+	bats tests/scripts/*.bats || true
+	@echo "$(COLOR_BLUE)Check scripts (pytest)...$(COLOR_RESET)"
+	python3 -m pytest tests/checks/ -q || true
+	@echo "$(COLOR_GREEN)All test suites complete!$(COLOR_RESET)"
 
 lint: ## Lint all code
 	@echo "$(COLOR_BOLD)Linting code...$(COLOR_RESET)"
