@@ -10,6 +10,14 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "smoke",
+      testMatch: "smoke.spec.ts",
+      use: {
+        baseURL: "https://hill90.com",
+        browserName: "chromium",
+      },
+    },
+    {
       name: "auth",
       testMatch: "auth-theme.spec.ts",
       use: {
