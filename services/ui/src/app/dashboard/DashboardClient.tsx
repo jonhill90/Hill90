@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import type { Session } from 'next-auth'
-import { Bot, MessageSquare, MessagesSquare, Activity, Plus, BarChart3, ExternalLink } from 'lucide-react'
+import { Bot, MessageSquare, MessagesSquare, Activity, Plus, BarChart3, ExternalLink, Zap, BookOpen } from 'lucide-react'
 import StatusBadge from '@/components/StatusBadge'
 
 interface ServiceHealth {
@@ -82,6 +82,8 @@ export default function DashboardClient({ session }: { session: Session }) {
   const [chat, setChat] = useState<ChatSummary>({ threads: 0, messagesToday: 0 })
   const [activeAgents, setActiveAgents] = useState<AgentInfo[]>([])
   const [recentThreads, setRecentThreads] = useState<RecentThread[]>([])
+  const [workflowCount, setWorkflowCount] = useState(0)
+  const [knowledgeSources, setKnowledgeSources] = useState(0)
   const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchChat = useCallback(async () => {
@@ -183,6 +185,9 @@ export default function DashboardClient({ session }: { session: Session }) {
     checkHealth()
     fetchHarness()
     fetchChat()
+    // Fetch workflow + knowledge counts
+    fetch('/api/workflows').then(r => r.ok ? r.json() : []).then(d => setWorkflowCount(Array.isArray(d) ? d.length : 0)).catch(() => {})
+    fetch('/api/shared-knowledge/stats').then(r => r.ok ? r.json() : null).then(d => { if (d?.sources?.by_status?.active) setKnowledgeSources(d.sources.by_status.active) }).catch(() => {})
   }, [checkHealth, fetchHarness, fetchChat])
 
   useEffect(() => {
@@ -257,6 +262,30 @@ export default function DashboardClient({ session }: { session: Session }) {
           )}
         </div>
       </div>
+
+      {/* Secondary stats */}
+      {(workflowCount > 0 || knowledgeSources > 0) && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {workflowCount > 0 && (
+            <Link href="/harness/workflows" className="rounded-lg border border-navy-700 bg-navy-800 p-4 hover:border-navy-600 transition-colors">
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="h-4 w-4 text-amber-400" />
+                <span className="text-xs text-mountain-400">Workflows</span>
+              </div>
+              <p className="text-xl font-bold text-white">{workflowCount}</p>
+            </Link>
+          )}
+          {knowledgeSources > 0 && (
+            <Link href="/harness/shared-knowledge" className="rounded-lg border border-navy-700 bg-navy-800 p-4 hover:border-navy-600 transition-colors">
+              <div className="flex items-center gap-2 mb-1">
+                <BookOpen className="h-4 w-4 text-blue-400" />
+                <span className="text-xs text-mountain-400">Knowledge Sources</span>
+              </div>
+              <p className="text-xl font-bold text-white">{knowledgeSources}</p>
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* Quick Actions */}
       <div className="flex flex-wrap gap-3 mb-8">
