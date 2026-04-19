@@ -107,8 +107,9 @@ export default function TopBar({ navExtra }: TopBarProps) {
       fetch('/api/notifications')
         .then(r => r.ok ? r.json() : [])
         .then(data => {
-          if (Array.isArray(data)) {
-            setNotifications(data.slice(0, 20).map((n: any) => ({
+          const items = Array.isArray(data) ? data : data?.notifications
+          if (Array.isArray(items)) {
+            setNotifications(items.slice(0, 20).map((n: any) => ({
               id: n.id,
               type: n.type === 'agent_error' ? 'error' : n.type === 'agent_start' ? 'success' : 'info',
               title: n.message?.split(':')[0] || n.type || 'Notification',
@@ -153,7 +154,7 @@ export default function TopBar({ navExtra }: TopBarProps) {
 
   const markAllRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })))
-    fetch('/api/notifications/read-all', { method: 'POST' }).catch(() => {})
+    fetch('/api/notifications/read-all', { method: 'PUT' }).catch(() => {})
   }
 
   return (
