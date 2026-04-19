@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { Menu, Bell, Bot, CheckCircle, AlertCircle, Play, Search } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import HillLogo from '@/components/HillLogo'
 import AuthButtons from '@/components/AuthButtons'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -97,8 +96,6 @@ export default function TopBar({ navExtra }: TopBarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchOpen, setSearchOpen] = useState(false)
-  const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const notifRef = useRef<HTMLDivElement>(null)
   const { data: session } = useSession()
@@ -196,7 +193,7 @@ export default function TopBar({ navExtra }: TopBarProps) {
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => {
                   if (e.key === 'Enter' && searchQuery.trim()) {
-                    router.push(`/harness/shared-knowledge?tab=search&q=${encodeURIComponent(searchQuery.trim())}`)
+                    window.location.href = `/harness/shared-knowledge?tab=search&q=${encodeURIComponent(searchQuery.trim())}`
                     setSearchQuery('')
                   }
                 }}
