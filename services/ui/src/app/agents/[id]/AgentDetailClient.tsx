@@ -12,6 +12,7 @@ import AgentProgression from './AgentProgression'
 import WorkspaceBrowser from './WorkspaceBrowser'
 import AgentMcpServers from './AgentMcpServers'
 import AgentWebhooks from './AgentWebhooks'
+import AgentClaudeConfig from './AgentClaudeConfig'
 import AgentKnowledge from './AgentKnowledge'
 import { Camera, Download } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
@@ -1376,6 +1377,9 @@ export default function AgentDetailClient({
 
           {/* MCP Servers */}
           <AgentMcpServers agentId={agent.id} agentStatus={agent.status} />
+
+          {/* Claude Code */}
+          <AgentClaudeConfig agentId={agent.id} envVars={agent.env_vars || {}} agentStatus={agent.status} onUpdate={() => window.location.reload()} />
 
           {/* Webhooks & Discord */}
           <AgentWebhooks agentId={agent.id} />
