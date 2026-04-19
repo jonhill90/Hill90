@@ -103,6 +103,7 @@ export default function MonitoringClient() {
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
   const [refreshing, setRefreshing] = useState(false)
+  const [detailed, setDetailed] = useState<any>(null)
 
   const fetchHealth = useCallback(async () => {
     try {
@@ -113,6 +114,9 @@ export default function MonitoringClient() {
       } else {
         setHealth({ service: 'api', status: 'unhealthy', error: `HTTP ${res.status}` })
       }
+      // Also fetch detailed stats
+      const detRes = await fetch('/api/health/detailed')
+      if (detRes.ok) setDetailed(await detRes.json())
     } catch {
       setHealth({ service: 'api', status: 'unhealthy', error: 'Connection failed' })
     } finally {
@@ -225,6 +229,19 @@ export default function MonitoringClient() {
           <HealthCard label="Storage" icon={HardDrive} status={storageHealth} loading={storageLoading} />
         </div>
       </section>
+
+      {/* System Details */}
+      {detailed && (
+        <section>
+          <SectionHeading icon={Server} title="System Details" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard label="Uptime" value={detailed.uptime_seconds >= 86400 ? `${Math.floor(detailed.uptime_seconds / 86400)}d` : `${Math.floor(detailed.uptime_seconds / 3600)}h`} color="text-white" isString />
+            <StatCard label="DB Latency" value={`${detailed.database?.latency_ms ?? '?'}ms`} color={detailed.database?.latency_ms > 100 ? 'text-amber-400' : 'text-brand-400'} isString />
+            <StatCard label="Heap Used" value={`${detailed.memory?.heap_used_mb ?? 0}MB`} color="text-mountain-300" isString />
+            <StatCard label="Node" value={detailed.node_version?.replace('v', '') ?? '?'} color="text-mountain-400" isString />
+          </div>
+        </section>
+      )}
 
       {/* Agent Overview */}
       <section>
