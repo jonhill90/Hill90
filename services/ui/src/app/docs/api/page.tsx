@@ -22,7 +22,11 @@ export default function DocsApiPage() {
 
   return (
     <AppShell>
-      <main className="flex-1 p-6">
+      <main className="flex-1 px-6 py-8 max-w-6xl mx-auto w-full">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-white">API Reference</h1>
+          <p className="text-mountain-400 text-sm mt-1">Interactive documentation for the Hill90 REST API</p>
+        </div>
         <SwaggerClient url="/api/docs/openapi" />
       </main>
     </AppShell>
