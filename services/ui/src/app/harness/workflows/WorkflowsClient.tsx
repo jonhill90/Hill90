@@ -92,7 +92,7 @@ export default function WorkflowsClient() {
   const fetchWorkflows = useCallback(async () => {
     try {
       const res = await fetch('/api/workflows')
-      if (res.ok) setWorkflows(await res.json())
+      if (res.ok) { const data = await res.json(); if (Array.isArray(data)) setWorkflows(data) }
     } catch { /* ignore */ }
     finally { setLoading(false) }
   }, [])
@@ -100,7 +100,7 @@ export default function WorkflowsClient() {
   const fetchAgents = useCallback(async () => {
     try {
       const res = await fetch('/api/agents')
-      if (res.ok) setAgents(await res.json())
+      if (res.ok) { const data = await res.json(); if (Array.isArray(data)) setAgents(data) }
     } catch { /* ignore */ }
   }, [])
 
@@ -110,7 +110,7 @@ export default function WorkflowsClient() {
     setRunsLoading(true)
     try {
       const res = await fetch(`/api/workflows/${workflowId}/runs`)
-      if (res.ok) setRuns(await res.json())
+      if (res.ok) { const data = await res.json(); if (Array.isArray(data)) setRuns(data) }
     } catch { /* ignore */ }
     finally { setRunsLoading(false) }
   }, [])
@@ -119,7 +119,7 @@ export default function WorkflowsClient() {
     setStepsLoading(true)
     try {
       const res = await fetch(`/api/workflows/${workflowId}/steps`)
-      if (res.ok) setSteps(await res.json())
+      if (res.ok) { const data = await res.json(); if (Array.isArray(data)) setSteps(data) }
     } catch { /* ignore */ }
     finally { setStepsLoading(false) }
   }, [])

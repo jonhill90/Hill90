@@ -120,7 +120,7 @@ export default function KnowledgeClient() {
       const params = new URLSearchParams({ agent_id: agentId })
       if (typeFilter) params.set('type', typeFilter)
       const res = await fetch(`/api/knowledge/entries?${params}`)
-      if (res.ok) setEntries(await res.json())
+      if (res.ok) { const data = await res.json(); if (Array.isArray(data)) setEntries(data) }
     } catch (err) {
       console.error('Failed to fetch entries:', err)
     } finally {

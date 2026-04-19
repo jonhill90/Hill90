@@ -44,7 +44,7 @@ export default function ToolsClient() {
   const fetchTools = useCallback(async () => {
     try {
       const res = await fetch('/api/tools')
-      if (res.ok) setTools(await res.json())
+      if (res.ok) { const data = await res.json(); if (Array.isArray(data)) setTools(data) }
     } catch (err) {
       console.error('Failed to fetch tools:', err)
     } finally {

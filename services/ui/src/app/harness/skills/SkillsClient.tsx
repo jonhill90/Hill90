@@ -76,7 +76,7 @@ export default function SkillsClient() {
   const fetchSkills = useCallback(async () => {
     try {
       const res = await fetch('/api/skills')
-      if (res.ok) setSkills(await res.json())
+      if (res.ok) { const data = await res.json(); if (Array.isArray(data)) setSkills(data) }
     } catch (err) {
       console.error('Failed to fetch skills:', err)
     } finally {
