@@ -232,6 +232,10 @@ const EXPECTED_PATHS = [
   '/admin/secrets',
   '/admin/secrets/status',
   '/admin/secrets/kv',
+  '/workflows',
+  '/workflows/{id}',
+  '/workflows/{id}/run',
+  '/workflows/{id}/runs',
 ];
 
 const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token'];
