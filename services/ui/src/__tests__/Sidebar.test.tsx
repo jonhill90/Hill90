@@ -126,7 +126,6 @@ describe('Sidebar', () => {
     expect(buildButton).toBeInTheDocument()
     fireEvent.click(buildButton)
     expect(screen.getByRole('link', { name: /skills/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^library$/i })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /connect/i }))
     expect(screen.getByRole('link', { name: /connections/i })).toBeInTheDocument()
@@ -172,7 +171,7 @@ describe('Sidebar', () => {
     expect(label).toHaveClass('sr-only')
   })
 
-  it('T1: nav shows Library label in Build group', () => {
+  it('T1: nav shows Knowledge and Library as top-level links', () => {
     mockSession = {
       data: { user: { roles: ['user'] } },
       status: 'authenticated',
@@ -180,10 +179,9 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    fireEvent.click(screen.getByRole('button', { name: /build/i }))
-
-    expect(screen.getByText('Library')).toBeInTheDocument()
-    expect(screen.queryByText('Shared Knowledge')).not.toBeInTheDocument()
+    // Both visible without expanding any group
+    expect(screen.getByRole('link', { name: /knowledge/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /library/i })).toBeInTheDocument()
   })
 
   it('T2: nav shows Dependencies label for admin in Admin group', () => {
@@ -198,7 +196,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('Dependencies')).toBeInTheDocument()
   })
 
-  it('T3: nav shows Knowledge inside Build group', () => {
+  it('T3: Build group contains Skills, Workflows, MCP Servers', () => {
     mockSession = {
       data: { user: { roles: ['user'] } },
       status: 'authenticated',
@@ -207,7 +205,9 @@ describe('Sidebar', () => {
     render(<Sidebar />)
 
     fireEvent.click(screen.getByRole('button', { name: /build/i }))
-    expect(screen.getByRole('link', { name: /knowledge/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /skills/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /workflows/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /mcp servers/i })).toBeInTheDocument()
   })
 
   it('T4: renders nothing when logged out', () => {

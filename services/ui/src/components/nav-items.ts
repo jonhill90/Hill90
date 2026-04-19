@@ -28,6 +28,8 @@ export const NAV_ITEMS: NavItem[] = [
   { type: 'link', id: 'agents', label: 'Agents', href: '/agents', icon: Bot },
   { type: 'link', id: 'chat', label: 'Chat', href: '/chat', icon: MessageSquare },
   { type: 'link', id: 'tasks', label: 'Tasks', href: '/tasks', icon: CheckSquare },
+  { type: 'link', id: 'knowledge', label: 'Knowledge', href: '/harness/knowledge', icon: BookOpen },
+  { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
   {
     type: 'group',
     id: 'build',
@@ -36,8 +38,6 @@ export const NAV_ITEMS: NavItem[] = [
     children: [
       { type: 'link', id: 'skills', label: 'Skills', href: '/harness/skills', icon: Wrench },
       { type: 'link', id: 'workflows', label: 'Workflows', href: '/harness/workflows', icon: Zap },
-      { type: 'link', id: 'knowledge', label: 'Knowledge', href: '/harness/knowledge', icon: BookOpen },
-      { type: 'link', id: 'library', label: 'Library', href: '/harness/shared-knowledge', icon: Library },
       { type: 'link', id: 'mcp-servers', label: 'MCP Servers', href: '/harness/mcp-servers', icon: Server },
     ],
   },
