@@ -33,7 +33,7 @@ export default function AgentMcpServers({ agentId, agentStatus }: { agentId: str
       ])
       if (allRes.ok) {
         const all = await allRes.json()
-        setAvailable(all)
+        setAvailable(Array.isArray(all) ? all : [])
         // For now show all servers — agent assignment endpoint coming in Phase 2
         setAssigned([])
       }
