@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next-auth/react
@@ -136,7 +136,7 @@ describe('Sidebar', () => {
     expect(screen.getByRole('link', { name: /usage/i })).toBeInTheDocument()
   })
 
-  it('highlights active route in Connect group', () => {
+  it('highlights active route in Connect group', async () => {
     mockPathname = '/harness/connections'
     mockSession = {
       data: { user: { roles: ['user'] } },
@@ -145,10 +145,16 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    fireEvent.click(screen.getByRole('button', { name: /connect/i }))
+    // Group may auto-expand via useEffect; click to expand if not
+    const connectButton = screen.getByRole('button', { name: /connect/i })
+    if (!screen.queryByRole('link', { name: /connections/i })) {
+      fireEvent.click(connectButton)
+    }
 
-    const connectionsLink = screen.getByRole('link', { name: /connections/i })
-    expect(connectionsLink.getAttribute('aria-current')).toBe('page')
+    await waitFor(() => {
+      const connectionsLink = screen.getByRole('link', { name: /connections/i })
+      expect(connectionsLink.getAttribute('aria-current')).toBe('page')
+    })
   })
 
   it('hides labels when collapsed', () => {
