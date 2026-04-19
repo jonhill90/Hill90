@@ -349,6 +349,7 @@ export default function WorkflowsClient() {
                     <span className={`ml-1 text-xs ${wf.agent_status === 'running' ? 'text-brand-400' : 'text-mountain-500'}`}>({wf.agent_status})</span>
                   </div>
                   {wf.last_run_at && <div>Last run: {relativeTime(wf.last_run_at)}</div>}
+                  {wf.next_run_at && wf.trigger_type === 'cron' && <div>Next: {new Date(wf.next_run_at).toLocaleTimeString()}</div>}
                 </div>
                 <p className="text-xs text-mountain-500 mt-2 truncate">{wf.prompt}</p>
               </div>
