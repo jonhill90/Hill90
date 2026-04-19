@@ -5,5 +5,8 @@
   },
   "devDependencies": {
     "mintlify": "4.2.383"
+  },
+  "dependencies": {
+    "basic-ftp": "^5.2.2"
   }
 }
