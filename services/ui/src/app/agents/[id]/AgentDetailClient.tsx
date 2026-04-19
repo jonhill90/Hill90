@@ -10,6 +10,7 @@ import AgentMemory from './AgentMemory'
 import AgentNotebook from './AgentNotebook'
 import AgentProgression from './AgentProgression'
 import WorkspaceBrowser from './WorkspaceBrowser'
+import AgentMcpServers from './AgentMcpServers'
 import AgentKnowledge from './AgentKnowledge'
 import { Camera, Download } from 'lucide-react'
 import AgentAvatar from '@/components/AgentAvatar'
@@ -1371,6 +1372,9 @@ export default function AgentDetailClient({
               <p className="text-sm text-mountain-500 italic">No RULES.md configured</p>
             )}
           </div>
+
+          {/* MCP Servers */}
+          <AgentMcpServers agentId={agent.id} agentStatus={agent.status} />
         </div>
       )}
 
