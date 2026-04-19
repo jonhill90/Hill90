@@ -23,6 +23,7 @@ import tasksRouter from './routes/tasks';
 import storageRouter from './routes/storage';
 import notificationsRouter from './routes/notifications';
 import workflowsRouter from './routes/workflows';
+import mcpServersRouter from './routes/mcp-servers';
 import { modelRouterRefreshHandler } from './services/model-router-refresh';
 
 interface AppOptions {
@@ -138,6 +139,7 @@ export function createApp(opts: AppOptions = {}): Application {
   // Notifications
   app.use('/notifications', requireAuth, notificationsRouter);
   app.use('/workflows', requireAuth, workflowsRouter);
+  app.use('/mcp-servers', requireAuth, mcpServersRouter);
 
   // Secrets vault inventory (admin-only, AI-147)
   app.use('/admin/secrets', requireAuth, requireRole('admin'), secretsRouter);
