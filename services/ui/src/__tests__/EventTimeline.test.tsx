@@ -407,40 +407,38 @@ describe('EventTimeline — Runtime filter semantics', () => {
   })
   afterEach(() => cleanup())
 
-  it('RF1: Runtime filter excludes inference events', async () => {
+  it('RF1: Runtime filter shows only runtime tool events', async () => {
     await setupSSEAndSendEvents([shell('s1', 0), inf('i1', 100)])
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(2)
     })
     fireEvent.click(screen.getByText('Runtime'))
+    // Neither shell nor inference are tool=runtime, so 0 events
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+      expect(screen.queryAllByTestId('event-card')).toHaveLength(0)
     })
   })
 
-  it('RF2: Runtime filter includes shell events', async () => {
+  it('RF2: Runtime filter excludes shell events', async () => {
     await setupSSEAndSendEvents([shell('s1', 0), shell('s2', 100)])
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(2)
     })
     fireEvent.click(screen.getByText('Runtime'))
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+      expect(screen.queryAllByTestId('event-card')).toHaveLength(0)
     })
   })
 
-  it('RF3: Runtime filter includes filesystem events', async () => {
+  it('RF3: Runtime filter excludes filesystem events', async () => {
     await setupSSEAndSendEvents([fs('f1', 0), inf('i1', 100)])
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(2)
     })
     fireEvent.click(screen.getByText('Runtime'))
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+      expect(screen.queryAllByTestId('event-card')).toHaveLength(0)
     })
-    // The remaining card should be the filesystem event
-    const card = screen.getByTestId('event-card')
-    expect(card).toHaveTextContent('filesystem')
   })
 
   it('RF4: Runtime filter includes work lifecycle events', async () => {
@@ -454,14 +452,15 @@ describe('EventTimeline — Runtime filter semantics', () => {
     })
   })
 
-  it('RF5: Runtime filter includes all container tool types', async () => {
+  it('RF5: Runtime filter shows only runtime-tool events among mixed types', async () => {
     await setupSSEAndSendEvents([identity('id1', 0), health('h1', 100), inf('i1', 200)])
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(3)
     })
     fireEvent.click(screen.getByText('Runtime'))
+    // identity and health are not tool=runtime
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+      expect(screen.queryAllByTestId('event-card')).toHaveLength(0)
     })
   })
 
@@ -473,8 +472,9 @@ describe('EventTimeline — Runtime filter semantics', () => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(5)
     })
     fireEvent.click(screen.getByText('Runtime'))
+    // work_received has tool=runtime
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(3)
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
     })
   })
 
@@ -485,7 +485,7 @@ describe('EventTimeline — Runtime filter semantics', () => {
     })
     fireEvent.click(screen.getByText('Runtime'))
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
+      expect(screen.queryAllByTestId('event-card')).toHaveLength(0)
     })
     fireEvent.click(screen.getByText('All'))
     await waitFor(() => {
@@ -506,35 +506,35 @@ describe('EventTimeline — Runtime filter semantics', () => {
     expect(card).toHaveTextContent('inference')
   })
 
-  it('RF9: Runtime filter excludes inference in initial backfill payload', async () => {
+  it('RF9: Runtime filter shows only runtime events from backfill', async () => {
     // Send all events at once (simulating initial SSE backfill)
     await setupSSEAndSendEvents([shell('s1', 0), inf('i1', 50), fs('f1', 100), inf('i2', 150)])
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(4)
     })
     fireEvent.click(screen.getByText('Runtime'))
+    // None of these have tool=runtime
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+      expect(screen.queryAllByTestId('event-card')).toHaveLength(0)
     })
   })
 
-  it('RF10: Runtime filter continues excluding inference on live SSE append', async () => {
+  it('RF10: Runtime filter only shows runtime tool on live SSE', async () => {
     const onMessage = await setupSSEAndSendEvents([shell('s1', 0), wr('w1', 100)])
     await waitFor(() => {
       expect(screen.getAllByTestId('event-card')).toHaveLength(2)
     })
-    // Set filter to Runtime
+    // Set filter to Runtime — only work_received (tool=runtime) should show
     fireEvent.click(screen.getByText('Runtime'))
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
     })
-    // Emit a new inference event via live SSE
+    // Emit a new inference event via live SSE — still 1 (runtime only)
     onMessage(new MessageEvent('message', {
       data: JSON.stringify(inf('i-live', 200)),
     }))
-    // Should still show 2 cards — inference excluded
     await waitFor(() => {
-      expect(screen.getAllByTestId('event-card')).toHaveLength(2)
+      expect(screen.getAllByTestId('event-card')).toHaveLength(1)
     })
   })
 })
