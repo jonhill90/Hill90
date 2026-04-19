@@ -49,6 +49,7 @@ async function start() {
     const s3 = getS3Client();
     await ensureBucket(s3, AVATAR_BUCKET);
     await ensureBucket(s3, 'agent-avatars');
+    await ensureBucket(s3, 'chat-attachments');
     console.log('[startup] Avatar buckets ready');
   } catch (err) {
     console.error('[startup] Avatar bucket init failed, avatar routes may error:', err);
