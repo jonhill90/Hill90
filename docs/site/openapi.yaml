@@ -5401,6 +5401,58 @@ paths:
         "200":
           description: MCP server deleted
 
+  /workflows/{id}/steps:
+    get:
+      summary: List workflow steps
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of steps
+    post:
+      summary: Add a step to workflow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "201":
+          description: Step created
+
+  /workflows/{id}/steps/{stepId}:
+    delete:
+      summary: Remove a step from workflow
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: stepId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Step deleted
+
   /workflows/webhook/{token}:
 
     post:

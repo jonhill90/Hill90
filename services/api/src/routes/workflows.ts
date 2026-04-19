@@ -343,6 +343,87 @@ router.get('/:id/runs', requireRole('user'), async (req: Request, res: Response)
   }
 });
 
+// ── Workflow steps (multi-agent chaining) ───────────────────────────
+router.get('/:id/steps', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+
+    const { rows: wfRows } = await getPool().query(
+      `SELECT id FROM workflows WHERE id = $1 ${admin ? '' : 'AND created_by = $2'}`,
+      admin ? [req.params.id] : [req.params.id, user.sub]
+    );
+    if (wfRows.length === 0) { res.status(404).json({ error: 'Workflow not found' }); return; }
+
+    const { rows } = await getPool().query(
+      `SELECT ws.*, a.name AS agent_name, a.agent_id AS agent_slug, a.status AS agent_status
+       FROM workflow_steps ws
+       JOIN agents a ON ws.agent_id = a.id
+       WHERE ws.workflow_id = $1 ORDER BY ws.step_order`,
+      [req.params.id]
+    );
+    res.json(rows);
+  } catch (err: any) {
+    console.error('[workflows] Steps list error:', err);
+    res.status(500).json({ error: 'Failed to list steps' });
+  }
+});
+
+router.post('/:id/steps', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+    const { agent_id, prompt, step_order } = req.body;
+
+    if (!agent_id || !prompt) { res.status(400).json({ error: 'agent_id and prompt required' }); return; }
+
+    const { rows: wfRows } = await getPool().query(
+      `SELECT id FROM workflows WHERE id = $1 ${admin ? '' : 'AND created_by = $2'}`,
+      admin ? [req.params.id] : [req.params.id, user.sub]
+    );
+    if (wfRows.length === 0) { res.status(404).json({ error: 'Workflow not found' }); return; }
+
+    // Auto-assign step_order if not provided
+    const order = step_order ?? (await getPool().query(
+      `SELECT COALESCE(MAX(step_order), -1) + 1 AS next FROM workflow_steps WHERE workflow_id = $1`,
+      [req.params.id]
+    )).rows[0].next;
+
+    const { rows } = await getPool().query(
+      `INSERT INTO workflow_steps (workflow_id, agent_id, prompt, step_order)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.params.id, agent_id, prompt, order]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err: any) {
+    console.error('[workflows] Step create error:', err);
+    res.status(500).json({ error: 'Failed to create step' });
+  }
+});
+
+router.delete('/:id/steps/:stepId', requireRole('user'), async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const admin = isAdmin(req);
+
+    const { rows: wfRows } = await getPool().query(
+      `SELECT id FROM workflows WHERE id = $1 ${admin ? '' : 'AND created_by = $2'}`,
+      admin ? [req.params.id] : [req.params.id, user.sub]
+    );
+    if (wfRows.length === 0) { res.status(404).json({ error: 'Workflow not found' }); return; }
+
+    const { rowCount } = await getPool().query(
+      `DELETE FROM workflow_steps WHERE id = $1 AND workflow_id = $2`,
+      [req.params.stepId, req.params.id]
+    );
+    if (rowCount === 0) { res.status(404).json({ error: 'Step not found' }); return; }
+    res.json({ deleted: true });
+  } catch (err: any) {
+    console.error('[workflows] Step delete error:', err);
+    res.status(500).json({ error: 'Failed to delete step' });
+  }
+});
+
 // ── Inbound webhook trigger (PUBLIC — no auth, uses token) ──────────
 router.post('/webhook/:token', async (req: Request, res: Response) => {
   try {
