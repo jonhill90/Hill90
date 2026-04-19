@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 
 // Mock next-auth/react
@@ -86,6 +86,12 @@ describe('TopBar', () => {
   })
 })
 
+const MOCK_API_NOTIFICATIONS = [
+  { id: 'n1', type: 'agent_start', message: 'Agent started: ResearchBot', metadata: { agent_slug: 'research-bot' }, created_at: new Date().toISOString(), read: false },
+  { id: 'n2', type: 'agent_start', message: 'Agent started: CodeBot', metadata: { agent_slug: 'code-bot' }, created_at: new Date().toISOString(), read: false },
+  { id: 'n3', type: 'agent_error', message: 'Agent error: WriterBot', metadata: { agent_slug: 'writer-bot' }, created_at: new Date().toISOString(), read: false },
+]
+
 describe('TopBar — Notification dropdown', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -93,6 +99,12 @@ describe('TopBar — Notification dropdown', () => {
       data: { user: { name: 'Jon', roles: ['admin', 'user'] } },
       status: 'authenticated',
     }
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (typeof url === 'string' && url.includes('/notifications')) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(MOCK_API_NOTIFICATIONS) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
+    }))
   })
 
   afterEach(() => {
@@ -104,10 +116,11 @@ describe('TopBar — Notification dropdown', () => {
     expect(screen.getByTestId('notifications-bell')).toBeInTheDocument()
   })
 
-  it('shows unread badge count', () => {
+  it('shows unread badge count', async () => {
     render(<TopBar />)
-    // Mock data has 3 unread notifications
-    expect(screen.getByText('3')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText('3')).toBeInTheDocument()
+    })
   })
 
   it('opens dropdown on bell click', () => {
@@ -117,32 +130,36 @@ describe('TopBar — Notification dropdown', () => {
     expect(screen.getByText('Notifications')).toBeInTheDocument()
   })
 
-  it('shows notification items', () => {
+  it('shows notification items', async () => {
     render(<TopBar />)
+    await waitFor(() => { expect(screen.getByText('3')).toBeInTheDocument() })
     fireEvent.click(screen.getByTestId('notifications-bell'))
     const items = screen.getAllByTestId('notification-item')
-    expect(items.length).toBe(5)
+    expect(items.length).toBe(3)
   })
 
-  it('shows agent names on notifications', () => {
+  it('shows agent names on notifications', async () => {
     render(<TopBar />)
+    await waitFor(() => { expect(screen.getByText('3')).toBeInTheDocument() })
     fireEvent.click(screen.getByTestId('notifications-bell'))
-    expect(screen.getAllByText('ResearchBot').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('CodeAssistant').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('research-bot').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows mark all read button when unread exist', () => {
+  it('shows mark all read button when unread exist', async () => {
     render(<TopBar />)
+    await waitFor(() => { expect(screen.getByText('3')).toBeInTheDocument() })
     fireEvent.click(screen.getByTestId('notifications-bell'))
     expect(screen.getByTestId('mark-all-read')).toBeInTheDocument()
   })
 
-  it('mark all read clears unread badge', () => {
+  it('mark all read clears unread badge', async () => {
     render(<TopBar />)
+    await waitFor(() => { expect(screen.getByText('3')).toBeInTheDocument() })
     fireEvent.click(screen.getByTestId('notifications-bell'))
     fireEvent.click(screen.getByTestId('mark-all-read'))
-    // Badge should be gone (0 unread)
-    expect(screen.queryByText('3')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('3')).not.toBeInTheDocument()
+    })
   })
 
   it('closes dropdown on second bell click', () => {
