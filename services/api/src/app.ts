@@ -56,6 +56,25 @@ export function createApp(opts: AppOptions = {}): Application {
       dbStatus = 'connected';
     } catch { /* db unreachable */ }
 
+    // Fetch platform stats (best-effort)
+    let platformStats: Record<string, unknown> = {};
+    if (dbStatus === 'connected') {
+      try {
+        const { getPool } = await import('./db/pool');
+        const pool = getPool();
+        const [agents, threads, workflows] = await Promise.all([
+          pool.query(`SELECT count(*) AS total, count(*) FILTER (WHERE status = 'running') AS running FROM agents`),
+          pool.query(`SELECT count(*) AS total FROM chat_threads`),
+          pool.query(`SELECT count(*) AS total, count(*) FILTER (WHERE enabled = true) AS enabled FROM workflows`).catch(() => ({ rows: [{ total: 0, enabled: 0 }] })),
+        ]);
+        platformStats = {
+          agents: { total: Number(agents.rows[0].total), running: Number(agents.rows[0].running) },
+          threads: Number(threads.rows[0].total),
+          workflows: { total: Number(workflows.rows[0].total), enabled: Number(workflows.rows[0].enabled) },
+        };
+      } catch { /* best-effort */ }
+    }
+
     res.json({
       status: dbStatus === 'connected' ? 'healthy' : 'degraded',
       service: 'api',
@@ -70,6 +89,7 @@ export function createApp(opts: AppOptions = {}): Application {
         heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
         heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
       },
+      platform: platformStats,
     });
   });
 
