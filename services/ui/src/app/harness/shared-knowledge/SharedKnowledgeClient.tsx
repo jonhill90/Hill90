@@ -285,7 +285,7 @@ interface SharedStats {
 
 type Tab = 'collections' | 'search' | 'quality' | 'graph'
 
-export default function SharedKnowledgeClient() {
+export default function SharedKnowledgeClient({ initialTab, initialQuery }: { initialTab?: Tab; initialQuery?: string } = {}) {
   // Data state
   const [collections, setCollections] = useState<Collection[]>([])
   const [sources, setSources] = useState<Source[]>([])
@@ -295,12 +295,12 @@ export default function SharedKnowledgeClient() {
 
   // UI state
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<Tab>('collections')
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab || 'collections')
   const [showCollectionForm, setShowCollectionForm] = useState(false)
   const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null)
   const [showSourceForm, setShowSourceForm] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState(initialQuery || '')
   const [searchCollectionFilter, setSearchCollectionFilter] = useState('')
   const [searching, setSearching] = useState(false)
   const [stats, setStats] = useState<SharedStats | null>(null)
@@ -564,6 +564,14 @@ export default function SharedKnowledgeClient() {
   }
 
   // --- Search ---
+
+  // Auto-search when navigated with query param
+  useEffect(() => {
+    if (initialQuery && activeTab === 'search') {
+      handleSearch()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
