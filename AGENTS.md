@@ -133,8 +133,12 @@ For manual VPS access, see `docs/runbooks/deployment.md`.
 - Secrets architecture: `docs/architecture/secrets-model.md`
 - Vault auto-unseal runbook: `docs/runbooks/vault-unseal.md`
 - Secrets schema validation: `docs/runbooks/secrets-schema-validation.md`
+- API auth verification: `docs/runbooks/api-auth-verification.md`
+- Observability runbook: `docs/runbooks/observability.md`
+- Deployment runbook: `docs/runbooks/deployment.md`
 - Closed-loop planning skill: `.github/skills/closing-the-loop/SKILL.md`
 - Public documentation site (Mintlify): `docs/site/` (source) — https://docs.hill90.com (live); `docs/` is internal
+- MCP gateway evaluation: `docs/architecture/mcp-gateway-evaluation.md`
 
 ## Guardrails
 
