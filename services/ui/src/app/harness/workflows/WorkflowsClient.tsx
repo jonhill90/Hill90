@@ -11,8 +11,10 @@ interface Workflow {
   agent_name: string
   agent_slug: string
   agent_status: string
-  schedule_cron: string
+  schedule_cron: string | null
   prompt: string
+  trigger_type: string
+  webhook_token: string | null
   output_type: string
   output_config: Record<string, unknown>
   enabled: boolean
@@ -80,7 +82,7 @@ export default function WorkflowsClient() {
   const [running, setRunning] = useState<string | null>(null)
 
   const [form, setForm] = useState({
-    name: '', description: '', agent_id: '', schedule_cron: '*/30 * * * *', prompt: '', output_type: 'none', output_config: '{}'
+    name: '', description: '', agent_id: '', schedule_cron: '*/30 * * * *', prompt: '', output_type: 'none', output_config: '{}', trigger_type: 'cron'
   })
 
   const fetchWorkflows = useCallback(async () => {
@@ -114,7 +116,7 @@ export default function WorkflowsClient() {
   }, [selectedId, fetchRuns])
 
   const handleSubmit = async () => {
-    const body = { ...form, output_config: JSON.parse(form.output_config || '{}') }
+    const body = { ...form, output_config: JSON.parse(form.output_config || '{}'), schedule_cron: form.trigger_type === 'webhook' ? null : form.schedule_cron }
     const url = editingId ? `/api/workflows/${editingId}` : '/api/workflows'
     const method = editingId ? 'PUT' : 'POST'
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -211,11 +213,27 @@ export default function WorkflowsClient() {
               </select>
             </div>
             <div>
-              <label className="block text-sm text-mountain-400 mb-1">Schedule (cron)</label>
-              <input value={form.schedule_cron} onChange={e => setForm(f => ({ ...f, schedule_cron: e.target.value }))}
-                className="w-full rounded border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono focus:border-brand-500 focus:outline-none" placeholder="*/30 * * * *" />
-              <p className="text-xs text-mountain-500 mt-1">{cronToHuman(form.schedule_cron)}</p>
+              <label className="block text-sm text-mountain-400 mb-1">Trigger</label>
+              <select value={form.trigger_type} onChange={e => setForm(f => ({ ...f, trigger_type: e.target.value }))}
+                className="w-full rounded border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white focus:border-brand-500 focus:outline-none">
+                <option value="cron">Cron Schedule</option>
+                <option value="webhook">Webhook URL</option>
+              </select>
             </div>
+            {form.trigger_type === 'cron' && (
+              <div>
+                <label className="block text-sm text-mountain-400 mb-1">Schedule (cron)</label>
+                <input value={form.schedule_cron} onChange={e => setForm(f => ({ ...f, schedule_cron: e.target.value }))}
+                  className="w-full rounded border border-navy-600 bg-navy-900 px-3 py-2 text-sm text-white font-mono focus:border-brand-500 focus:outline-none" placeholder="*/30 * * * *" />
+                <p className="text-xs text-mountain-500 mt-1">{cronToHuman(form.schedule_cron)}</p>
+              </div>
+            )}
+            {form.trigger_type === 'webhook' && (
+              <div>
+                <label className="block text-sm text-mountain-400 mb-1">Webhook</label>
+                <p className="text-xs text-mountain-400">A unique webhook URL will be generated when you create this workflow. External services can POST to it to trigger the agent.</p>
+              </div>
+            )}
             <div>
               <label className="block text-sm text-mountain-400 mb-1">Description</label>
               <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
@@ -289,7 +307,15 @@ export default function WorkflowsClient() {
                   </div>
                 </div>
                 <div className="text-xs text-mountain-400 space-y-1">
-                  <div className="flex items-center gap-1"><Clock className="w-3 h-3" /> {cronToHuman(wf.schedule_cron)}</div>
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {wf.trigger_type === 'webhook' ? 'Webhook trigger' : wf.schedule_cron ? cronToHuman(wf.schedule_cron) : 'No schedule'}
+                  </div>
+                  {wf.webhook_token && (
+                    <div className="text-xs text-mountain-500 font-mono truncate" title={`/workflows/webhook/${wf.webhook_token}`}>
+                      Webhook: /workflows/webhook/{wf.webhook_token.slice(0, 12)}...
+                    </div>
+                  )}
                   <div>Agent: <span className="text-mountain-300">{wf.agent_name}</span>
                     <span className={`ml-1 text-xs ${wf.agent_status === 'running' ? 'text-brand-400' : 'text-mountain-500'}`}>({wf.agent_status})</span>
                   </div>
