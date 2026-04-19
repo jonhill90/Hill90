@@ -24,7 +24,8 @@
   },
   "overrides": {
     "@auth/core": "^0.41.1",
-    "tree-sitter": "0.22.4"
+    "tree-sitter": "0.22.4",
+    "follow-redirects": ">=1.16.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.3",
