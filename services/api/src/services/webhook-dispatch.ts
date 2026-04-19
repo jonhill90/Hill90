@@ -53,16 +53,57 @@ async function dispatchAsync(
   }
 }
 
+const EVENT_COLORS: Record<string, number> = {
+  start: 0x5b9a2f,   // brand green
+  stop: 0xf59e0b,    // amber
+  error: 0xef4444,   // red
+};
+
+const EVENT_EMOJI: Record<string, string> = {
+  start: '🟢',
+  stop: '🟡',
+  error: '🔴',
+};
+
+function isDiscordWebhook(url: string): boolean {
+  return url.includes('discord.com/api/webhooks/') || url.includes('discordapp.com/api/webhooks/');
+}
+
+function formatDiscordPayload(event: string, parsed: Record<string, unknown>): string {
+  return JSON.stringify({
+    embeds: [{
+      title: `${EVENT_EMOJI[event] || '⚪'} Agent ${event.charAt(0).toUpperCase() + event.slice(1)}`,
+      description: `**${parsed.agent_id}** ${event === 'error' ? `failed: ${parsed.error || 'unknown error'}` : event === 'start' ? 'is now running' : 'has stopped'}`,
+      color: EVENT_COLORS[event] || 0x6b7280,
+      fields: [
+        { name: 'Agent', value: String(parsed.agent_id || 'unknown'), inline: true },
+        { name: 'Event', value: event, inline: true },
+        ...(parsed.container_id ? [{ name: 'Container', value: String(parsed.container_id).slice(0, 12), inline: true }] : []),
+      ],
+      timestamp: parsed.timestamp || new Date().toISOString(),
+      footer: { text: 'Hill90 Platform' },
+    }],
+  });
+}
+
 async function deliverWebhook(hook: WebhookRow, body: string): Promise<void> {
+  const parsed = JSON.parse(body);
+  const isDiscord = isDiscordWebhook(hook.url);
+
+  // Discord webhooks get formatted as embeds
+  const deliveryBody = isDiscord
+    ? formatDiscordPayload(parsed.event || 'unknown', parsed)
+    : body;
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'User-Agent': 'Hill90-Webhooks/1.0',
   };
 
-  if (hook.secret) {
+  if (hook.secret && !isDiscord) {
     const signature = crypto
       .createHmac('sha256', hook.secret)
-      .update(body)
+      .update(deliveryBody)
       .digest('hex');
     headers['X-Webhook-Signature'] = `sha256=${signature}`;
   }
@@ -71,7 +112,7 @@ async function deliverWebhook(hook: WebhookRow, body: string): Promise<void> {
     const res = await fetch(hook.url, {
       method: 'POST',
       headers,
-      body,
+      body: deliveryBody,
       signal: AbortSignal.timeout(10000),
     });
 
