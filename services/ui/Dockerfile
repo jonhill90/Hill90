@@ -3,7 +3,8 @@ WORKDIR /build
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+ARG CACHE_BUST=unknown
+RUN echo "Build: ${CACHE_BUST}" && npm run build
 
 FROM node:20-alpine
 WORKDIR /app
