@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
-import { Menu, Bell, Bot, CheckCircle, AlertCircle, Play } from 'lucide-react'
+import { Menu, Bell, Bot, CheckCircle, AlertCircle, Play, Search } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import HillLogo from '@/components/HillLogo'
 import AuthButtons from '@/components/AuthButtons'
 import ThemeToggle from '@/components/ThemeToggle'
@@ -95,6 +96,9 @@ interface TopBarProps {
 export default function TopBar({ navExtra }: TopBarProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const notifRef = useRef<HTMLDivElement>(null)
   const { data: session } = useSession()
@@ -180,6 +184,29 @@ export default function TopBar({ navExtra }: TopBarProps) {
             </div>
           )}
         </div>
+
+        {/* Center: global search */}
+        {session && (
+          <div className="hidden md:flex flex-1 max-w-md mx-4">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-mountain-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    router.push(`/harness/shared-knowledge?tab=search&q=${encodeURIComponent(searchQuery.trim())}`)
+                    setSearchQuery('')
+                  }
+                }}
+                placeholder="Search knowledge, agents, docs..."
+                className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-navy-600 bg-navy-800 text-sm text-white placeholder-mountain-500 focus:border-brand-500 focus:outline-none"
+                data-testid="global-search"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Right: notifications + auth */}
         <div className="flex items-center gap-3">
