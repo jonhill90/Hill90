@@ -58,6 +58,11 @@ async function start() {
   startStaleSweeper();
   console.log('[startup] Chat stale message sweeper started');
 
+  // Start workflow cron scheduler
+  const { startWorkflowScheduler } = await import('./services/workflow-scheduler');
+  startWorkflowScheduler();
+  console.log('[startup] Workflow scheduler started');
+
   const server = app.listen(PORT, () => {
     console.log(`Hill90 API service listening on port ${PORT}`);
   });
