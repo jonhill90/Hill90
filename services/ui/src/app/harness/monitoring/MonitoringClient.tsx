@@ -250,24 +250,69 @@ export default function MonitoringClient() {
         )}
       </section>
 
-      {/* Recent Activity */}
+      {/* Usage Stats */}
       <section>
-        <SectionHeading icon={Clock} title="Recent Activity" />
-        <div className="rounded-lg border border-navy-700 bg-navy-800 p-6 text-center">
-          <p className="text-sm text-navy-400">
-            Metrics integration coming soon. This section will display recent system events and activity trends.
-          </p>
-        </div>
+        <SectionHeading icon={Activity} title="Usage (7 days)" />
+        <UsageStats />
+      </section>
+
+      {/* Knowledge Stats */}
+      <section>
+        <SectionHeading icon={Clock} title="Knowledge" />
+        <KnowledgeStats />
       </section>
     </div>
   )
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function UsageStats() {
+  const [usage, setUsage] = useState<any>(null)
+  useEffect(() => {
+    fetch('/api/usage?from=' + new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setUsage(d))
+      .catch(() => {})
+  }, [])
+
+  if (!usage) return <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 text-sm text-navy-400">Loading usage...</div>
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <StatCard label="Requests" value={usage.total_requests ?? 0} color="text-white" />
+      <StatCard label="Tokens" value={usage.total_tokens ?? 0} color="text-brand-400" />
+      <StatCard label="Cost" value={`$${Number(usage.total_cost ?? 0).toFixed(4)}`} color="text-amber-400" isString />
+      <StatCard label="Models Used" value={usage.distinct_models ?? 0} color="text-blue-400" />
+    </div>
+  )
+}
+
+function KnowledgeStats() {
+  const [stats, setStats] = useState<any>(null)
+  useEffect(() => {
+    fetch('/api/shared-knowledge/stats')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setStats(d))
+      .catch(() => {})
+  }, [])
+
+  if (!stats) return <div className="rounded-lg border border-navy-700 bg-navy-800 p-5 text-sm text-navy-400">Loading knowledge stats...</div>
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <StatCard label="Searches" value={stats.search?.total ?? 0} color="text-white" />
+      <StatCard label="Zero-Result %" value={`${((stats.search?.zero_result_rate ?? 0) * 100).toFixed(1)}%`} color={stats.search?.zero_result_rate > 0.2 ? 'text-red-400' : 'text-brand-400'} isString />
+      <StatCard label="Sources" value={stats.sources?.by_status?.active ?? 0} color="text-blue-400" />
+      <StatCard label="Chunks" value={stats.corpus?.total_chunks ?? 0} color="text-mountain-300" />
+    </div>
+  )
+}
+
+function StatCard({ label, value, color, isString }: { label: string; value: number | string; color: string; isString?: boolean }) {
+  const display = isString ? value : typeof value === 'number' && value > 999 ? `${(value / 1000).toFixed(1)}k` : value
   return (
     <div className="rounded-lg border border-navy-700 bg-navy-800 p-5">
       <p className="text-xs text-navy-400 uppercase tracking-wide">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
+      <p className={`text-2xl font-bold mt-1 ${color}`}>{display}</p>
     </div>
   )
 }
