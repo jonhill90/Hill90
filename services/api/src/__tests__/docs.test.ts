@@ -237,6 +237,8 @@ const EXPECTED_PATHS = [
   '/workflows/{id}',
   '/workflows/{id}/run',
   '/workflows/{id}/runs',
+  '/workflows/{id}/steps',
+  '/workflows/{id}/steps/{stepId}',
   '/workflows/webhook/{token}',
   '/mcp-servers',
   '/mcp-servers/{id}',
