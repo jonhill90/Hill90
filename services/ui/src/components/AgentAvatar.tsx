@@ -33,9 +33,9 @@ function initials(name: string): string {
 
 const SIZE_CLASSES: Record<string, string> = {
   sm: 'w-6 h-6 text-[9px]',
-  md: 'w-8 h-8 text-[11px]',
+  md: 'w-9 h-9 text-xs',
   lg: 'w-12 h-12 text-base',
-  xl: 'w-16 h-16 text-lg',
+  xl: 'w-14 h-14 text-lg',
 }
 
 export default function AgentAvatar({ name, avatarUrl, size = 'md' }: Props) {
