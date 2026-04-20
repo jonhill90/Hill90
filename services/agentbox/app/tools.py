@@ -402,6 +402,55 @@ WEB_SEARCH_TOOL = {
 }
 
 
+SAVE_MEMORY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "save_memory",
+        "description": (
+            "Save a short memory that persists across conversations. Use for important "
+            "observations, user preferences, lessons learned, or facts you want to remember "
+            "later. Memories are automatically recalled in future conversations when relevant."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "The memory to save (1-3 sentences, be concise and specific)",
+                },
+            },
+            "required": ["content"],
+        },
+    },
+}
+
+RECALL_MEMORY_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "recall_memory",
+        "description": (
+            "Search your long-term memory for relevant past observations, facts, and "
+            "lessons learned. Use when you need context from previous conversations."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to search for in memory",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max memories to return (default 5)",
+                    "default": 5,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
 def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     """Build the tools array for the LLM request based on agent config."""
     definitions: list[dict] = []
@@ -424,6 +473,8 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
         definitions.append(SAVE_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_KNOWLEDGE_TOOL)
         definitions.append(SEARCH_SHARED_KNOWLEDGE_TOOL)
+        definitions.append(SAVE_MEMORY_TOOL)
+        definitions.append(RECALL_MEMORY_TOOL)
     # git available when shell is enabled
     if tools_config.shell.enabled:
         definitions.append(GIT_TOOL)
@@ -499,6 +550,12 @@ async def execute_tool_call(
 
     if name == "web_search":
         return await _execute_web_search(arguments)
+
+    if name == "save_memory":
+        return await _execute_save_memory(arguments)
+
+    if name == "recall_memory":
+        return await _execute_recall_memory(arguments)
 
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
@@ -756,6 +813,72 @@ async def _execute_web_search(args: dict) -> str:
     except Exception as e:
         logger.error(f"[web_search] Error: {e}")
         return json.dumps({"success": False, "error": f"Search failed: {str(e)}"})
+
+
+async def _execute_save_memory(args: dict) -> str:
+    """Save a memory to the knowledge service."""
+    import os
+    import httpx
+
+    content = args.get("content", "").strip()
+    if not content:
+        return json.dumps({"success": False, "error": "content is required"})
+
+    akm_url = os.environ.get("AKM_SERVICE_URL", "")
+    akm_token = os.environ.get("AKM_TOKEN", "")
+    if not akm_url or not akm_token:
+        return json.dumps({"success": False, "error": "Memory service not configured"})
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.post(
+                f"{akm_url}/api/v1/memories",
+                headers={"Authorization": f"Bearer {akm_token}", "Content-Type": "application/json"},
+                json={"content": content},
+            )
+
+        if res.status_code not in (200, 201):
+            return json.dumps({"success": False, "error": f"Failed to save memory: {res.status_code}"})
+
+        return json.dumps({"success": True, "message": "Memory saved"})
+    except Exception as e:
+        logger.error(f"[save_memory] Error: {e}")
+        return json.dumps({"success": False, "error": f"Failed to save memory: {str(e)}"})
+
+
+async def _execute_recall_memory(args: dict) -> str:
+    """Recall memories from the knowledge service."""
+    import os
+    import httpx
+
+    query = args.get("query", "").strip()
+    if not query:
+        return json.dumps({"success": False, "error": "query is required"})
+
+    akm_url = os.environ.get("AKM_SERVICE_URL", "")
+    akm_token = os.environ.get("AKM_TOKEN", "")
+    if not akm_url or not akm_token:
+        return json.dumps({"success": False, "error": "Memory service not configured"})
+
+    limit = min(int(args.get("limit", 5)), 20)
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            res = await client.get(
+                f"{akm_url}/api/v1/memories/recall",
+                headers={"Authorization": f"Bearer {akm_token}"},
+                params={"q": query, "limit": limit},
+            )
+
+        if res.status_code != 200:
+            return json.dumps({"success": False, "error": f"Recall failed: {res.status_code}"})
+
+        data = res.json()
+        memories = data.get("memories", [])
+        return json.dumps({"success": True, "memories": memories, "count": len(memories)})
+    except Exception as e:
+        logger.error(f"[recall_memory] Error: {e}")
+        return json.dumps({"success": False, "error": f"Recall failed: {str(e)}"})
 
 
 async def _execute_git(args: dict) -> str:
