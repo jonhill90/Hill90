@@ -28,7 +28,7 @@ describe('AgentLevelBadge', () => {
     })
 
     // 500 + 20*0.5 = 510 XP -> Level 5 Journeyman
-    expect(screen.getByTestId('level-badge')).toHaveTextContent('Lv.5 Journeyman')
+    expect(screen.getByTestId('level-badge')).toHaveTextContent('L5 · Journeyman')
   })
 
   it('renders nothing when stats fail', async () => {
@@ -54,6 +54,6 @@ describe('AgentLevelBadge', () => {
       expect(screen.getByTestId('level-badge')).toBeInTheDocument()
     })
 
-    expect(screen.getByTestId('level-badge')).toHaveTextContent('Lv.1 Novice')
+    expect(screen.getByTestId('level-badge')).toHaveTextContent('L1 · Novice')
   })
 })

@@ -24,7 +24,7 @@ export default function AgentLevelBadge({ agentId }: Props) {
         const stats = await res.json()
         if (cancelled) return
         const info = getAgentLevel(stats)
-        setLabel(`Lv.${info.level} ${info.title}`)
+        setLabel(`L${info.level} · ${info.title}`)
       } catch {
         // Non-fatal — badge simply won't render
       }
@@ -38,7 +38,7 @@ export default function AgentLevelBadge({ agentId }: Props) {
 
   return (
     <span
-      className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded bg-brand-900/30 text-brand-400 border border-brand-800"
+      className="inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded-md bg-navy-700 text-mountain-300"
       data-testid="level-badge"
     >
       {label}

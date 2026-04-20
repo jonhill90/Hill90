@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Shield } from 'lucide-react'
+import { TrendingUp } from 'lucide-react'
 import { getAgentLevel } from '@/utils/agent-level'
 
 interface Stats {
@@ -100,21 +100,21 @@ export default function AgentProgression({ agentId }: Props) {
 
   return (
     <div className="space-y-4" data-testid="progression">
-      {/* Level & XP */}
+      {/* Level & Progress */}
       <div className="rounded-lg border border-navy-700 bg-navy-800 p-5" data-testid="level-section">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-brand-500" />
-            <h2 className="text-lg font-semibold text-white">
+            <TrendingUp className="h-4 w-4 text-mountain-400" />
+            <h2 className="text-sm font-semibold text-white">
               Level {levelInfo.level}
-              <span className="ml-2 text-sm font-normal text-mountain-400">{levelInfo.title}</span>
+              <span className="ml-1.5 font-normal text-mountain-400">· {levelInfo.title}</span>
             </h2>
           </div>
-          <span className="text-xs text-mountain-400" data-testid="xp-label">
+          <span className="text-xs text-mountain-500" data-testid="xp-label">
             {formatNumber(levelInfo.currentXp)} XP
           </span>
         </div>
-        <div className="w-full h-2 rounded-full bg-navy-900 overflow-hidden" data-testid="xp-bar">
+        <div className="w-full h-1.5 rounded-full bg-navy-900 overflow-hidden" data-testid="xp-bar">
           <div
             className="h-full rounded-full bg-brand-600 transition-all duration-500"
             style={{ width: `${levelInfo.progress}%` }}
@@ -122,8 +122,8 @@ export default function AgentProgression({ agentId }: Props) {
           />
         </div>
         {levelInfo.progress < 100 && (
-          <p className="text-[10px] text-mountain-500 mt-1">
-            {formatNumber(levelInfo.xpForNextLevel - levelInfo.currentXp)} XP to Level {levelInfo.level + 1}
+          <p className="text-[10px] text-mountain-600 mt-1">
+            {formatNumber(levelInfo.xpForNextLevel - levelInfo.currentXp)} to next level
           </p>
         )}
       </div>
@@ -156,14 +156,14 @@ export default function AgentProgression({ agentId }: Props) {
                 key={a.id}
                 className={`rounded-md border p-2 text-center transition-colors ${
                   a.earned
-                    ? 'border-brand-700 bg-brand-900/20'
-                    : 'border-navy-700 bg-navy-900/50 opacity-40'
+                    ? 'border-brand-700/50 bg-brand-900/10'
+                    : 'border-navy-700 bg-navy-900/30 opacity-30'
                 }`}
                 title={a.earned ? `${a.name}: ${a.description}` : `${a.name} (locked)`}
                 data-testid={a.earned ? 'artifact-earned' : 'artifact-locked'}
               >
-                <span className="text-xl">{a.earned ? a.icon : '?'}</span>
-                <p className="text-[10px] text-mountain-400 mt-0.5 truncate">{a.name}</p>
+                <span className="text-base">{a.earned ? a.icon : '\u2022'}</span>
+                <p className="text-[10px] text-mountain-500 mt-0.5 truncate">{a.name}</p>
               </div>
             ))}
           </div>

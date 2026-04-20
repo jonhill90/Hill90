@@ -57,7 +57,7 @@ describe('AgentProgression', () => {
     // But 1278 >= 800 -> Level 6 (Journeyman, threshold 800)
     // 1278 < 1500 -> Level 6
     expect(screen.getByText(/Level 6/)).toBeInTheDocument()
-    expect(screen.getByText('Journeyman')).toBeInTheDocument()
+    expect(screen.getByText(/Journeyman/)).toBeInTheDocument()
     expect(screen.getByTestId('xp-bar')).toBeInTheDocument()
     expect(screen.getByTestId('xp-fill')).toBeInTheDocument()
   })
@@ -115,7 +115,7 @@ describe('AgentProgression', () => {
       expect(screen.getByTestId('level-section')).toBeInTheDocument()
     })
 
-    // XP to Level 7 = 1500 - 1278 = 222
-    expect(screen.getByText(/XP to Level 7/)).toBeInTheDocument()
+    // 1500 - 1278 = 222 to next level
+    expect(screen.getByText(/to next level/)).toBeInTheDocument()
   })
 })
