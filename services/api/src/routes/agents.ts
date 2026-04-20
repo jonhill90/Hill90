@@ -1253,6 +1253,10 @@ router.post('/:id/start', requireRole('admin'), async (req: Request, res: Respon
     if (process.env.ANTHROPIC_API_KEY) {
       chatEnv.push(`ANTHROPIC_API_KEY=${process.env.ANTHROPIC_API_KEY}`);
     }
+    // Web search via Tavily (AI-254)
+    if (process.env.TAVILY_API_KEY) {
+      chatEnv.push(`TAVILY_API_KEY=${process.env.TAVILY_API_KEY}`);
+    }
 
     // Resolve agent scope for network assignment
     const effectiveScope = await getAgentEffectiveScope(agent.id);

@@ -374,6 +374,34 @@ GIT_TOOL = {
     },
 }
 
+WEB_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "web_search",
+        "description": (
+            "Search the web for current information. Returns relevant results with "
+            "titles, URLs, and content snippets. Use for questions about recent events, "
+            "documentation, tutorials, or any information that may not be in the knowledge base."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (be specific for better results)",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results (default 5, max 10)",
+                    "default": 5,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+
 def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     """Build the tools array for the LLM request based on agent config."""
     definitions: list[dict] = []
@@ -402,6 +430,9 @@ def build_tool_definitions(tools_config: ToolsConfig) -> list[dict]:
     # http_request available when shell is enabled
     if tools_config.shell.enabled:
         definitions.append(HTTP_REQUEST_TOOL)
+    # web search available when Tavily API key is configured
+    if os.environ.get("TAVILY_API_KEY"):
+        definitions.append(WEB_SEARCH_TOOL)
     return definitions
 
 
@@ -465,6 +496,9 @@ async def execute_tool_call(
 
     if name == "git":
         return await _execute_git(arguments)
+
+    if name == "web_search":
+        return await _execute_web_search(arguments)
 
     return json.dumps({"success": False, "error": f"Unknown tool: {name}"})
 
@@ -673,6 +707,55 @@ async def _execute_http_request(args: dict) -> str:
 
 
 WORKSPACE = "/workspace"
+
+
+async def _execute_web_search(args: dict) -> str:
+    """Search the web using Tavily API."""
+    import os
+    import httpx
+
+    query = args.get("query", "").strip()
+    if not query:
+        return json.dumps({"success": False, "error": "query is required"})
+
+    api_key = os.environ.get("TAVILY_API_KEY", "")
+    if not api_key:
+        return json.dumps({"success": False, "error": "Web search not configured (missing TAVILY_API_KEY)"})
+
+    max_results = min(int(args.get("max_results", 5)), 10)
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            res = await client.post(
+                "https://api.tavily.com/search",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"query": query, "max_results": max_results, "search_depth": "basic"},
+            )
+
+        if res.status_code != 200:
+            return json.dumps({"success": False, "error": f"Search API returned {res.status_code}"})
+
+        data = res.json()
+        results = []
+        for r in data.get("results", [])[:max_results]:
+            results.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", "")[:500],
+                "score": r.get("score", 0),
+            })
+
+        return json.dumps({
+            "success": True,
+            "query": query,
+            "results": results,
+            "answer": data.get("answer", None),
+        })
+    except httpx.TimeoutException:
+        return json.dumps({"success": False, "error": "Search request timed out"})
+    except Exception as e:
+        logger.error(f"[web_search] Error: {e}")
+        return json.dumps({"success": False, "error": f"Search failed: {str(e)}"})
 
 
 async def _execute_git(args: dict) -> str:

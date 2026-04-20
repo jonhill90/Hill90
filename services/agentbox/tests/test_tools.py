@@ -142,3 +142,87 @@ class TestExecuteToolCall:
         mock_exec.return_value = json.dumps({"success": True})
         await execute_tool_call("execute_command", {"command": "ls", "timeout": "invalid"})
         mock_exec.assert_called_once_with("ls", timeout=30, command_id=ANY, work_id=None)
+
+
+class TestWebSearch:
+    def test_web_search_included_when_configured(self):
+        """web_search tool appears when TAVILY_API_KEY is set."""
+        config = ToolsConfig(shell=ShellConfig(enabled=True))
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "tvly-test123"}):
+            defs = build_tool_definitions(config)
+        names = [d["function"]["name"] for d in defs]
+        assert "web_search" in names
+
+    def test_web_search_excluded_when_not_configured(self):
+        """web_search tool does not appear without TAVILY_API_KEY."""
+        config = ToolsConfig(shell=ShellConfig(enabled=True))
+        with patch.dict("os.environ", {}, clear=True):
+            defs = build_tool_definitions(config)
+        names = [d["function"]["name"] for d in defs]
+        assert "web_search" not in names
+
+    @pytest.mark.asyncio
+    async def test_web_search_success(self):
+        """Successful search returns formatted results."""
+        import httpx
+        from unittest.mock import MagicMock
+
+        tavily_response = {
+            "results": [
+                {"title": "Test Result", "url": "https://example.com", "content": "Test content", "score": 0.95},
+            ],
+            "answer": "Test answer",
+        }
+
+        mock_response = httpx.Response(200, json=tavily_response, request=httpx.Request("POST", "https://api.tavily.com/search"))
+
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "tvly-test123"}):
+            with patch("httpx.AsyncClient") as MockClient:
+                instance = AsyncMock()
+                instance.post = AsyncMock(return_value=mock_response)
+                MockClient.return_value.__aenter__ = AsyncMock(return_value=instance)
+                MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+                result = await execute_tool_call("web_search", {"query": "test query"})
+
+        parsed = json.loads(result)
+        assert parsed["success"] is True
+        assert len(parsed["results"]) == 1
+        assert parsed["results"][0]["title"] == "Test Result"
+        assert parsed["answer"] == "Test answer"
+
+    @pytest.mark.asyncio
+    async def test_web_search_missing_query(self):
+        """Empty query returns error."""
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "tvly-test123"}):
+            result = await execute_tool_call("web_search", {"query": ""})
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "required" in parsed["error"]
+
+    @pytest.mark.asyncio
+    async def test_web_search_no_api_key(self):
+        """Missing API key returns error."""
+        with patch.dict("os.environ", {}, clear=True):
+            result = await execute_tool_call("web_search", {"query": "test"})
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "TAVILY_API_KEY" in parsed["error"]
+
+    @pytest.mark.asyncio
+    async def test_web_search_api_error(self):
+        """API error returns graceful error."""
+        import httpx
+
+        mock_response = httpx.Response(500, text="Server Error", request=httpx.Request("POST", "https://api.tavily.com/search"))
+
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "tvly-test123"}):
+            with patch("httpx.AsyncClient") as MockClient:
+                instance = AsyncMock()
+                instance.post = AsyncMock(return_value=mock_response)
+                MockClient.return_value.__aenter__ = AsyncMock(return_value=instance)
+                MockClient.return_value.__aexit__ = AsyncMock(return_value=False)
+                result = await execute_tool_call("web_search", {"query": "test"})
+
+        parsed = json.loads(result)
+        assert parsed["success"] is False
+        assert "500" in parsed["error"]
