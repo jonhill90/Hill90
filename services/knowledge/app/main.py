@@ -24,6 +24,7 @@ from app.routes import (
     internal_admin_shared,
     internal_admin_tasks,
     journal,
+    memories,
     search,
     shared,
     tasks,
@@ -154,6 +155,7 @@ def create_app(
     app.include_router(internal_admin_tasks.router)
     app.include_router(shared.router)
     app.include_router(tasks.router)
+    app.include_router(memories.router)
 
     return app
 
