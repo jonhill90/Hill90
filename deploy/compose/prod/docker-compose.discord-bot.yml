@@ -1,0 +1,27 @@
+version: '3.9'
+
+# Discord Bot service — bridges Discord channels to Hill90 agent chat
+# Deploy with: make deploy-discord-bot or bash scripts/deploy.sh discord-bot prod
+
+services:
+  discord-bot:
+    image: hill90/discord-bot:latest
+    container_name: discord-bot
+    build:
+      context: ../../../services/discord-bot
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_BOT_SERVICE_TOKEN=${DISCORD_BOT_SERVICE_TOKEN}
+      - API_URL=http://api:3000
+    networks:
+      - internal
+    depends_on:
+      api:
+        condition: service_healthy
+
+networks:
+  internal:
+    name: hill90_internal
+    external: true
