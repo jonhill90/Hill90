@@ -25,6 +25,7 @@ import notificationsRouter from './routes/notifications';
 import workflowsRouter from './routes/workflows';
 import mcpServersRouter from './routes/mcp-servers';
 import { modelRouterRefreshHandler } from './services/model-router-refresh';
+import discordInternalRouter from './routes/discord-internal';
 
 interface AppOptions {
   issuer?: string;
@@ -97,6 +98,7 @@ export function createApp(opts: AppOptions = {}): Application {
   app.post('/internal/delegation-token', delegationTokenHandler);
   app.post('/internal/chat/callback', chatCallbackHandler);
   app.post('/internal/model-router/refresh-token', modelRouterRefreshHandler);
+  app.use('/internal/discord', discordInternalRouter);
 
   // Protected routes
   const issuer = opts.issuer || process.env.KEYCLOAK_ISSUER || 'https://auth.hill90.com/realms/hill90';
