@@ -122,6 +122,7 @@ services:
       - MODEL_ROUTER_URL=http://ai:8000
       - CHAT_CALLBACK_TOKEN=${CHAT_CALLBACK_TOKEN}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
