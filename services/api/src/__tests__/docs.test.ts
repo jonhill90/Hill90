@@ -244,7 +244,7 @@ const EXPECTED_PATHS = [
   '/mcp-servers/{id}',
 ];
 
-const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token'];
+const INFRA_PATHS = ['/docs', '/openapi.json', '/internal/delegation-token', '/internal/chat/callback', '/internal/model-router/refresh-token', '/internal/discord/message', '/internal/discord/poll/{messageId}', '/internal/discord/bindings'];
 
 // Compat alias paths — same handler as canonical /skills routes, not in OpenAPI spec
 const COMPAT_PATHS: string[] = ['/storage/buckets/{name}/objects/*'];
