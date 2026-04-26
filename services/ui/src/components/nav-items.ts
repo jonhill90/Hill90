@@ -50,6 +50,7 @@ export const NAV_ITEMS: NavItem[] = [
       { type: 'link', id: 'connections', label: 'Connections', href: '/harness/connections', icon: Plug },
       { type: 'link', id: 'models', label: 'Models', href: '/harness/models', icon: Cpu },
       { type: 'link', id: 'storage', label: 'Storage', href: '/harness/storage', icon: HardDrive },
+      { type: 'link', id: 'discord', label: 'Discord', href: '/harness/discord', icon: MessageSquare },
       { type: 'link', id: 'secrets', label: 'Secrets', href: '/harness/secrets', icon: Shield, adminOnly: true },
     ],
   },

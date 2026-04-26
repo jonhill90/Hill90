@@ -26,6 +26,7 @@ import workflowsRouter from './routes/workflows';
 import mcpServersRouter from './routes/mcp-servers';
 import { modelRouterRefreshHandler } from './services/model-router-refresh';
 import discordInternalRouter from './routes/discord-internal';
+import discordRouter from './routes/discord';
 
 interface AppOptions {
   issuer?: string;
@@ -162,6 +163,7 @@ export function createApp(opts: AppOptions = {}): Application {
   app.use('/notifications', requireAuth, notificationsRouter);
   app.use('/workflows', requireAuth, workflowsRouter);
   app.use('/mcp-servers', requireAuth, mcpServersRouter);
+  app.use('/discord', requireAuth, discordRouter);
 
   // Secrets vault inventory (admin-only, AI-147)
   app.use('/admin/secrets', requireAuth, requireRole('admin'), secretsRouter);
