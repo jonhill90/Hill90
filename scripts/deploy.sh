@@ -21,6 +21,7 @@ Commands:
   infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
   vault    Deploy OpenBao secrets management
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
+  teardown Stop and remove a stack's containers and networks (volumes KEPT)
   verify   Run post-deploy readiness check for a service
   backup   Run pre-deploy backup for a service (infra, observability, vault)
   help     Show this help message
@@ -347,6 +348,55 @@ cmd_service() {
 }
 
 # ---------------------------------------------------------------------------
+# Teardown
+# ---------------------------------------------------------------------------
+
+# Removes containers and networks for one stack. Volumes are NEVER touched:
+# rebuilding is meant to be routine, and routine operations must not be able to
+# destroy data. Deleting a volume on the VPS stays a deliberate manual act,
+# preceded by scripts/backup.sh — see docs/runbooks/deployment.md.
+cmd_teardown() {
+    local stack="$1"
+    local env="${2:-prod}"
+    local compose_file project_name
+
+    case "$stack" in
+        infra)
+            compose_file="deploy/compose/${env}/docker-compose.infra.yml"
+            project_name="hill90-${env}-edge"
+            ;;
+        vault|observability)
+            compose_file="deploy/compose/${env}/docker-compose.${stack}.yml"
+            [ "$stack" = "vault" ] && project_name="hill90-${env}-platform" \
+                                   || project_name="hill90-${env}-observability"
+            ;;
+        *)
+            die "Unknown stack for teardown: $stack. Use: infra, vault, observability"
+            ;;
+    esac
+
+    require_file "$compose_file" "Compose file"
+
+    echo "================================"
+    echo "Teardown: ${stack} (${env})"
+    echo "================================"
+    echo "Project:  ${project_name}"
+    echo "Volumes:  KEPT — data survives; rebuild restores the stack as-is."
+    echo ""
+
+    echo "Backing up before teardown..."
+    bash "$SCRIPT_DIR/backup.sh" backup "$stack" || warn "Backup failed (continuing teardown)"
+
+    # Orphan removal is deliberately not used here — it is banned repo-wide
+    # because it will happily delete containers belonging to another stack that
+    # shares a project name. See tests/scripts/deploy.bats.
+    docker compose -p "$project_name" -f "$compose_file" down
+
+    echo ""
+    success "${stack} torn down. Rebuild with: bash scripts/deploy.sh ${stack} ${env}"
+}
+
+# ---------------------------------------------------------------------------
 # Main dispatcher
 # ---------------------------------------------------------------------------
 
@@ -362,6 +412,7 @@ main() {
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
         vault|observability) cmd_service "$cmd" "$@" ;;
+        teardown)       cmd_teardown "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;
         help|--help|-h) usage ;;

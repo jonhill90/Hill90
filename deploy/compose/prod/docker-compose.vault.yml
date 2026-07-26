@@ -6,19 +6,19 @@ version: '3.9'
 networks:
   edge:
     external: true
-    name: hill90_edge
+    name: ${NETWORK_PREFIX:-hill90}_edge
   internal:
     external: true
-    name: hill90_internal
+    name: ${NETWORK_PREFIX:-hill90}_internal
 
 volumes:
   openbao-data:
-    name: openbao-data
+    name: ${VOLUME_PREFIX_BARE:-}openbao-data
 
 services:
   openbao:
     image: ghcr.io/openbao/openbao:2
-    container_name: openbao
+    container_name: ${CONTAINER_PREFIX:-}openbao
     restart: unless-stopped
     command: server
     cap_add:
@@ -41,8 +41,8 @@ services:
       start_period: 60s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.vault.rule=Host(`vault.hill90.com`)"
-      - "traefik.http.routers.vault.entrypoints=websecure"
-      - "traefik.http.routers.vault.tls.certresolver=letsencrypt-dns"
-      - "traefik.http.routers.vault.middlewares=tailscale-only@file"
+      - "traefik.http.routers.vault.rule=Host(`${VAULT_HOST:-vault}.${BASE_DOMAIN:-hill90.com}`)"
+      - "traefik.http.routers.vault.entrypoints=${ADMIN_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.vault.tls.certresolver=${ADMIN_CERT_RESOLVER:-letsencrypt-dns}"
+      - "traefik.http.routers.vault.middlewares=${ADMIN_MIDDLEWARES:-tailscale-only@file}"
       - "traefik.http.services.vault.loadbalancer.server.port=8200"
