@@ -118,18 +118,36 @@ cmd_up() {
     info "Building and starting the edge stack (traefik, dns-manager, portainer)..."
     compose_edge up -d --build --force-recreate || die "Edge stack failed to start"
 
-    # Refuse to share networks with an unrelated project. Docker will happily
-    # let two stacks attach to the same network name, and then a teardown here
-    # removes something the other stack still needs — observed on this machine
-    # with an older Hill90 app stack.
+    # Refuse to share networks with an unrelated project.
+    #
+    # Two shapes matter and the compose-project label only catches one. A
+    # network created by hand — which is how internal and agent_internal are
+    # made, here and in production — carries no project label at all, and
+    # another stack can quietly join a network we created. Both were observed
+    # on the reference machine: a separate Hill90 app stack attached to
+    # hill90dev_edge, hill90dev_internal and hill90dev_agent_internal.
+    #
+    # So check what is actually attached, not just who nominally owns it. Any
+    # container that is not ours means the network is shared, and a teardown
+    # here would disrupt something else.
     local netpfx_pre; netpfx_pre=$(env_get NETWORK_PREFIX hill90dev)
+    local cprefix; cprefix=$(env_get CONTAINER_PREFIX "")
     for net in edge internal agent_internal; do
-        local owner
+        local owner foreign
         owner=$(docker network inspect "${netpfx_pre}_${net}" \
                 --format '{{index .Labels "com.docker.compose.project"}}' 2>/dev/null || true)
         if [ -n "$owner" ] && [ "$owner" != "$EDGE_PROJECT" ] && [ "$owner" != "$OBS_PROJECT" ]; then
             die "Network ${netpfx_pre}_${net} already exists and belongs to compose project '${owner}'.
     Change NETWORK_PREFIX in .env.local to something unused, then retry."
+        fi
+        foreign=$(docker network inspect "${netpfx_pre}_${net}" \
+                  --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null \
+                  | tr ' ' '\n' | grep -v '^$' | grep -v "^${cprefix}" || true)
+        if [ -n "$foreign" ]; then
+            die "Network ${netpfx_pre}_${net} is shared with containers that are not ours:
+    $(echo "$foreign" | tr '\n' ' ')
+    Sharing it means a teardown here would disrupt them. Change NETWORK_PREFIX
+    in .env.local to something unused, then retry."
         fi
     done
 
@@ -165,17 +183,28 @@ cmd_up() {
         waited=$((waited + 3))
     done
 
-    # Container health says the process is up; it does not say Traefik has
-    # discovered the router or that Grafana has finished installing plugins.
-    # Poll the thing we actually promise works.
+    # Container health says the process is up. It does not say Traefik has
+    # discovered the router, and Traefik discovers routers asynchronously from
+    # container start. Poll every routed surface, not just one — waiting on
+    # Grafana alone once let `up` return while Prometheus was still 404ing,
+    # which looks exactly like a broken config to whoever runs it next.
     info "Waiting for routed surfaces to answer..."
-    local grafana_url; grafana_url="$(base_url "$(env_get GRAFANA_HOST grafana)")/login"
-    waited=0
+    local waited=0 pending
     while [ "$waited" -lt 120 ]; do
-        [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$grafana_url" 2>/dev/null)" = "200" ] && break
+        pending=0
+        for probe in \
+            "$(base_url "$(env_get TRAEFIK_HOST traefik)")/dashboard/" \
+            "$(base_url "$(env_get PORTAINER_HOST portainer)")/" \
+            "$(base_url "$(env_get GRAFANA_HOST grafana)")/login" \
+            "$(base_url "$(env_get PROMETHEUS_HOST prometheus)")/graph"
+        do
+            [ "$(curl -sL -o /dev/null -w '%{http_code}' --max-time 5 "$probe" 2>/dev/null)" = "200" ] || pending=1
+        done
+        [ "$pending" -eq 0 ] && break
         sleep 3
         waited=$((waited + 3))
     done
+    [ "$waited" -ge 120 ] && warn "Some routed surfaces did not answer within 120s — run 'local.sh health'"
 
     echo ""
     cmd_status
@@ -254,6 +283,7 @@ cmd_urls() {
     echo "  Traefik dashboard   $(base_url "$(env_get TRAEFIK_HOST traefik)")/dashboard/"
     echo "  Portainer           $(base_url "$(env_get PORTAINER_HOST portainer)")/"
     echo "  Grafana             $(base_url "$(env_get GRAFANA_HOST grafana)")/"
+    echo "  Prometheus          $(base_url "$(env_get PROMETHEUS_HOST prometheus)")/  (local only; prod reaches it via Grafana)"
 }
 
 cmd_health() {
@@ -265,6 +295,7 @@ cmd_health() {
     check_http "Traefik dashboard" "$(base_url "$(env_get TRAEFIK_HOST traefik)")/dashboard/" 200 || failed=1
     check_http "Portainer"         "$(base_url "$(env_get PORTAINER_HOST portainer)")/"        200 || failed=1
     check_http "Grafana"           "$(base_url "$(env_get GRAFANA_HOST grafana)")/login"       200 || failed=1
+    check_http "Prometheus"        "$(base_url "$(env_get PROMETHEUS_HOST prometheus)")/graph"  200 || failed=1
 
     echo ""
     echo "${BOLD}Observability internals${NC}"
@@ -283,8 +314,11 @@ cmd_health() {
 }
 
 check_http() {
+    # -L because a browser follows redirects and so should this: Prometheus
+    # sends /graph to /query, and Grafana sends / to /login. Asserting on the
+    # first response would fail on a page that works fine.
     local name="$1" url="$2" expect="$3" code
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$url" 2>/dev/null || echo 000)
+    code=$(curl -sL -o /dev/null -w '%{http_code}' --max-time 10 "$url" 2>/dev/null || echo 000)
     if [ "$code" = "$expect" ]; then
         echo "  ${GREEN}✓${NC} ${name} — HTTP ${code}"
     else

@@ -31,8 +31,10 @@ bash scripts/local.sh reset      # also delete the local volumes (prompts)
 ```
 
 Cold start takes roughly a minute, most of it Grafana installing plugins. From a
-completely clean machine — no containers, no volumes, no `.env.local` — the
-measured time is 65 seconds.
+genuinely clean machine — no containers, no volumes, no networks, no
+`.env.local`, **no images and no build cache** — the measured time is 83
+seconds, including pulling all nine images. With images already present it is
+about 65 seconds.
 
 Verify it worked:
 
@@ -61,6 +63,15 @@ Observability internals
 | Traefik dashboard | http://traefik.localtest.me:8080/dashboard/ |
 | Portainer | http://portainer.localtest.me:8080/ |
 | Grafana | http://grafana.localtest.me:8080/ (admin / admin) |
+| Prometheus | http://prometheus.localtest.me:8080/ (local only) |
+
+**Prometheus is routed locally but not in production.** In production it sits on
+the internal network with no router and no published port, reached through
+Grafana — correct for a server nobody logs into directly. Locally you want its
+targets page and expression browser, so
+`deploy/compose/overrides/local.observability.yml` adds a router. Nothing about
+that reaches production; `docker compose -f …observability.yml config` still
+resolves to zero Prometheus router labels.
 
 `localtest.me` is a public DNS zone where every name resolves to `127.0.0.1`.
 That gives real `Host`-header routing through Traefik with no `/etc/hosts`
@@ -99,6 +110,7 @@ and no path to Let's Encrypt. Each difference is one variable:
 
 | Difference | Mechanism | Production default |
 |---|---|---|
+| Prometheus UI reachable | router added in the local override | not routed |
 | Hostnames | `BASE_DOMAIN=localtest.me` | `hill90.com` |
 | Plain HTTP, no TLS | `ADMIN_ENTRYPOINT=web` | `websecure` |
 | No certificates | `ADMIN_CERT_RESOLVER=` | `letsencrypt-dns` |
@@ -107,10 +119,13 @@ and no path to Let's Encrypt. Each difference is one variable:
 | Port 80 already in use | `HTTP_PORT=8080` | `80` |
 | Coexist with other stacks | `CONTAINER_PREFIX`, `NETWORK_PREFIX`, `VOLUME_PREFIX` | unset / `hill90` / `prod` |
 
-If `up` reports that a network belongs to another compose project, change
-`NETWORK_PREFIX` in `.env.local`. The default is `hill90dev`; an earlier default
-of `hill90local` collided with a separate Hill90 app stack on the reference
-machine, which is why that check exists.
+If `up` reports a network is shared, change `NETWORK_PREFIX` in `.env.local`.
+The check looks at what is actually attached to the network, not just its
+compose-project label, because `internal` and `agent_internal` are created by
+hand and carry no label — and because another stack can join a network this one
+created. Both shapes were observed on the reference machine. `down` applies the
+same rule in reverse: it leaves a shared network in place and says so, rather
+than removing something another stack still needs.
 
 ### The one file that is genuinely duplicated
 

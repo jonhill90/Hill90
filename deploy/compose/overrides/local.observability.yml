@@ -7,3 +7,21 @@ services:
   grafana:
     labels:
       - "traefik.http.routers.grafana.tls=false"
+
+  prometheus:
+    # Production deliberately does not route Prometheus: it sits on the internal
+    # network and is reached through Grafana, so it has no router and publishes
+    # no port. That is correct for a server nobody logs into directly.
+    #
+    # It is wrong for development. Prometheus' own UI is where you check the
+    # targets page and use the expression browser, and without this a developer
+    # cannot open it at all — port 9090 is not published to the host either.
+    # Prometheus is already on the edge network, so routing it locally needs
+    # nothing but labels, and none of this reaches production.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`${PROMETHEUS_HOST:-prometheus}.${BASE_DOMAIN:-hill90.com}`)"
+      - "traefik.http.routers.prometheus.entrypoints=${ADMIN_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.prometheus.tls=false"
+      - "traefik.http.routers.prometheus.middlewares=${ADMIN_MIDDLEWARES:-tailscale-only@file}"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
