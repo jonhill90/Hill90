@@ -144,6 +144,9 @@ bash scripts/local.sh up       # rebuild to an identical result
 to type `reset` to confirm. It can only ever touch the local Docker daemon —
 `local.sh` contains no SSH and no VPS hostname, asserted by a test.
 
+Volumes survive `down`, so a rebuild comes back with its data. Verified: 7
+volumes before and after, and Grafana still has its 4 provisioned dashboards.
+
 On the VPS, the equivalent is:
 
 ```bash
@@ -167,6 +170,13 @@ exactly this reason; if you started Traefik another way, restart it.
 
 **Grafana 404 immediately after `up`.** It is still installing plugins.
 `local.sh up` waits for it; `docker compose up` on its own does not.
+
+**Loki shows logs from containers that are not Hill90's.** Expected. Promtail
+discovers containers through the Docker socket and ships everything on the host;
+on a developer Mac that includes whatever else you have running. On the VPS there
+are no neighbours, so the config is not narrowed — narrowing it locally would
+mean forking `promtail.yml`, which is exactly what this setup avoids. Filter in
+Grafana with `{container=~"hill90dev-.*"}`.
 
 **Routers from another project appear in the dashboard.** Traefik's Docker
 provider sees every container on the socket. The local static config constrains
