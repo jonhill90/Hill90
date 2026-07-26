@@ -258,6 +258,7 @@ Full guide: [Troubleshooting](docs/runbooks/troubleshooting.md).
 - [Bootstrap](docs/runbooks/bootstrap.md)
 - [Deployment](docs/runbooks/deployment.md)
 - [Disaster recovery](docs/runbooks/disaster-recovery.md)
+- [DNS cutover](docs/runbooks/dns-cutover.md) — Hostinger to Cloudflare, mail-preserving
 - [Observability](docs/runbooks/observability.md)
 - [Secrets workflow](docs/runbooks/secrets-workflow.md)
 - [Vault unseal](docs/runbooks/vault-unseal.md)
