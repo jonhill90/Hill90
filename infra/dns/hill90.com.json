@@ -1,4 +1,6 @@
 {
+  "_comment": "The MANAGED SUBSET of the hill90.com zone \u2014 the A records whose value changes when the VPS is rebuilt. This is NOT a description of the zone. The zone is served by Cloudflare and holds roughly 33 record groups: mail (MX, SPF, DKIM, DMARC, autoconfig, autodiscover) pointed at Hostinger, www, docs, CAA, and a minecraft SRV. None of those appear here and none are managed by this repository. Reading this file as the zone is how you end up replacing 33 records with 7. Kept in lockstep with MANAGED_RECORDS in scripts/cloudflare.sh by tests/scripts/cloudflare.bats.",
+  "_contentPlaceholders": "content values are ${VPS_IP} / ${TAILSCALE_IP} placeholders resolved from SOPS at sync time. Do not substitute literal addresses here \u2014 see the note on hardcoded addresses in docs/reference/dns.md.",
   "records": [
     {
       "type": "A",

@@ -12,9 +12,26 @@ Every record in the zone is **dns-only** (grey cloud). Nothing is proxied:
 Cloudflare cannot proxy SMTP, and the Tailscale-only hosts resolve into
 `100.64.0.0/10`, which a proxy cannot reach.
 
-> **Note:** No IP addresses appear in this document on purpose. They change on
-> VPS rebuild and are stored in SOPS. Use `make secrets-view KEY=VPS_IP` and
+> **No IP addresses appear in this document on purpose.** They change on VPS
+> rebuild and are stored in SOPS. Use `make secrets-view KEY=VPS_IP` and
 > `make secrets-view KEY=TAILSCALE_IP` for current values.
+>
+> This is not stylistic. **Every file in this repository that has hardcoded an
+> address or a record set has turned out to be wrong**, and each was wrong
+> silently, in a way only discovered by going and asking the live system:
+>
+> | Artifact | What it claimed | Reality |
+> |---|---|---|
+> | `hill90-dns-backup.json` | a stale `remote` address | superseded IP |
+> | `infra/dns/hill90.com.json` | read as "the zone" | it is a 7-record managed subset of ~33 |
+> | this document, before 2026-07-26 | `remote` = a Mac at `31.97.42.69`; Tailscale IP `100.78.82.89` | `remote` is the **VPS**, on the current Tailscale IP |
+>
+> The last one is instructive: `dns_sync` and the bats suite had described
+> `remote` correctly as the VPS SSH path the whole time. The prose disagreed with
+> the code, and the prose was wrong.
+>
+> The rule that follows: **the live system and the code are the sources of truth
+> for addresses; documentation names variables, never values.**
 
 ## Credential
 
