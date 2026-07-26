@@ -66,3 +66,36 @@
   [ "$status" -eq 1 ]
   [[ "$output" == *"Unknown"* ]]
 }
+
+# --- DNS record-set parity and the overwrite hazard (JON-47) ----------------
+
+@test "dns_sync never posts overwrite:true" {
+  # overwrite:true replaces the ENTIRE zone with the payload. The payload holds
+  # 7 record groups; the live zone holds 33, including the remote A record that
+  # is the only SSH path to the VPS, and every mail record.
+  run bash -c 'sed -n "/^dns_sync/,/^}$/p" scripts/hostinger.sh | grep -v "^ *#" | grep "overwrite"'
+  [ "$status" -eq 1 ]
+}
+
+@test "dns_sync payload and infra/dns/hill90.com.json describe the same records" {
+  run bash -c '
+    payload=$(grep -oE "\{name: \"[a-z@]+\"" scripts/hostinger.sh | grep -oE "\"[a-z@]+\"" | tr -d "\"" | sort -u)
+    declared=$(python3 -c "
+import json
+print(chr(10).join(sorted(r[chr(39)+chr(39)] if False else r[\"name\"] for r in json.load(open(\"infra/dns/hill90.com.json\"))[\"records\"])))")
+    [ "$payload" = "$declared" ]'
+  [ "$status" -eq 0 ]
+}
+
+@test "dns_sync manages the remote record that SSH depends on" {
+  run bash -c 'sed -n "/^dns_sync/,/^}$/p" scripts/hostinger.sh | grep -c "name: \"remote\""'
+  [ "$output" = "1" ]
+}
+
+@test "infra/dns/hill90.com.json has no app-era hostnames" {
+  run python3 -c "
+import json,sys
+names={r['name'] for r in json.load(open('infra/dns/hill90.com.json'))['records']}
+sys.exit(1 if names & {'api','ai','auth','storage','litellm','openclaw','admin'} else 0)"
+  [ "$status" -eq 0 ]
+}

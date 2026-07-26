@@ -73,7 +73,7 @@
         -f deploy/compose/overrides/local.infra.yml config
   [ "$status" -eq 0 ]
   [[ "$output" == *"traefik.localtest.me"* ]]
-  [[ "$output" == *"hill90local_edge"* ]]
+  [[ "$output" == *"hill90dev_edge"* ]]
   [[ "$output" != *"tailscale-only@file"* ]]
 }
 

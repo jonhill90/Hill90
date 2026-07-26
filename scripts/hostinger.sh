@@ -353,7 +353,7 @@ dns_sync() {
     current_records=$(api_call GET "/api/dns/v1/zones/$DOMAIN")
 
     local needs_update=false
-    for pair in "@:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "grafana:$tailscale_ip" "vault:$tailscale_ip"; do
+    for pair in "@:$vps_ip" "remote:$tailscale_ip" "vps:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "grafana:$tailscale_ip" "vault:$tailscale_ip"; do
         local name="${pair%%:*}"
         local expected="${pair##*:}"
         local current
@@ -373,6 +373,15 @@ dns_sync() {
         return 0
     fi
 
+    # NO "overwrite: true". The Hostinger PUT upserts the records it is given
+    # and leaves the rest of the zone alone; with overwrite it REPLACES the
+    # whole zone with whatever is in this payload. The zone has 33 record
+    # groups and this payload has 7, so overwrite would have destroyed the
+    # remote A record (the only SSH path to the VPS), every mail record — MX,
+    # SPF, DKIM, DMARC, autoconfig, autodiscover — plus www, docs and a
+    # minecraft SRV. Verified empirically: a targeted update without the flag
+    # left all 33 groups intact and changed exactly one record.
+    #
     # Build and validate payload
     local payload
     payload=$(jq -n \
@@ -380,10 +389,10 @@ dns_sync() {
         --arg ts "$tailscale_ip" \
         '{
             domain: "hill90.com",
-            overwrite: true,
             zone: [
                 {name: "@",         type: "A", ttl: 3600, records: [{content: $vps}]},
-                {name: "admin",     type: "A", ttl: 3600, records: [{content: $ts}]},
+                {name: "remote",    type: "A", ttl: 3600, records: [{content: $ts}]},
+                {name: "vps",       type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "portainer", type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "traefik",   type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "grafana",   type: "A", ttl: 3600, records: [{content: $ts}]},
@@ -449,7 +458,7 @@ dns_verify() {
     if [[ -n "$tailscale_ip" ]]; then
         echo "" >&2
         echo -e "${BLUE}Verifying Tailscale-only DNS (expected: $tailscale_ip)...${NC}" >&2
-        for host in "portainer.$DOMAIN" "traefik.$DOMAIN" "grafana.$DOMAIN" "vault.$DOMAIN"; do
+        for host in "remote.$DOMAIN" "vps.$DOMAIN" "portainer.$DOMAIN" "traefik.$DOMAIN" "grafana.$DOMAIN" "vault.$DOMAIN"; do
             local resolved
             resolved=$(dig +short "$host" 2>/dev/null | head -n1)
             if [[ "$resolved" == "$tailscale_ip" ]]; then
