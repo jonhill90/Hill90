@@ -33,18 +33,6 @@ groups:
           summary: "Disk space below 15% on {{ $labels.instance }}"
           description: "Root filesystem on {{ $labels.instance }} has {{ $value | humanizePercentage }} free space remaining."
 
-  - name: postgres
-    rules:
-      - alert: PostgresConnectionsHigh
-        expr: |
-          pg_stat_activity_count / pg_settings_max_connections > 0.8
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "PostgreSQL connections above 80% capacity"
-          description: "Active connections ({{ $value | humanizePercentage }} of max) on {{ $labels.instance }}."
-
   - name: loki
     rules:
       - alert: LokiIngestionErrors
