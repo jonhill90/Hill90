@@ -40,8 +40,8 @@ check_no_match "scripts/deploy.sh"              "cmd_agentbox"     "legacy agent
 check_no_match "Makefile"                        "deploy-agentbox"  "legacy Makefile target"
 check_no_match ".github/workflows/deploy.yml"    "deploy-agentbox"  "legacy deploy job"
 check_no_match "scripts/rollback.sh"             "agentbox)"        "legacy rollback case"
-check_no_match "AGENTS.md"                       "deploy-agentbox"  "legacy command map entry"
-check_no_match "AGENTS.md"                       "agentbox-list"    "legacy command map entry"
+check_no_match "CONTRIBUTING.md"                 "deploy-agentbox"  "legacy command map entry"
+check_no_match "CONTRIBUTING.md"                 "agentbox-list"    "legacy command map entry"
 
 if [ "$failures" -gt 0 ]; then
     echo ""

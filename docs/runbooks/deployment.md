@@ -312,5 +312,5 @@ After rotating `CHAT_CALLBACK_TOKEN`, running agents must be restarted for the n
 
 ## See Also
 
-- [Deployment Architecture Reference](../../.github/docs/deployment.md) — compose files, workflows, and architecture details
+- [Deployment Architecture Reference](../reference/deployment.md) — compose files, workflows, and architecture details
 - [Troubleshooting Guide](./troubleshooting.md) — common issues and fixes

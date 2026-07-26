@@ -10,10 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCAN_ROOTS = [
     ROOT / "README.md",
-    ROOT / "AGENTS.md",
+    ROOT / "CONTRIBUTING.md",
     ROOT / "docs",
     ROOT / ".github",
-    ROOT / ".claude",
 ]
 IGNORE_SEGMENTS = {"node_modules", ".git"}
 LINK_RE = re.compile(r"\[[^\]]+\]\(([^)]+)\)")

@@ -284,10 +284,10 @@
   run grep 'agentbox)' scripts/rollback.sh
   [ "$status" -eq 1 ]
 
-  # AGENTS.md must not contain deploy-agentbox or agentbox-list
-  run grep 'deploy-agentbox' AGENTS.md
+  # CONTRIBUTING.md must not contain deploy-agentbox or agentbox-list
+  run grep 'deploy-agentbox' CONTRIBUTING.md
   [ "$status" -eq 1 ]
-  run grep 'agentbox-list' AGENTS.md
+  run grep 'agentbox-list' CONTRIBUTING.md
   [ "$status" -eq 1 ]
 }
 
