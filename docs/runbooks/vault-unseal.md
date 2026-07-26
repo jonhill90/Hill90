@@ -2,6 +2,23 @@
 
 OpenBao (vault) starts sealed after every container restart. This runbook covers the auto-unseal mechanisms and manual fallback.
 
+> **Fresh initialization (2026-07-26).** `vault.sh init` no longer prints the
+> unseal key or root token. It writes both to `0600` files owned by whoever
+> runs it — on the host that is `deploy`, which is what the auto-unseal systemd
+> unit runs as. The previous instructions said to `sudo tee` the unseal key,
+> which produced a **root-owned** file the unit could not read, so auto-unseal
+> would have failed on the first reboot. Do not reintroduce `sudo` there.
+>
+> After `setup` and `seed`, run `bash scripts/vault.sh revoke-root`. It revokes
+> the root token, verifies independently that it is dead (`bao token revoke
+> -self` reports success even for a token that never existed), and removes the
+> file.
+>
+> The unseal key must also reach SOPS as `OPENBAO_UNSEAL_KEY`. The host
+> checkout is `git reset --hard` on every deploy, so a SOPS edit made on the
+> host is discarded — it has to be committed from a workstation.
+
+
 ## How Auto-Unseal Works
 
 The `vault.sh auto-unseal` command:
