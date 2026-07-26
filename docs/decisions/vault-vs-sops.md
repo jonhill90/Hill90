@@ -4,6 +4,24 @@
 Jon's.
 **Raised:** 2026-07-26 (JON-45)
 
+## What has been done, and what is still open
+
+**Done (2026-07-26):** the `vault-sync-to-sops` schedule is disabled. It had
+failed every Monday since 2026-06-01 and could not succeed; a weekly alert that
+always fires carries no information. `workflow_dispatch` is kept, so it can
+still be run by hand. Reversible with a one-line commit — the re-enable
+conditions are written at the schedule block in the workflow.
+
+**Still open — this is the decision for you:** whether the vault should hold
+secrets at all. Nothing below has been actioned. Disabling a broken alert is
+housekeeping, not a strategic choice, and it was deliberately kept separate
+from the question this document exists to answer.
+
+**Not done, deliberately:** the vault has not been reinitialized. That means
+destroying a volume and invalidating an unseal key already merged into SOPS,
+which is not something to do unattended. The procedure is in
+[Reinitializing the vault](#reinitializing-the-vault) below.
+
 ## What is actually true today
 
 **Updated 2026-07-26, after JON-45.** The vault now exists again — but it is
@@ -17,6 +35,12 @@ because it was never about whether a vault *could* run.
 - **It holds no policies, no AppRoles and no KV data.** `setup` and `seed` have
   not been run. Every deploy still falls back to SOPS, which the green
   `deploy-vault` run logged explicitly.
+- **And it cannot currently be configured.** The root token was revoked right
+  after init, and on OpenBao 2.6.1 `bao operator generate-root` returns 403 —
+  the unauthenticated root-generation endpoints are disabled by default since
+  2.5.3. With no other sudo-capable token, the only route back to root is
+  reinitializing. So the running vault is not just empty, it is inert until
+  someone decides to reinitialize it.
 - Between the June 14 rebuild and 2026-07-26 there was no vault at all, and
   nothing noticed.
 - Every secret in use has been served by SOPS + age for six weeks. Nothing
@@ -105,11 +129,88 @@ rather than a default the documentation asserts on the reader's behalf.
   vault-first fallback in `deploy.sh` — it costs one failed `docker exec` per
   deploy and means enabling vault later needs no code change.
 
-## If vault is chosen
+## If vault is chosen: reinitializing the vault
 
-- JON-46 must be fixed first: CI cannot currently reach the VPS at all, so
-  neither the deploy nor the sync can run.
-- `vault.sh init` needed fixing before it was safe to run — it printed the
-  unseal key and root token. Done in PR #499.
-- There is still no non-SSH path to run `init`. Either add an init workflow or
-  accept a one-off manual initialization.
+<a id="reinitializing-the-vault"></a>
+
+The vault running today is **inert** — empty, and unconfigurable because its
+root token was revoked and OpenBao 2.6.1 cannot mint a new one (403 from
+`bao operator generate-root`; the unauthenticated root-generation endpoints are
+disabled by default since 2.5.3). The only route to a working vault is to start
+it over.
+
+### What it costs
+
+- **The `openbao-data` volume is destroyed.** It contains nothing — no policies,
+  no AppRoles, no KV data — so nothing of value is lost. But it is a volume
+  deletion on the live host, and it is irreversible.
+- **The current unseal key stops working.** A fresh `init` mints a new one, so
+  `OPENBAO_UNSEAL_KEY` in SOPS is wrong the moment the old vault is wiped. This
+  needs **a second PR** to land the new key, and until it merges the key exists
+  only on the host at `/opt/hill90/secrets/openbao-unseal.key`.
+- Roughly 20 minutes, most of it waiting on workflow runs and one merge.
+
+### The steps, in order
+
+Order matters. Revoking root before `setup-sync-token` is what produced the
+current inert vault.
+
+1. **Wipe the volume.** On the host, stop the stack and remove it:
+   `docker compose -p hill90-prod-platform -f deploy/compose/prod/docker-compose.vault.yml down -v`
+   (or `docker volume rm openbao-data` once the container is gone).
+2. **Redeploy** — `gh workflow run deploy-vault.yml`. It will go red at
+   `Verify readiness`, because an uninitialized OpenBao returns 501 from
+   `/v1/sys/health`. That is expected at this point, not a fault.
+3. **Initialize** — `gh workflow run vault-init.yml -f confirm=initialize`.
+   Leave `revoke_root` at its default of **false**. The workflow asserts the
+   unseal key is `600 deploy:deploy`, stores it in SOPS, proves auto-unseal
+   survives a container restart including through the systemd unit, and opens a
+   PR with the new key.
+4. **Merge that PR.** Nothing after this works from CI until the new
+   `OPENBAO_UNSEAL_KEY` is on `main`.
+5. **Configure it** — `vault.sh setup` then `vault.sh seed`, with
+   `BAO_TOKEN=$(cat /opt/hill90/secrets/openbao-root.token)`. This creates the
+   KV engine, the policies and the per-service AppRoles, and populates
+   `secret/infra/traefik`, `secret/infra/dns-manager` and
+   `secret/observability/grafana`. There is no workflow for these yet; one
+   would need writing, in the shape of `vault-init.yml`.
+6. **Mint the sync token** — `vault.sh setup-sync-token`. It writes
+   `VAULT_SYNC_TOKEN` into SOPS. That needs another PR to land.
+7. **Revoke root** — `vault.sh revoke-root`. Only now. After this the vault
+   cannot be reconfigured without repeating this whole procedure.
+8. **Re-enable the sync schedule** — restore the `cron` block in
+   `.github/workflows/vault-sync-to-sops.yml`, but only after a manual
+   `workflow_dispatch` run has gone green.
+
+### If you would rather not
+
+Then nothing needs doing. SOPS is already the operative store, the schedule is
+off, and the inert vault costs a few hundred MB and one container. Removing it
+entirely is a separate, easy change whenever you want.
+
+## Known future break: the `file` storage backend
+
+Independent of which option you pick.
+
+OpenBao logs this on every start of the live vault:
+
+```
+[WARN] storage.file: the file physical backend is deprecated;
+use bao operator migrate to move to a supported storage backend by v2.7.0
+```
+
+`platform/vault/config.hcl` uses `storage "file"`. It is **removed in v2.7.0**,
+and the compose file pins `ghcr.io/openbao/openbao:2` — a floating major tag —
+so this breaks on a routine image pull, not on a deliberate upgrade.
+
+Three ways out, in increasing order of effort:
+
+1. **Pin the image** to a 2.6.x tag. Buys time; does not fix it.
+2. **Migrate** to a supported backend with `bao operator migrate`. The obvious
+   target is `raft` (integrated storage), which is single-node friendly.
+3. **Retire the vault**, if the decision above goes that way, and the question
+   disappears.
+
+Worth deciding before v2.7.0 lands rather than discovering it when a pull
+breaks the stack. If the vault is reinitialized anyway, switching to `raft` at
+the same time costs almost nothing extra — the volume is being wiped regardless.
