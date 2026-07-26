@@ -520,3 +520,38 @@ assert records[0]["content"] == "${TAILSCALE_IP}"
   [[ "$output" == *"/openbao/file"* ]]
   [[ "$output" != *"config.raft.hcl"* ]]
 }
+
+# --- Raft ownership + PR plumbing (JON-52 / JON-53) -------------------------
+
+@test "the vault stack initializes data-volume ownership before starting" {
+  # /openbao/raft does not exist in the image, so Docker creates it root-owned
+  # and the unprivileged server cannot write. This took prod down on 2026-07-26.
+  run bash -c 'grep -c "openbao-init:" deploy/compose/prod/docker-compose.vault.yml'
+  [ "$output" != "0" ]
+  run bash -c 'grep -c "chown -R 100:1000 /data" deploy/compose/prod/docker-compose.vault.yml'
+  [ "$output" = "1" ]
+}
+
+@test "openbao waits for the ownership init to succeed" {
+  run bash -c 'grep -c "service_completed_successfully" deploy/compose/prod/docker-compose.vault.yml'
+  [ "$output" = "1" ]
+}
+
+@test "the reinitialize workflow does not open a PR it cannot merge" {
+  # A PR opened with GITHUB_TOKEN never fires the required check, so it can
+  # never merge. The workflow pushes a branch and tells the operator instead.
+  run grep -c "peter-evans/create-pull-request" .github/workflows/vault-reinitialize.yml
+  [ "$output" = "0" ]
+  run bash -c 'grep -c "git push origin" .github/workflows/vault-reinitialize.yml'
+  [ "$output" != "0" ]
+}
+
+@test "the reinitialize workflow fails if the new key was not written back" {
+  run bash -c 'grep -c "prod.enc.env is unchanged" .github/workflows/vault-reinitialize.yml'
+  [ "$output" = "1" ]
+}
+
+@test "raft config uses a path the image owns, via the init service" {
+  run bash -c 'grep -v "^\s*#" platform/vault/config.raft.hcl | grep -c "/openbao/raft"'
+  [ "$output" != "0" ]
+}
