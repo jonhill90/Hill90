@@ -1,0 +1,223 @@
+name: Vault Initialize (Prod)
+
+# One-shot initialization of a FRESH OpenBao. Mints a new unseal key and root
+# token, so it destroys nothing but it cannot be undone either — an already
+# initialized vault must never be run through this.
+#
+# It exists because there was previously no sanctioned way to initialize:
+# deploy-vault.yml runs `deploy.sh vault`, which calls auto-unseal and never
+# init, so the only route was hand-running SSH. This is the workflow_dispatch
+# equivalent.
+#
+# Safe to run in CI only because `vault.sh init` no longer prints the unseal key
+# or the root token (see PR #499). Before that fix, running this would have put
+# both credentials in the Actions log permanently.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "initialize" to confirm. This mints a NEW unseal key and root token.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  init:
+    name: Initialize OpenBao
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Check confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "initialize" ]; then
+            echo "::error::Confirmation phrase not matched. Type exactly: initialize"
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age for secrets
+        env:
+          SOPS_VERSION: "3.9.4"
+        run: |
+          SOPS_URL="https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          curl -fsSL -o /tmp/sops "$SOPS_URL"
+          if file /tmp/sops | grep -q "HTML"; then
+            echo "::error::SOPS download returned HTML instead of binary — check URL: $SOPS_URL"
+            exit 1
+          fi
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      - name: Verify SSH connectivity
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
+
+      # Refuse loudly rather than relying on vault.sh's own guard, so an
+      # accidental dispatch against a live vault stops here.
+      - name: Refuse if already initialized
+        run: |
+          INITIALIZED=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null | grep -o "\"initialized\":[a-z]*" | cut -d: -f2')
+          echo "initialized=$INITIALIZED"
+          if [ "$INITIALIZED" != "false" ]; then
+            echo "::error::OpenBao reports initialized=$INITIALIZED. This workflow only initializes a FRESH vault. To unseal an existing one use vault.sh unseal."
+            exit 1
+          fi
+
+      - name: Sync host checkout to main
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && git fetch origin && git reset --hard origin/main'
+
+      # Writes the unseal key and root token to 0600 files owned by deploy.
+      # Prints neither.
+      - name: Initialize
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh init'
+
+      - name: Verify key file ownership and mode
+        run: |
+          OUT=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'stat -c "%a %U:%G" /opt/hill90/secrets/openbao-unseal.key')
+          echo "unseal key: $OUT"
+          if [ "$OUT" != "600 deploy:deploy" ]; then
+            echo "::error::Unseal key must be 600 deploy:deploy — the auto-unseal systemd unit runs as deploy. Got: $OUT"
+            exit 1
+          fi
+
+      - name: Unseal
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh unseal'
+
+      # The key must survive loss of the host, so it also goes into SOPS. The
+      # value is read and written inside vault.sh and never interpolated here.
+      - name: Store unseal key in SOPS on the host
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/vault.sh store-unseal-key'
+
+      - name: Copy updated SOPS back
+        run: |
+          scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/opt/hill90/app/infra/secrets/prod.enc.env \
+            infra/secrets/prod.enc.env
+          # Confirm locally that the key decrypts, without printing it.
+          LEN=$(sops -d --extract '["OPENBAO_UNSEAL_KEY"]' infra/secrets/prod.enc.env | wc -c)
+          echo "OPENBAO_UNSEAL_KEY decrypts to $LEN bytes"
+          [ "$LEN" -gt 0 ] || { echo "::error::OPENBAO_UNSEAL_KEY missing after copy-back"; exit 1; }
+
+      - name: Restore host checkout
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && git checkout -- infra/secrets/prod.enc.env && rm -f infra/secrets/prod.enc.env.backup.*' || true
+
+      # Do this BEFORE proving restart survival, so the root token is dead as
+      # early as possible. Auto-unseal does not need it.
+      - name: Revoke root token
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh revoke-root'
+
+      - name: Prove auto-unseal survives a container restart
+        run: |
+          IP=${{ steps.get-ip.outputs.tailscale_ip }}
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP 'docker restart openbao >/dev/null && sleep 8'
+
+          SEALED=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status >/dev/null 2>&1; echo $?')
+          echo "after restart, bao status exit: $SEALED (expect 2 = sealed)"
+          [ "$SEALED" = "2" ] || { echo "::error::Expected sealed (2) after restart, got $SEALED"; exit 1; }
+
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'cd /opt/hill90/app && bash scripts/vault.sh auto-unseal'
+
+          UNSEALED=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status >/dev/null 2>&1; echo $?')
+          echo "after auto-unseal, bao status exit: $UNSEALED (expect 0 = unsealed)"
+          [ "$UNSEALED" = "0" ] || { echo "::error::Auto-unseal did not unseal after restart (exit $UNSEALED)"; exit 1; }
+
+      # The real test: the systemd unit is what runs at boot, so exercise it
+      # rather than only the script it calls.
+      - name: Prove the systemd unit unseals it too
+        run: |
+          IP=${{ steps.get-ip.outputs.tailscale_ip }}
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP 'docker restart openbao >/dev/null && sleep 8'
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP 'sudo systemctl restart hill90-vault-unseal'
+          sleep 5
+          RC=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status >/dev/null 2>&1; echo $?')
+          echo "after systemd unit run, bao status exit: $RC (expect 0)"
+          [ "$RC" = "0" ] || { echo "::error::hill90-vault-unseal.service did not unseal the vault (exit $RC)"; exit 1; }
+
+      - name: Confirm root token is gone
+        run: |
+          GONE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'test -f /opt/hill90/secrets/openbao-root.token && echo present || echo absent')
+          echo "root token file: $GONE"
+          [ "$GONE" = "absent" ] || { echo "::error::Root token file still on disk"; exit 1; }
+
+      - name: Open PR with the unseal key in SOPS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet infra/secrets/prod.enc.env; then
+            echo "::error::prod.enc.env unchanged — the unseal key was not stored."
+            exit 1
+          fi
+          BRANCH="vault/store-unseal-key-$(date +%Y%m%d%H%M)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add infra/secrets/prod.enc.env
+          git commit -m "chore: store OPENBAO_UNSEAL_KEY in SOPS after vault init"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore: store OPENBAO_UNSEAL_KEY in SOPS after vault init" \
+            --body "Adds \`OPENBAO_UNSEAL_KEY\` to the encrypted secrets file, so the unseal key survives loss of the host. Only the encrypted file changes; the value never left the VPS in plaintext and was never printed. Generated by the \`vault-init\` workflow."
