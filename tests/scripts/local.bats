@@ -114,3 +114,25 @@
   run bash -c 'sed -n "/^cmd_reset/,/^}/p" scripts/local.sh | grep -c "read -r -p"'
   [ "$output" = "1" ]
 }
+
+@test "prometheus is routed locally but NOT in production" {
+  # Production reaches Prometheus through Grafana; it has no router there.
+  run docker compose -f deploy/compose/prod/docker-compose.observability.yml config
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"routers.prometheus"* ]]
+
+  # Locally it is routed, so the targets page and expression browser work.
+  run docker compose --env-file .env.local.example \
+        -f deploy/compose/prod/docker-compose.observability.yml \
+        -f deploy/compose/overrides/local.observability.yml config
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"routers.prometheus"* ]]
+  [[ "$output" == *"prometheus.localtest.me"* ]]
+}
+
+@test "local health checks follow redirects" {
+  # Prometheus sends /graph to /query and Grafana sends / to /login; asserting
+  # on the first response would fail on pages that work.
+  run bash -c 'sed -n "/^check_http/,/^}/p" scripts/local.sh | grep -c -- "curl -sL"'
+  [ "$output" = "1" ]
+}
