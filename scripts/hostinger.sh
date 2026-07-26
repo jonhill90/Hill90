@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Unified Hostinger CLI for VPS and DNS management
+# Hostinger CLI for VPS management
 # Usage: hostinger.sh <service> <command> [args]
+#
+# DNS lives in scripts/cloudflare.sh. hill90.com moved to Cloudflare; Hostinger
+# remains the VPS host and the mail provider, and this file covers only the VPS.
 
 set -euo pipefail
 
@@ -10,7 +13,6 @@ source "$SCRIPT_DIR/_common.sh"
 # Configuration
 API_BASE="${HOSTINGER_API_BASE:-https://developers.hostinger.com}"
 VPS_ID="${HOSTINGER_VPS_ID:-1264324}"
-DOMAIN="${HOSTINGER_DOMAIN:-hill90.com}"
 
 # Load secrets and validate API key (called lazily, not at startup)
 _secrets_loaded=false
@@ -245,278 +247,11 @@ vps_scripts() {
 }
 
 # ---------------------------------------------------------------------------
-# DNS commands
-# ---------------------------------------------------------------------------
-
-dns_get() {
-    echo -e "${BLUE}Fetching DNS records for $DOMAIN...${NC}" >&2
-    api_call GET "/api/dns/v1/zones/$DOMAIN" | jq '.'
-}
-
-dns_update() {
-    local input="${1:-}"
-    if [[ -z "$input" ]]; then
-        echo "Usage: hostinger.sh dns update <json_file_or_inline_json>"
-        echo "Example: hostinger.sh dns update records.json"
-        return 1
-    fi
-
-    local payload
-    if [[ -f "$input" ]]; then
-        payload=$(cat "$input")
-    else
-        payload="$input"
-    fi
-
-    echo -e "${BLUE}Updating DNS records for $DOMAIN...${NC}" >&2
-    api_call PUT "/api/dns/v1/zones/$DOMAIN" "$payload" | jq '.'
-}
-
-dns_validate() {
-    local input="${1:-}"
-    if [[ -z "$input" ]]; then
-        echo "Usage: hostinger.sh dns validate <json_file_or_inline_json>"
-        return 1
-    fi
-
-    local payload
-    if [[ -f "$input" ]]; then
-        payload=$(cat "$input")
-    else
-        payload="$input"
-    fi
-
-    echo -e "${BLUE}Validating DNS records for $DOMAIN...${NC}" >&2
-    if api_call POST "/api/dns/v1/zones/$DOMAIN/validate" "$payload" | jq '.'; then
-        echo -e "${GREEN}Validation passed${NC}" >&2
-    else
-        echo -e "${RED}Validation failed${NC}" >&2
-        return 1
-    fi
-}
-
-dns_delete() {
-    local name="${1:-}"
-    local type="${2:-}"
-
-    if [[ -z "$name" || -z "$type" ]]; then
-        echo "Usage: hostinger.sh dns delete <name> <type>"
-        echo "Example: hostinger.sh dns delete www A"
-        return 1
-    fi
-
-    local payload
-    payload=$(jq -n \
-        --arg name "$name" \
-        --arg type "$type" \
-        '{filters: [{name: $name, type: $type}]}')
-
-    echo -e "${YELLOW}Deleting $type record for $name.$DOMAIN...${NC}" >&2
-    api_call DELETE "/api/dns/v1/zones/$DOMAIN" "$payload" | jq '.'
-}
-
-dns_reset() {
-    echo -e "${RED}WARNING: This will reset ALL DNS records to defaults!${NC}" >&2
-    api_call POST "/api/dns/v1/zones/$DOMAIN/reset" | jq '.'
-}
-
-dns_sync() {
-    local vps_ip="${1:-}"
-    local tailscale_ip="${2:-}"
-
-    # If IPs not passed as args, read from SOPS secrets
-    if [[ -z "$vps_ip" ]]; then
-        vps_ip=$(sops --decrypt "$PROJECT_ROOT/infra/secrets/prod.enc.env" 2>/dev/null \
-            | grep "^VPS_IP=" | cut -d'=' -f2 | tr -d '"')
-    fi
-    if [[ -z "$tailscale_ip" ]]; then
-        tailscale_ip=$(sops --decrypt "$PROJECT_ROOT/infra/secrets/prod.enc.env" 2>/dev/null \
-            | grep "^TAILSCALE_IP=" | cut -d'=' -f2 | tr -d '"')
-    fi
-
-    echo -e "${BLUE}Syncing DNS A records...${NC}" >&2
-
-    if [[ -z "$vps_ip" ]]; then
-        echo -e "${RED}ERROR: VPS_IP not found in secrets${NC}" >&2
-        return 1
-    fi
-    if [[ -z "$tailscale_ip" ]]; then
-        echo -e "${RED}ERROR: TAILSCALE_IP not found in secrets${NC}" >&2
-        return 1
-    fi
-
-    echo -e "${BLUE}  Public IP:    $vps_ip${NC}" >&2
-    echo -e "${BLUE}  Tailscale IP: $tailscale_ip${NC}" >&2
-
-    # Fetch current records and check if update needed
-    local current_records
-    current_records=$(api_call GET "/api/dns/v1/zones/$DOMAIN")
-
-    local needs_update=false
-    for pair in "@:$vps_ip" "remote:$tailscale_ip" "vps:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "grafana:$tailscale_ip" "vault:$tailscale_ip"; do
-        local name="${pair%%:*}"
-        local expected="${pair##*:}"
-        local current
-        current=$(echo "$current_records" | jq -r \
-            ".[] | select(.name==\"$name\" and .type==\"A\") | .records[0].content" 2>/dev/null || echo "")
-
-        if [[ "$current" == "$expected" ]]; then
-            echo -e "  ${GREEN}$name.$DOMAIN -> $expected${NC}" >&2
-        else
-            echo -e "  ${YELLOW}$name.$DOMAIN -> $current (expected $expected)${NC}" >&2
-            needs_update=true
-        fi
-    done
-
-    if [[ "$needs_update" == "false" ]]; then
-        echo -e "${GREEN}All DNS records are correct. No update needed.${NC}" >&2
-        return 0
-    fi
-
-    # NO "overwrite: true". The Hostinger PUT upserts the records it is given
-    # and leaves the rest of the zone alone; with overwrite it REPLACES the
-    # whole zone with whatever is in this payload. The zone has 33 record
-    # groups and this payload has 7, so overwrite would have destroyed the
-    # remote A record (the only SSH path to the VPS), every mail record — MX,
-    # SPF, DKIM, DMARC, autoconfig, autodiscover — plus www, docs and a
-    # minecraft SRV. Verified empirically: a targeted update without the flag
-    # left all 33 groups intact and changed exactly one record.
-    #
-    # Build and validate payload
-    local payload
-    payload=$(jq -n \
-        --arg vps "$vps_ip" \
-        --arg ts "$tailscale_ip" \
-        '{
-            domain: "hill90.com",
-            zone: [
-                {name: "@",         type: "A", ttl: 3600, records: [{content: $vps}]},
-                {name: "remote",    type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "vps",       type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "portainer", type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "traefik",   type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "grafana",   type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "vault",     type: "A", ttl: 3600, records: [{content: $ts}]}
-            ]
-        }')
-
-    echo -e "${BLUE}Validating...${NC}" >&2
-    if ! api_call POST "/api/dns/v1/zones/$DOMAIN/validate" "$payload" > /dev/null; then
-        echo -e "${RED}Validation failed${NC}" >&2
-        return 1
-    fi
-    echo -e "${GREEN}Validation passed${NC}" >&2
-
-    echo -e "${BLUE}Applying DNS update...${NC}" >&2
-    api_call PUT "/api/dns/v1/zones/$DOMAIN" "$payload" > /dev/null
-
-    echo -e "${GREEN}DNS records updated successfully${NC}" >&2
-    echo -e "${YELLOW}Propagation takes 5-10 minutes${NC}" >&2
-}
-
-dns_verify() {
-    local expected_ip="${1:-}"
-    local all_correct=true
-
-    # Try to get expected IP from secrets if not passed
-    if [[ -z "$expected_ip" ]]; then
-        expected_ip=$(sops --decrypt "$PROJECT_ROOT/infra/secrets/prod.enc.env" 2>/dev/null \
-            | grep "^VPS_IP=" | cut -d'=' -f2 | tr -d '"' || true)
-    fi
-
-    if [[ -n "$expected_ip" ]]; then
-        echo -e "${BLUE}Verifying DNS propagation (expected: $expected_ip)...${NC}" >&2
-    else
-        echo -e "${BLUE}Verifying DNS propagation...${NC}" >&2
-    fi
-    echo "" >&2
-
-    # Public hosts — verify against VPS_IP
-    local public_hosts=("$DOMAIN")
-    for host in "${public_hosts[@]}"; do
-        local resolved
-        resolved=$(dig +short "$host" 2>/dev/null | head -n1)
-        if [[ -n "$expected_ip" && "$resolved" == "$expected_ip" ]]; then
-            echo -e "  ${GREEN}$host -> $resolved${NC}" >&2
-        elif [[ -n "$resolved" ]]; then
-            if [[ -n "$expected_ip" ]]; then
-                echo -e "  ${YELLOW}$host -> $resolved (expected $expected_ip)${NC}" >&2
-                all_correct=false
-            else
-                echo -e "  ${BLUE}$host -> $resolved${NC}" >&2
-            fi
-        else
-            echo -e "  ${RED}$host -> (no record)${NC}" >&2
-            all_correct=false
-        fi
-    done
-
-    # Tailscale-only hosts — verify against TAILSCALE_IP
-    local tailscale_ip
-    tailscale_ip=$(sops --decrypt "$PROJECT_ROOT/infra/secrets/prod.enc.env" 2>/dev/null \
-        | grep "^TAILSCALE_IP=" | cut -d'=' -f2 | tr -d '"' || true)
-    if [[ -n "$tailscale_ip" ]]; then
-        echo "" >&2
-        echo -e "${BLUE}Verifying Tailscale-only DNS (expected: $tailscale_ip)...${NC}" >&2
-        for host in "remote.$DOMAIN" "vps.$DOMAIN" "portainer.$DOMAIN" "traefik.$DOMAIN" "grafana.$DOMAIN" "vault.$DOMAIN"; do
-            local resolved
-            resolved=$(dig +short "$host" 2>/dev/null | head -n1)
-            if [[ "$resolved" == "$tailscale_ip" ]]; then
-                echo -e "  ${GREEN}$host -> $resolved${NC}" >&2
-            elif [[ -n "$resolved" ]]; then
-                echo -e "  ${YELLOW}$host -> $resolved (expected $tailscale_ip)${NC}" >&2
-                all_correct=false
-            else
-                echo -e "  ${RED}$host -> (no record)${NC}" >&2
-                all_correct=false
-            fi
-        done
-    fi
-
-    if [[ "$all_correct" == "false" ]]; then
-        echo -e "${YELLOW}Some DNS records need updating${NC}" >&2
-        return 1
-    fi
-}
-
-dns_snapshot() {
-    local cmd="${1:-}"
-    case "$cmd" in
-        list)
-            echo -e "${BLUE}Listing DNS snapshots for $DOMAIN...${NC}" >&2
-            api_call GET "/api/dns/v1/snapshots/$DOMAIN" | jq '.'
-            ;;
-        get)
-            local snapshot_id="${2:-}"
-            if [[ -z "$snapshot_id" ]]; then
-                echo "Usage: hostinger.sh dns snapshot get <snapshot_id>"
-                return 1
-            fi
-            api_call GET "/api/dns/v1/snapshots/$DOMAIN/$snapshot_id" | jq '.'
-            ;;
-        restore)
-            local snapshot_id="${2:-}"
-            if [[ -z "$snapshot_id" ]]; then
-                echo "Usage: hostinger.sh dns snapshot restore <snapshot_id>"
-                return 1
-            fi
-            echo -e "${YELLOW}Restoring DNS from snapshot $snapshot_id...${NC}" >&2
-            api_call POST "/api/dns/v1/snapshots/$DOMAIN/$snapshot_id/restore" | jq '.'
-            ;;
-        *)
-            echo "Usage: hostinger.sh dns snapshot <list|get|restore> [snapshot_id]"
-            return 1
-            ;;
-    esac
-}
-
-# ---------------------------------------------------------------------------
-# Usage
 # ---------------------------------------------------------------------------
 
 usage() {
     cat <<EOF
-Hostinger CLI — VPS and DNS management for $DOMAIN
+Hostinger CLI — VPS management
 
 Usage: hostinger.sh <service> <command> [args]
 
@@ -533,20 +268,12 @@ VPS Commands:
   vps metrics                                Get VPS metrics
   vps scripts                                List post-install scripts
 
-DNS Commands:
-  dns get                                    Get all DNS records
-  dns update <json_file_or_json>             Update DNS records
-  dns validate <json_file_or_json>           Validate records before applying
-  dns delete <name> <type>                   Delete specific record
-  dns reset                                  Reset to defaults (DESTRUCTIVE)
-  dns sync [vps_ip] [tailscale_ip]            Sync A records (args or from secrets)
-  dns verify                                 Verify DNS propagation with dig
-  dns snapshot <list|get|restore> [id]       Manage DNS snapshots
+DNS:
+  Moved to Cloudflare — see scripts/cloudflare.sh dns <get|sync|verify>
 
 Environment:
   HOSTINGER_API_KEY    API key (loaded from secrets if not set)
   HOSTINGER_VPS_ID     VPS ID (default: $VPS_ID)
-  HOSTINGER_DOMAIN     Domain (default: $DOMAIN)
 EOF
 }
 
@@ -586,23 +313,9 @@ main() {
             esac
             ;;
         dns)
-            local cmd="${1:-}"
-            shift 2>/dev/null || true
-            case "$cmd" in
-                get)        dns_get ;;
-                update)     dns_update "$@" ;;
-                validate)   dns_validate "$@" ;;
-                delete)     dns_delete "$@" ;;
-                reset)      dns_reset ;;
-                sync)       dns_sync "$@" ;;
-                verify)     dns_verify "$@" ;;
-                snapshot)   dns_snapshot "$@" ;;
-                *)
-                    echo "Unknown dns command: $cmd"
-                    echo "Run: hostinger.sh dns"
-                    exit 1
-                    ;;
-            esac
+            echo "DNS moved to Cloudflare. Use: scripts/cloudflare.sh dns <get|sync|verify>" >&2
+            echo "Hostinger remains the VPS host and the mail provider; this CLI is VPS-only." >&2
+            exit 1
             ;;
         help|--help|-h)
             usage

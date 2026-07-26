@@ -532,7 +532,7 @@ After setup, you should have these **5 secrets** configured:
 
 **`scripts/hostinger.sh`** - VPS Operations
 - Operations: `vps get`, `vps recreate`, `vps snapshot`, `vps action get`, `vps action wait`
-- Also handles DNS operations via `scripts/hostinger.sh dns <command>`
+- DNS operations moved to Cloudflare — see `scripts/cloudflare.sh dns <command>`
 - Used by local rebuild scripts
 - Used by GitHub Actions workflows
 - **Requires:** `HOSTINGER_API_KEY` environment variable

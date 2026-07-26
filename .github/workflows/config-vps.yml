@@ -164,10 +164,14 @@ jobs:
 
       - name: Update DNS records
         env:
-          HOSTINGER_API_KEY: ${{ secrets.HOSTINGER_API_KEY }}
+          # CF_DNS_API_TOKEN is read from the SOPS-encrypted secrets file, which
+          # this job has already set up an age key for. It is deliberately NOT a
+          # separate GitHub Actions secret: it is the same token Traefik uses for
+          # ACME DNS-01, and one credential should have one home.
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
         run: |
           echo "🌐 Updating DNS records..."
-          bash scripts/hostinger.sh dns sync \
+          bash scripts/cloudflare.sh dns sync \
             "${{ github.event.inputs.vps_ip }}" \
             "${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
 
