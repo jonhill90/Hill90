@@ -54,25 +54,6 @@ cmd_health() {
 
     echo ""
     echo "Checking internal services..."
-    echo -n "Checking MinIO... "
-    if docker container inspect minio > /dev/null 2>&1; then
-        local minio_health
-        minio_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' minio 2>/dev/null || echo "error")
-        local minio_running
-        minio_running=$(docker inspect --format='{{.State.Running}}' minio 2>/dev/null || echo "false")
-        if [[ "$minio_running" != "true" ]]; then
-            echo "✗ Stopped/crashed"
-            all_healthy=false
-        elif [[ "$minio_health" == "healthy" ]]; then
-            echo "✓ Healthy"
-        else
-            echo "✗ Unhealthy ($minio_health)"
-            all_healthy=false
-        fi
-    else
-        echo "- Not deployed (skipped)"
-    fi
-
     echo -n "Checking openbao... "
     if docker container inspect openbao > /dev/null 2>&1; then
         local bao_health
@@ -92,26 +73,6 @@ cmd_health() {
         echo "- Not deployed (skipped)"
     fi
 
-    echo ""
-    echo "Checking database exporters..."
-    echo -n "Checking postgres-exporter... "
-    if docker container inspect postgres-exporter > /dev/null 2>&1; then
-        local pgexp_health
-        pgexp_health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' postgres-exporter 2>/dev/null || echo "error")
-        local pgexp_running
-        pgexp_running=$(docker inspect --format='{{.State.Running}}' postgres-exporter 2>/dev/null || echo "false")
-        if [[ "$pgexp_running" != "true" ]]; then
-            echo "✗ Stopped/crashed"
-            all_healthy=false
-        elif [[ "$pgexp_health" == "healthy" ]]; then
-            echo "✓ Healthy"
-        else
-            echo "✗ Unhealthy ($pgexp_health)"
-            all_healthy=false
-        fi
-    else
-        echo "- Not deployed (skipped)"
-    fi
 
     echo ""
     echo "Checking observability services..."
@@ -157,7 +118,7 @@ cmd_health() {
         echo "Expected VPS IP: $vps_ip"
         echo ""
 
-        local public_domains=("auth.hill90.com" "hill90.com")
+        local public_domains=("hill90.com")
         local dns_all_correct=true
 
         for domain in "${public_domains[@]}"; do
@@ -188,7 +149,7 @@ cmd_health() {
             echo ""
             echo "Expected Tailscale IP: $tailscale_ip"
             echo ""
-            local tailscale_domains=("storage.hill90.com" "portainer.hill90.com" "traefik.hill90.com" "grafana.hill90.com" "vault.hill90.com")
+            local tailscale_domains=("portainer.hill90.com" "traefik.hill90.com" "grafana.hill90.com" "vault.hill90.com")
             for domain in "${tailscale_domains[@]}"; do
                 echo -n "Checking DNS for $domain... "
                 local resolved_ip
@@ -238,24 +199,9 @@ cmd_backup() {
 
     echo "Backing up Docker volumes..."
     docker run --rm \
-        -v postgres-data:/data \
-        -v "$(pwd)/$backup_dir":/backup \
-        alpine tar czf /backup/postgres-data.tar.gz -C /data .
-
-    docker run --rm \
         -v traefik-certs:/data \
         -v "$(pwd)/$backup_dir":/backup \
         alpine tar czf /backup/traefik-certs.tar.gz -C /data .
-
-    if docker volume inspect minio-data > /dev/null 2>&1; then
-        echo "Backing up MinIO data..."
-        docker run --rm \
-            -v minio-data:/data \
-            -v "$(pwd)/$backup_dir":/backup \
-            alpine tar czf /backup/minio-data.tar.gz -C /data .
-    else
-        echo "Skipping MinIO backup (volume not found)"
-    fi
 
     if docker volume inspect prometheus-data > /dev/null 2>&1; then
         echo "Backing up Prometheus data..."
@@ -276,9 +222,6 @@ cmd_backup() {
     else
         echo "Skipping Grafana backup (volume not found)"
     fi
-
-    echo "Backing up database..."
-    docker exec postgres pg_dumpall -U hill90 > "$backup_dir/database.sql"
 
     echo ""
     echo "================================"

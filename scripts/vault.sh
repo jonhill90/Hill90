@@ -13,7 +13,7 @@ SECRETS_FILE="${PROJECT_ROOT}/infra/secrets/prod.enc.env"
 POLICY_DIR="${PROJECT_ROOT}/platform/vault/policies"
 
 # Services that get their own AppRole
-VAULT_SERVICES="db auth minio infra observability"
+VAULT_SERVICES="infra observability"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -30,7 +30,6 @@ Commands:
   unseal        Unseal OpenBao using host key file or SOPS fallback
   status        Show OpenBao seal/init status
   setup         Enable KV v2, AppRole, audit, apply policies, create roles
-  setup-oidc    Configure OIDC auth method (Keycloak SSO for vault UI)
   seed          Seed KV v2 paths from SOPS-encrypted secrets
   policy-apply  Apply all policy HCL files
   backup        Backup OpenBao data volume
@@ -198,16 +197,6 @@ cmd_setup() {
             secret_id_ttl=0
     done
 
-    # Setup OIDC if client secret is available (optional — skip silently if not configured)
-    local oidc_secret
-    oidc_secret=$(sops -d "$SECRETS_FILE" 2>/dev/null | grep "^VAULT_OIDC_CLIENT_SECRET=" | cut -d= -f2- || echo "")
-    if [ -n "$oidc_secret" ]; then
-        echo ""
-        cmd_setup_oidc
-    else
-        info "VAULT_OIDC_CLIENT_SECRET not in SOPS — skipping OIDC setup (run 'vault.sh setup-oidc' after creating Keycloak client)"
-    fi
-
     echo ""
     success "Setup complete!"
     echo ""
@@ -216,59 +205,6 @@ cmd_setup() {
         echo "  role_id:    bao read auth/approle/role/${svc}/role-id"
         echo "  secret_id:  bao write -f auth/approle/role/${svc}/secret-id"
     done
-    echo ""
-}
-
-cmd_setup_oidc() {
-    require_running
-
-    local secrets_file="${SECRETS_FILE}"
-    require_file "$secrets_file" "Secrets file"
-    ensure_age_key prod
-
-    echo "================================"
-    echo "OpenBao OIDC Setup (Keycloak)"
-    echo "================================"
-    echo ""
-
-    # Read OIDC client secret from SOPS
-    local client_secret
-    client_secret=$(sops -d "$secrets_file" 2>/dev/null | grep "^VAULT_OIDC_CLIENT_SECRET=" | cut -d= -f2-)
-
-    if [ -z "$client_secret" ]; then
-        die "VAULT_OIDC_CLIENT_SECRET not found in SOPS. Create the Keycloak client first."
-    fi
-
-    # Enable OIDC auth method (idempotent)
-    echo "Enabling OIDC auth method..."
-    bao_exec_env auth enable oidc 2>/dev/null || info "OIDC auth already enabled"
-
-    # Configure OIDC provider (Keycloak)
-    echo "Configuring OIDC provider (Keycloak)..."
-    bao_exec_env write auth/oidc/config \
-        oidc_discovery_url="https://auth.hill90.com/realms/hill90" \
-        oidc_client_id="hill90-vault" \
-        oidc_client_secret="$client_secret" \
-        default_role="admin-sso"
-
-    # Apply OIDC admin policy
-    echo "Applying OIDC admin policy..."
-    bao_exec_env policy write policy-oidc-admin "/openbao/policies/policy-oidc-admin.hcl"
-
-    # Create admin-sso role (maps Keycloak admin role to vault policy)
-    # Uses JSON via stdin because bound_claims requires a map type that
-    # the CLI doesn't parse correctly from positional arguments.
-    echo "Creating admin-sso OIDC role..."
-    local role_json='{"role_type":"oidc","user_claim":"sub","policies":["policy-oidc-admin"],"oidc_scopes":["openid","profile","email"],"bound_claims":{"realm_roles":["admin"]},"allowed_redirect_uris":["https://vault.hill90.com/v1/auth/oidc/callback","https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback"]}'
-    local token="${BAO_TOKEN:-}"
-    echo "$role_json" | docker exec -i -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" "$CONTAINER_NAME" \
-        bao write auth/oidc/role/admin-sso -
-
-    echo ""
-    success "OIDC setup complete!"
-    echo "  Login at: https://vault.hill90.com/ui/"
-    echo "  Auth method: OIDC"
-    echo "  Keycloak users with 'admin' role can now sign in."
     echo ""
 }
 
@@ -295,26 +231,6 @@ cmd_seed() {
     get_secret() {
         grep "^${1}=" "$temp_file" | cut -d '=' -f 2-
     }
-
-    # Seed shared/database
-    echo "Seeding secret/shared/database..."
-    bao_exec_env kv put secret/shared/database \
-        "DB_USER=$(get_secret DB_USER)" \
-        "DB_PASSWORD=$(get_secret DB_PASSWORD)" \
-        "DB_NAME=$(get_secret DB_NAME)"
-
-    # Seed auth/config
-    echo "Seeding secret/auth/config..."
-    bao_exec_env kv put secret/auth/config \
-        "KC_ADMIN_USERNAME=$(get_secret KC_ADMIN_USERNAME)" \
-        "KC_ADMIN_PASSWORD=$(get_secret KC_ADMIN_PASSWORD)" \
-        "SMTP_PASSWORD=$(get_secret SMTP_PASSWORD)"
-
-    # Seed minio/config
-    echo "Seeding secret/minio/config..."
-    bao_exec_env kv put secret/minio/config \
-        "MINIO_ROOT_USER=$(get_secret MINIO_ROOT_USER)" \
-        "MINIO_ROOT_PASSWORD=$(get_secret MINIO_ROOT_PASSWORD)"
 
     # Seed infra/traefik
     echo "Seeding secret/infra/traefik..."
@@ -367,9 +283,6 @@ cmd_export() {
     echo ""
 
     local paths=(
-        "secret/shared/database"
-        "secret/auth/config"
-        "secret/minio/config"
         "secret/infra/traefik"
         "secret/infra/dns-manager"
         "secret/observability/grafana"
@@ -393,13 +306,9 @@ cmd_sync_to_sops() {
     require_file "$SECRETS_FILE" "Secrets file"
     ensure_age_key prod
 
-    # Canonical vault paths — read in this order for deduplication.
-    # api/config is read first so MINIO_ROOT_USER and INTERNAL_SERVICE_SECRET
-    # come from their canonical source; later paths skip already-seen keys.
+    # Canonical vault paths — read in this order for deduplication;
+    # later paths skip already-seen keys.
     local SYNC_PATHS=(
-        "secret/shared/database"
-        "secret/auth/config"
-        "secret/minio/config"
         "secret/infra/traefik"
         "secret/infra/dns-manager"
         "secret/observability/grafana"
@@ -730,7 +639,6 @@ main() {
         unseal)        cmd_unseal "$@" ;;
         status)        cmd_status "$@" ;;
         setup)         cmd_setup "$@" ;;
-        setup-oidc)    cmd_setup_oidc "$@" ;;
         seed)          cmd_seed "$@" ;;
         policy-apply)  cmd_policy_apply "$@" ;;
         backup)        cmd_backup "$@" ;;

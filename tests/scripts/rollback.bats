@@ -55,13 +55,6 @@
   [ "$status" -eq 0 ]
 }
 
-@test "rollback.sh service_paths covers all services" {
-  for svc in auth db infra minio observability; do
-    run bash -c "sed -n '/^service_paths/,/^}/p' scripts/rollback.sh | grep '${svc})'"
-    [ "$status" -eq 0 ]
-  done
-}
-
 @test "rollback.sh detects migration files in change classification" {
   run grep "migrations" scripts/rollback.sh
   [ "$status" -eq 0 ]
@@ -127,4 +120,11 @@
   [ "$status" -eq 0 ]
   [[ "$output" == *"Current:"* ]]
   [[ "$output" == *"Target:"* ]]
+}
+
+@test "rollback.sh service_paths covers all services" {
+  for svc in auth db infra minio observability; do
+    run bash -c "sed -n '/^service_paths/,/^}/p' scripts/rollback.sh | grep '${svc})'"
+    [ "$status" -eq 0 ]
+  done
 }

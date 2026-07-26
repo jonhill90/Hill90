@@ -4,20 +4,15 @@ on:
   push:
     branches: [main]
     paths:
-      - 'platform/auth/keycloak/**'
-      - 'platform/data/postgres/**'
       - 'platform/observability/**'
-      - 'deploy/compose/prod/docker-compose.db.yml'
-      - 'deploy/compose/prod/docker-compose.minio.yml'
       - 'deploy/compose/prod/docker-compose.vault.yml'
-      - 'deploy/compose/prod/docker-compose.auth.yml'
       - 'deploy/compose/prod/docker-compose.observability.yml'
   workflow_dispatch:
     inputs:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, db, minio, vault, auth, observability]
+        options: [all, vault, observability]
         default: 'all'
 
 permissions:
@@ -32,10 +27,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      db: ${{ steps.filter.outputs.db }}
-      minio: ${{ steps.filter.outputs.minio }}
       vault: ${{ steps.filter.outputs.vault }}
-      auth: ${{ steps.filter.outputs.auth }}
       observability: ${{ steps.filter.outputs.observability }}
     steps:
       - uses: actions/checkout@v4
@@ -43,36 +35,13 @@ jobs:
         id: filter
         with:
           filters: |
-            db:
-              - 'deploy/compose/prod/docker-compose.db.yml'
-              - 'platform/data/postgres/**'
-            minio:
-              - 'deploy/compose/prod/docker-compose.minio.yml'
             vault:
               - 'deploy/compose/prod/docker-compose.vault.yml'
-            auth:
-              - 'platform/auth/keycloak/**'
-              - 'deploy/compose/prod/docker-compose.auth.yml'
             observability:
               - 'deploy/compose/prod/docker-compose.observability.yml'
               - 'platform/observability/**'
 
-  # --- Platform layer (runs first) ---
-  deploy-db:
-    needs: [changes]
-    if: needs.changes.outputs.db == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'db'
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: db
-    secrets: inherit
-
-  deploy-minio:
-    needs: [changes]
-    if: needs.changes.outputs.minio == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'minio'
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: minio
-    secrets: inherit
+  # --- Platform layer ---
 
   deploy-vault:
     needs: [changes]
@@ -80,15 +49,6 @@ jobs:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: vault
-    secrets: inherit
-
-  # --- Identity layer (after platform) ---
-  deploy-auth:
-    needs: [changes, deploy-db]
-    if: always() && (needs.changes.outputs.auth == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'auth') && !failure() && !cancelled()
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: auth
     secrets: inherit
 
   deploy-observability:

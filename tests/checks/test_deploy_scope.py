@@ -97,24 +97,11 @@ def dorny_filters(deploy_config):
 class TestDornyFilters:
     """L2: Verify dorny filter routing for each service."""
 
-    def test_auth_change_triggers_only_auth(self, dorny_filters):
-        services = _services_for_path(
-            "platform/auth/keycloak/themes/hill90/login/theme.properties",
-            dorny_filters,
-        )
-        assert services == {"auth"}
-
     def test_observability_change_triggers_only_observability(self, dorny_filters):
         services = _services_for_path(
             "platform/observability/prometheus/prometheus.yml", dorny_filters
         )
         assert services == {"observability"}
-
-    def test_db_compose_triggers_only_db(self, dorny_filters):
-        services = _services_for_path(
-            "deploy/compose/prod/docker-compose.db.yml", dorny_filters
-        )
-        assert services == {"db"}
 
     def test_infra_compose_triggers_no_services(self, dorny_filters):
         services = _services_for_path(
@@ -165,22 +152,11 @@ class TestTriggerPaths:
         paths must be reflected here, preventing silent scope creep.
         """
         expected = sorted([
-            "platform/auth/keycloak/**",
-            "platform/data/postgres/**",
             "platform/observability/**",
-            "deploy/compose/prod/docker-compose.db.yml",
-            "deploy/compose/prod/docker-compose.minio.yml",
             "deploy/compose/prod/docker-compose.vault.yml",
-            "deploy/compose/prod/docker-compose.auth.yml",
             "deploy/compose/prod/docker-compose.observability.yml",
         ])
         assert sorted(trigger_paths) == expected
-
-    def test_trigger_paths_include_auth_platform(self, trigger_paths):
-        assert _matches_any(
-            "platform/auth/keycloak/themes/hill90/login/theme.properties",
-            trigger_paths,
-        )
 
     def test_trigger_paths_exclude_vault_platform(self, trigger_paths):
         """Vault policy/config changes don't trigger deploy (no restart needed)."""

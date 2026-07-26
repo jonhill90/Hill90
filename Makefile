@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
+.PHONY: help build deploy-infra deploy-infra-production deploy-vault deploy-observability test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
 
 # Environment
 ENV ?= prod
@@ -135,21 +135,9 @@ deploy-infra-production: ## Deploy infrastructure with PRODUCTION certificates
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
 	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy.sh infra $(ENV)
 
-deploy-db: ## Deploy database (PostgreSQL)
-	@echo "$(COLOR_YELLOW)Deploying database...$(COLOR_RESET)"
-	bash scripts/deploy.sh db $(ENV)
-
-deploy-minio: ## Deploy MinIO object storage
-	@echo "$(COLOR_YELLOW)Deploying MinIO storage...$(COLOR_RESET)"
-	bash scripts/deploy.sh minio $(ENV)
-
 deploy-vault: ## Deploy OpenBao secrets management
 	@echo "$(COLOR_YELLOW)Deploying OpenBao vault...$(COLOR_RESET)"
 	bash scripts/deploy.sh vault $(ENV)
-
-deploy-auth: ## Deploy auth identity provider (Keycloak)
-	@echo "$(COLOR_YELLOW)Deploying auth (Keycloak)...$(COLOR_RESET)"
-	bash scripts/deploy.sh auth $(ENV)
 
 deploy-observability: ## Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
 	@echo "$(COLOR_YELLOW)Deploying observability stack...$(COLOR_RESET)"
@@ -174,7 +162,7 @@ logs-%: ## Show logs for a service (e.g., make logs-traefik)
 	docker logs -f $*
 
 ps: ## Show running containers
-	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|minio|openbao|prometheus|grafana|loki|tempo|promtail|cadvisor|node-exporter)" || true
+	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|openbao|prometheus|grafana|loki|tempo|promtail|cadvisor|node-exporter)" || true
 
 ssh: ## SSH into VPS
 	@if [ -z "$(VPS_HOST)" ]; then \
@@ -223,11 +211,11 @@ exec-%: ## Shell into a container (e.g., make exec-traefik)
 # Database & Backups
 # ============================================================================
 
-backup: ## Backup all critical volumes (db, minio, infra, observability)
+backup: ## Backup all critical volumes (infra, observability, vault)
 	@echo "$(COLOR_BOLD)Creating backup...$(COLOR_RESET)"
 	bash scripts/backup.sh backup-all
 
-backup-%: ## Backup a specific service (e.g., make backup-db)
+backup-%: ## Backup a specific service (e.g., make backup-infra)
 	@echo "$(COLOR_BOLD)Backing up $*...$(COLOR_RESET)"
 	bash scripts/backup.sh backup $*
 
@@ -237,7 +225,7 @@ backup-list: ## List available backups
 backup-prune: ## Delete backups older than 7 days (override: RETENTION_DAYS=N)
 	bash scripts/backup.sh prune $(RETENTION_DAYS)
 
-backup-restore: ## Restore from backup (usage: make backup-restore SERVICE=db BACKUP_PATH=/opt/hill90/backups/db/20260222_120000)
+backup-restore: ## Restore from backup (usage: make backup-restore SERVICE=infra BACKUP_PATH=/opt/hill90/backups/infra/20260222_120000)
 	@if [ -z "$(SERVICE)" ] || [ -z "$(BACKUP_PATH)" ]; then \
 		echo "$(COLOR_YELLOW)Usage: make backup-restore SERVICE=db BACKUP_PATH=/path/to/backup$(COLOR_RESET)"; \
 		exit 1; \
