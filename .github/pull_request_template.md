@@ -1,8 +1,8 @@
 ## Summary
 - 
 
-## Linear
-- Issue: 
+## Issue
+- Closes: 
 
 ## Validation Evidence
 - UI (if applicable): 
