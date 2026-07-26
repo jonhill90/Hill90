@@ -13,7 +13,7 @@ UNSEAL_KEY_PATH="${VAULT_UNSEAL_KEY_PATH:-/opt/hill90/secrets/openbao-unseal.key
 # short-lived: revoke it with `vault.sh revoke-root` as soon as setup and seed
 # are done.
 ROOT_TOKEN_PATH="${VAULT_ROOT_TOKEN_PATH:-/opt/hill90/secrets/openbao-root.token}"
-SECRETS_FILE="${PROJECT_ROOT}/infra/secrets/prod.enc.env"
+SECRETS_FILE="${VAULT_SECRETS_FILE:-${PROJECT_ROOT}/infra/secrets/prod.enc.env}"
 POLICY_DIR="${PROJECT_ROOT}/platform/vault/policies"
 
 # Services that get their own AppRole
@@ -32,6 +32,7 @@ Usage: vault.sh <command>
 Commands:
   init          Initialize OpenBao (writes unseal key + root token to 0600 files)
   revoke-root   Revoke the root token and remove it from disk
+  store-unseal-key  Copy the host unseal key into SOPS as OPENBAO_UNSEAL_KEY
   unseal        Unseal OpenBao using host key file or SOPS fallback
   status        Show OpenBao seal/init status
   setup         Enable KV v2, AppRole, audit, apply policies, create roles
@@ -196,6 +197,50 @@ cmd_revoke_root() {
         rm -f "$ROOT_TOKEN_PATH"
     fi
     success "✓ Removed ${ROOT_TOKEN_PATH}"
+}
+
+# Copy the unseal key from the host key file into SOPS.
+#
+# The key has to exist in two places: on the host so auto-unseal works without
+# decrypting anything at boot, and in SOPS so it survives loss of the host.
+# This is the second half.
+#
+# The value is read and written entirely inside this function — it is never an
+# argument, never interpolated into a caller's shell, and never printed. That
+# matters because the obvious alternative (`make secrets-update KEY=... VALUE=...`)
+# puts the unseal key in the process table and in shell history.
+cmd_store_unseal_key() {
+    require_file "$UNSEAL_KEY_PATH" "Unseal key"
+    require_file "$SECRETS_FILE" "Secrets file"
+    require_command sops
+    require_command jq
+
+    if [ ! -r "$UNSEAL_KEY_PATH" ]; then
+        die "Unseal key at ${UNSEAL_KEY_PATH} is not readable by $(id -un)."
+    fi
+
+    local key
+    key=$(cat "$UNSEAL_KEY_PATH")
+    [ -n "$key" ] || die "Unseal key file is empty."
+
+    # jq -Rs quotes it correctly whatever it contains.
+    local escaped
+    escaped=$(printf '%s' "$key" | jq -Rs .)
+    unset key
+
+    if sops --set "[\"OPENBAO_UNSEAL_KEY\"] ${escaped}" "$SECRETS_FILE"; then
+        unset escaped
+        success "✓ OPENBAO_UNSEAL_KEY written to $(basename "$SECRETS_FILE")"
+    else
+        unset escaped
+        die "Failed to write OPENBAO_UNSEAL_KEY into ${SECRETS_FILE}"
+    fi
+
+    # Confirm it round-trips, without revealing it.
+    local stored_len
+    stored_len=$(sops -d --extract '["OPENBAO_UNSEAL_KEY"]' "$SECRETS_FILE" 2>/dev/null | wc -c | tr -d ' ')
+    [ "$stored_len" -gt 0 ] || die "OPENBAO_UNSEAL_KEY did not round-trip after writing."
+    success "✓ Verified: OPENBAO_UNSEAL_KEY decrypts to ${stored_len} bytes"
 }
 
 cmd_unseal() {
@@ -725,6 +770,7 @@ main() {
     case "$cmd" in
         init)          cmd_init "$@" ;;
         revoke-root)   cmd_revoke_root "$@" ;;
+        store-unseal-key) cmd_store_unseal_key "$@" ;;
         unseal)        cmd_unseal "$@" ;;
         status)        cmd_status "$@" ;;
         setup)         cmd_setup "$@" ;;
