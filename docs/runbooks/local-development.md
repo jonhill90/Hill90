@@ -3,6 +3,27 @@
 Run the Hill90 infrastructure stack on a Mac, using the same compose files
 production uses.
 
+> **Verified cold on 2026-07-26 against `main` at `0b40403`.**
+>
+> Not "it worked on the machine that built it" — a fresh `git clone` of `main`
+> into an empty directory, on a Mac with every stack image deleted, no Docker
+> volumes, no networks, no `.env.local` and an empty build cache. Every command
+> below was run exactly as written, in order, with nothing else. Nothing outside
+> this document was needed.
+>
+> | Step | Result |
+> |---|---|
+> | `local.sh up` from a fresh clone, zero images | 10/10 containers, **1:22** |
+> | `local.sh health` | 7/7 checks pass |
+> | Traefik routers | 4 registered, all enabled |
+> | Traefik, Portainer, Grafana, Prometheus in a browser | HTTP 200, each serving its own UI |
+> | Prometheus targets | **7 targets, 7 up, 0 down** |
+> | Grafana `admin/admin` | logs in; 3 datasources, 4 dashboards |
+> | `local.sh down` | containers 10→0, networks 3→0, **volumes 7→7** |
+> | `local.sh up` again | 10/10 containers, **1:06**, 7/7 checks, data intact |
+>
+> Re-verify any time with the commands below; that is the whole point of them.
+
 ## Before you start
 
 Docker Desktop must be running. Nothing else is required — no SOPS, no age key,
