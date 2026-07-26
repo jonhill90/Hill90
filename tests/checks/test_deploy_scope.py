@@ -151,10 +151,18 @@ class TestTriggerPaths:
         This is the strictest L1 gate: any addition or removal of trigger
         paths must be reflected here, preventing silent scope creep.
         """
+        # db and auth were added back by JON-55, which restored Postgres and
+        # Keycloak as PLATFORM services (the open-source counterparts to Azure
+        # Database and Entra) rather than as application dependencies. See
+        # docs/decisions/platform-primitives.md.
         expected = sorted([
             "platform/observability/**",
+            "platform/auth/keycloak/**",
+            "platform/data/postgres/**",
             "deploy/compose/prod/docker-compose.vault.yml",
             "deploy/compose/prod/docker-compose.observability.yml",
+            "deploy/compose/prod/docker-compose.auth.yml",
+            "deploy/compose/prod/docker-compose.db.yml",
         ])
         assert sorted(trigger_paths) == expected
 
