@@ -76,8 +76,18 @@ providers:
     # still running. Production has no such neighbours, so it does not need
     # this and does not have it.
     # LabelRegexp is Traefik v3 only — on v2.11 it fails with
-    # "unsupported function: LabelRegexp" and every container is dropped.
-    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`)"
+    # "unsupported function: LabelRegexp" and every container is dropped, so
+    # each project is listed explicitly.
+    #
+    # hill90-local is the app stack (github.com/jonhill90/hill90-app), which
+    # attaches to these networks via its compose/local.infra.yml overlay and
+    # carries its own Traefik labels. Without this clause its routers are
+    # dropped and every app hostname returns 404.
+    #
+    # These are literals rather than ${VAR} on purpose: Traefik v2.11 does no
+    # environment interpolation in the static config file, so a placeholder
+    # here is matched as the literal string and silently matches nothing.
+    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local`)"
 
   file:
     directory: /etc/traefik/dynamic
