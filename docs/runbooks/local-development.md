@@ -38,10 +38,11 @@ not need to copy it yourself. It is gitignored.
 bash scripts/local.sh up
 ```
 
-That builds and starts eleven containers — the edge stack (Traefik, dns-manager,
-Portainer), the observability stack (Prometheus, Grafana, Loki, Tempo, Promtail,
-node-exporter, cAdvisor) and the vault (OpenBao) — and waits until they actually
-answer.
+That builds and starts fourteen containers — the edge stack (Traefik,
+dns-manager, Portainer), the observability stack (Prometheus, Grafana, Loki,
+Tempo, Promtail, node-exporter, cAdvisor), the platform services (Postgres,
+postgres-exporter, Keycloak) and the vault (OpenBao) — and waits until they
+actually answer.
 
 ```bash
 bash scripts/local.sh health     # probe every routed surface
@@ -87,6 +88,7 @@ Observability internals
 | Grafana | http://grafana.localtest.me:8080/ (admin / admin) |
 | Prometheus | http://prometheus.localtest.me:8080/ (local only) |
 | OpenBao | http://vault.localtest.me:8080/ (uninitialized until you run `vault init`) |
+| Keycloak | http://auth.localtest.me:8080/ (admin / admin; the `platform` realm) |
 
 **Prometheus is routed locally but not in production.** In production it sits on
 the internal network with no router and no published port, reached through
@@ -196,6 +198,60 @@ environment — so what you rehearse is the same script the VPS runs.
 
 Local vault state lives in `.local-vault/` (gitignored) with its own throwaway
 age key and SOPS store. **It never touches `infra/secrets/prod.enc.env`.**
+
+## Platform services: Postgres and Keycloak
+
+Both are **platform primitives**, not application dependencies — the
+open-source counterparts to Azure Database for PostgreSQL and Microsoft Entra
+ID. See [platform-primitives.md](../decisions/platform-primitives.md) for why
+that distinction exists and why it is load-bearing.
+
+Postgres exists here to back Keycloak, and creates exactly one database:
+`keycloak`. It creates no `hill90_*` application databases. `local.sh health`
+fails if any appear, because that is precisely the drift that made Postgres look
+like an app dependency and get deleted in #495.
+
+Keycloak serves the `platform` realm, which holds only platform clients — today
+just `hill90-vault`. Application clients belong to the application, which is one
+tenant among several and brings its own realm.
+
+### Two local-only adjustments, and why they are runtime rather than file edits
+
+`platform/auth/keycloak/platform-realm.json` is the production realm. Local
+development needs two things production must not have, so `local.sh up` applies
+them to the **running** realm and leaves the file alone:
+
+| Setting | Shipped value | Local value | Why |
+|---|---|---|---|
+| `sslRequired` | `external` | `NONE` | Local runs on plain HTTP; otherwise every request returns `403 {"error":"invalid_request","error_description":"HTTPS required"}` |
+| `hill90-vault` redirect URIs | `https://vault.hill90.com/...` | plus `http://vault.localtest.me:8080/...` | Otherwise an OIDC login fails with `Invalid parameter: redirect_uri` |
+
+Editing the JSON instead would make production accept unencrypted authentication
+the moment the file merged. A bats test asserts the shipped file never says
+`sslRequired: NONE`.
+
+### Rehearsing OpenBao SSO against Keycloak
+
+OpenBao authenticating to Keycloak is platform-to-platform and is a supported
+path here — unlike Grafana or Portainer, which are deliberately **not** wired to
+Keycloak.
+
+```bash
+VAULT_OIDC_DISCOVERY_URL="http://auth.localtest.me:8080/realms/platform" \
+VAULT_PUBLIC_URL="http://vault.localtest.me:8080" \
+  bash scripts/local.sh vault setup-oidc
+```
+
+With no environment set, both variables default to the production values, so the
+command the VPS runs is unchanged.
+
+One subtlety: Keycloak advertises its issuer as `http://auth.localtest.me:8080/...`
+(its `KC_HOSTNAME`), and OpenBao requires the issuer it sees to match exactly.
+Reaching Keycloak by its container name would serve identical JSON and still fail
+that check. `deploy/compose/overrides/local.vault.yml` therefore maps
+`auth.localtest.me` to `host-gateway`, so OpenBao resolves it back out to the
+host and in through Traefik — the same path a browser takes. In production the
+name resolves publicly and none of this applies.
 
 To start over: `bash scripts/local.sh reset` deletes the volume and
 `.local-vault/` together.

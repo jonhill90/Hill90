@@ -87,7 +87,7 @@ providers:
     # These are literals rather than ${VAR} on purpose: Traefik v2.11 does no
     # environment interpolation in the static config file, so a placeholder
     # here is matched as the literal string and silently matches nothing.
-    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local`)"
+    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local-identity`) || Label(`com.docker.compose.project`,`hill90-local-platform`) || Label(`com.docker.compose.project`,`hill90-local-db`)"
 
   file:
     directory: /etc/traefik/dynamic

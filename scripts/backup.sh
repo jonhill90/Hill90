@@ -84,6 +84,24 @@ restore_volume() {
 # Per-service backup implementations
 # ---------------------------------------------------------------------------
 
+backup_db() {
+    local backup_dir="$1"
+    mkdir -p "$backup_dir"
+
+    echo "Backing up PostgreSQL..."
+
+    # SQL dump (portable, recommended for restore)
+    if docker exec postgres pg_isready -U "$DB_USER" >/dev/null 2>&1; then
+        docker exec postgres pg_dumpall -U "$DB_USER" > "$backup_dir/database.sql"
+        echo "  ✓ SQL dump saved to $backup_dir/database.sql"
+    else
+        warn "PostgreSQL not running — skipping SQL dump"
+    fi
+
+    # Volume tar (full data directory backup)
+    backup_volume "prod_postgres-data" "$backup_dir/postgres-data.tar.gz" || true
+}
+
 backup_infra() {
     local backup_dir="$1"
     mkdir -p "$backup_dir"
@@ -119,8 +137,8 @@ cmd_backup() {
 
     # Validate service before constructing any paths
     case "$service" in
-        vault|infra|observability) ;;
-        *) die "Unknown service for backup: $service. Use: vault, infra, observability" ;;
+        db|vault|infra|observability) ;;
+        *) die "Unknown service for backup: $service. Use: db, vault, infra, observability" ;;
     esac
 
     local timestamp
@@ -128,6 +146,7 @@ cmd_backup() {
     local backup_dir="${BACKUP_ROOT}/${service}/${timestamp}"
 
     case "$service" in
+        db)            backup_db "$backup_dir" ;;
         vault)         backup_vault "$backup_dir" ;;
         infra)         backup_infra "$backup_dir" ;;
         observability) backup_observability "$backup_dir" ;;
@@ -143,7 +162,7 @@ cmd_backup_all() {
     echo "================================"
     echo ""
 
-    for svc in vault infra observability; do
+    for svc in db vault infra observability; do
         cmd_backup "$svc"
         echo ""
     done

@@ -1,0 +1,77 @@
+{
+  "realm": "platform",
+  "enabled": true,
+  "displayName": "Hill90 Platform",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "verifyEmail": true,
+  "loginTheme": "hill90",
+  "accountTheme": "hill90",
+  "adminTheme": "hill90",
+  "emailTheme": "hill90",
+  "loginWithEmailAllowed": true,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "maxFailureWaitSeconds": 900,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "roles": {
+    "realm": [
+      {
+        "name": "user"
+      },
+      {
+        "name": "admin"
+      }
+    ]
+  },
+  "smtpServer": {
+    "host": "smtp.hostinger.com",
+    "port": "587",
+    "from": "noreply@hill90.com",
+    "fromDisplayName": "Hill90",
+    "envelopeFrom": "noreply@hill90.com",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "noreply@hill90.com",
+    "password": ""
+  },
+  "clients": [
+    {
+      "clientId": "hill90-vault",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "https://vault.hill90.com/v1/auth/oidc/callback",
+        "https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback"
+      ],
+      "webOrigins": [
+        "https://vault.hill90.com"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "https://vault.hill90.com/ui/"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "multivalued": "true",
+            "claim.name": "realm_roles",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure stacks
-# Usage: deploy.sh {infra|vault|observability|verify|backup} [env]
+# Usage: deploy.sh {infra|db|auth|vault|observability|verify|backup} [env]
 
 set -e
 
@@ -19,11 +19,13 @@ Usage: deploy.sh <command> [env]
 
 Commands:
   infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
+  db       Deploy PostgreSQL (platform database)
+  auth     Deploy Keycloak (platform identity provider)
   vault    Deploy OpenBao secrets management
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   teardown Stop and remove a stack's containers and networks (volumes KEPT)
   verify   Run post-deploy readiness check for a service
-  backup   Run pre-deploy backup for a service (infra, observability, vault)
+  backup   Run pre-deploy backup for a service (infra, db, vault, observability)
   help     Show this help message
 
 Environment: defaults to 'prod'
@@ -46,6 +48,8 @@ cmd_verify() {
     local diag_container  # primary container name for diagnostics
 
     case "$service" in
+        db)            check_cmd='docker exec postgres pg_isready -U postgres'; diag_container="postgres" ;;
+        auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
@@ -192,6 +196,25 @@ cmd_service() {
 
     local compose_file banner containers summary stack stateful
     case "$service" in
+        db)
+            compose_file="deploy/compose/${env}/docker-compose.db.yml"
+            containers="postgres postgres-exporter"
+            banner="Database Deployment"
+            stack="platform"
+            stateful=true
+            summary="Services deployed:
+  - postgres (platform database — Keycloak's store)
+  - postgres-exporter (Prometheus metrics on :9187)"
+            ;;
+        auth)
+            compose_file="deploy/compose/${env}/docker-compose.auth.yml"
+            containers="keycloak"
+            banner="Keycloak Deployment"
+            stack="identity"
+            stateful=true
+            summary="Service deployed:
+  - keycloak (platform identity provider at auth.hill90.com)"
+            ;;
         vault)
             compose_file="deploy/compose/${env}/docker-compose.vault.yml"
             containers="openbao"
@@ -231,6 +254,14 @@ cmd_service() {
     fi
     if ! docker network inspect hill90_internal >/dev/null 2>&1; then
         die "Network hill90_internal not found. Deploy infrastructure first: make deploy-infra"
+    fi
+
+    # Keycloak stores its realms in Postgres, so refuse rather than start into a
+    # crash loop if the database is not up.
+    if [ "$service" = "auth" ]; then
+        if ! docker exec postgres pg_isready -U postgres >/dev/null 2>&1; then
+            die "Cannot deploy auth: postgres is not ready. Deploy it first: bash scripts/deploy.sh db ${env}"
+        fi
     fi
 
     # One-time migration: remove old-project containers that would collide
@@ -365,13 +396,21 @@ cmd_teardown() {
             compose_file="deploy/compose/${env}/docker-compose.infra.yml"
             project_name="hill90-${env}-edge"
             ;;
+        db)
+            compose_file="deploy/compose/${env}/docker-compose.db.yml"
+            project_name="hill90-${env}-platform"
+            ;;
+        auth)
+            compose_file="deploy/compose/${env}/docker-compose.auth.yml"
+            project_name="hill90-${env}-identity"
+            ;;
         vault|observability)
             compose_file="deploy/compose/${env}/docker-compose.${stack}.yml"
             [ "$stack" = "vault" ] && project_name="hill90-${env}-platform" \
                                    || project_name="hill90-${env}-observability"
             ;;
         *)
-            die "Unknown stack for teardown: $stack. Use: infra, vault, observability"
+            die "Unknown stack for teardown: $stack. Use: infra, db, auth, vault, observability"
             ;;
     esac
 
@@ -411,7 +450,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        vault|observability) cmd_service "$cmd" "$@" ;;
+        db|auth|vault|observability) cmd_service "$cmd" "$@" ;;
         teardown)       cmd_teardown "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;

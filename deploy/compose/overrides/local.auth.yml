@@ -1,0 +1,13 @@
+# Local development override for the platform identity provider.
+#
+# Layered on deploy/compose/prod/docker-compose.auth.yml — the SAME file prod
+# uses. Keycloak is the one platform service on a PUBLIC hostname (an IdP that
+# only answers inside the tailnet cannot serve family or demo accounts), so
+# locally it takes the plain-HTTP entrypoint with no certificate resolver.
+#
+# Credentials come from .env.local, never from a default here: the compose files
+# give database and admin credentials no fallback on purpose.
+services:
+  keycloak:
+    labels:
+      - "traefik.http.routers.keycloak.tls=false"
