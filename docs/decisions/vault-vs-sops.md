@@ -6,9 +6,19 @@ Jon's.
 
 ## What is actually true today
 
-- No `openbao` container has existed, running or stopped, since the June 14
-  rebuild. No vault volume, no `/opt/hill90/secrets/openbao-unseal.key`, and no
-  `OPENBAO_UNSEAL_KEY` in SOPS.
+**Updated 2026-07-26, after JON-45.** The vault now exists again — but it is
+empty, and nothing reads from it. The argument below is unchanged by that,
+because it was never about whether a vault *could* run.
+
+- OpenBao is deployed, initialized, unsealed and healthy as of 2026-07-26.
+  Auto-unseal survives a container restart, verified through the systemd unit.
+  `OPENBAO_UNSEAL_KEY` is now in SOPS and at `/opt/hill90/secrets/openbao-unseal.key`
+  (`600 deploy:deploy`). The root token was revoked immediately.
+- **It holds no policies, no AppRoles and no KV data.** `setup` and `seed` have
+  not been run. Every deploy still falls back to SOPS, which the green
+  `deploy-vault` run logged explicitly.
+- Between the June 14 rebuild and 2026-07-26 there was no vault at all, and
+  nothing noticed.
 - Every secret in use has been served by SOPS + age for six weeks. Nothing
   broke, and nothing noticed.
 - `deploy.sh` is vault-first with a SOPS fallback. With no vault present,
@@ -17,9 +27,11 @@ Jon's.
   unremarked.
 - `hill90-vault-unseal.service` is enabled and active. It exits cleanly when the
   container is absent, so it has been a no-op since June.
-- The weekly `vault-sync-to-sops` workflow has failed every run since
-  2026-06-01. It does not fail for want of a vault — it never gets that far; it
-  fails at `Verify SSH connectivity`. See JON-46.
+- The weekly `vault-sync-to-sops` workflow failed every run from 2026-06-01 to
+  2026-07-20 at `Verify SSH connectivity` — it never reached the vault. That
+  has since resolved: as of 2026-07-26 it gets past SSH and fails later, at
+  `Renew sync token`, with `403 permission denied`, because `VAULT_SYNC_TOKEN`
+  in SOPS belongs to the vault that was destroyed in June. See JON-46.
 - SOPS still holds seven AppRole credential pairs (`VAULT_DB_*`, `VAULT_API_*`,
   `VAULT_AI_*`, `VAULT_AUTH_*`, `VAULT_UI_*`, `VAULT_MCP_*`, `VAULT_MINIO_*`)
   for services deleted in JON-27/28. They are dead weight whichever way this

@@ -1,21 +1,33 @@
 # Secrets Architecture
 
-> **Status as of 2026-07-26: SOPS is the active path. No vault is deployed.**
+> **Status as of 2026-07-26: the vault is running. SOPS is still the path
+> deploys use.**
 >
-> There has been no `openbao` container, and no vault volume, since the June 14
-> rebuild. Every secret in use has been served by SOPS + age for six weeks,
-> without incident, and nothing noticed the vault was gone.
+> Both statements are true and the distinction matters.
 >
-> The vault-first machinery below is **implemented and dormant**, not running.
-> `deploy.sh` still tries vault first and falls back to SOPS when it is absent
-> (`_common.sh:vault_available`), which is why deploys have kept working. The
-> design described in this document is therefore the *intended* model, not a
-> description of what is live.
+> OpenBao was reinitialized on 2026-07-26 (JON-45) after being absent since the
+> June 14 rebuild. It is up, healthy, initialized and unsealed, auto-unseal is
+> proven to survive a container restart — including through
+> `hill90-vault-unseal.service`, which is what runs at boot — and
+> `deploy-vault.yml` is green.
 >
-> Whether to bring the vault back is an open question — see
-> [Vault vs SOPS](../decisions/vault-vs-sops.md). Until that is settled, read
-> this document as "how vault works here if enabled", and treat SOPS as the
-> system of record.
+> **But the vault holds nothing.** `vault.sh setup` and `vault.sh seed` have
+> not been run, so there are no policies, no AppRoles and no KV data. Every
+> deploy therefore still reads its secrets from SOPS. That is not a guess; the
+> green vault deploy logged it:
+>
+> ```
+> WARNING: OpenBao available but login failed for vault, falling back to SOPS
+> ```
+>
+> So: vault is **available** infrastructure, SOPS is the **operative** store.
+> Nothing reads a secret out of the vault today.
+>
+> Filling it is a deliberate next step, not an oversight — it depends on the
+> open question in [Vault vs SOPS](../decisions/vault-vs-sops.md), which is
+> still Jon's call. Running `setup` and `seed` also needs a root token, and the
+> one minted at init was revoked immediately by design; a new one comes from
+> `bao operator generate-root` using the unseal key.
 
 ## Intended model
 

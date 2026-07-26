@@ -9,6 +9,20 @@
     },
     {
       "type": "A",
+      "name": "remote",
+      "content": "${TAILSCALE_IP}",
+      "ttl": 3600,
+      "priority": null
+    },
+    {
+      "type": "A",
+      "name": "vps",
+      "content": "${TAILSCALE_IP}",
+      "ttl": 3600,
+      "priority": null
+    },
+    {
+      "type": "A",
       "name": "portainer",
       "content": "${TAILSCALE_IP}",
       "ttl": 3600,
@@ -17,6 +31,13 @@
     {
       "type": "A",
       "name": "traefik",
+      "content": "${TAILSCALE_IP}",
+      "ttl": 3600,
+      "priority": null
+    },
+    {
+      "type": "A",
+      "name": "grafana",
       "content": "${TAILSCALE_IP}",
       "ttl": 3600,
       "priority": null

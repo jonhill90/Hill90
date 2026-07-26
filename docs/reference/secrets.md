@@ -4,7 +4,7 @@
 
 ## Age Key Locations
 
-- **Local (project):** `infra/secrets/keys/age-prod.key` (tracked in repo, used by scripts)
+- **Local (project):** `infra/secrets/keys/age-prod.key` — **gitignored, never committed** (`.gitignore` excludes `infra/secrets/keys/*.key` and `*.key`). Only the public `age-prod.pub` is tracked. Restore it from your password manager or the VPS.
 - **VPS:** `/opt/hill90/secrets/keys/keys.txt`
 - **Symlinked on VPS:** `/opt/hill90/app/infra/secrets/keys/age-prod.key` → `/opt/hill90/secrets/keys/keys.txt`
 
