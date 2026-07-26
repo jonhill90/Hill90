@@ -1,0 +1,15 @@
+# Local development override for the vault stack.
+#
+# Layered on top of deploy/compose/prod/docker-compose.vault.yml — the SAME file
+# production uses. Only the routing differences a Mac forces, exactly as
+# local.infra.yml and local.observability.yml do.
+#
+# The vault was prod-only until JON-50, which meant the one part of the stack
+# with an irreversible lifecycle — init, seal, root revocation — could never be
+# rehearsed before it reached the VPS. Locally the whole sequence is free and
+# the volume is disposable.
+
+services:
+  openbao:
+    labels:
+      - "traefik.http.routers.vault.tls=false"
