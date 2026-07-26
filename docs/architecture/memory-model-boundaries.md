@@ -347,7 +347,7 @@ Both systems use PostgreSQL FTS today. A future upgrade to pgvector/embeddings w
 - Add `embedding` column to `knowledge_entries` and `shared_chunks`
 - Enable cosine similarity search alongside FTS
 - Require embedding generation at write time (AKM) and ingest time (Library)
-- Gated on evidence that FTS recall is insufficient (per `.claude/plans/dazzling-wondering-mitten.md`)
+- Gated on evidence that FTS recall is insufficient
 
 ### Agent-to-Library Write Path (Not Planned)
 
@@ -371,4 +371,4 @@ Agents cannot read other agents' AKM entries. If multi-agent knowledge sharing i
 - AKM migration: `services/knowledge/app/db/migrations/001_create_knowledge_entries.sql`
 - Library migration: `services/knowledge/app/db/migrations/006_create_shared_knowledge.sql`
 - Quality stats migration: `services/knowledge/app/db/migrations/007_add_retrieval_duration.sql`
-- Shared KB Phase 3 plan (deferred): `.claude/plans/dazzling-wondering-mitten.md`
+- Shared KB Phase 3 (deferred): no written plan retained

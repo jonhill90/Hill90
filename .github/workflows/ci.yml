@@ -17,16 +17,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Validate harness freshness
-        run: python3 scripts/checks/check_harness_freshness.py
-
-      - name: Validate closed-loop plan evidence
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_BASE_REF: ${{ github.base_ref }}
-          PLAN_CLOSED_LOOP_STRICT: "0"
-        run: python3 scripts/checks/check_plan_closed_loop.py
-
       - name: Validate markdown links
         run: python3 scripts/checks/check_md_links.py
 

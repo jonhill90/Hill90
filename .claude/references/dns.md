@@ -1,1 +1,0 @@
-../../.github/docs/dns.md

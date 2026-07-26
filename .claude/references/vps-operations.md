@@ -1,1 +1,0 @@
-../../.github/docs/vps-operations.md
