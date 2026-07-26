@@ -180,8 +180,11 @@ Grafana with `{container=~"hill90dev-.*"}`.
 
 **Routers from another project appear in the dashboard.** Traefik's Docker
 provider sees every container on the socket. The local static config constrains
-it to the `hill90-local-edge` / `hill90-local-observability` compose projects; production has no such neighbours
-and does not need the constraint.
+it to three compose projects — `hill90-local-edge`, `hill90-local-observability`
+and `hill90-local`, the last being the
+[hill90-app](https://github.com/jonhill90/hill90-app) stack, which attaches to
+these networks through its own opt-in overlay. Production has no such
+neighbours and does not need the constraint.
 
 ## See Also
 
