@@ -91,9 +91,14 @@ jobs:
       # accidental dispatch against a live vault stops here.
       - name: Refuse if already initialized
         run: |
+          # Parse with jq, not grep. `bao status -format=json` emits
+          # '"initialized": false' WITH a space after the colon, so a
+          # grep -o '"initialized":[a-z]*' matches only the key and yields an
+          # empty string — which then fails this guard on a genuinely fresh
+          # vault. It failed safe, but it failed.
           INITIALIZED=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null | grep -o "\"initialized\":[a-z]*" | cut -d: -f2')
+            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null | jq -r ".initialized"')
           echo "initialized=$INITIALIZED"
           if [ "$INITIALIZED" != "false" ]; then
             echo "::error::OpenBao reports initialized=$INITIALIZED. This workflow only initializes a FRESH vault. To unseal an existing one use vault.sh unseal."
