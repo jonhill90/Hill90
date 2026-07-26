@@ -1,0 +1,9 @@
+# Local development override for the observability stack.
+#
+# Layered on top of deploy/compose/prod/docker-compose.observability.yml — the
+# SAME file production uses. Only the routing differences a Mac forces.
+
+services:
+  grafana:
+    labels:
+      - "traefik.http.routers.grafana.tls=false"

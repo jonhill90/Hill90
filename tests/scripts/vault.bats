@@ -95,18 +95,23 @@
   [ "$status" -eq 0 ]
 }
 
+# These assert on the RESOLVED compose output rather than the raw file. The
+# files are shared with local development and reference ${VAR} with production
+# defaults, so grepping the text would only prove a default string is present —
+# resolving proves production actually gets it.
+
 @test "docker-compose.vault.yml connects to both edge and internal networks" {
-  run grep "hill90_edge" deploy/compose/prod/docker-compose.vault.yml
+  run docker compose -f deploy/compose/prod/docker-compose.vault.yml config
   [ "$status" -eq 0 ]
-  run grep "hill90_internal" deploy/compose/prod/docker-compose.vault.yml
-  [ "$status" -eq 0 ]
+  [[ "$output" == *"hill90_edge"* ]]
+  [[ "$output" == *"hill90_internal"* ]]
 }
 
 @test "docker-compose.vault.yml has Traefik labels for vault.hill90.com" {
-  run grep "vault.hill90.com" deploy/compose/prod/docker-compose.vault.yml
+  run docker compose -f deploy/compose/prod/docker-compose.vault.yml config
   [ "$status" -eq 0 ]
-  run grep "tailscale-only@file" deploy/compose/prod/docker-compose.vault.yml
-  [ "$status" -eq 0 ]
+  [[ "$output" == *"vault.hill90.com"* ]]
+  [[ "$output" == *"tailscale-only@file"* ]]
 }
 
 # ---------------------------------------------------------------------------

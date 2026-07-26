@@ -1,0 +1,95 @@
+# Traefik Static Configuration — LOCAL DEVELOPMENT ONLY
+#
+# This file exists because Traefik's static configuration cannot be templated.
+# Traefik v2 reads static config from exactly ONE source: a file, environment
+# variables, or CLI flags — never a merge. Verified directly:
+#
+#   $ docker run traefik:v2.11 --certificatesresolvers.le.acme.caserver=https://canary.invalid/dir
+#     (with /etc/traefik/traefik.yml mounted)
+#   level=info msg="Configuration loaded from file: /etc/traefik/traefik.yml"
+#   → the CLI flag is silently ignored
+#
+# So a local variant cannot be expressed as an override of traefik.yml the way
+# every other difference in this repo is. It is a second file, and
+# scripts/checks/check_local_parity.py guards the two against structural drift.
+#
+# The differences from platform/edge/traefik.yml, and only these, are:
+#   - no certificatesResolvers   (no Let's Encrypt: nothing can validate 127.0.0.1)
+#   - no HTTPS redirect on :80   (plain HTTP locally; there is no cert to redirect to)
+#   - no TLS on :443             (the entrypoint still exists so routing parity holds)
+#   - log level DEBUG            (you are developing)
+#
+# Everything else — providers, metrics, dashboard, access logs — is identical to
+# production on purpose. If you change one file, change both.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+# API and Dashboard
+api:
+  dashboard: true
+  insecure: false
+
+# Logging
+log:
+  level: DEBUG
+  format: json
+
+# Access Logs
+accessLog:
+  format: json
+  bufferingSize: 100
+  filters:
+    statusCodes:
+      - "400-599"
+
+# Entry Points
+#
+# No redirection block: locally there is no certificate to redirect to, so :80
+# serves traffic directly. :443 is still declared so that a router pinned to
+# websecure does not vanish, but it terminates with Traefik's built-in
+# self-signed certificate rather than an ACME one.
+entryPoints:
+  web:
+    address: ":80"
+
+  websecure:
+    address: ":443"
+    http:
+      middlewares:
+        - security-headers@file
+
+  metrics:
+    address: ":8082"
+
+# Providers — identical to production except the Docker network name, which must
+# match NETWORK_PREFIX in .env.local (checked by scripts/checks/check_local_parity.py).
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: hill90local_edge
+    # LOCAL-ONLY. The Docker provider sees every container on the socket, not
+    # just this project's. On a developer Mac that can mean picking up routers
+    # from an unrelated stack — observed here with an older Hill90 app stack
+    # still running. Production has no such neighbours, so it does not need
+    # this and does not have it.
+    # LabelRegexp is Traefik v3 only — on v2.11 it fails with
+    # "unsupported function: LabelRegexp" and every container is dropped.
+    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`)"
+
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+# No certificatesResolvers. Let's Encrypt cannot validate a hostname that
+# resolves to 127.0.0.1, so requesting certificates locally would produce
+# nothing but retry noise and, against production ACME, spend rate limit.
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    addRoutersLabels: true

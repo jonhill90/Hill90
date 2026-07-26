@@ -61,9 +61,24 @@ Hostinger API. Without it, certificates for Tailscale-only hosts cannot issue.
 
 ## Quick start
 
+### Locally, on a Mac
+
 ```bash
 git clone <repository-url>
 cd Hill90
+bash scripts/local.sh up
+```
+
+Ten containers, roughly a minute, no secrets and no VPS. Then open
+http://grafana.localtest.me:8080/ (admin / admin).
+
+It runs the **same compose files production uses** — differences live in
+`.env.local` and `deploy/compose/overrides/local.*.yml`, and CI fails if the two
+environments drift. Full guide: [Local development](docs/runbooks/local-development.md).
+
+### On the VPS
+
+```bash
 brew install ansible sops age     # macOS
 make secrets-init                 # generates age keypair + encrypted secrets
 ```
@@ -104,6 +119,8 @@ Full procedure: [VPS rebuild runbook](docs/runbooks/vps-rebuild.md).
 script form directly. The full mapping is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
+bash scripts/local.sh up    # the whole stack, locally
+
 make deploy-infra           # Traefik, dns-manager, Portainer
 make deploy-vault           # OpenBao
 make deploy-observability   # Prometheus, Grafana, Loki, Tempo + collectors
@@ -237,6 +254,7 @@ Full guide: [Troubleshooting](docs/runbooks/troubleshooting.md).
 - [Security](docs/architecture/security.md)
 
 **Runbooks**
+- [Local development](docs/runbooks/local-development.md)
 - [Bootstrap](docs/runbooks/bootstrap.md)
 - [Deployment](docs/runbooks/deployment.md)
 - [Disaster recovery](docs/runbooks/disaster-recovery.md)
