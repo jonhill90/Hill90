@@ -185,10 +185,6 @@ class TestTriggerPaths:
     def test_trigger_paths_exclude_edge(self, trigger_paths):
         assert not _matches_any("platform/edge/traefik/traefik.yml", trigger_paths)
 
-    def test_trigger_paths_exclude_agentbox_platform(self, trigger_paths):
-        """Platform agentbox configs don't trigger deploy."""
-        assert not _matches_any("platform/agentbox/agents/coder/agent.yml", trigger_paths)
-
     def test_trigger_paths_exclude_deploy_scripts(self, trigger_paths):
         assert not _matches_any("scripts/deploy.sh", trigger_paths)
 

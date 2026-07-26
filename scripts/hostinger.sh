@@ -353,7 +353,7 @@ dns_sync() {
     current_records=$(api_call GET "/api/dns/v1/zones/$DOMAIN")
 
     local needs_update=false
-    for pair in "@:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "storage:$tailscale_ip" "grafana:$tailscale_ip" "vault:$tailscale_ip" "litellm:$tailscale_ip"; do
+    for pair in "@:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "grafana:$tailscale_ip" "vault:$tailscale_ip"; do
         local name="${pair%%:*}"
         local expected="${pair##*:}"
         local current

@@ -119,11 +119,11 @@
   local tmpdir
   tmpdir="$(mktemp -d)"
   mkdir -p "$tmpdir/db/20260101_120000"
-  mkdir -p "$tmpdir/minio/20260102_120000"
+  mkdir -p "$tmpdir/vault/20260102_120000"
   BACKUP_DIR="$tmpdir" run bash scripts/backup.sh list
   [ "$status" -eq 0 ]
   [[ "$output" == *"db: 1 backup(s)"* ]]
-  [[ "$output" == *"minio: 1 backup(s)"* ]]
+  [[ "$output" == *"vault: 1 backup(s)"* ]]
   rm -rf "$tmpdir"
 }
 
