@@ -41,8 +41,13 @@ services:
       - edge
       - internal
     volumes:
-      - openbao-data:/openbao/file
-      - ../../../platform/vault/config.hcl:/openbao/config/config.hcl:ro
+      # Data path and config file are selectable so the raft storage variant can
+      # be chosen at deploy time. Both default to the file-backend values, so an
+      # unset environment resolves to exactly what production has always run.
+      # See platform/vault/config.raft.hcl and
+      # .github/workflows/vault-reinitialize.yml.
+      - openbao-data:${VAULT_DATA_PATH:-/openbao/file}
+      - ../../../platform/vault/${VAULT_CONFIG_FILE:-config.hcl}:/openbao/config/config.hcl:ro
       - ../../../platform/vault/policies:/openbao/policies:ro
     environment:
       - BAO_ADDR=http://127.0.0.1:8200

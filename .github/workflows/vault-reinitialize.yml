@@ -1,0 +1,378 @@
+name: Vault Reinitialize (Prod)
+
+# The whole reinitialize decision as ONE action.
+#
+# docs/decisions/vault-vs-sops.md describes reinitializing as seven ordered
+# steps, and JON-48 adds a storage migration that is only free at the moment the
+# volume is wiped. Doing those by hand means getting the order right under
+# pressure — and getting it wrong is what produced the current inert vault, by
+# revoking root before anything had been configured.
+#
+# So this runs the whole sequence, in the order that works:
+#
+#   backup -> wipe -> redeploy (on raft) -> init -> unseal -> store key
+#          -> setup -> seed -> setup-sync-token -> PR the new secrets
+#
+# Root is NOT revoked. That is the one-way door, it is the mistake this
+# workflow exists to avoid repeating, and it is left as a separate deliberate
+# command printed at the end.
+#
+# DESTRUCTIVE: it deletes the openbao-data volume. Three things stand in the
+# way of that happening by accident:
+#
+#   1. A typed confirmation. The input must be exactly REINITIALIZE.
+#   2. A data check. If the vault holds KV secrets, the run stops. A vault that
+#      someone has since put real secrets into is never silently destroyed.
+#   3. A backup. The volume is archived before anything is removed, and the run
+#      aborts if that backup fails.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type REINITIALIZE (exactly) to confirm. This DELETES the vault data volume.'
+        required: true
+        type: string
+      switch_to_raft:
+        description: 'Also move storage from the deprecated file backend to raft. Free to do now — the volume is being wiped anyway.'
+        required: false
+        default: true
+        type: boolean
+      i_have_read_the_decision_doc:
+        description: 'Confirm you have read docs/decisions/vault-vs-sops.md and intend to reinitialize.'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  reinitialize:
+    name: Reinitialize OpenBao
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      # ---- Guards, before anything is touched --------------------------------
+
+      - name: Check confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "REINITIALIZE" ]; then
+            echo "::error::Confirmation not matched. Type exactly: REINITIALIZE"
+            exit 1
+          fi
+          if [ "${{ inputs.i_have_read_the_decision_doc }}" != "true" ]; then
+            echo "::error::Read docs/decisions/vault-vs-sops.md first, then set the acknowledgement to true."
+            exit 1
+          fi
+          echo "Confirmed. Storage target: ${{ inputs.switch_to_raft && 'raft (integrated storage)' || 'file (deprecated, removed in v2.7.0)' }}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age for secrets
+        env:
+          SOPS_VERSION: "3.9.4"
+        run: |
+          SOPS_URL="https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          curl -fsSL -o /tmp/sops "$SOPS_URL"
+          if file /tmp/sops | grep -q "HTML"; then
+            echo "::error::SOPS download returned HTML instead of binary — check URL: $SOPS_URL"
+            exit 1
+          fi
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      - name: Verify SSH connectivity
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
+
+      # The guard that matters. If the vault holds KV data, someone has put real
+      # secrets in it since this decision was written, and wiping it would
+      # destroy them. Refuse rather than assume.
+      #
+      # A root token on disk means the vault is configurable, so the data can be
+      # enumerated directly. Without one the vault cannot be read at all — which
+      # is the current state and is itself evidence it holds nothing usable —
+      # but the backup below covers that case regardless.
+      - name: Refuse if the vault holds data
+        run: |
+          IP=${{ steps.get-ip.outputs.tailscale_ip }}
+          HAS_TOKEN=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'test -s /opt/hill90/secrets/openbao-root.token && echo yes || echo no')
+          echo "root token on host: $HAS_TOKEN"
+
+          if [ "$HAS_TOKEN" = "yes" ]; then
+            KEYS=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+              'docker exec -e BAO_ADDR=http://127.0.0.1:8200 \
+                 -e BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" \
+                 openbao bao kv list -format=json secret/ 2>/dev/null | jq -r "length" || echo 0')
+            echo "KV entries under secret/: ${KEYS:-0}"
+            if [ "${KEYS:-0}" != "0" ]; then
+              echo "::error::The vault holds ${KEYS} KV entrie(s) under secret/. Refusing to destroy it."
+              echo "::error::Back them up and remove them deliberately, or reinitialize by hand."
+              exit 1
+            fi
+            echo "Vault is configurable and empty. Safe to proceed."
+          else
+            echo "No root token on the host: the vault cannot be read or configured."
+            echo "That is the documented inert state. Proceeding — the backup below is the safety net."
+          fi
+
+      # Unconditional, and a hard failure. Whatever the guard above could or
+      # could not prove, the bytes are archived before anything is deleted.
+      - name: Back up the existing vault volume
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/backup.sh backup vault'
+
+      - name: Verify the backup exists and is non-empty
+        run: |
+          OUT=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'find /opt/hill90/backups/vault -name "openbao-data.tar.gz" -newermt "-15 minutes" -size +1k | sort | tail -1')
+          echo "backup archive: ${OUT:-<none>}"
+          if [ -z "$OUT" ]; then
+            echo "::error::No fresh non-empty vault backup found. Refusing to wipe the volume."
+            exit 1
+          fi
+
+      - name: Sync host checkout to main
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && git fetch origin && git reset --hard origin/main'
+
+      # ---- The destructive part ---------------------------------------------
+
+      - name: Stop the vault stack and remove its volume
+        run: |
+          IP=${{ steps.get-ip.outputs.tailscale_ip }}
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'cd /opt/hill90/app && docker compose -p hill90-prod-platform -f deploy/compose/prod/docker-compose.vault.yml down'
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'docker volume rm openbao-data'
+          echo "Volume removed."
+
+      # Storage is chosen here, at the only moment it is free to change. The
+      # variables default to the file backend, so leaving switch_to_raft off
+      # reproduces the previous behaviour exactly.
+      - name: Redeploy the vault
+        run: |
+          IP=${{ steps.get-ip.outputs.tailscale_ip }}
+          if [ "${{ inputs.switch_to_raft }}" = "true" ]; then
+            ENVS='export VAULT_CONFIG_FILE=config.raft.hcl VAULT_DATA_PATH=/openbao/raft;'
+            echo "Deploying onto raft (integrated storage)."
+          else
+            ENVS=''
+            echo "Deploying onto the file backend — deprecated, removed in OpenBao v2.7.0."
+          fi
+          # deploy.sh calls auto-unseal, which is a no-op on an uninitialized
+          # vault. Verify readiness legitimately fails here: an uninitialized
+          # OpenBao answers 501 on /v1/sys/health. That is expected, so the
+          # deploy is allowed to fail and the guard is the explicit check below.
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            "cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && ${ENVS} bash scripts/deploy.sh vault prod" || true
+
+      - name: Confirm the vault is up and uninitialized
+        run: |
+          IP=${{ steps.get-ip.outputs.tailscale_ip }}
+          for i in $(seq 1 30); do
+            STATE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+              'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null | jq -r ".initialized"' || echo "")
+            [ -n "$STATE" ] && break
+            sleep 4
+          done
+          echo "initialized=$STATE"
+          if [ "$STATE" != "false" ]; then
+            echo "::error::Expected a fresh uninitialized vault, got initialized=$STATE"
+            exit 1
+          fi
+          if [ "${{ inputs.switch_to_raft }}" = "true" ]; then
+            STORAGE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+              'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null | jq -r ".storage_type"')
+            echo "storage_type=$STORAGE"
+            if [ "$STORAGE" != "raft" ]; then
+              echo "::error::Asked for raft, vault reports storage_type=$STORAGE"
+              exit 1
+            fi
+          fi
+
+      # ---- Rebuild, in the order that works ---------------------------------
+
+      - name: Initialize
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh init'
+
+      - name: Verify key file ownership and mode
+        run: |
+          OUT=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'stat -c "%a %U:%G" /opt/hill90/secrets/openbao-unseal.key')
+          echo "unseal key: $OUT"
+          if [ "$OUT" != "600 deploy:deploy" ]; then
+            echo "::error::Unseal key must be 600 deploy:deploy — the auto-unseal systemd unit runs as deploy. Got: $OUT"
+            exit 1
+          fi
+
+      - name: Unseal
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh unseal'
+
+      - name: Store the unseal key in SOPS on the host
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/vault.sh store-unseal-key'
+
+      # Order is the entire point. setup and seed need root, so they run while
+      # root still exists — which is what did not happen last time.
+      - name: Configure — policies, AppRoles, KV engine
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup'
+
+      - name: Seed — populate the KV paths from SOPS
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh seed'
+
+      - name: Mint the read-only sync token
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup-sync-token'
+
+      # ---- Prove it, then hand back the secrets ------------------------------
+
+      - name: Prove auto-unseal survives a container restart
+        run: |
+          IP=${{ steps.get-ip.outputs.tailscale_ip }}
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP 'docker restart openbao >/dev/null && sleep 8'
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'sudo systemctl restart hill90-vault-unseal.service && sleep 5' || \
+            ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'cd /opt/hill90/app && bash scripts/vault.sh auto-unseal'
+          SEALED=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
+            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null | jq -r ".sealed"')
+          echo "sealed after restart: $SEALED"
+          if [ "$SEALED" != "false" ]; then
+            echo "::error::Vault did not auto-unseal after restart (sealed=$SEALED)"
+            exit 1
+          fi
+
+      - name: Copy updated SOPS back
+        run: |
+          scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/opt/hill90/app/infra/secrets/prod.enc.env \
+            infra/secrets/prod.enc.env
+          for k in OPENBAO_UNSEAL_KEY VAULT_SYNC_TOKEN; do
+            LEN=$(sops -d --extract "[\"$k\"]" infra/secrets/prod.enc.env | wc -c)
+            echo "$k decrypts to $LEN bytes"
+            [ "$LEN" -gt 0 ] || { echo "::error::$k missing after copy-back"; exit 1; }
+          done
+
+      - name: Restore host checkout
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && git checkout -- infra/secrets/prod.enc.env && rm -f infra/secrets/prod.enc.env.backup.*' || true
+
+      - name: Open a PR with the new secrets
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/vault-reinit-secrets
+          delete-branch: true
+          commit-message: |
+            chore(vault): new unseal key and sync token after reinitialize
+
+            Generated by .github/workflows/vault-reinitialize.yml. A fresh init
+            mints a new unseal key, so the previous OPENBAO_UNSEAL_KEY is dead
+            and nothing in CI works against this vault until this lands.
+          title: "chore(vault): new unseal key and sync token after reinitialize"
+          body: |
+            Opened automatically by **Vault Reinitialize**.
+
+            The vault was reinitialized, so `OPENBAO_UNSEAL_KEY` and
+            `VAULT_SYNC_TOKEN` are new. The old values are dead.
+
+            **Merge this promptly** — until it lands, `main` carries an unseal
+            key for a vault that no longer exists.
+
+            Verified in the run that produced this:
+
+            - the vault came back uninitialized on the requested storage backend
+            - the unseal key file is `600 deploy:deploy`
+            - setup, seed and setup-sync-token all ran while root still existed
+            - auto-unseal survived a container restart, through the systemd unit
+
+            Root is **not** revoked. See the run summary for the one command
+            that does it, once you are satisfied.
+          add-paths: |
+            infra/secrets/prod.enc.env
+
+      - name: What is left to do
+        run: |
+          {
+            echo "## Vault reinitialized"
+            echo ""
+            echo "Storage backend: **${{ inputs.switch_to_raft && 'raft (integrated storage)' || 'file (deprecated)' }}**"
+            echo ""
+            echo "Done in this run: backup, wipe, redeploy, init, unseal, store key, setup, seed, sync token, auto-unseal proof."
+            echo ""
+            echo "### Two things remain, in this order"
+            echo ""
+            echo "1. **Merge the secrets PR.** Until then \`main\` has an unseal key for a vault that no longer exists."
+            echo "2. **Revoke root**, once you are satisfied the vault behaves:"
+            echo ""
+            echo '   ```'
+            echo '   ssh deploy@remote.hill90.com "cd /opt/hill90/app && bash scripts/vault.sh revoke-root"'
+            echo '   ```'
+            echo ""
+            echo "   This is a one-way door. On OpenBao >= 2.5.3 the root-regeneration endpoints are disabled,"
+            echo "   so after this the vault cannot be reconfigured without repeating this whole workflow."
+            echo "   It is deliberately not automated here."
+            echo ""
+            echo "### Optional"
+            echo ""
+            echo "Re-enable the weekly sync schedule in \`.github/workflows/vault-sync-to-sops.yml\`,"
+            echo "but only after a manual \`workflow_dispatch\` run of it has gone green."
+          } >> "$GITHUB_STEP_SUMMARY"

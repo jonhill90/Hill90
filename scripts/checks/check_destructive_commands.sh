@@ -23,7 +23,15 @@ PAT_PRUNE="docker system prune"
 # hill90-local-, prompts for typed confirmation, and exists precisely so a
 # developer can wipe and rebuild their own machine. It can no more reach the
 # VPS than `ls` can.
-ALLOW_VOLUME_DESTRUCTION="scripts/local.sh"
+#
+# .github/workflows/vault-reinitialize.yml is exempt for the same reason and no
+# other: destroying the vault volume IS the operation. It is gated behind a
+# typed REINITIALIZE confirmation, a separate acknowledgement input, a check
+# that refuses if the vault holds KV data, and a backup that must succeed and be
+# verified non-empty before anything is removed. Adding a second file here needs
+# that standard of justification.
+ALLOW_VOLUME_DESTRUCTION="scripts/local.sh
+.github/workflows/vault-reinitialize.yml"
 
 for f in scripts/*.sh .github/workflows/*.yml; do
   [ -f "$f" ] || continue
@@ -31,7 +39,7 @@ for f in scripts/*.sh .github/workflows/*.yml; do
   # Strip comment and blank lines before checking
   STRIPPED=$(grep -v '^[[:space:]]*#' "$f" 2>/dev/null | grep -v '^[[:space:]]*$') || true
 
-  if [ "$f" != "$ALLOW_VOLUME_DESTRUCTION" ]; then
+  if ! echo "$ALLOW_VOLUME_DESTRUCTION" | grep -qxF "$f"; then
     if echo "$STRIPPED" | grep -qE "$PAT_DOWN"; then
       echo "FAIL: $f contains a compose 'down' with volume removal"
       FAIL=1
