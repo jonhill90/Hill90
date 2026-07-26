@@ -262,11 +262,10 @@ cmd_secrets() {
     fi
 
     local required_secrets=(
-        "VPS_IP" "VPS_HOST" "DB_USER" "DB_PASSWORD" "DB_NAME"
-        "ACME_EMAIL" "ACME_CA_SERVER"
+        "VPS_IP" "VPS_HOST" "ACME_EMAIL" "ACME_CA_SERVER"
     )
     local optional_secrets=(
-        "MINIO_ROOT_USER" "MINIO_ROOT_PASSWORD"
+        "TRAEFIK_ADMIN_PASSWORD_HASH" "GRAFANA_ADMIN_PASSWORD"
     )
 
     echo ""

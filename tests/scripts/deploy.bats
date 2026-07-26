@@ -71,68 +71,6 @@
   [ "$status" -eq 0 ]
 }
 
-@test "deploy.sh service checks hill90_internal network exists" {
-  run grep -A2 "hill90_internal" scripts/deploy.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Deploy infrastructure first"* ]]
-}
-
-# ---------------------------------------------------------------------------
-# Keycloak / Postgres separation tests
-# ---------------------------------------------------------------------------
-
-@test "deploy.sh usage lists db command" {
-  run bash scripts/deploy.sh help
-  [[ "$output" == *"db"* ]]
-}
-
-@test "deploy.sh db requires compose file" {
-  run bash scripts/deploy.sh db nonexistent-env
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"not found"* ]] || [[ "$output" == *"Error"* ]]
-}
-
-@test "deploy.sh dispatcher accepts db command" {
-  run bash scripts/deploy.sh db nonexistent-env
-  [[ "$output" != *"Unknown"* ]]
-}
-
-@test "deploy.sh all does NOT include db in service loop" {
-  run bash -c 'sed -n "/^cmd_all/,/^}/p" scripts/deploy.sh | grep "for svc in"'
-  [[ "$output" != *"db"* ]]
-}
-
-# ---------------------------------------------------------------------------
-# MinIO storage tests
-# ---------------------------------------------------------------------------
-
-@test "deploy.sh usage includes minio command" {
-  run bash scripts/deploy.sh help
-  [[ "$output" == *"minio"* ]]
-  [[ "$output" == *"MinIO"* ]]
-}
-
-@test "deploy.sh minio is accepted by main dispatcher" {
-  run bash scripts/deploy.sh minio nonexistent-env
-  [ "$status" -eq 1 ]
-  [[ "$output" != *"Unknown"* ]]
-}
-
-@test "deploy.sh all does NOT include minio in service loop" {
-  run bash -c 'sed -n "/^cmd_all/,/^}/p" scripts/deploy.sh | grep "for svc in"'
-  [[ "$output" != *"minio"* ]]
-}
-
-@test "deploy.sh cmd_service has minio case with correct compose file" {
-  run bash -c 'sed -n "/^cmd_service/,/^}/p" scripts/deploy.sh | grep -A1 "minio)"'
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"docker-compose.minio.yml"* ]]
-}
-
-# ---------------------------------------------------------------------------
-# Health gate and readiness check tests
-# ---------------------------------------------------------------------------
-
 @test "deploy.sh usage lists verify command" {
   run bash scripts/deploy.sh help
   [[ "$output" == *"verify"* ]]
@@ -150,34 +88,6 @@
   [ "$status" -eq 0 ]
 }
 
-@test "deploy.sh has check_dependency function" {
-  run grep "^check_dependency()" scripts/deploy.sh
-  [ "$status" -eq 0 ]
-}
-
-@test "deploy.sh auth deploy checks postgres dependency" {
-  run bash -c 'sed -n "/# Pre-deploy dependency/,/esac/p" scripts/deploy.sh'
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"auth)"* ]]
-  [[ "$output" == *"check_dependency postgres"* ]]
-}
-
-@test "deploy.sh cmd_verify covers all service types" {
-  for svc in db auth minio vault observability infra; do
-    run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep '${svc})'"
-    [ "$status" -eq 0 ]
-  done
-}
-
-@test "deploy.sh keycloak checks use docker inspect not curl" {
-  run grep -c 'docker exec keycloak curl' scripts/deploy.sh
-  [ "$output" = "0" ]
-}
-
-# ---------------------------------------------------------------------------
-# Readiness check and diagnostics tests
-# ---------------------------------------------------------------------------
-
 @test "deploy.sh readiness checks do not use docker exec curl" {
   run grep -c 'docker exec.*curl' scripts/deploy.sh
   [ "$output" = "0" ]
@@ -191,24 +101,6 @@
   run grep 'docker inspect --format' scripts/deploy.sh
   [ "$status" -eq 0 ]
 }
-
-@test "deploy.sh cmd_verify failure path prints diagnostics for missing container" {
-  # Uses a recognized service name (minio) so it reaches the retry+diagnostics
-  # path, not the "Unknown service" branch. Skip if a real minio container
-  # happens to be running locally (deploy target is VPS, not dev Mac).
-  if docker inspect minio >/dev/null 2>&1; then
-    skip "minio container running locally — cannot test failure path"
-  fi
-  run env DEPLOY_VERIFY_MAX_ATTEMPTS=1 bash scripts/deploy.sh verify minio
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Diagnostic output for minio"* ]]
-  [[ "$output" == *"container not found"* ]] || [[ "$output" == *"no logs available"* ]]
-  [[ "$output" == *"End diagnostics"* ]]
-}
-
-# ---------------------------------------------------------------------------
-# Legacy agentbox anti-regression tests
-# ---------------------------------------------------------------------------
 
 @test "legacy agentbox deployment paths are absent" {
   # Scripts must not exist
@@ -265,15 +157,6 @@
 @test "_common.sh vault_read_kv uses shlex.quote for safe output" {
   run grep "shlex.quote" scripts/_common.sh
   [ "$status" -eq 0 ]
-}
-
-@test "_common.sh vault_paths_for_service returns correct paths" {
-  source scripts/_common.sh
-  [ "$(vault_paths_for_service db)" = "secret/shared/database" ]
-  [ "$(vault_paths_for_service auth)" = "secret/shared/database secret/auth/config" ]
-  [ "$(vault_paths_for_service minio)" = "secret/minio/config" ]
-  [ "$(vault_paths_for_service infra)" = "secret/infra/traefik secret/infra/dns-manager" ]
-  [ "$(vault_paths_for_service observability)" = "secret/observability/grafana" ]
 }
 
 @test "_common.sh vault_paths_for_service returns empty for vault/unknown" {
@@ -335,4 +218,37 @@
     run bash -c "grep -v '^[[:space:]]*#' '$f' | grep -cE 'docker compose.*down.*-v|docker volume rm|docker system prune'"
     [ "$output" = "0" ]
   done
+}
+
+@test "_common.sh vault_paths_for_service returns correct paths" {
+  source scripts/_common.sh
+  [ "$(vault_paths_for_service infra)" = "secret/infra/traefik secret/infra/dns-manager" ]
+  [ "$(vault_paths_for_service observability)" = "secret/observability/grafana" ]
+}
+
+@test "deploy.sh cmd_verify covers all service types" {
+  for svc in vault observability infra; do
+    run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep '${svc})'"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "deploy.sh cmd_verify failure path prints diagnostics for missing container" {
+  # Uses a recognized service name (vault) so it reaches the retry+diagnostics
+  # path, not the "Unknown service" branch. Skip if a real openbao container
+  # happens to be running locally (deploy target is VPS, not dev Mac).
+  if docker inspect openbao >/dev/null 2>&1; then
+    skip "openbao container running locally — cannot test failure path"
+  fi
+  run env DEPLOY_VERIFY_MAX_ATTEMPTS=1 bash scripts/deploy.sh verify vault
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Diagnostic output for vault"* ]]
+  [[ "$output" == *"container not found"* ]] || [[ "$output" == *"no logs available"* ]]
+  [[ "$output" == *"End diagnostics"* ]]
+}
+
+@test "deploy.sh service checks hill90_internal network exists" {
+  run grep -A2 "hill90_internal" scripts/deploy.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Deploy infrastructure first"* ]]
 }

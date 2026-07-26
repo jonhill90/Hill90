@@ -152,9 +152,6 @@ for k, v in data.items():
 vault_paths_for_service() {
     local service="$1"
     case "$service" in
-        db)            echo "secret/shared/database" ;;
-        auth)          echo "secret/shared/database secret/auth/config" ;;
-        minio)         echo "secret/minio/config" ;;
         infra)         echo "secret/infra/traefik secret/infra/dns-manager" ;;
         observability) echo "secret/observability/grafana" ;;
         *)             echo "" ;;

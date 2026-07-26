@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure stacks
-# Usage: deploy.sh {infra|db|minio|vault|auth|observability|verify|backup} [env]
+# Usage: deploy.sh {infra|vault|observability|verify|backup} [env]
 
 set -e
 
@@ -19,13 +19,10 @@ Usage: deploy.sh <command> [env]
 
 Commands:
   infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
-  db       Deploy database (PostgreSQL)
-  minio    Deploy MinIO object storage
   vault    Deploy OpenBao secrets management
-  auth     Deploy auth identity provider (Keycloak)
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   verify   Run post-deploy readiness check for a service
-  backup   Run pre-deploy backup for a service (db, minio, infra, observability)
+  backup   Run pre-deploy backup for a service (infra, observability, vault)
   help     Show this help message
 
 Environment: defaults to 'prod'
@@ -33,27 +30,8 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
-# Dependency and readiness checks
+# Readiness checks
 # ---------------------------------------------------------------------------
-
-check_dependency() {
-    local dep="$1"
-    local check_cmd
-
-    case "$dep" in
-        postgres)  check_cmd='docker exec postgres pg_isready -U postgres' ;;
-        keycloak)  check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]' ;;
-        *)         echo "Unknown dependency: $dep"; return 1 ;;
-    esac
-
-    if eval "$check_cmd" >/dev/null 2>&1; then
-        echo "✓ Dependency healthy: $dep"
-        return 0
-    else
-        echo "✗ Dependency not healthy: $dep"
-        return 1
-    fi
-}
 
 cmd_verify() {
     local service="$1"
@@ -67,9 +45,6 @@ cmd_verify() {
     local diag_container  # primary container name for diagnostics
 
     case "$service" in
-        db)            check_cmd='docker exec postgres pg_isready -U postgres'; diag_container="postgres" ;;
-        auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
-        minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
@@ -216,34 +191,6 @@ cmd_service() {
 
     local compose_file banner containers summary stack stateful
     case "$service" in
-        db)
-            compose_file="deploy/compose/${env}/docker-compose.db.yml"
-            containers="postgres postgres-exporter"
-            banner="Database Deployment"
-            stack="platform"
-            stateful=true
-            summary="Services deployed:
-  - postgres (PostgreSQL database)
-  - postgres-exporter (Prometheus metrics on :9187)"
-            ;;
-        auth)
-            compose_file="deploy/compose/${env}/docker-compose.auth.yml"
-            containers="keycloak"
-            banner="Keycloak Deployment"
-            stack="identity"
-            stateful=true
-            summary="Service deployed:
-  - keycloak (identity provider at auth.hill90.com)"
-            ;;
-        minio)
-            compose_file="deploy/compose/${env}/docker-compose.minio.yml"
-            containers="minio"
-            banner="MinIO Storage Deployment"
-            stack="platform"
-            stateful=true
-            summary="Service deployed:
-  - minio (S3-compatible object storage, console at storage.hill90.com)"
-            ;;
         vault)
             compose_file="deploy/compose/${env}/docker-compose.vault.yml"
             containers="openbao"
@@ -277,12 +224,6 @@ cmd_service() {
     require_file "$compose_file" "Compose file"
     require_file "$secrets_file" "Secrets file"
 
-    # Service-specific preflight checks
-    if [[ "$service" == "minio" ]]; then
-        sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \
-            || die "MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must be set in secrets. Run: make secrets-update KEY=MINIO_ROOT_USER VALUE=..."
-    fi
-
     # Check that networks exist (infrastructure must be deployed first)
     if ! docker network inspect hill90_edge >/dev/null 2>&1; then
         die "Network hill90_edge not found. Deploy infrastructure first: make deploy-infra"
@@ -290,13 +231,6 @@ cmd_service() {
     if ! docker network inspect hill90_internal >/dev/null 2>&1; then
         die "Network hill90_internal not found. Deploy infrastructure first: make deploy-infra"
     fi
-
-    # Pre-deploy dependency checks
-    case "$service" in
-        auth)
-            check_dependency postgres || die "Cannot deploy auth: postgres is not healthy"
-            ;;
-    esac
 
     # One-time migration: remove old-project containers that would collide
     # with new project names. Safe because the subsequent `up -d` immediately
@@ -316,13 +250,8 @@ cmd_service() {
 
     # Pre-deploy backup for stateful services
     if [ "$stateful" = true ]; then
-        # Map service to its backup target (auth data lives in postgres)
-        local backup_target="$service"
-        if [ "$service" = "auth" ]; then
-            backup_target="db"
-        fi
-        echo "Running pre-deploy backup for ${backup_target}..."
-        bash "$SCRIPT_DIR/backup.sh" backup "$backup_target" || warn "Pre-deploy backup failed (continuing deploy)"
+        echo "Running pre-deploy backup for ${service}..."
+        bash "$SCRIPT_DIR/backup.sh" backup "$service" || warn "Pre-deploy backup failed (continuing deploy)"
     fi
 
     # Vault-first, SOPS-fallback for service secrets
@@ -432,7 +361,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|minio|vault|observability) cmd_service "$cmd" "$@" ;;
+        vault|observability) cmd_service "$cmd" "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;
         help|--help|-h) usage ;;

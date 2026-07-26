@@ -9,13 +9,6 @@
     },
     {
       "type": "A",
-      "name": "auth",
-      "content": "${VPS_IP}",
-      "ttl": 3600,
-      "priority": null
-    },
-    {
-      "type": "A",
       "name": "portainer",
       "content": "${TAILSCALE_IP}",
       "ttl": 3600,
@@ -24,13 +17,6 @@
     {
       "type": "A",
       "name": "traefik",
-      "content": "${TAILSCALE_IP}",
-      "ttl": 3600,
-      "priority": null
-    },
-    {
-      "type": "A",
-      "name": "storage",
       "content": "${TAILSCALE_IP}",
       "ttl": 3600,
       "priority": null
