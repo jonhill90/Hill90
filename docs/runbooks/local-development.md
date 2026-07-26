@@ -38,9 +38,10 @@ not need to copy it yourself. It is gitignored.
 bash scripts/local.sh up
 ```
 
-That builds and starts ten containers — the edge stack (Traefik, dns-manager,
-Portainer) and the observability stack (Prometheus, Grafana, Loki, Tempo,
-Promtail, node-exporter, cAdvisor) — and waits until they actually answer.
+That builds and starts eleven containers — the edge stack (Traefik, dns-manager,
+Portainer), the observability stack (Prometheus, Grafana, Loki, Tempo, Promtail,
+node-exporter, cAdvisor) and the vault (OpenBao) — and waits until they actually
+answer.
 
 ```bash
 bash scripts/local.sh health     # probe every routed surface
@@ -85,6 +86,7 @@ Observability internals
 | Portainer | http://portainer.localtest.me:8080/ |
 | Grafana | http://grafana.localtest.me:8080/ (admin / admin) |
 | Prometheus | http://prometheus.localtest.me:8080/ (local only) |
+| OpenBao | http://vault.localtest.me:8080/ (uninitialized until you run `vault init`) |
 
 **Prometheus is routed locally but not in production.** In production it sits on
 the internal network with no router and no published port, reached through
@@ -166,6 +168,37 @@ The flag is silently ignored. So the local variant cannot be an override; it
 has to be a second file. The two differ only in ACME, the HTTPS redirect, the
 log level, and a local-only Docker provider constraint. **If you change one,
 change both.**
+
+## Rehearsing the vault lifecycle
+
+The vault is the one part of the stack with irreversible steps — initialization
+mints a key that cannot be recovered, and revoking root is a one-way door on
+OpenBao ≥ 2.5.3. Locally all of it is free and the volume is disposable, so the
+sequence can be practised before it is run against the VPS:
+
+```bash
+bash scripts/local.sh vault init              # writes 0600 key + root token, prints neither
+bash scripts/local.sh vault unseal
+bash scripts/local.sh vault setup             # policies, AppRoles, KV engine
+bash scripts/local.sh vault seed              # KV paths from the local SOPS store
+bash scripts/local.sh vault setup-sync-token
+bash scripts/local.sh vault revoke-root       # LAST — after everything above
+```
+
+**The order is the whole point.** Revoking root before `setup` and `seed` leaves
+a vault that is up, healthy, unsealed and permanently unconfigurable — which is
+exactly the state the production vault is in. Doing it in this order leaves a
+vault that still works with no root in existence.
+
+`local.sh vault` runs `scripts/vault.sh` unmodified. It only sets the container
+name, key paths and secrets file, all of which `vault.sh` already reads from the
+environment — so what you rehearse is the same script the VPS runs.
+
+Local vault state lives in `.local-vault/` (gitignored) with its own throwaway
+age key and SOPS store. **It never touches `infra/secrets/prod.enc.env`.**
+
+To start over: `bash scripts/local.sh reset` deletes the volume and
+`.local-vault/` together.
 
 ## Teardown and rebuild
 

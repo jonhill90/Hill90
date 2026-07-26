@@ -25,6 +25,12 @@ ENV_EXAMPLE="$PROJECT_ROOT/.env.local.example"
 # never be confused in `docker compose ls`.
 EDGE_PROJECT="hill90-local-edge"
 OBS_PROJECT="hill90-local-observability"
+VAULT_PROJECT="hill90-local-platform"
+
+# Vault state lives beside the repo, not in /opt/hill90 as it does on the VPS.
+# vault.sh takes both paths from the environment, so nothing in it needs to know
+# it is running locally.
+LOCAL_VAULT_DIR="$PROJECT_ROOT/.local-vault"
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
 BLUE=$'\033[0;34m'; BOLD=$'\033[1m'; NC=$'\033[0m'
@@ -46,6 +52,7 @@ Commands:
   reset     down, then DELETE the local volumes (destructive, prompts first)
   status    Show container status
   health    Probe every routed surface over HTTP
+  vault     Run a vault.sh subcommand against the LOCAL vault
   logs      Follow logs (optionally: logs <container>)
   urls      Print the local URLs
   help      Show this help
@@ -78,6 +85,34 @@ compose_obs() {
     docker compose --env-file "$ENV_FILE" -p "$OBS_PROJECT" \
         -f "$COMPOSE_DIR/docker-compose.observability.yml" \
         -f "$OVERRIDE_DIR/local.observability.yml" "$@"
+}
+
+compose_vault() {
+    docker compose --env-file "$ENV_FILE" -p "$VAULT_PROJECT" \
+        -f "$COMPOSE_DIR/docker-compose.vault.yml" \
+        -f "$OVERRIDE_DIR/local.vault.yml" "$@"
+}
+
+# Point vault.sh at the local container and local state. Every one of these is
+# an override vault.sh already supports, so the script itself is identical to
+# what runs on the VPS.
+# Run a vault.sh subcommand against the LOCAL vault. Every variable here is an
+# override vault.sh already supports, so the script executed is byte-identical
+# to the one that runs on the VPS — which is what makes this a rehearsal rather
+# than a simulation.
+cmd_vault() {
+    [ $# -gt 0 ] || die "Usage: local.sh vault <init|unseal|status|setup|seed|setup-sync-token|revoke-root|auto-unseal|...>"
+    require_docker
+    require_env
+    mkdir -p "$LOCAL_VAULT_DIR"
+    local cp; cp=$(env_get CONTAINER_PREFIX "")
+    VAULT_CONTAINER="${cp}openbao" \
+    VAULT_UNSEAL_KEY_PATH="$LOCAL_VAULT_DIR/openbao-unseal.key" \
+    VAULT_ROOT_TOKEN_PATH="$LOCAL_VAULT_DIR/openbao-root.token" \
+    VAULT_SECRETS_FILE="$LOCAL_VAULT_DIR/local.enc.env" \
+    SOPS_AGE_KEY_FILE="$LOCAL_VAULT_DIR/age.key" \
+    BAO_TOKEN="${BAO_TOKEN:-$(cat "$LOCAL_VAULT_DIR/openbao-root.token" 2>/dev/null || true)}" \
+        bash "$SCRIPT_DIR/vault.sh" "$@"
 }
 
 # Read a value out of .env.local without sourcing it.
@@ -166,6 +201,9 @@ cmd_up() {
     info "Starting the observability stack (prometheus, grafana, loki, tempo, collectors)..."
     compose_obs up -d || die "Observability stack failed to start"
 
+    info "Starting the vault stack (openbao)..."
+    compose_vault up -d || die "Vault stack failed to start"
+
     echo ""
     info "Waiting for containers to become healthy..."
     # Two separate queries: passing two --filter label=... to docker ps ANDs
@@ -217,6 +255,8 @@ cmd_up() {
 cmd_down() {
     require_docker
     require_env
+    info "Stopping the vault stack..."
+    compose_vault down --remove-orphans 2>/dev/null || true
     info "Stopping the observability stack..."
     compose_obs down --remove-orphans 2>/dev/null || true
     info "Stopping the edge stack..."
@@ -261,6 +301,8 @@ cmd_reset() {
     fi
 
     info "Tearing down with volumes..."
+    compose_vault down -v --remove-orphans 2>/dev/null || true
+    rm -rf "$LOCAL_VAULT_DIR"
     compose_obs down -v --remove-orphans 2>/dev/null || true
     compose_edge down -v --remove-orphans 2>/dev/null || true
     success "Local stack reset. Run 'bash scripts/local.sh up' to rebuild from the repo."
@@ -275,6 +317,9 @@ cmd_status() {
     docker ps -a \
         --filter "label=com.docker.compose.project=${OBS_PROJECT}" \
         --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
+    docker ps -a \
+        --filter "label=com.docker.compose.project=${VAULT_PROJECT}" \
+        --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
 }
 
 cmd_urls() {
@@ -284,6 +329,7 @@ cmd_urls() {
     echo "  Portainer           $(base_url "$(env_get PORTAINER_HOST portainer)")/"
     echo "  Grafana             $(base_url "$(env_get GRAFANA_HOST grafana)")/"
     echo "  Prometheus          $(base_url "$(env_get PROMETHEUS_HOST prometheus)")/  (local only; prod reaches it via Grafana)"
+    echo "  OpenBao             $(base_url "$(env_get VAULT_HOST vault)")/  (uninitialized until: local.sh vault init)"
 }
 
 cmd_health() {
@@ -303,6 +349,17 @@ cmd_health() {
     check_exec "Prometheus ready"  "${cp}prometheus" wget -qO- http://localhost:9090/-/ready || failed=1
     check_exec "Loki ready"        "${cp}loki"       wget -qO- http://localhost:3100/ready   || failed=1
     check_exec "Grafana health"    "${cp}grafana"    wget -qO- http://localhost:3000/api/health || failed=1
+
+    # The vault answers /v1/sys/health with 501 when uninitialized and 503 when
+    # sealed, so "is the process up" is the honest check here; seal state is
+    # reported separately because both are legitimate local states.
+    if docker inspect "${cp}openbao" >/dev/null 2>&1; then
+        check_exec "OpenBao responding" "${cp}openbao" sh -c 'wget -qO- --spider http://127.0.0.1:8200/v1/sys/seal-status' || failed=1
+        local seal
+        seal=$(docker exec -e BAO_ADDR=http://127.0.0.1:8200 "${cp}openbao" bao status -format=json 2>/dev/null \
+               | python3 -c 'import sys,json;d=json.load(sys.stdin);print(("uninitialized" if not d["initialized"] else ("sealed" if d["sealed"] else "unsealed")))' 2>/dev/null || echo unknown)
+        echo "  ${BLUE}i${NC} OpenBao state — ${seal}"
+    fi
 
     echo ""
     if [ "$failed" -eq 0 ]; then
@@ -359,6 +416,7 @@ main() {
         reset)          cmd_reset "$@" ;;
         status)         cmd_status "$@" ;;
         health)         cmd_health "$@" ;;
+        vault)          cmd_vault "$@" ;;
         logs)           cmd_logs "$@" ;;
         urls)           cmd_urls "$@" ;;
         help|--help|-h) usage ;;
