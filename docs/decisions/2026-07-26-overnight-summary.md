@@ -1,6 +1,6 @@
 # Overnight summary — 2026-07-26
 
-What changed while you slept. Hill90 `main` is `9191015`, 25 PRs merged since the
+What changed while you slept. Hill90 `main` is `7032b80`, 27 PRs merged since the
 strip began. Nothing is broken and nothing is waiting on you to unblock work.
 
 ---
@@ -11,26 +11,34 @@ strip began. Nothing is broken and nothing is waiting on you to unblock work.
 
 OpenBao is running, unsealed, healthy, auto-unsealing across reboots — and
 **permanently unconfigurable**. Root was revoked immediately after init, before
-any policies, AppRoles or KV data existed. On OpenBao ≥ 2.5.3 the
-root-regeneration endpoints are disabled by default, so `bao operator
-generate-root` returns 403 — verified on a throwaway 2.6.1 instance and again on
-the live vault. There is no supported way back to root.
+any policies or KV data existed, and OpenBao ≥ 2.5.3 disables root
+regeneration — verified on a throwaway 2.6.1 instance and on the live vault.
+There is no way back to root.
 
-Nothing is broken by this. The vault holds nothing, every deploy falls back to
-SOPS, and SOPS has been the operative store since June.
+Nothing is broken by it: the vault holds nothing, and every deploy falls back to
+SOPS, which has been the operative store since June.
 
-The choice is in [vault-vs-sops.md](vault-vs-sops.md), which recommends
-documenting SOPS as the active path and leaving the vault dormant until there is
-a concrete consumer. The reinit runbook is in the same doc; it costs a volume
-deletion on the live host and a second PR for the new unseal key.
+[vault-vs-sops.md](vault-vs-sops.md) recommends documenting SOPS as the active
+path and leaving the vault dormant until there is a concrete consumer.
 
-**If you do reinitialize, switch storage to raft in the same pass** — the volume
-is being wiped anyway, so it is two lines of config rather than a separate
-migration. Full path in
-[the raft section](vault-vs-sops.md#decision-needed-replacing-the-file-storage-backend-jon-48)
-(#517). The `file` backend is removed in OpenBao v2.7.0; the image is now pinned
-to `2.6.1` (#518) so that arrives as a deliberate upgrade rather than an ambush,
-but the vault cannot move past 2.6.x until the backend changes.
+**Saying yes is one dispatch, not a sequence you have to run** (#521):
+
+```bash
+gh workflow run vault-reinitialize.yml \
+  -f confirm=REINITIALIZE -f i_have_read_the_decision_doc=true -f switch_to_raft=true
+```
+
+That runs the whole sequence — back up, wipe, redeploy, init, unseal, configure,
+seed, sync token, auto-unseal proof — and opens a PR with the new secrets. It
+refuses unless the confirmation is exactly `REINITIALIZE`, refuses if the vault
+holds data, and refuses if the backup failed. Root is **not** revoked; that
+one-way door stays a separate command, printed at the end.
+
+The raft switch rides along, since the volume is being wiped anyway (#517). The
+`file` backend goes in OpenBao v2.7.0; the image is pinned to `2.6.1` (#518) so
+that lands deliberately, but the vault cannot move past 2.6.x until it changes.
+
+It costs a volume deletion on the live host and merging the PR the run opens.
 
 ### 2. Whether to delete 159 remote branches
 
