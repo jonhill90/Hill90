@@ -254,6 +254,31 @@ Two backends are marked production-ready upstream:
 
 **Raft is the answer**, unless the vault is retired entirely.
 
+### The ownership trap (found the hard way, 2026-07-26)
+
+The first raft attempt against production failed and took the vault down:
+
+```
+error initializing storage of type raft: failed to create fsm:
+failed to open bolt file: open /openbao/raft/vault.db: permission denied
+```
+
+Docker copies image ownership into an empty named volume **only when the mount
+path already exists in the image**. `/openbao/file` exists and is
+`openbao:openbao` (uid 100), which is why the file backend always worked.
+`/openbao/raft` does not exist, so Docker created it root-owned and the
+unprivileged server could not write.
+
+`docker-compose.vault.yml` now runs a one-shot `openbao-init` service that
+chowns the volume to `100:1000` before the server starts, with
+`depends_on: service_completed_successfully`. It is idempotent and a no-op for
+the file backend.
+
+The lesson is not the chown. It is that the rehearsal which preceded this proved
+the *lifecycle ordering* and never exercised the *storage switch*, so the switch
+was effectively untested when it ran against production. A rehearsal only covers
+what it actually executes.
+
 ### What changes in config.hcl
 
 Three edits, all additive:
