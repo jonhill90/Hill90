@@ -1,1 +1,0 @@
-../../.github/docs/github-actions.md

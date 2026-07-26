@@ -376,5 +376,5 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 ## Related Documentation
 
 - [Bootstrap Runbook](bootstrap.md)
-- [Claude Code Operating Manual](../../CLAUDE.md)
+- [Contributing Guide](../../CONTRIBUTING.md)
 - [Health Check Script](../../scripts/ops.sh)

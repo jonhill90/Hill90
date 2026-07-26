@@ -176,12 +176,6 @@ HANDOFF.md
 scripts/load-secrets.sh
 infra/ansible/inventory/rebuild-temp.ini
 
-# Claude Code / Codex local overrides
-.claude/settings.local.json
-.claude/backups/
-CLAUDE.local.md
-AGENTS.override.md
-
 # Playwright runtime output
 .playwright-cli/
 .playwright-mcp/

@@ -1,7 +1,7 @@
 """Tests for scripts/checks/check_secrets_schema.py
 
 Validates vault/SOPS/compose schema consistency checker.
-Uses subprocess pattern consistent with test_check_plan_closed_loop.py.
+Uses a subprocess pattern to invoke the checker as a CLI.
 """
 
 from __future__ import annotations

@@ -17,7 +17,7 @@ Production-ready Docker-based microservices platform hosted on Hostinger VPS.
 - **Infrastructure**: Hostinger API + Tailscale API (fully automated)
 - **Configuration**: Ansible playbooks
 - **CI/CD**: GitHub Actions
-- **DNS**: Hostinger DNS API (automated via MCP tools)
+- **DNS**: Hostinger DNS API (automated via `scripts/hostinger.sh`)
 
 ## Key Features
 
@@ -393,7 +393,7 @@ To use GitHub Actions workflows, configure these secrets in repository settings:
 - `VPS_SSH_PRIVATE_KEY` - SSH access to VPS
 - `SOPS_AGE_KEY` - Secrets decryption
 
-**Full setup guide:** See `.claude/references/github-actions.md`
+**Full setup guide:** See [docs/reference/github-actions.md](docs/reference/github-actions.md)
 
 ### Manual Deployment
 
@@ -485,7 +485,7 @@ docker logs -f mcp
 
 ```bash
 # Check VPS status via Hostinger CLI (bash scripts/hostinger.sh)
-# (See CLAUDE.md for CLI usage)
+# (See docs/reference/vps-operations.md for CLI usage)
 
 # Verify Tailscale connection
 tailscale status
@@ -574,7 +574,7 @@ make dns-sync
 - **[Hill90 Docs](https://docs.hill90.com)** - Platform documentation, API reference, and getting started guides
 
 ### Core Documentation
-- **[Claude Code Operating Manual](CLAUDE.md)** - How Claude Code manages this infrastructure
+- **[Contributing Guide](CONTRIBUTING.md)** - Workflow, commands, and operational guardrails
 - **[VPS Rebuild Runbook](docs/runbooks/vps-rebuild.md)** - Complete VPS rebuild automation
 
 ### Architecture
@@ -661,7 +661,7 @@ make health
 
 **Why separate steps?** Separating infrastructure from application deployment prevents Let's Encrypt rate limit exhaustion during VPS rebuild testing.
 
-See `.claude/references/vps-operations.md` for complete details.
+See [docs/reference/vps-operations.md](docs/reference/vps-operations.md) for complete details.
 
 ## License
 

@@ -172,8 +172,8 @@ class TestDornyFilters:
         services = _services_for_path("services/agentbox/app/main.py", dorny_filters)
         assert "agentbox" in services or services == {"api"}
 
-    def test_agentsmd_triggers_no_services(self, dorny_filters):
-        services = _services_for_path("AGENTS.md", dorny_filters)
+    def test_contributing_md_triggers_no_services(self, dorny_filters):
+        services = _services_for_path("CONTRIBUTING.md", dorny_filters)
         assert services == set()
 
 

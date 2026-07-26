@@ -151,7 +151,7 @@ This policy is assigned to a new AppRole (`secrets-ui`) used by the API service 
 2. API updates vault KV via elevated OIDC token
 3. Audit log: `secret_rotate` with path + key + admin sub
 4. Toast: "Secret rotated. Redeploy affected services."
-5. Does NOT auto-redeploy (manual step per AGENTS.md deploy rules)
+5. Does NOT auto-redeploy (manual step per CONTRIBUTING.md deploy rules)
 
 ### Page: `/admin/secrets/audit` (Audit Trail)
 
@@ -273,7 +273,7 @@ Browser → PUT /admin/secrets/shared/database { key: "DB_PASSWORD", value: "new
 - **Unseal key management** — stored on VPS host. Cannot be exposed through UI.
 - **SOPS key management** — age keypairs managed via `secrets.sh init`. CLI-only.
 - **Cross-environment secrets** — only prod vault is in scope. Dev/staging are separate.
-- **Auto-redeploy after rotation** — intentionally manual per AGENTS.md guardrails (no `--admin` or `--force` deploy).
+- **Auto-redeploy after rotation** — intentionally manual per CONTRIBUTING.md guardrails (no `--admin` or `--force` deploy).
 
 ---
 

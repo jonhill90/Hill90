@@ -136,7 +136,7 @@ See [Agent Harness Architecture](./agent-harness.md) for the full design: agentb
   - bcrypt (password hashing for Traefik auth)
   - Keycloak 26.4 (identity provider, OIDC/OAuth2)
   - Auth.js v5 (session management)
-- **DNS**: Hostinger DNS API (automated via MCP tools)
+- **DNS**: Hostinger DNS API (automated via `scripts/hostinger.sh`)
 - **APIs**:
   - Hostinger VPS API (infrastructure automation)
   - Tailscale API (network management)
@@ -147,7 +147,7 @@ See [Agent Harness Architecture](./agent-harness.md) for the full design: agentb
 - **Configuration as Code**: Ansible playbooks (VPS bootstrap)
 - **Container Orchestration**: Docker Compose
 - **CI/CD**: GitHub Actions (CI, VPS lifecycle, per-service deploy, and Tailscale ACL workflows)
-- **DNS Management**: Automated via Hostinger DNS API (MCP tools)
+- **DNS Management**: Automated via Hostinger DNS API (`scripts/hostinger.sh`)
 - **Certificate Management**: Automatic via Let's Encrypt (HTTP-01 + DNS-01)
 
 ## See Also

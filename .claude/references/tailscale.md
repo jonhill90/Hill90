@@ -1,1 +1,0 @@
-../../.github/docs/tailscale.md

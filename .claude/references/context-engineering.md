@@ -1,1 +1,0 @@
-../../.github/docs/context-engineering.md
