@@ -2,8 +2,39 @@ name: Vault Sync to SOPS
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+
+  # SCHEDULE DISABLED 2026-07-26 (JON-46).
+  #
+  # This ran every Monday 06:00 UTC and failed every Monday from 2026-06-01
+  # onward. It cannot currently succeed, and an alert that always fires carries
+  # no information — it just trains you to ignore it.
+  #
+  # Two separate reasons it fails, in order:
+  #
+  #   1. Until 2026-07-26 it died at `Verify SSH connectivity`, never reaching
+  #      the vault. That is now resolved.
+  #   2. It now dies later, at `Renew sync token`, with 403 permission denied.
+  #      VAULT_SYNC_TOKEN in SOPS was minted against the vault destroyed in the
+  #      June 14 rebuild and does not exist in the one initialized on
+  #      2026-07-26.
+  #
+  # Minting a replacement needs a root token. The root token was revoked right
+  # after init, and on OpenBao >= 2.5.3 `bao operator generate-root` returns 403
+  # (the unauthenticated root-generation endpoints are disabled by default), so
+  # there is no way back to root on the current vault.
+  #
+  # BEFORE RE-ENABLING, all of these must be true:
+  #   - the vault has been reinitialized (see docs/decisions/vault-vs-sops.md)
+  #   - `vault.sh setup` and `vault.sh seed` have run, so it holds something
+  #   - `vault.sh setup-sync-token` has minted a token that exists in the
+  #     CURRENT vault, and the updated SOPS file is merged
+  #   - a manual `workflow_dispatch` run has gone green
+  #
+  # Re-enable by restoring:
+  #   schedule:
+  #     - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+  #
+  # workflow_dispatch is deliberately kept so it can still be run by hand.
 
 permissions:
   contents: write
