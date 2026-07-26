@@ -74,6 +74,20 @@ require_env() {
         cp "$ENV_EXAMPLE" "$ENV_FILE"
         success "Created $ENV_FILE"
     fi
+
+    # The header of this script promises it never touches the VPS. Compose
+    # operations are safe by construction (every project is hill90-local-*), but
+    # cmd_up also runs raw `docker exec "${CONTAINER_PREFIX}keycloak"` to relax
+    # sslRequired and add local OIDC callbacks. CONTAINER_PREFIX defaults to
+    # EMPTY, and the production container is named exactly `keycloak` — so on a
+    # host that has both, an empty prefix would point those two security-relevant
+    # mutations at production. Refuse instead.
+    local prefix; prefix=$(env_get CONTAINER_PREFIX "")
+    if [ -z "$prefix" ]; then
+        die "CONTAINER_PREFIX is empty in ${ENV_FILE}. Local containers must be
+  prefixed (the example uses 'hill90dev-'), because an empty prefix makes
+  local commands address production container names directly."
+    fi
 }
 
 # Both stacks, base + local override, with .env.local supplying the values.
@@ -469,13 +483,18 @@ cmd_health() {
     # Guard the reason Postgres was deleted in #495: if application databases
     # reappear here, Postgres has drifted back into being an app dependency.
     local appdbs
+    # An ALLOWLIST, not a hill90_* prefix match: a database called `litellm` is
+    # just as much an application database, and a denylist silently passes it.
     appdbs=$(docker exec "${cp}postgres" psql -U "$(env_get DB_USER hill90)" -tAc \
-        "SELECT datname FROM pg_database WHERE datname LIKE 'hill90\_%'" 2>/dev/null | tr -d '\r' | tr '\n' ' ')
+        "SELECT datname FROM pg_database
+          WHERE datistemplate = false
+            AND datname NOT IN ('postgres', 'keycloak', '$(env_get DB_USER hill90)')" \
+        2>/dev/null | tr -d '\r' | tr '\n' ' ')
     if [ -n "${appdbs// /}" ]; then
-        echo "  ${RED}✗${NC} Platform-only databases — found application databases: ${appdbs}"
+        echo "  ${RED}✗${NC} Platform-only databases — found non-platform databases: ${appdbs}"
         failed=1
     else
-        echo "  ${GREEN}✓${NC} Platform-only databases (no hill90_* application databases)"
+        echo "  ${GREEN}✓${NC} Platform-only databases (only postgres, keycloak and the owner role's database)"
     fi
 
     # The realm must actually serve OIDC discovery over the local scheme; a

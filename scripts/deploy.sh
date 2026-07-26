@@ -48,7 +48,10 @@ cmd_verify() {
     local diag_container  # primary container name for diagnostics
 
     case "$service" in
-        db)            check_cmd='docker exec postgres pg_isready -U postgres'; diag_container="postgres" ;;
+        # pg_isready exits 0 regardless of whether the role exists, so it would
+        # pass on a Postgres whose credentials are entirely broken and leave
+        # Keycloak to crash-loop instead. Run a real query as the real user.
+        db)            check_cmd='docker exec postgres psql -U "${DB_USER:-hill90}" -tAc "SELECT 1"'; diag_container="postgres" ;;
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
@@ -259,8 +262,8 @@ cmd_service() {
     # Keycloak stores its realms in Postgres, so refuse rather than start into a
     # crash loop if the database is not up.
     if [ "$service" = "auth" ]; then
-        if ! docker exec postgres pg_isready -U postgres >/dev/null 2>&1; then
-            die "Cannot deploy auth: postgres is not ready. Deploy it first: bash scripts/deploy.sh db ${env}"
+        if ! docker exec postgres psql -U "${DB_USER:-hill90}" -tAc 'SELECT 1' >/dev/null 2>&1; then
+            die "Cannot deploy auth: cannot query postgres as '${DB_USER:-hill90}'. Deploy it first: bash scripts/deploy.sh db ${env}"
         fi
     fi
 

@@ -32,3 +32,51 @@ debug an IdP outage. Convenience is not worth that.
 
 `themes/hill90/` is branding and applies to whatever realms reference it. It is
 platform-level and stays here.
+
+## This file is applied on FIRST BOOT ONLY
+
+`docker-compose.auth.yml` runs `start --import-realm`, whose strategy is
+`IGNORE_EXISTING`. Keycloak's own guide states: *"If a realm already exists in
+the server, the import operation is skipped… to avoid re-creating realms and
+potentially lose state between server restarts."*
+
+So once the `platform` realm exists in Postgres, **editing this file changes
+nothing.** Verified against Keycloak 26.4.0: with the realm present, a restart
+logs
+
+```
+KC-SERVICES0030: Full model import requested. Strategy: IGNORE_EXISTING
+Realm 'platform' already exists. Import skipped
+KC-SERVICES0032: Import finished successfully
+```
+
+Note the last line — it says success. `deploy.sh verify auth` only checks Docker
+health, so a merge that edits this file deploys green and applies nothing.
+
+**To change the live realm after first boot**, apply it explicitly:
+
+```bash
+docker exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+  --server http://127.0.0.1:8080 --realm master --user "$KC_ADMIN_USERNAME"
+docker exec keycloak /opt/keycloak/bin/kcadm.sh update realms/platform -s <setting>=<value>
+```
+
+...and make the same edit here, so a future rebuild from empty agrees with the
+running server. The two can silently diverge; nothing currently detects that.
+
+## The OIDC client secret
+
+`hill90-vault` sets `"secret": "${VAULT_OIDC_CLIENT_SECRET}"`. Keycloak
+substitutes environment variables into realm files at import — verified on
+26.4.0 by re-importing and reading the value back through `kcadm`.
+
+This matters because the secret is otherwise **generated at random by Keycloak**,
+while `vault.sh setup-oidc` reads `VAULT_OIDC_CLIENT_SECRET` from SOPS. Those two
+values cannot match, and nothing detects the mismatch: `setup-oidc` prints
+success, Keycloak authenticates the user correctly, and only the back-channel
+token exchange fails — as `invalid_client`, from OpenBao, which makes it look
+like a vault fault. Sourcing both sides from SOPS removes the failure entirely.
+
+Set `VAULT_OIDC_CLIENT_SECRET` in SOPS to a strong random value **before the
+first auth deploy**. Rotating it later requires updating the live client too,
+because of the first-boot rule above.

@@ -42,6 +42,7 @@
   "clients": [
     {
       "clientId": "hill90-vault",
+      "secret": "${VAULT_OIDC_CLIENT_SECRET}",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,

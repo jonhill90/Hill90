@@ -245,6 +245,17 @@ VAULT_PUBLIC_URL="http://vault.localtest.me:8080" \
 With no environment set, both variables default to the production values, so the
 command the VPS runs is unchanged.
 
+`VAULT_OIDC_CLIENT_SECRET` must be the **same value in two places**: `.env.local`
+(Keycloak substitutes it into the realm at import) and
+`.local-vault/local.enc.env` (which `setup-oidc` reads). They are different
+stores, and nothing checks that they agree — a mismatch surfaces only when a
+login reaches the token exchange and OpenBao returns `invalid_client`.
+
+Note that changing `.env.local` alone is not enough once the realm exists: the
+import is first-boot-only (see
+[the Keycloak README](../../platform/auth/keycloak/README.md)), so you must also
+`local.sh reset` or update the live client with `kcadm`.
+
 One subtlety: Keycloak advertises its issuer as `http://auth.localtest.me:8080/...`
 (its `KC_HOSTNAME`), and OpenBao requires the issuer it sees to match exactly.
 Reaching Keycloak by its container name would serve identical JSON and still fail

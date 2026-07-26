@@ -36,8 +36,14 @@ groups:
   - name: postgres
     rules:
       - alert: PostgresConnectionsHigh
+        # pg_stat_activity_count carries datname and state labels;
+        # pg_settings_max_connections carries neither. Prometheus one-to-one
+        # vector matching needs identical label sets, so dividing them directly
+        # yields an empty result and the alert can never fire. Aggregate both
+        # sides to a common label set first.
         expr: |
-          pg_stat_activity_count / pg_settings_max_connections > 0.8
+          sum by (instance) (pg_stat_activity_count)
+            / max by (instance) (pg_settings_max_connections) > 0.8
         for: 5m
         labels:
           severity: warning

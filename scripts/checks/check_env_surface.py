@@ -63,6 +63,7 @@ SENSITIVE = {
     "DB_PASSWORD",
     "KC_ADMIN_USERNAME",
     "KC_ADMIN_PASSWORD",
+    "VAULT_OIDC_CLIENT_SECRET",
 }
 
 # Consumed by scripts rather than by compose substitution.
