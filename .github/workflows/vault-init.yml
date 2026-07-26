@@ -20,6 +20,11 @@ on:
         description: 'Type "initialize" to confirm. This mints a NEW unseal key and root token.'
         required: true
         type: string
+      revoke_root:
+        description: 'Revoke the root token at the end. Leave FALSE until setup/seed/setup-sync-token have run — see below.'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -161,13 +166,31 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && git checkout -- infra/secrets/prod.enc.env && rm -f infra/secrets/prod.enc.env.backup.*' || true
 
-      # Do this BEFORE proving restart survival, so the root token is dead as
-      # early as possible. Auto-unseal does not need it.
+      # ONE-WAY DOOR — off by default, and this is why.
+      #
+      # On OpenBao >= 2.5.3 the unauthenticated root-generation endpoints are
+      # disabled by default, so `bao operator generate-root` returns 403
+      # (verified against 2.6.1). With no other sudo-capable token, revoking
+      # root means the vault can never be configured again without
+      # reinitializing it.
+      #
+      # Revoking immediately after init — which this workflow used to do
+      # unconditionally — therefore produced a vault that was up, healthy, and
+      # permanently unconfigurable. Run setup, seed and setup-sync-token first,
+      # then revoke.
       - name: Revoke root token
+        if: ${{ inputs.revoke_root }}
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && bash scripts/vault.sh revoke-root'
+
+      - name: Report where the root token is
+        if: ${{ !inputs.revoke_root }}
+        run: |
+          echo "Root token left at /opt/hill90/secrets/openbao-root.token (0600 deploy:deploy)."
+          echo "Run setup / seed / setup-sync-token, then revoke it with:"
+          echo "  bash scripts/vault.sh revoke-root"
 
       - name: Prove auto-unseal survives a container restart
         run: |
@@ -201,6 +224,7 @@ jobs:
           [ "$RC" = "0" ] || { echo "::error::hill90-vault-unseal.service did not unseal the vault (exit $RC)"; exit 1; }
 
       - name: Confirm root token is gone
+        if: ${{ inputs.revoke_root }}
         run: |
           GONE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
