@@ -69,7 +69,7 @@ providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false
-    network: hill90local_edge
+    network: hill90dev_edge
     # LOCAL-ONLY. The Docker provider sees every container on the socket, not
     # just this project's. On a developer Mac that can mean picking up routers
     # from an unrelated stack — observed here with an older Hill90 app stack

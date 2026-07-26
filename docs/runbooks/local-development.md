@@ -3,6 +3,14 @@
 Run the Hill90 infrastructure stack on a Mac, using the same compose files
 production uses.
 
+## Before you start
+
+Docker Desktop must be running. Nothing else is required — no SOPS, no age key,
+no Tailscale, no VPS access, no secrets of any kind.
+
+`.env.local` is created for you from `.env.local.example` on first run; you do
+not need to copy it yourself. It is gitignored.
+
 ## One command
 
 ```bash
@@ -22,7 +30,29 @@ bash scripts/local.sh down       # remove containers and networks, keep data
 bash scripts/local.sh reset      # also delete the local volumes (prompts)
 ```
 
-Cold start takes roughly a minute, most of it Grafana installing plugins.
+Cold start takes roughly a minute, most of it Grafana installing plugins. From a
+completely clean machine — no containers, no volumes, no `.env.local` — the
+measured time is 65 seconds.
+
+Verify it worked:
+
+```bash
+bash scripts/local.sh health
+```
+
+```
+Routed surfaces
+  ✓ Traefik dashboard — HTTP 200
+  ✓ Portainer — HTTP 200
+  ✓ Grafana — HTTP 200
+
+Observability internals
+  ✓ Prometheus ready
+  ✓ Loki ready
+  ✓ Grafana health
+
+✓ All local checks passed.
+```
 
 ## URLs
 
@@ -76,6 +106,11 @@ and no path to Let's Encrypt. Each difference is one variable:
 | No basic-auth secret | `TRAEFIK_MIDDLEWARES=compress@file` | `auth@file,tailscale-only@file` |
 | Port 80 already in use | `HTTP_PORT=8080` | `80` |
 | Coexist with other stacks | `CONTAINER_PREFIX`, `NETWORK_PREFIX`, `VOLUME_PREFIX` | unset / `hill90` / `prod` |
+
+If `up` reports that a network belongs to another compose project, change
+`NETWORK_PREFIX` in `.env.local`. The default is `hill90dev`; an earlier default
+of `hill90local` collided with a separate Hill90 app stack on the reference
+machine, which is why that check exists.
 
 ### The one file that is genuinely duplicated
 
@@ -135,7 +170,7 @@ exactly this reason; if you started Traefik another way, restart it.
 
 **Routers from another project appear in the dashboard.** Traefik's Docker
 provider sees every container on the socket. The local static config constrains
-it to the `hill90-local-*` compose projects; production has no such neighbours
+it to the `hill90-local-edge` / `hill90-local-observability` compose projects; production has no such neighbours
 and does not need the constraint.
 
 ## See Also

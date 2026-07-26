@@ -118,11 +118,26 @@ cmd_up() {
     info "Building and starting the edge stack (traefik, dns-manager, portainer)..."
     compose_edge up -d --build --force-recreate || die "Edge stack failed to start"
 
+    # Refuse to share networks with an unrelated project. Docker will happily
+    # let two stacks attach to the same network name, and then a teardown here
+    # removes something the other stack still needs — observed on this machine
+    # with an older Hill90 app stack.
+    local netpfx_pre; netpfx_pre=$(env_get NETWORK_PREFIX hill90dev)
+    for net in edge internal agent_internal; do
+        local owner
+        owner=$(docker network inspect "${netpfx_pre}_${net}" \
+                --format '{{index .Labels "com.docker.compose.project"}}' 2>/dev/null || true)
+        if [ -n "$owner" ] && [ "$owner" != "$EDGE_PROJECT" ] && [ "$owner" != "$OBS_PROJECT" ]; then
+            die "Network ${netpfx_pre}_${net} already exists and belongs to compose project '${owner}'.
+    Change NETWORK_PREFIX in .env.local to something unused, then retry."
+        fi
+    done
+
     # The edge compose declares hill90_internal and hill90_agent_internal but no
     # edge service attaches to them, so compose never creates them. Production
     # has the same gap and scripts/deploy.sh cmd_infra creates them explicitly
     # after the edge stack; do exactly the same here rather than diverging.
-    local netpfx; netpfx=$(env_get NETWORK_PREFIX hill90)
+    local netpfx; netpfx=$(env_get NETWORK_PREFIX hill90dev)
     for net in internal agent_internal; do
         if ! docker network inspect "${netpfx}_${net}" >/dev/null 2>&1; then
             docker network create --driver bridge --internal "${netpfx}_${net}" >/dev/null
@@ -178,10 +193,21 @@ cmd_down() {
     info "Stopping the edge stack..."
     compose_edge down --remove-orphans 2>/dev/null || true
 
-    # Created by hand in cmd_up, so removed by hand here.
-    local netpfx; netpfx=$(env_get NETWORK_PREFIX hill90)
+    # Created by hand in cmd_up, so removed by hand here — but only when empty.
+    # Docker refuses to remove an in-use network, and swallowing that error made
+    # it look deliberate; be explicit instead so a shared network is reported
+    # rather than silently left behind.
+    local netpfx; netpfx=$(env_get NETWORK_PREFIX hill90dev)
     for net in internal agent_internal; do
-        docker network rm "${netpfx}_${net}" >/dev/null 2>&1 && info "Removed ${netpfx}_${net}" || true
+        local attached
+        attached=$(docker network inspect "${netpfx}_${net}" --format '{{len .Containers}}' 2>/dev/null || echo "")
+        if [ -z "$attached" ]; then
+            continue
+        elif [ "$attached" = "0" ]; then
+            docker network rm "${netpfx}_${net}" >/dev/null 2>&1 && info "Removed ${netpfx}_${net}"
+        else
+            warn "Left ${netpfx}_${net} in place — ${attached} container(s) from another project are attached"
+        fi
     done
 
     success "Local stack is down. Volumes were kept — use 'reset' to delete them."
