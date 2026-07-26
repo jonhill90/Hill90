@@ -203,10 +203,13 @@ use bao operator migrate to move to a supported storage backend by v2.7.0
 
 `platform/vault/config.hcl` uses `storage "file"`. Upstream calls it
 "a development-only, non-production backend", deprecated in v2.6.0 and
-**removed in v2.7.0**. `docker-compose.vault.yml` pins
-`ghcr.io/openbao/openbao:2` — a floating major tag — so **this breaks on a
-routine image pull, not on a deliberate upgrade**. There is no published date
-for v2.7.0.
+**removed in v2.7.0**. There is no published date for v2.7.0.
+
+`docker-compose.vault.yml` used to pin `ghcr.io/openbao/openbao:2` — a floating
+major tag — so this would have broken on a routine image pull rather than a
+deliberate upgrade. **It is now pinned to `2.6.1`** (#518), which removes the
+ambush but not the underlying problem: the storage backend still has to move
+before OpenBao can be upgraded past 2.6.x.
 
 ### What to replace it with
 
@@ -328,6 +331,11 @@ inaction eventually breaks the container on an image pull.
 
 ### If you decide nothing right now
 
-**Pin the image tag.** Change `ghcr.io/openbao/openbao:2` to `openbao:2.6.1` in
-`docker-compose.vault.yml`. One line, no migration, and it converts an ambush
-into a scheduled decision. Worth doing even if everything else waits.
+**The image tag is already pinned** to `2.6.1` (#518), so nothing is on fire and
+no upgrade can arrive by surprise. That was the one piece worth doing ahead of
+the decision.
+
+What remains is that the vault cannot move past 2.6.x until the storage backend
+changes. That is a decision with no deadline attached now — but it is still a
+decision, and it will resurface the first time a security fix lands in a version
+this pin cannot reach.

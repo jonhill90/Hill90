@@ -17,7 +17,21 @@ volumes:
 
 services:
   openbao:
-    image: ghcr.io/openbao/openbao:2
+    # PINNED DELIBERATELY. This was ghcr.io/openbao/openbao:2 — a floating major
+    # tag — which means a routine pull would have taken this container to v2.7.0
+    # the day it ships. v2.7.0 REMOVES the `file` storage backend that
+    # platform/vault/config.hcl uses, so the vault would have failed to start
+    # with no warning and no change on our side.
+    #
+    # Pinning does not fix that; it converts a surprise outage into a deliberate
+    # upgrade. Before moving off 2.6.x, migrate the storage backend — the path is
+    # written up in docs/decisions/vault-vs-sops.md, section "Decision needed:
+    # replacing the `file` storage backend".
+    #
+    # 2.6.1 is exactly what was running when this was pinned: tags 2, 2.6, 2.6.1
+    # and latest all resolved to sha256:5b2486ab0fb90bbc788cc345b0a08616dfb375873ee8be5df3a2fd4d378a67e0
+    # on 2026-07-26, so this pin was a no-op at the time it landed.
+    image: ghcr.io/openbao/openbao:2.6.1
     container_name: ${CONTAINER_PREFIX:-}openbao
     restart: unless-stopped
     command: server
