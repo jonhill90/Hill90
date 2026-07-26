@@ -13,7 +13,7 @@ SECRETS_FILE="${PROJECT_ROOT}/infra/secrets/prod.enc.env"
 POLICY_DIR="${PROJECT_ROOT}/platform/vault/policies"
 
 # Services that get their own AppRole
-VAULT_SERVICES="db api ai auth ui mcp minio infra observability knowledge"
+VAULT_SERVICES="db auth minio infra observability"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -303,53 +303,12 @@ cmd_seed() {
         "DB_PASSWORD=$(get_secret DB_PASSWORD)" \
         "DB_NAME=$(get_secret DB_NAME)"
 
-    # Seed shared/jwt
-    echo "Seeding secret/shared/jwt..."
-    bao_exec_env kv put secret/shared/jwt \
-        "JWT_SECRET=$(get_secret JWT_SECRET)" \
-        "JWT_PRIVATE_KEY=$(get_secret JWT_PRIVATE_KEY)" \
-        "JWT_PUBLIC_KEY=$(get_secret JWT_PUBLIC_KEY)"
-
-    # Seed api/config
-    echo "Seeding secret/api/config..."
-    bao_exec_env kv put secret/api/config \
-        "INTERNAL_SERVICE_SECRET=$(get_secret INTERNAL_SERVICE_SECRET)" \
-        "MINIO_ROOT_USER=$(get_secret MINIO_ROOT_USER)" \
-        "MINIO_ROOT_PASSWORD=$(get_secret MINIO_ROOT_PASSWORD)"
-
-    # Seed ai/config
-    echo "Seeding secret/ai/config..."
-    bao_exec_env kv put secret/ai/config \
-        "ANTHROPIC_API_KEY=$(get_secret ANTHROPIC_API_KEY)" \
-        "OPENAI_API_KEY=$(get_secret OPENAI_API_KEY)" \
-        "LITELLM_MASTER_KEY=$(get_secret LITELLM_MASTER_KEY)"
-
     # Seed auth/config
     echo "Seeding secret/auth/config..."
     bao_exec_env kv put secret/auth/config \
         "KC_ADMIN_USERNAME=$(get_secret KC_ADMIN_USERNAME)" \
         "KC_ADMIN_PASSWORD=$(get_secret KC_ADMIN_PASSWORD)" \
         "SMTP_PASSWORD=$(get_secret SMTP_PASSWORD)"
-
-    # Seed ui/config
-    echo "Seeding secret/ui/config..."
-    bao_exec_env kv put secret/ui/config \
-        "AUTH_KEYCLOAK_ID=$(get_secret AUTH_KEYCLOAK_ID)" \
-        "AUTH_KEYCLOAK_SECRET=$(get_secret AUTH_KEYCLOAK_SECRET)" \
-        "AUTH_SECRET=$(get_secret AUTH_SECRET)"
-
-    # Seed ops/verification (if keys exist)
-    local test_user test_pass
-    test_user=$(get_secret TEST_USER_USERNAME)
-    test_pass=$(get_secret TEST_USER_PASSWORD)
-    if [ -n "$test_user" ] && [ -n "$test_pass" ]; then
-        echo "Seeding secret/ops/verification..."
-        bao_exec_env kv put secret/ops/verification \
-            "TEST_USER_USERNAME=${test_user}" \
-            "TEST_USER_PASSWORD=${test_pass}"
-    else
-        info "TEST_USER_USERNAME/TEST_USER_PASSWORD not found in SOPS — skipping ops/verification seed"
-    fi
 
     # Seed minio/config
     echo "Seeding secret/minio/config..."
@@ -373,79 +332,6 @@ cmd_seed() {
     echo "Seeding secret/observability/grafana..."
     bao_exec_env kv put secret/observability/grafana \
         "GRAFANA_ADMIN_PASSWORD=$(get_secret GRAFANA_ADMIN_PASSWORD)"
-
-    # Seed shared/chat
-    local chat_callback_token
-    chat_callback_token=$(get_secret CHAT_CALLBACK_TOKEN)
-    if [ -n "$chat_callback_token" ]; then
-        echo "Seeding secret/shared/chat..."
-        bao_exec_env kv put secret/shared/chat \
-            "CHAT_CALLBACK_TOKEN=${chat_callback_token}"
-    else
-        info "CHAT_CALLBACK_TOKEN not found in SOPS — skipping shared/chat seed"
-    fi
-
-    # Seed mcp/config (if keys exist)
-    echo "Seeding secret/mcp/config..."
-    local mcp_internal_secret
-    mcp_internal_secret=$(get_secret INTERNAL_SERVICE_SECRET)
-    bao_exec_env kv put secret/mcp/config \
-        "INTERNAL_SERVICE_SECRET=${mcp_internal_secret}"
-
-    # Seed knowledge/config (if keys exist)
-    local akm_token akm_priv akm_pub
-    akm_token=$(get_secret AKM_INTERNAL_SERVICE_TOKEN)
-    akm_priv=$(get_secret AKM_SIGNING_PRIVATE_KEY)
-    akm_pub=$(get_secret AKM_SIGNING_PUBLIC_KEY)
-    if [ -n "$akm_token" ] && [ -n "$akm_priv" ] && [ -n "$akm_pub" ]; then
-        echo "Seeding secret/knowledge/config..."
-        # Use JSON via stdin to handle multiline PEM values safely
-        local knowledge_json
-        knowledge_json=$(python3 -c "
-import json
-print(json.dumps({
-    'AKM_INTERNAL_SERVICE_TOKEN': '''$(printf '%s' "$akm_token")''',
-    'AKM_SIGNING_PRIVATE_KEY': '''$(printf '%s' "$akm_priv")''',
-    'AKM_SIGNING_PUBLIC_KEY': '''$(printf '%s' "$akm_pub")'''
-}))
-")
-        local token="${BAO_TOKEN:-}"
-        echo "$knowledge_json" | docker exec -i \
-            -e "BAO_ADDR=http://127.0.0.1:8200" \
-            -e "BAO_TOKEN=${token}" \
-            "$CONTAINER_NAME" bao kv put secret/knowledge/config -
-    else
-        info "AKM secrets not found in SOPS — skipping knowledge/config seed (seed via VPS provisioning)"
-    fi
-
-    # Seed shared/model-router (if keys exist)
-    local mr_token mr_priv mr_enc_key
-    mr_token=$(get_secret MODEL_ROUTER_INTERNAL_SERVICE_TOKEN)
-    mr_priv=$(get_secret MODEL_ROUTER_SIGNING_PRIVATE_KEY)
-    mr_enc_key=$(get_secret PROVIDER_KEY_ENCRYPTION_KEY)
-    if [ -n "$mr_token" ] && [ -n "$mr_priv" ]; then
-        echo "Seeding secret/shared/model-router..."
-        # Use JSON via stdin to handle multiline PEM values safely
-        local mr_json
-        mr_json=$(python3 -c "
-import json
-d = {
-    'MODEL_ROUTER_INTERNAL_SERVICE_TOKEN': '''$(printf '%s' "$mr_token")''',
-    'MODEL_ROUTER_SIGNING_PRIVATE_KEY': '''$(printf '%s' "$mr_priv")''',
-}
-enc_key = '''$(printf '%s' "$mr_enc_key")'''
-if enc_key:
-    d['PROVIDER_KEY_ENCRYPTION_KEY'] = enc_key
-print(json.dumps(d))
-")
-        local token="${BAO_TOKEN:-}"
-        echo "$mr_json" | docker exec -i \
-            -e "BAO_ADDR=http://127.0.0.1:8200" \
-            -e "BAO_TOKEN=${token}" \
-            "$CONTAINER_NAME" bao kv put secret/shared/model-router -
-    else
-        info "MODEL_ROUTER secrets not found in SOPS — skipping shared/model-router seed"
-    fi
 
     rm -f "$temp_file"
     trap - RETURN
@@ -482,19 +368,11 @@ cmd_export() {
 
     local paths=(
         "secret/shared/database"
-        "secret/shared/jwt"
-        "secret/api/config"
-        "secret/ai/config"
         "secret/auth/config"
-        "secret/ui/config"
         "secret/minio/config"
         "secret/infra/traefik"
         "secret/infra/dns-manager"
         "secret/observability/grafana"
-        "secret/mcp/config"
-        "secret/knowledge/config"
-        "secret/shared/model-router"
-        "secret/shared/chat"
     )
 
     for p in "${paths[@]}"; do
@@ -519,20 +397,12 @@ cmd_sync_to_sops() {
     # api/config is read first so MINIO_ROOT_USER and INTERNAL_SERVICE_SECRET
     # come from their canonical source; later paths skip already-seen keys.
     local SYNC_PATHS=(
-        "secret/api/config"
         "secret/shared/database"
-        "secret/shared/jwt"
-        "secret/ai/config"
         "secret/auth/config"
-        "secret/ui/config"
         "secret/minio/config"
         "secret/infra/traefik"
         "secret/infra/dns-manager"
         "secret/observability/grafana"
-        "secret/mcp/config"
-        "secret/knowledge/config"
-        "secret/shared/model-router"
-        "secret/shared/chat"
     )
 
     # Create timestamped backup before modifying SOPS

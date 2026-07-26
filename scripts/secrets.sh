@@ -234,19 +234,6 @@ cmd_generate() {
         fi
     }
 
-    generate_jwt_keys() {
-        local private_key_file public_key_file
-        private_key_file=$(mktemp)
-        public_key_file=$(mktemp)
-        openssl genrsa -out "$private_key_file" 2048 2>/dev/null
-        openssl rsa -in "$private_key_file" -pubout -out "$public_key_file" 2>/dev/null
-        local private_key public_key
-        private_key=$(cat "$private_key_file" | base64 | tr -d '\n')
-        public_key=$(cat "$public_key_file" | base64 | tr -d '\n')
-        rm -f "$private_key_file" "$public_key_file"
-        echo "$private_key|$public_key"
-    }
-
     echo "Generating all production secrets..."
     echo ""
 
@@ -257,32 +244,7 @@ cmd_generate() {
     echo "   ✓ DB_PASSWORD set"
 
     echo ""
-    echo "2. Generating JWT secret..."
-    local jwt_secret
-    jwt_secret=$(generate_secret)
-    make -C "$PROJECT_ROOT" secrets-update KEY=JWT_SECRET VALUE="$jwt_secret" > /dev/null 2>&1
-    echo "   ✓ JWT_SECRET set"
-
-    echo ""
-    echo "3. Generating JWT RSA key pair..."
-    local jwt_keys jwt_priv jwt_pub
-    jwt_keys=$(generate_jwt_keys)
-    jwt_priv=$(echo "$jwt_keys" | cut -d'|' -f1)
-    jwt_pub=$(echo "$jwt_keys" | cut -d'|' -f2)
-    make -C "$PROJECT_ROOT" secrets-update KEY=JWT_PRIVATE_KEY VALUE="$jwt_priv" > /dev/null 2>&1
-    make -C "$PROJECT_ROOT" secrets-update KEY=JWT_PUBLIC_KEY VALUE="$jwt_pub" > /dev/null 2>&1
-    echo "   ✓ JWT_PRIVATE_KEY set"
-    echo "   ✓ JWT_PUBLIC_KEY set"
-
-    echo ""
-    echo "4. Generating internal service secret..."
-    local internal_secret
-    internal_secret=$(generate_secret)
-    make -C "$PROJECT_ROOT" secrets-update KEY=INTERNAL_SERVICE_SECRET VALUE="$internal_secret" > /dev/null 2>&1
-    echo "   ✓ INTERNAL_SERVICE_SECRET set"
-
-    echo ""
-    echo "5. Generating Traefik admin password..."
+    echo "2. Generating Traefik admin password..."
     local traefik_pw traefik_hash
     traefik_pw=$(generate_secret | cut -c1-20)
     traefik_hash=$(generate_bcrypt_hash "$traefik_pw")
@@ -290,7 +252,7 @@ cmd_generate() {
     echo "   ✓ TRAEFIK_ADMIN_PASSWORD_HASH set"
 
     echo ""
-    echo "6. Setting user-confirmed values..."
+    echo "3. Setting user-confirmed values..."
     make -C "$PROJECT_ROOT" secrets-update KEY=ACME_EMAIL VALUE="jonhill90@live.com" > /dev/null 2>&1
     echo "   ✓ ACME_EMAIL=jonhill90@live.com"
     make -C "$PROJECT_ROOT" secrets-update KEY=DB_USER VALUE="hill90" > /dev/null 2>&1

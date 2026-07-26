@@ -262,39 +262,9 @@
   [ "$status" -eq 1 ]
 }
 
-@test "docker-compose.mcp.yml does NOT reference mcp-auth middleware" {
-  run grep "mcp-auth" deploy/compose/prod/docker-compose.mcp.yml
-  [ "$status" -eq 1 ]
-}
-
-@test "docker-compose.mcp.yml still has mcp-strip middleware" {
-  run grep "mcp-strip@file" deploy/compose/prod/docker-compose.mcp.yml
-  [ "$status" -eq 0 ]
-}
-
 # ---------------------------------------------------------------------------
 # UI health route + compose env
 # ---------------------------------------------------------------------------
-
-@test "UI health route probes Keycloak not old auth service" {
-  run grep "Keycloak" services/ui/src/app/api/services/health/route.ts
-  [ "$status" -eq 0 ]
-}
-
-@test "UI health route does NOT reference port 3001" {
-  run grep "3001" services/ui/src/app/api/services/health/route.ts
-  [ "$status" -eq 1 ]
-}
-
-@test "UI health route uses KEYCLOAK_INTERNAL_URL env var" {
-  run grep "KEYCLOAK_INTERNAL_URL" services/ui/src/app/api/services/health/route.ts
-  [ "$status" -eq 0 ]
-}
-
-@test "docker-compose.ui.yml has KEYCLOAK_INTERNAL_URL" {
-  run grep "KEYCLOAK_INTERNAL_URL" deploy/compose/prod/docker-compose.ui.yml
-  [ "$status" -eq 0 ]
-}
 
 # ---------------------------------------------------------------------------
 # Makefile updates
@@ -393,42 +363,9 @@
 # PR2: Auth.js integration (UI)
 # ---------------------------------------------------------------------------
 
-@test "auth.ts exists in UI service" {
-  [ -f "services/ui/src/auth.ts" ]
-}
-
-@test "auth.ts uses Keycloak provider" {
-  run grep "Keycloak" services/ui/src/auth.ts
-  [ "$status" -eq 0 ]
-}
-
-@test "nextauth route handler exists" {
-  [ -f "services/ui/src/app/api/auth/[...nextauth]/route.ts" ]
-}
-
-@test "docker-compose.ui.yml has AUTH_KEYCLOAK_ID" {
-  run grep "AUTH_KEYCLOAK_ID" deploy/compose/prod/docker-compose.ui.yml
-  [ "$status" -eq 0 ]
-}
-
-@test "docker-compose.ui.yml has AUTH_SECRET" {
-  run grep "AUTH_SECRET" deploy/compose/prod/docker-compose.ui.yml
-  [ "$status" -eq 0 ]
-}
-
-@test "docker-compose.ui.yml has AUTH_KEYCLOAK_ISSUER" {
-  run grep "AUTH_KEYCLOAK_ISSUER" deploy/compose/prod/docker-compose.ui.yml
-  [ "$status" -eq 0 ]
-}
-
 # ---------------------------------------------------------------------------
 # PR2: API JWT middleware
 # ---------------------------------------------------------------------------
-
-@test "API jest.config.js uses ts-jest preset" {
-  run grep "ts-jest" services/api/jest.config.js
-  [ "$status" -eq 0 ]
-}
 
 # ---------------------------------------------------------------------------
 # PR2: CORS update
@@ -442,21 +379,6 @@
 # ---------------------------------------------------------------------------
 # PR2: .env.example auth integration vars
 # ---------------------------------------------------------------------------
-
-@test ".env.example has AUTH_SECRET" {
-  run grep "AUTH_SECRET" deploy/compose/prod/.env.example
-  [ "$status" -eq 0 ]
-}
-
-@test ".env.example has AUTH_KEYCLOAK_ID" {
-  run grep "AUTH_KEYCLOAK_ID" deploy/compose/prod/.env.example
-  [ "$status" -eq 0 ]
-}
-
-@test ".env.example has AUTH_KEYCLOAK_SECRET" {
-  run grep "AUTH_KEYCLOAK_SECRET" deploy/compose/prod/.env.example
-  [ "$status" -eq 0 ]
-}
 
 # ---------------------------------------------------------------------------
 # MinIO compose file tests

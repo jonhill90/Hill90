@@ -44,12 +44,8 @@ EOF
 service_paths() {
     local service="$1"
     case "$service" in
-        api)           echo "services/api/ deploy/compose/prod/docker-compose.api.yml" ;;
-        ai)            echo "services/ai/ deploy/compose/prod/docker-compose.ai.yml" ;;
-        mcp)           echo "services/mcp/ deploy/compose/prod/docker-compose.mcp.yml" ;;
-        ui)            echo "services/ui/ deploy/compose/prod/docker-compose.ui.yml" ;;
         auth)          echo "platform/auth/keycloak/ deploy/compose/prod/docker-compose.auth.yml" ;;
-        db)            echo "platform/data/postgres/ deploy/compose/prod/docker-compose.db.yml services/api/src/db/migrations/" ;;
+        db)            echo "platform/data/postgres/ deploy/compose/prod/docker-compose.db.yml" ;;
         infra)         echo "platform/edge/ deploy/compose/prod/docker-compose.infra.yml" ;;
         minio)         echo "deploy/compose/prod/docker-compose.minio.yml" ;;
         observability) echo "platform/observability/ deploy/compose/prod/docker-compose.observability.yml" ;;
@@ -212,9 +208,8 @@ cmd_rollback() {
             echo "     bash scripts/backup.sh restore db <backup-dir>"
             echo ""
             echo "  3. Then rollback the code:"
-            echo "     git checkout ${target_ref} -- platform/data/postgres/ services/api/src/db/migrations/"
+            echo "     git checkout ${target_ref} -- platform/data/postgres/"
             echo "     bash scripts/deploy.sh db prod"
-            echo "     bash scripts/deploy.sh api prod"
             echo ""
             echo "  4. Verify:"
             echo "     bash scripts/deploy.sh verify db"

@@ -71,16 +71,6 @@
   [ "$status" -eq 0 ]
 }
 
-@test "deploy.sh all deploys auth api ai mcp and ui services" {
-  run grep "for svc in" scripts/deploy.sh
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"auth"* ]]
-  [[ "$output" == *"api"* ]]
-  [[ "$output" == *"ai"* ]]
-  [[ "$output" == *"mcp"* ]]
-  [[ "$output" == *"ui"* ]]
-}
-
 @test "deploy.sh service checks hill90_internal network exists" {
   run grep -A2 "hill90_internal" scripts/deploy.sh
   [ "$status" -eq 0 ]
@@ -110,11 +100,6 @@
 @test "deploy.sh all does NOT include db in service loop" {
   run bash -c 'sed -n "/^cmd_all/,/^}/p" scripts/deploy.sh | grep "for svc in"'
   [[ "$output" != *"db"* ]]
-}
-
-@test "deploy.sh all includes keycloak check in docker ps" {
-  run grep -E "docker ps.*keycloak" scripts/deploy.sh
-  [ "$status" -eq 0 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -177,16 +162,8 @@
   [[ "$output" == *"check_dependency postgres"* ]]
 }
 
-@test "deploy.sh api deploy checks postgres and keycloak dependencies" {
-  run bash -c 'sed -n "/# Pre-deploy dependency/,/esac/p" scripts/deploy.sh'
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"api|mcp)"* ]]
-  [[ "$output" == *"check_dependency postgres"* ]]
-  [[ "$output" == *"check_dependency keycloak"* ]]
-}
-
 @test "deploy.sh cmd_verify covers all service types" {
-  for svc in db auth api ai mcp ui minio observability infra; do
+  for svc in db auth minio vault observability infra; do
     run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep '${svc})'"
     [ "$status" -eq 0 ]
   done
@@ -206,20 +183,6 @@
   [ "$output" = "0" ]
 }
 
-@test "deploy.sh node services use node for readiness" {
-  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'api)'"
-  [[ "$output" == *"node -e"* ]]
-  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'ui)'"
-  [[ "$output" == *"node -e"* ]]
-}
-
-@test "deploy.sh python services use python for readiness" {
-  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'ai)'"
-  [[ "$output" == *"python -c"* ]]
-  run bash -c "sed -n '/^cmd_verify/,/^}/p' scripts/deploy.sh | grep 'mcp)'"
-  [[ "$output" == *"python -c"* ]]
-}
-
 @test "deploy.sh cmd_verify emits diagnostics on failure" {
   run grep "Diagnostic output" scripts/deploy.sh
   [ "$status" -eq 0 ]
@@ -230,27 +193,17 @@
 }
 
 @test "deploy.sh cmd_verify failure path prints diagnostics for missing container" {
-  # Uses a recognized service name (mcp) so it reaches the retry+diagnostics
-  # path, not the "Unknown service" branch. Skip if a real mcp container
+  # Uses a recognized service name (minio) so it reaches the retry+diagnostics
+  # path, not the "Unknown service" branch. Skip if a real minio container
   # happens to be running locally (deploy target is VPS, not dev Mac).
-  if docker inspect mcp >/dev/null 2>&1; then
-    skip "mcp container running locally — cannot test failure path"
+  if docker inspect minio >/dev/null 2>&1; then
+    skip "minio container running locally — cannot test failure path"
   fi
-  run env DEPLOY_VERIFY_MAX_ATTEMPTS=1 bash scripts/deploy.sh verify mcp
+  run env DEPLOY_VERIFY_MAX_ATTEMPTS=1 bash scripts/deploy.sh verify minio
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Diagnostic output for mcp"* ]]
+  [[ "$output" == *"Diagnostic output for minio"* ]]
   [[ "$output" == *"container not found"* ]] || [[ "$output" == *"no logs available"* ]]
   [[ "$output" == *"End diagnostics"* ]]
-}
-
-@test "mcp Dockerfile has HEALTHCHECK" {
-  run grep "HEALTHCHECK" services/mcp/Dockerfile
-  [ "$status" -eq 0 ]
-}
-
-@test "ui Dockerfile does not install curl" {
-  run grep "apk add.*curl" services/ui/Dockerfile
-  [ "$status" -eq 1 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -295,16 +248,6 @@
 # Agentbox image build in API preflight
 # ---------------------------------------------------------------------------
 
-@test "deploy.sh API preflight includes agentbox image build" {
-  run grep 'docker build.*hill90/agentbox' scripts/deploy.sh
-  [ "$status" -eq 0 ]
-}
-
-@test "deploy.sh API preflight checks knowledge image dependency" {
-  run grep 'hill90/knowledge:latest' scripts/deploy.sh
-  [ "$status" -eq 0 ]
-}
-
 # ---------------------------------------------------------------------------
 # Vault (OpenBao) integration tests
 # ---------------------------------------------------------------------------
@@ -326,20 +269,16 @@
 
 @test "_common.sh vault_paths_for_service returns correct paths" {
   source scripts/_common.sh
-  [ "$(vault_paths_for_service api)" = "secret/shared/database secret/api/config secret/knowledge/config secret/shared/model-router secret/shared/chat" ]
   [ "$(vault_paths_for_service db)" = "secret/shared/database" ]
   [ "$(vault_paths_for_service auth)" = "secret/shared/database secret/auth/config" ]
-  [ "$(vault_paths_for_service ai)" = "secret/shared/database secret/ai/config secret/shared/model-router" ]
-  [ "$(vault_paths_for_service ui)" = "secret/ui/config" ]
   [ "$(vault_paths_for_service minio)" = "secret/minio/config" ]
   [ "$(vault_paths_for_service infra)" = "secret/infra/traefik secret/infra/dns-manager" ]
   [ "$(vault_paths_for_service observability)" = "secret/observability/grafana" ]
 }
 
-@test "_common.sh vault_paths_for_service returns empty for vault/mcp/unknown" {
+@test "_common.sh vault_paths_for_service returns empty for vault/unknown" {
   source scripts/_common.sh
   [ -z "$(vault_paths_for_service vault)" ]
-  [ -z "$(vault_paths_for_service mcp)" ]
   [ -z "$(vault_paths_for_service unknown)" ]
 }
 

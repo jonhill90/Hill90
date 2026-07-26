@@ -353,7 +353,7 @@ dns_sync() {
     current_records=$(api_call GET "/api/dns/v1/zones/$DOMAIN")
 
     local needs_update=false
-    for pair in "@:$vps_ip" "api:$vps_ip" "ai:$vps_ip" "auth:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "storage:$tailscale_ip" "grafana:$tailscale_ip" "vault:$tailscale_ip" "litellm:$tailscale_ip"; do
+    for pair in "@:$vps_ip" "auth:$vps_ip" "admin:$tailscale_ip" "portainer:$tailscale_ip" "traefik:$tailscale_ip" "storage:$tailscale_ip" "grafana:$tailscale_ip" "vault:$tailscale_ip" "litellm:$tailscale_ip"; do
         local name="${pair%%:*}"
         local expected="${pair##*:}"
         local current
@@ -383,16 +383,13 @@ dns_sync() {
             overwrite: true,
             zone: [
                 {name: "@",         type: "A", ttl: 3600, records: [{content: $vps}]},
-                {name: "api",       type: "A", ttl: 3600, records: [{content: $vps}]},
-                {name: "ai",        type: "A", ttl: 3600, records: [{content: $vps}]},
                 {name: "auth",      type: "A", ttl: 3600, records: [{content: $vps}]},
                 {name: "admin",     type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "portainer", type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "traefik",   type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "storage",   type: "A", ttl: 3600, records: [{content: $ts}]},
                 {name: "grafana",   type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "vault",     type: "A", ttl: 3600, records: [{content: $ts}]},
-                {name: "litellm",  type: "A", ttl: 3600, records: [{content: $ts}]}
+                {name: "vault",     type: "A", ttl: 3600, records: [{content: $ts}]}
             ]
         }')
 
@@ -428,7 +425,7 @@ dns_verify() {
     echo "" >&2
 
     # Public hosts — verify against VPS_IP
-    for host in "$DOMAIN" "api.$DOMAIN" "ai.$DOMAIN" "auth.$DOMAIN"; do
+    for host in "$DOMAIN" "auth.$DOMAIN"; do
         local resolved
         resolved=$(dig +short "$host" 2>/dev/null | head -n1)
         if [[ -n "$expected_ip" && "$resolved" == "$expected_ip" ]]; then
@@ -453,7 +450,7 @@ dns_verify() {
     if [[ -n "$tailscale_ip" ]]; then
         echo "" >&2
         echo -e "${BLUE}Verifying Tailscale-only DNS (expected: $tailscale_ip)...${NC}" >&2
-        for host in "portainer.$DOMAIN" "traefik.$DOMAIN" "storage.$DOMAIN" "grafana.$DOMAIN" "vault.$DOMAIN" "litellm.$DOMAIN"; do
+        for host in "portainer.$DOMAIN" "traefik.$DOMAIN" "storage.$DOMAIN" "grafana.$DOMAIN" "vault.$DOMAIN"; do
             local resolved
             resolved=$(dig +short "$host" 2>/dev/null | head -n1)
             if [[ "$resolved" == "$tailscale_ip" ]]; then
