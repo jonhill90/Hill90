@@ -75,7 +75,6 @@ This single command:
 9. **09-deploy-infrastructure.yml** - Infrastructure Deployment
    - Deploys Traefik edge proxy (with DNS-01 certificates)
    - Deploys Portainer container management UI
-   - Deploys dns-manager service (for DNS-01 challenges)
    - Verifies all containers start successfully
 
 **Post-Ansible Automation:**
@@ -91,7 +90,6 @@ This single command:
 - Tailscale VPN connected
 - Traefik reverse proxy (https://traefik.hill90.com, Tailscale-only)
 - Portainer UI (https://portainer.hill90.com, Tailscale-only)
-- dns-manager (internal service for DNS-01 challenges)
 
 ✅ **System configuration:**
 - deploy user with sudo access
@@ -109,7 +107,7 @@ This single command:
 After bootstrap completes, deploy infrastructure and application services:
 
 ```bash
-# Deploy infrastructure (Traefik, dns-manager, Portainer)
+# Deploy infrastructure (Traefik, Portainer)
 make deploy-infra
 
 # Deploy database (required before app services)
@@ -194,7 +192,7 @@ ssh deploy@<tailscale-ip> 'docker compose version'
 
 ```bash
 ssh deploy@<tailscale-ip> 'docker ps'
-# Should show: traefik, portainer, dns-manager
+# Should show: traefik, portainer
 ```
 
 ### Check Tailscale

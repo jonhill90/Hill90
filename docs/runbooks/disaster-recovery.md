@@ -41,7 +41,7 @@ make secrets-update KEY=TAILSCALE_IP VALUE="<new-tailscale-ip>"
 
 ### 3. Deploy Infrastructure
 
-Deploy Traefik (reverse proxy), dns-manager, and Portainer.
+Deploy Traefik (reverse proxy) and Portainer.
 
 ```bash
 bash scripts/deploy.sh infra prod

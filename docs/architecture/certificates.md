@@ -40,87 +40,59 @@ Hill90 uses Let's Encrypt for SSL/TLS certificates with two different challenge 
                     │                        │
                     ▼                        ▼
         ┌───────────────────┐    ┌───────────────────┐
-        │ Traefik (HTTP-01) │    │ dns-manager       │
-        │ Challenges        │    │ (Custom Webhook)  │
+        │ Traefik (HTTP-01) │    │ Traefik + lego    │
+        │ Challenges        │    │ cloudflare provider│
         └───────────────────┘    └───────────────────┘
                                            │
                                            ▼
                                  ┌───────────────────┐
-                                 │ Hostinger DNS API │
+                                 │ Cloudflare DNS API│
                                  └───────────────────┘
 ```
 
 ## DNS-01 Challenge Implementation
 
-### Custom Webhook (dns-manager)
+### lego's built-in Cloudflare provider
 
-**Location:** `services/dns-manager/app.py`
+**Location:** none — this is configuration, not code.
 
-**Purpose:** Translates Lego httpreq provider format to Hostinger DNS API
+Traefik embeds [lego](https://go-acme.github.io/lego/), which ships a
+first-class Cloudflare provider. Setting `provider: cloudflare` and supplying
+`CF_DNS_API_TOKEN` is the entire integration. There is no webhook service to
+run, no TXT value to compute, and no zone-specific record-name arithmetic to get
+wrong.
 
-**Endpoints:**
-- `POST /present` - Create DNS TXT record for challenge
-- `POST /cleanup` - Delete DNS TXT record after validation
-- `GET /health` - Health check
+This replaced a local `dns-manager` service that translated lego's `httpreq`
+provider calls into Hostinger DNS API writes. It was removed when the zone moved
+to Cloudflare; see the "History" section below.
 
 **Challenge Flow:**
 
-1. **Traefik requests certificate:**
+1. **Traefik requests a certificate** for a Tailscale-only host and hands the
+   DNS-01 challenge to lego.
+
+2. **lego creates the TXT record** directly against the Cloudflare API,
+   computing `base64url(SHA256(keyAuth))` itself:
    ```
-   Traefik → Lego ACME client → httpreq provider
+   POST https://api.cloudflare.com/client/v4/zones/<zone-id>/dns_records
+   { "type": "TXT", "name": "_acme-challenge.traefik.hill90.com", ... }
    ```
 
-2. **Lego calls dns-manager:**
-   ```http
-   POST /present
-   {
-     "domain": "traefik.hill90.com",
-     "token": "...",
-     "keyAuth": "..."
-   }
-   ```
-
-3. **dns-manager computes TXT value:**
-   ```python
-   # ACME DNS-01 requires: base64url(SHA256(keyAuth))
-   hash_digest = hashlib.sha256(key_auth.encode()).digest()
-   value = base64.urlsafe_b64encode(hash_digest).decode().rstrip('=')
-   ```
-
-4. **dns-manager creates DNS record:**
-   ```python
-   # Via Hostinger API
-   PUT /api/dns/v1/zones/hill90.com
-   {
-     "zone": [{
-       "name": "_acme-challenge.traefik",
-       "type": "TXT",
-       "ttl": 300,
-       "records": [{"content": "<computed-value>"}]
-     }]
-   }
-   ```
-
-5. **Traefik waits for DNS propagation:**
+3. **Traefik waits for DNS propagation:**
    ```yaml
-   # traefik.yml
+   # platform/edge/traefik.yml
    dnsChallenge:
      delayBeforeCheck: 30s  # Wait for DNS to propagate
    ```
 
-6. **Let's Encrypt validates:**
+4. **Let's Encrypt validates:**
    ```
    dig TXT _acme-challenge.traefik.hill90.com
    → Matches expected value → Certificate issued
    ```
 
-7. **dns-manager cleans up:**
-   ```http
-   POST /cleanup
-   {
-     "domain": "traefik.hill90.com"
-   }
-   ```
+5. **lego deletes the TXT record.** Cleanup is part of the provider, so the zone
+   does not accumulate stale challenge records.
 
 ### Traefik Configuration
 
@@ -144,12 +116,18 @@ certificatesResolvers:
       email: admin@hill90.com
       storage: /letsencrypt/acme-dns.json
       dnsChallenge:
-        provider: httpreq
+        provider: cloudflare
         delayBeforeCheck: 30s
         resolvers:
           - 1.1.1.1:53
           - 8.8.8.8:53
 ```
+
+> **Traefik is pinned to v2.11.** On v2.11 the `dnsChallenge` keys are flat:
+> `provider`, `delayBeforeCheck`, `resolvers`, `disablePropagationCheck`. The
+> `propagation.*` block (`propagation.delayBeforeChecks`, and friends) is
+> **Traefik v3 only** — writing it here would parse without error and silently
+> do nothing. Check the pinned version before copying from current Traefik docs.
 
 > **Important:** Traefik does NOT interpolate `${VAR}` in its YAML config files.
 > Email must be hardcoded in `traefik.yml`. The `caServer` is set via Docker Compose
@@ -162,9 +140,25 @@ certificatesResolvers:
 # deploy/compose/prod/docker-compose.infra.yml
 
 environment:
-  - HTTPREQ_ENDPOINT=http://dns-manager:8080
-  - HTTPREQ_MODE=RAW
+  - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-}
 ```
+
+The token must be scoped to the `hill90.com` zone with exactly two permissions —
+**Zone / Zone / Read** and **Zone / DNS / Edit**. Do not use a Global API Key: it
+carries full account access and cannot be scoped.
+
+Optional lego tuning variables, none of which are set here because the defaults
+are correct for this zone (verified against the
+[lego Cloudflare docs](https://go-acme.github.io/lego/dns/cloudflare/)):
+
+| Variable | Default |
+|---|---|
+| `CLOUDFLARE_POLLING_INTERVAL` | 2s |
+| `CLOUDFLARE_PROPAGATION_TIMEOUT` | 120s |
+| `CLOUDFLARE_TTL` | 120s |
+
+The old `HTTPREQ_*` tuning does not carry over by name — those variables were
+consumed by the `httpreq` provider and are simply gone.
 
 **Router Labels:**
 
@@ -179,72 +173,57 @@ labels:
 
 ### 1. Lego httpreq Provider Format
 
-The dns-manager MUST handle Lego's httpreq provider format:
+The TXT value, the FQDN, and the record cleanup are all lego's responsibility
+now. The failure modes that used to dominate this section — computing the TXT
+value from `token` instead of `base64url(SHA256(keyAuth))`, blocking inside
+`/present` until Traefik timed out, disagreeing about `fqdn` vs `domain` — were
+all defects in the shim and cannot occur with a built-in provider.
 
-**Request fields:**
-- `domain` - Base domain (e.g., "traefik.hill90.com")
-- `token` - ACME token (NOT the final TXT value!)
-- `keyAuth` - Key authorization string
+What remains yours to get right is the **token**.
 
-**Common mistake:** Using `token` as the TXT value. The correct value is `base64url(SHA256(keyAuth))`.
+### 2. Token scope
 
-### 2. TXT Record Construction
-
-**FQDN construction:**
-```python
-fqdn = f"_acme-challenge.{domain}"
-# Example: _acme-challenge.traefik.hill90.com
-```
-
-**Record name for Hostinger API:**
-```python
-# Remove base domain from FQDN
-record_name = fqdn[:-len(f".{BASE_DOMAIN}")]
-# Example: _acme-challenge.traefik
-```
+The token needs exactly **Zone / Zone / Read** and **Zone / DNS / Edit**, on the
+`hill90.com` zone only. Under-scoping fails at `present` time with a 403 from the
+Cloudflare API; over-scoping (a Global API Key) works but hands full account
+access to the edge proxy.
 
 ### 3. Timing Considerations
 
-**DNS propagation delay:**
-- Traefik waits 30s (`delayBeforeCheck: 30s`)
-- dns-manager should NOT sleep - return immediately
-- Let Traefik handle the wait
-
-**Timeout issues:**
-- If dns-manager blocks for 30s, Traefik times out
-- HTTP request must complete quickly
-- DNS propagation happens asynchronously
+Traefik waits 30s (`delayBeforeCheck: 30s`) before asking Let's Encrypt to
+validate, and checks propagation against `1.1.1.1` and `8.8.8.8`. lego's own
+Cloudflare defaults — 2s polling, 120s propagation timeout — apply underneath.
 
 ## Troubleshooting
 
 ### Certificate Acquisition Failures
 
-**Check dns-manager logs:**
+Traefik logs the challenge result directly; there is no separate service to
+check. **Do not infer success from the container being healthy** — Traefik stays
+healthy through a failed renewal.
+
 ```bash
-ssh deploy@<vps-ip> 'docker logs dns-manager --tail 50'
+ssh deploy@<tailscale-ip> 'docker logs traefik --tail 100 | grep -i "acme\|certificate\|challenge"'
 ```
 
 **Common issues:**
 
-1. **Wrong TXT value:**
+1. **Bad or under-scoped token:**
    ```
-   Error: did not return the expected TXT record [value: expected] actual: token
+   Error: cloudflare: failed to find zone hill90.com: ... HTTP status 403
    ```
-   **Fix:** Ensure dns-manager computes `base64url(SHA256(keyAuth))`, not using `token` directly.
+   **Fix:** Confirm the token has Zone/Zone/Read *and* Zone/DNS/Edit and that
+   `CF_DNS_API_TOKEN` actually reached the container
+   (`docker exec traefik env | grep CF_DNS`).
 
-2. **Timeout during /present:**
+2. **Zone not served by Cloudflare yet:**
    ```
-   Error: context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+   Error: cloudflare: ... zone could not be found
    ```
-   **Fix:** Remove `time.sleep()` from dns-manager - Traefik handles the delay.
+   **Fix:** The nameservers must point at Cloudflare. A zone in `pending` status
+   is not yet authoritative.
 
-3. **Missing fqdn parameter:**
-   ```
-   Error: {"error":"Missing fqdn or value"}
-   ```
-   **Fix:** dns-manager should accept both `fqdn` and `domain` parameters.
-
-4. **Rate limiting:**
+3. **Rate limiting:**
    ```
    Error: 429 :: too many failed authorizations (5) for "traefik.hill90.com"
    ```
@@ -257,10 +236,12 @@ ssh deploy@<vps-ip> 'docker logs dns-manager --tail 50'
 dig TXT _acme-challenge.traefik.hill90.com @8.8.8.8
 ```
 
-**Check Hostinger DNS records:**
-```bash
-make dns-view | grep _acme-challenge
-```
+Watch **both halves** of the lifecycle: the record must appear during issuance
+and then disappear afterwards. A provider that creates but never cleans up
+leaves the zone accumulating junk, and that is invisible if you only check once.
+
+**Check the record in the Cloudflare zone** (dashboard → hill90.com → DNS, or
+the API with the same scoped token).
 
 ### Certificate Verification
 
@@ -294,14 +275,27 @@ issuer=C=US, O=(STAGING) Let's Encrypt, CN=(STAGING) Ersatz Edamame E1  # Stagin
 
 ## Security Considerations
 
-1. **Hostinger API Key:** Stored in SOPS-encrypted secrets
-2. **DNS records:** Only TXT records created (no A/CNAME modification)
-3. **Challenge cleanup:** dns-manager removes TXT records after validation
+1. **Cloudflare API token:** Stored in SOPS-encrypted secrets and in OpenBao at
+   `secret/infra/traefik`. Scoped to the `hill90.com` zone, never a Global API Key.
+2. **DNS records:** Zone/DNS/Edit permits more than TXT writes, so the blast
+   radius of the token is the zone, not just challenge records. This is the cost
+   of using the built-in provider; Cloudflare does not offer a TXT-only scope.
+3. **Challenge cleanup:** lego removes TXT records after validation.
 4. **Middleware protection:** Tailscale-only services use IP whitelist middleware
+
+## History
+
+DNS-01 originally ran through `services/dns-manager`, a small Flask service that
+translated lego's `httpreq` provider calls into Hostinger DNS API writes. When
+`hill90.com` moved to Cloudflare, the shim was deleted rather than ported: lego
+has a first-class Cloudflare provider, so the whole thing collapsed into
+configuration.
+
+Hostinger remains the VPS host and the mail provider. `scripts/hostinger.sh`,
+`scripts/vps.sh` and `HOSTINGER_API_KEY` are unrelated to certificates and stay.
 
 ## References
 
 - **ACME DNS-01 Spec:** [RFC 8555 Section 8.4](https://datatracker.ietf.org/doc/html/rfc8555#section-8.4)
-- **Lego httpreq Provider:** [lego documentation](https://go-acme.github.io/lego/dns/httpreq/)
-- **dns-manager Implementation:** `services/dns-manager/app.py`
-- **Traefik ACME Docs:** [traefik.io/traefik/https/acme](https://doc.traefik.io/traefik/https/acme/)
+- **lego Cloudflare Provider:** [go-acme.github.io/lego/dns/cloudflare](https://go-acme.github.io/lego/dns/cloudflare/)
+- **Traefik v2.11 ACME Docs:** [doc.traefik.io/traefik/v2.11/https/acme](https://doc.traefik.io/traefik/v2.11/https/acme/)

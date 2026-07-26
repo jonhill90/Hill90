@@ -125,44 +125,44 @@ Common issues and solutions for Hill90 VPS infrastructure.
 
 **Solutions**:
 
-1. **Check dns-manager logs:**
+1. **Read the Traefik log for the actual challenge result.** There is no
+   separate DNS service; lego runs inside Traefik. Do not infer success from the
+   container being healthy — Traefik stays healthy through a failed renewal.
    ```bash
-   ssh deploy@<tailscale-ip> 'docker logs dns-manager --tail 50'
+   ssh deploy@<tailscale-ip> 'docker logs traefik --tail 100 | grep -i "acme\|certificate\|challenge"'
    ```
 
 2. **Common DNS-01 issues:**
 
-   **a. Wrong TXT value:**
+   **a. Missing or under-scoped CF_DNS_API_TOKEN:**
    ```
-   Error: did not return the expected TXT record [value: expected] actual: token
+   Error: cloudflare: failed to find zone hill90.com: ... HTTP status 403
    ```
-   **Fix:** Ensure dns-manager computes `base64url(SHA256(keyAuth))`, not using `token` directly.
-
-   **b. Timeout during /present:**
-   ```
-   Error: context deadline exceeded (Client.Timeout exceeded while awaiting headers)
-   ```
-   **Fix:** Remove `time.sleep()` from dns-manager - Traefik handles the delay via `delayBeforeCheck: 30s`.
-
-   **c. Missing HOSTINGER_API_KEY:**
-   ```
-   Error: 401 Unauthorized
-   ```
-   **Fix:** Verify secret is set:
+   **Fix:** The token needs Zone/Zone/Read *and* Zone/DNS/Edit on `hill90.com`.
+   Verify it is set and actually reached the container:
    ```bash
-   make secrets-view KEY=HOSTINGER_API_KEY
+   make secrets-view KEY=CF_DNS_API_TOKEN
+   ssh deploy@<tailscale-ip> 'docker exec traefik env | grep CF_DNS'
    ```
 
-3. **Verify DNS TXT records:**
-   ```bash
-   dig TXT _acme-challenge.traefik.hill90.com @8.8.8.8
-   # Should show TXT record during challenge
+   **b. Zone not authoritative yet:**
    ```
+   Error: cloudflare: ... zone could not be found
+   ```
+   **Fix:** Nameservers must point at Cloudflare. A zone still in `pending`
+   status is not serving the domain.
 
-4. **Check dns-manager connectivity:**
+   **c. Rate limited:**
+   ```
+   Error: 429 :: too many failed authorizations (5) for "traefik.hill90.com"
+   ```
+   **Fix:** Wait an hour and retry against the staging CA.
+
+3. **Verify DNS TXT records appear _and then disappear_:**
    ```bash
-   ssh deploy@<tailscale-ip> 'docker exec dns-manager curl -f http://localhost:8080/health'
-   # Should return: {"status":"healthy"}
+   dig TXT _acme-challenge.traefik.hill90.com @1.1.1.1
+   # Present during the challenge, removed by lego afterwards.
+   # A record that lingers means cleanup is failing.
    ```
 
 5. **Verify Traefik DNS-01 configuration:**

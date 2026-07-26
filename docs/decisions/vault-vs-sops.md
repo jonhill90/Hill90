@@ -69,7 +69,7 @@ Between them the secrets are roughly:
 | Secret | Consumer | Shape |
 |---|---|---|
 | `TRAEFIK_ADMIN_PASSWORD_HASH` | Traefik dashboard | static, a bcrypt hash |
-| `HOSTINGER_API_KEY` | dns-manager | static, long-lived |
+| `HOSTINGER_API_KEY` | VPS management | static, long-lived |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana | static |
 | `ACME_EMAIL` | Traefik | not really a secret |
 
@@ -211,7 +211,7 @@ current inert vault.
 5. **Configure it** — `vault.sh setup` then `vault.sh seed`, with
    `BAO_TOKEN=$(cat /opt/hill90/secrets/openbao-root.token)`. This creates the
    KV engine, the policies and the per-service AppRoles, and populates
-   `secret/infra/traefik`, `secret/infra/dns-manager` and
+   `secret/infra/traefik` and
    `secret/observability/grafana`. There is no workflow for these yet; one
    would need writing, in the shape of `vault-init.yml`.
 6. **Mint the sync token** — `vault.sh setup-sync-token`. It writes

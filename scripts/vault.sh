@@ -464,12 +464,8 @@ cmd_seed() {
     bao_exec_env kv put secret/infra/traefik \
         "TRAEFIK_ADMIN_PASSWORD_HASH=$(get_secret TRAEFIK_ADMIN_PASSWORD_HASH)" \
         "ACME_EMAIL=$(get_secret ACME_EMAIL)" \
-        "ACME_CA_SERVER=$(get_secret ACME_CA_SERVER)"
-
-    # Seed infra/dns-manager
-    echo "Seeding secret/infra/dns-manager..."
-    bao_exec_env kv put secret/infra/dns-manager \
-        "HOSTINGER_API_KEY=$(get_secret HOSTINGER_API_KEY)"
+        "ACME_CA_SERVER=$(get_secret ACME_CA_SERVER)" \
+        "CF_DNS_API_TOKEN=$(get_secret CF_DNS_API_TOKEN)"
 
     # Seed observability/grafana
     echo "Seeding secret/observability/grafana..."
@@ -511,7 +507,6 @@ cmd_export() {
 
     local paths=(
         "secret/infra/traefik"
-        "secret/infra/dns-manager"
         "secret/observability/grafana"
     )
 
@@ -537,7 +532,6 @@ cmd_sync_to_sops() {
     # later paths skip already-seen keys.
     local SYNC_PATHS=(
         "secret/infra/traefik"
-        "secret/infra/dns-manager"
         "secret/observability/grafana"
     )
 

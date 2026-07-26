@@ -39,7 +39,7 @@ bash scripts/local.sh up
 ```
 
 That builds and starts fourteen containers — the edge stack (Traefik,
-dns-manager, Portainer), the observability stack (Prometheus, Grafana, Loki,
+Portainer), the observability stack (Prometheus, Grafana, Loki,
 Tempo, Promtail, node-exporter, cAdvisor), the platform services (Postgres,
 postgres-exporter, Keycloak) and the vault (OpenBao) — and waits until they
 actually answer.

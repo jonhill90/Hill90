@@ -21,9 +21,3 @@ services:
   portainer:
     labels:
       - "traefik.http.routers.portainer.tls=false"
-
-  dns-manager:
-    # Kept running for parity with production, but it has no credentials and is
-    # never called: DNS-01 only fires for ACME, and local has no ACME.
-    environment:
-      - HOSTINGER_API_KEY=local-unused

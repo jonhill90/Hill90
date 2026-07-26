@@ -186,7 +186,7 @@
 
 @test "_common.sh vault_paths_for_service returns correct paths" {
   source scripts/_common.sh
-  [ "$(vault_paths_for_service infra)" = "secret/infra/traefik secret/infra/dns-manager" ]
+  [ "$(vault_paths_for_service infra)" = "secret/infra/traefik" ]
   [ "$(vault_paths_for_service observability)" = "secret/observability/grafana" ]
 }
 

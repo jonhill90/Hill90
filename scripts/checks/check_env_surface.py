@@ -55,6 +55,10 @@ SECRETS_SCHEMA = ROOT / "platform" / "vault" / "secrets-schema.yaml"
 SENSITIVE = {
     "TRAEFIK_ADMIN_PASSWORD_HASH",
     "GRAFANA_ADMIN_PASSWORD",
+    # Cloudflare API token for the ACME DNS-01 challenge.
+    "CF_DNS_API_TOKEN",
+    # Still a live credential — Hostinger is the VPS host — but consumed by
+    # scripts/vps.sh and recreate-vps.yml rather than by compose.
     "HOSTINGER_API_KEY",
     # Platform database and identity-provider credentials. Supplied by SOPS or
     # vault at deploy time; a fallback value would let a misconfigured deploy

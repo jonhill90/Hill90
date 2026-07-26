@@ -4,7 +4,7 @@
 
 Three stacks, deployed independently:
 
-1. **Edge** (Traefik, dns-manager, Portainer) — deploy first; it owns the Docker networks every other stack attaches to
+1. **Edge** (Traefik, Portainer) — deploy first; it owns the Docker networks every other stack attaches to
 2. **Vault** (OpenBao) — deploy and unseal before stacks that read secrets from vault
 3. **Observability** (Prometheus, Grafana, Loki, Tempo + collectors) — no dependencies
 
@@ -36,7 +36,7 @@ bash scripts/deploy.sh observability prod
 ### Per-Stack Deployment
 
 ```bash
-bash scripts/deploy.sh infra prod           # Traefik, dns-manager, Portainer
+bash scripts/deploy.sh infra prod           # Traefik, Portainer
 bash scripts/deploy.sh vault prod           # OpenBao
 bash scripts/deploy.sh observability prod   # LGTM stack + collectors
 bash scripts/deploy.sh verify <stack>       # post-deploy readiness check
@@ -52,7 +52,7 @@ Docker Compose project names:
 
 | Stack | Project Name | File | Services |
 |-------|-------------|------|----------|
-| edge | `hill90-prod-edge` | `docker-compose.infra.yml` | traefik, dns-manager, portainer |
+| edge | `hill90-prod-edge` | `docker-compose.infra.yml` | traefik, portainer |
 | platform | `hill90-prod-platform` | `docker-compose.vault.yml` | openbao |
 | observability | `hill90-prod-observability` | `docker-compose.observability.yml` | full LGTM stack + collectors |
 
@@ -71,7 +71,7 @@ stack.
 | Context | Docker Command | When Allowed |
 |---------|---------------|--------------|
 | Routine stateful deploy (vault, observability) | Stack-scoped `down` + `up -d` | Default |
-| Edge stack deploy (traefik, dns-manager, portainer) | `up -d --force-recreate` | Manual only via `workflow_dispatch` |
+| Edge stack deploy (traefik, portainer) | `up -d --force-recreate` | Manual only via `workflow_dispatch` |
 | Full platform teardown | Multiple stack-scoped `down` | Maintenance windows only |
 | `--remove-orphans` | **NEVER** | Banned globally, enforced by CI |
 
