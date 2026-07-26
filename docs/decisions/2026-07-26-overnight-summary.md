@@ -49,8 +49,15 @@ use bao operator migrate to move to a supported storage backend by v2.7.0
 
 `platform/vault/config.hcl` uses `storage "file"`, and the compose file pins
 `ghcr.io/openbao/openbao:2` — a floating major tag. **This breaks on a routine
-image pull, not on a deliberate upgrade.** Worth pinning the tag now even if the
-vault decision waits.
+image pull, not on a deliberate upgrade.**
+
+The migration path is now researched and written up in
+[vault-vs-sops.md](vault-vs-sops.md#decision-needed-replacing-the-file-storage-backend-jon-48):
+raft is the answer, the config change is three additive lines, and the unseal
+and auto-unseal flow is unaffected. The useful part: **if you reinitialize the
+vault anyway, switching storage in the same pass costs essentially nothing** —
+the volume is already being wiped. If you decide nothing today, pin the image
+tag; that one line turns an ambush into a scheduled decision.
 
 ---
 

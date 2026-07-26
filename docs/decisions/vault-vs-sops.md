@@ -188,29 +188,146 @@ Then nothing needs doing. SOPS is already the operative store, the schedule is
 off, and the inert vault costs a few hundred MB and one container. Removing it
 entirely is a separate, easy change whenever you want.
 
-## Known future break: the `file` storage backend
+## Decision needed: replacing the `file` storage backend (JON-48)
 
-Independent of which option you pick.
+Independent of the vault-versus-SOPS choice above. This one has a deadline set
+by someone else.
 
-OpenBao logs this on every start of the live vault:
+OpenBao logs this on every start of the live vault (verified on the running
+container, v2.6.1):
 
 ```
 [WARN] storage.file: the file physical backend is deprecated;
 use bao operator migrate to move to a supported storage backend by v2.7.0
 ```
 
-`platform/vault/config.hcl` uses `storage "file"`. It is **removed in v2.7.0**,
-and the compose file pins `ghcr.io/openbao/openbao:2` — a floating major tag —
-so this breaks on a routine image pull, not on a deliberate upgrade.
+`platform/vault/config.hcl` uses `storage "file"`. Upstream calls it
+"a development-only, non-production backend", deprecated in v2.6.0 and
+**removed in v2.7.0**. `docker-compose.vault.yml` pins
+`ghcr.io/openbao/openbao:2` — a floating major tag — so **this breaks on a
+routine image pull, not on a deliberate upgrade**. There is no published date
+for v2.7.0.
 
-Three ways out, in increasing order of effort:
+### What to replace it with
 
-1. **Pin the image** to a 2.6.x tag. Buys time; does not fix it.
-2. **Migrate** to a supported backend with `bao operator migrate`. The obvious
-   target is `raft` (integrated storage), which is single-node friendly.
-3. **Retire the vault**, if the decision above goes that way, and the question
-   disappears.
+Two backends are marked production-ready upstream:
 
-Worth deciding before v2.7.0 lands rather than discovering it when a pull
-breaks the stack. If the vault is reinitialized anyway, switching to `raft` at
-the same time costs almost nothing extra — the volume is being wiped regardless.
+| Backend | Fit for Hill90 |
+|---|---|
+| **`raft`** (integrated storage) | Recommended upstream "for most use cases", needs no additional software, bootstraps as a cluster of size 1. |
+| `postgresql` | Also production-ready, but requires an external Postgres — the one this repo *deleted* in #495. Reintroducing a database to store three secrets would undo the strip. |
+
+**Raft is the answer**, unless the vault is retired entirely.
+
+### What changes in config.hcl
+
+Three edits, all additive:
+
+```hcl
+storage "raft" {
+  path    = "/openbao/raft"
+  node_id = "hill90-vault-1"
+}
+
+listener "tcp" {
+  address         = "0.0.0.0:8200"
+  cluster_address = "0.0.0.0:8201"     # new: raft peer traffic
+  tls_disable     = 1
+}
+
+cluster_addr = "http://127.0.0.1:8201"  # new: required even for one node
+```
+
+`ui`, `disable_mlock`, `api_addr` and the lease TTLs are unchanged.
+`disable_mlock = true` stays as it is.
+
+And in `docker-compose.vault.yml`, the volume mount moves with the path:
+
+```yaml
+- openbao-data:/openbao/raft     # was /openbao/file
+```
+
+Port 8201 does not need publishing or routing — nothing outside the container
+talks to it on a single node.
+
+### Can existing data migrate in place?
+
+**Yes.** `bao operator migrate` works at the storage layer with no decryption,
+so the encrypted blobs — including the unseal key material and any tokens — are
+copied verbatim. **The existing unseal key stays valid.** Documented caveats:
+
+- OpenBao **must be stopped** during the migration.
+- The destination **must not already be initialized**.
+- The source is left intact apart from a lock key, so it is a safe fallback if
+  the migration is abandoned.
+
+The migration config is a small file of its own:
+
+```hcl
+storage_source "file" {
+  path = "/openbao/file"
+}
+storage_destination "raft" {
+  path    = "/openbao/raft"
+  node_id = "hill90-vault-1"
+}
+```
+
+**But for *this* vault, migrating is the wrong move.** The live vault holds no
+policies, no AppRoles and no KV data, and its root token is revoked and
+unrecoverable. A faithful migration would preserve exactly that: an empty,
+permanently unconfigurable vault, now on raft. There is nothing worth carrying
+across.
+
+So the in-place path matters as a general capability and as a fallback — not as
+the recommendation here.
+
+### The useful overlap
+
+**If the vault is being reinitialized anyway, switch storage in the same pass
+and the migration cost is essentially zero.** The reinit runbook above already
+wipes the volume at step 1; changing `config.hcl` and the compose mount before
+step 2 means the fresh `bao operator init` bootstraps directly onto raft. No
+`operator migrate`, no second outage, no extra PR — two lines of config folded
+into work that is already happening.
+
+That is the strongest argument for deciding both questions together rather than
+sequentially.
+
+### What it means for unseal and auto-unseal
+
+**Nothing changes.** The seal is unchanged — still a single Shamir key with
+`-key-shares=1 -key-threshold=1` — and raft alters where data lives, not how it
+is encrypted. `vault.sh unseal`, `vault.sh auto-unseal`, the
+`hill90-vault-unseal.service` systemd unit and its `600 deploy:deploy` key-file
+check all work unmodified.
+
+One genuine improvement: raft brings `bao operator raft snapshot save` and
+`restore`, a consistent point-in-time backup taken from the running server.
+`scripts/backup.sh backup vault` currently tars the volume, which is a
+crash-consistent copy of files under an active writer. Switching it to a raft
+snapshot would be strictly better, and is worth doing at the same time. Note
+the tar path would need updating regardless, since the directory moves.
+
+### Does it shift the vault-versus-SOPS calculus?
+
+**Marginally, and not enough to change the recommendation.**
+
+- *Toward keeping the vault:* raft is the supported, production-grade path, and
+  it improves backups. It removes the "we are running a dev-only backend"
+  objection outright.
+- *Toward SOPS:* it is more moving parts — a peer port, a node identity, an
+  autopilot subsystem and quorum semantics — in service of a single-node vault
+  that currently protects three infrastructure secrets. Single-node raft has a
+  failure tolerance of zero, so it buys no availability here.
+
+The recommendation stands: SOPS is the operative store, and the vault should
+earn its place by having a concrete consumer. What this deprecation changes is
+the *deadline* — the question can no longer be deferred indefinitely, because
+inaction eventually breaks the container on an image pull.
+
+### If you decide nothing right now
+
+**Pin the image tag.** Change `ghcr.io/openbao/openbao:2` to `openbao:2.6.1` in
+`docker-compose.vault.yml`. One line, no migration, and it converts an ambush
+into a scheduled decision. Worth doing even if everything else waits.
