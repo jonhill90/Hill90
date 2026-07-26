@@ -448,3 +448,75 @@ assert records[0]["content"] == "${TAILSCALE_IP}"
     [ "$status" -eq 1 ]
   done
 }
+
+# --- Vault reinitialize workflow (JON-49) -----------------------------------
+
+@test "vault-reinitialize workflow exists and is dispatch-only" {
+  [ -f .github/workflows/vault-reinitialize.yml ]
+  run grep -c "workflow_dispatch" .github/workflows/vault-reinitialize.yml
+  [ "$output" != "0" ]
+  run grep -E "^\s+(push|pull_request|schedule):" .github/workflows/vault-reinitialize.yml
+  [ "$status" -eq 1 ]
+}
+
+@test "vault-reinitialize requires the typed REINITIALIZE confirmation" {
+  run grep -c 'inputs.confirm }}" != "REINITIALIZE"' .github/workflows/vault-reinitialize.yml
+  [ "$output" = "1" ]
+}
+
+@test "vault-reinitialize refuses when the vault holds KV data" {
+  run bash -c 'grep -c "Refuse if the vault holds data" .github/workflows/vault-reinitialize.yml'
+  [ "$output" = "1" ]
+}
+
+@test "vault-reinitialize backs up and verifies before it wipes" {
+  # The backup and its verification must both appear before the volume removal.
+  b=$(grep -n "backup.sh backup vault" .github/workflows/vault-reinitialize.yml | head -1 | cut -d: -f1)
+  v=$(grep -n "Verify the backup exists" .github/workflows/vault-reinitialize.yml | head -1 | cut -d: -f1)
+  d=$(grep -n "docker volume rm openbao-data" .github/workflows/vault-reinitialize.yml | head -1 | cut -d: -f1)
+  [ -n "$b" ] && [ -n "$v" ] && [ -n "$d" ]
+  [ "$b" -lt "$d" ]
+  [ "$v" -lt "$d" ]
+}
+
+@test "vault-reinitialize does NOT revoke root" {
+  # Revoking root before configuration is what produced the inert vault, and
+  # revoking at all is a one-way door. It stays a separate deliberate command.
+  run grep -E "vault\.sh revoke-root" .github/workflows/vault-reinitialize.yml
+  [ "$status" -eq 0 ]
+  # ...only inside the summary text telling the operator how, never as a step.
+  run bash -c 'grep -E "^\s+run:.*vault\.sh revoke-root" .github/workflows/vault-reinitialize.yml'
+  [ "$status" -eq 1 ]
+}
+
+@test "vault-reinitialize configures before it could ever revoke" {
+  s=$(grep -n "vault.sh setup'" .github/workflows/vault-reinitialize.yml | head -1 | cut -d: -f1)
+  d=$(grep -n "vault.sh seed'" .github/workflows/vault-reinitialize.yml | head -1 | cut -d: -f1)
+  t=$(grep -n "vault.sh setup-sync-token'" .github/workflows/vault-reinitialize.yml | head -1 | cut -d: -f1)
+  [ -n "$s" ] && [ -n "$d" ] && [ -n "$t" ]
+  [ "$s" -lt "$d" ]
+  [ "$d" -lt "$t" ]
+}
+
+@test "raft config exists and differs from the file config only in storage" {
+  [ -f platform/vault/config.raft.hcl ]
+  # Count directives, not the header comment that names both backends.
+  run bash -c 'grep -v "^\s*#" platform/vault/config.raft.hcl | grep -c "storage \"raft\""'
+  [ "$output" = "1" ]
+  run bash -c 'grep -v "^\s*#" platform/vault/config.raft.hcl | grep -c "^cluster_addr"'
+  [ "$output" = "1" ]
+  run bash -c 'grep -v "^\s*#" platform/vault/config.raft.hcl | grep -c "cluster_address"'
+  [ "$output" = "1" ]
+  # The file backend config must stay untouched, and must NOT gain raft.
+  run bash -c 'grep -v "^\s*#" platform/vault/config.hcl | grep -c "storage \"file\""'
+  [ "$output" = "1" ]
+  run bash -c 'grep -v "^\s*#" platform/vault/config.hcl | grep -c "storage \"raft\""'
+  [ "$output" = "0" ]
+}
+
+@test "vault compose defaults to the file backend with no environment set" {
+  run docker compose -f deploy/compose/prod/docker-compose.vault.yml config
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/openbao/file"* ]]
+  [[ "$output" != *"config.raft.hcl"* ]]
+}
