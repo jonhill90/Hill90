@@ -87,18 +87,13 @@ make secrets-view KEY=SPECIFIC_KEY
 
 | Path | Keys | Canonical For |
 |------|------|--------------|
-| `secret/api/config` | INTERNAL_SERVICE_SECRET, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | API service + shared MinIO/internal creds |
 | `secret/shared/database` | DB_USER, DB_PASSWORD, DB_NAME | All services needing DB access |
 | `secret/shared/jwt` | JWT_SECRET, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY | All services needing JWT |
 | `secret/ai/config` | ANTHROPIC_API_KEY, OPENAI_API_KEY | AI service |
-| `secret/auth/config` | KC_ADMIN_USERNAME, KC_ADMIN_PASSWORD, SMTP_PASSWORD | Auth (Keycloak) service |
-| `secret/ui/config` | AUTH_KEYCLOAK_ID, AUTH_KEYCLOAK_SECRET, AUTH_SECRET | UI service |
 | `secret/ops/verification` | TEST_USER_USERNAME, TEST_USER_PASSWORD | Human-operated supported-path verification |
-| `secret/minio/config` | MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | MinIO (duplicates from api/config) |
 | `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER | Traefik reverse proxy |
 | `secret/infra/dns-manager` | HOSTINGER_API_KEY | DNS manager |
 | `secret/observability/grafana` | GRAFANA_ADMIN_PASSWORD | Grafana |
-| `secret/shared/chat` | CHAT_CALLBACK_TOKEN | API verifies, agentbox sends (chat callback auth) |
 | `secret/mcp/config` | INTERNAL_SERVICE_SECRET | MCP service (duplicate from api/config) |
 
 ## Automated Sync
@@ -153,4 +148,4 @@ This is configured automatically by Ansible bootstrap (playbook `12-deploy-profi
 
 ## Deduplication
 
-Some keys exist in multiple vault paths (e.g., MINIO_ROOT_USER in both `api/config` and `minio/config`). The `sync-to-sops` command reads `api/config` first and skips duplicates from later paths, so SOPS always gets the canonical value.
+If a key ever exists in more than one vault path, `sync-to-sops` reads paths in a fixed order and skips duplicates from later paths, so SOPS always gets the canonical value.

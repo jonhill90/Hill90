@@ -1,12 +1,13 @@
 # Contributing to Hill90
 
-Hill90 is a microservices platform on a Hostinger VPS with infrastructure
-automation, Tailscale-secured SSH, and Docker Compose deployments.
+Hill90 is homelab infrastructure for a single Hostinger VPS: Ansible
+provisioning, Traefik edge routing, an observability stack, SOPS/OpenBao
+secrets, and Tailscale-secured SSH.
 
-> **Current scope:** the prod VPS was rebuilt in June 2026 as a deliberate
-> scope reduction — only the infra and observability stacks are deployed. The
-> application stack under `services/` is not running. See
-> [Infra/app separation](docs/decisions/infra-app-separation.md).
+> **Scope:** Hill90 is not an application host. The AI agent application that
+> once lived here was shelved in June 2026 and removed in July 2026. See
+> [Infra/app separation](docs/decisions/infra-app-separation.md); the code is
+> preserved at the `archive/app-stack-final` tag.
 
 ## Pull Request Workflow
 
@@ -70,17 +71,8 @@ the script form directly.
 | Recreate VPS | `bash scripts/vps.sh recreate` | `make recreate-vps` |
 | Configure VPS | `bash scripts/vps.sh config <ip>` | `make config-vps VPS_IP=<ip>` |
 | Deploy infra | `bash scripts/deploy.sh infra prod` | `make deploy-infra` |
-| Deploy database | `bash scripts/deploy.sh db prod` | `make deploy-db` |
-| Deploy auth | `bash scripts/deploy.sh auth prod` | `make deploy-auth` |
-| Deploy API | `bash scripts/deploy.sh api prod` | `make deploy-api` |
-| Deploy AI | `bash scripts/deploy.sh ai prod` | `make deploy-ai` |
-| Deploy MCP | `bash scripts/deploy.sh mcp prod` | `make deploy-mcp` |
-| Deploy MinIO | `bash scripts/deploy.sh minio prod` | `make deploy-minio` |
 | Deploy vault | `bash scripts/deploy.sh vault prod` | `make deploy-vault` |
-| Deploy UI | `bash scripts/deploy.sh ui prod` | `make deploy-ui` |
-| Deploy knowledge | `bash scripts/deploy.sh knowledge prod` | `make deploy-knowledge` |
 | Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |
-| Deploy all apps | `bash scripts/deploy.sh all prod` | `make deploy-all` |
 | Health check | `bash scripts/ops.sh health` | `make health` |
 | Backup all | `bash scripts/backup.sh backup-all` | `make backup` |
 | Backup service | `bash scripts/backup.sh backup <svc>` | `make backup-<svc>` |
@@ -115,14 +107,12 @@ workflow, on a weekly schedule or manual trigger.
 - [Secrets workflow](docs/runbooks/secrets-workflow.md)
 - [Secrets schema validation](docs/runbooks/secrets-schema-validation.md)
 - [Vault auto-unseal](docs/runbooks/vault-unseal.md)
-- [API auth verification](docs/runbooks/api-auth-verification.md)
 - [Observability](docs/runbooks/observability.md)
 
 **Architecture**
 
 - [Overview](docs/architecture/overview.md)
 - [Secrets model](docs/architecture/secrets-model.md)
-- [MCP gateway evaluation](docs/architecture/mcp-gateway-evaluation.md)
 
 **Operational reference**
 
@@ -133,19 +123,12 @@ workflow, on a weekly schedule or manual trigger.
 - [Secrets management](docs/reference/secrets.md)
 - [Tailscale management](docs/reference/tailscale.md)
 
-**Public docs**
-
-The Mintlify source in `docs/site/` publishes to https://docs.hill90.com.
-Everything else under `docs/` is internal.
-
 ## Guardrails
 
 **Do**
 
 - Validate behavior locally before opening a PR.
 - Use `bash scripts/*.sh` or the `make` wrappers for operations.
-- Update `services/api/src/openapi/openapi.yaml` when adding or changing API
-  routes — CI enforces spec-vs-route drift.
 
 **Don't**
 

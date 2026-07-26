@@ -118,7 +118,6 @@ Common issues and solutions for Hill90 VPS infrastructure.
    - Let's Encrypt production: 5 failures/hour, 50 certs/week
    - If rate limited, wait 1 hour and use staging certificates for testing
    - Deploy infrastructure: `make deploy-infra`
-   - Deploy applications: `make deploy-all`
 
 ### DNS-01 Certificate Not Issued (Tailscale Services)
 
@@ -283,7 +282,6 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 4. **Redeploy to regenerate .htpasswd:**
    ```bash
    make deploy-infra
-   make deploy-all
    ```
 
 5. **Check middleware configuration:**
@@ -311,137 +309,6 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 3. **Verify IP whitelist middleware:**
    - Dashboard is only accessible from Tailscale network (100.64.0.0/10)
    - Public internet access is blocked by design
-
----
-
-## Database Connection Issues
-
-### Services Can't Connect to PostgreSQL
-
-**Problem**: Services fail with database connection errors
-
-**Solutions**:
-
-1. **Check PostgreSQL is running:**
-   ```bash
-   ssh deploy@<tailscale-ip> 'docker ps | grep postgres'
-   ```
-
-2. **Verify credentials in secrets:**
-   ```bash
-   make secrets-view KEY=DB_PASSWORD
-   make secrets-view KEY=DB_USER
-   make secrets-view KEY=POSTGRES_DB
-   ```
-
-3. **Check internal network connectivity:**
-   ```bash
-   ssh deploy@<tailscale-ip> 'docker exec api ping -c 3 postgres'
-   ```
-
-4. **Review PostgreSQL logs:**
-   ```bash
-   ssh deploy@<tailscale-ip> 'docker logs postgres --tail 50'
-   ```
-
-5. **Test database connection:**
-   ```bash
-   ssh deploy@<tailscale-ip> 'docker exec -it postgres psql -U <user> -d <database> -c "\l"'
-   ```
-
----
-
-## Keycloak Issues
-
-### Keycloak Not Starting
-
-**Problem**: Keycloak container exits or fails health check
-
-**Solutions**:
-
-1. **Verify PostgreSQL is running:**
-   ```bash
-   ssh deploy@<tailscale-ip> 'docker ps | grep postgres'
-   ```
-   Keycloak requires PostgreSQL. Deploy it first: `make deploy-db`
-
-2. **Check Keycloak logs:**
-   ```bash
-   ssh deploy@<tailscale-ip> 'docker logs keycloak --tail 50'
-   ```
-
-3. **Verify OIDC endpoint:**
-   ```bash
-   curl -f https://auth.hill90.com/realms/hill90/.well-known/openid-configuration
-   ```
-
-### Authentication Flow Not Working
-
-**Problem**: Users cannot log in via the UI
-
-**Solutions**:
-
-1. **Check Keycloak is accessible:**
-   ```bash
-   curl -f https://auth.hill90.com/realms/hill90
-   ```
-
-2. **Verify secrets:**
-   ```bash
-   make secrets-view KEY=AUTH_KEYCLOAK_ID
-   make secrets-view KEY=AUTH_KEYCLOAK_SECRET
-   make secrets-view KEY=AUTH_SECRET
-   ```
-
-3. **Check UI logs:**
-   ```bash
-   ssh deploy@<tailscale-ip> 'docker logs ui --tail 50'
-   ```
-
----
-
-## Email Delivery Issues
-
-### Keycloak Emails Not Sending
-
-**Problem**: Password reset or verification emails are not delivered
-
-**Solutions**:
-
-1. **Test connection from Keycloak admin console:**
-   - Navigate to Realm Settings → Email → Test connection
-   - A successful test confirms SMTP credentials and network path
-
-2. **Verify SMTP_PASSWORD in SOPS:**
-   ```bash
-   bash scripts/secrets.sh view infra/secrets/prod.enc.env SMTP_PASSWORD
-   ```
-
-3. **Re-apply SMTP config via deploy:**
-   ```bash
-   bash scripts/deploy.sh auth prod
-   ```
-   Phase1 of `setup-realm.sh` re-injects SMTP settings via the Keycloak REST API.
-
-4. **Check DNS email authentication records:**
-   ```bash
-   # SPF
-   dig TXT hill90.com +short
-   # Should include: "v=spf1 include:_spf.hostinger.email ~all"
-
-   # DKIM
-   dig CNAME hostingermail-a._domainkey.hill90.com +short
-   dig CNAME hostingermail-b._domainkey.hill90.com +short
-   dig CNAME hostingermail-c._domainkey.hill90.com +short
-
-   # DMARC
-   dig TXT _dmarc.hill90.com +short
-   ```
-
-5. **Verify Hostinger SMTP credentials:**
-   - Username: `noreply@hill90.com`
-   - Managed at the Hostinger email panel (hpanel.hostinger.com → Emails)
-   - SMTP host: `smtp.hostinger.com`, port `587`, STARTTLS
 
 ---
 
@@ -601,9 +468,9 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 ### Exporter Healthcheck Caveats
 
-Docker healthchecks for `promtail` and `postgres-exporter` use `--version` flags, which only validate binary presence. This means:
+The Docker healthcheck for `promtail` uses a `--version` flag, which only validates binary presence. This means:
 
-- Docker reports `healthy` even if the upstream connection (Loki, PostgreSQL) is broken.
+- Docker reports `healthy` even if the upstream connection to Loki is broken.
 - `ops.sh health` relies on Docker health state and will show green for these exporters regardless.
 - **Always verify Prometheus target status** for connection truth, especially after infrastructure changes.
 

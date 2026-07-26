@@ -19,16 +19,6 @@ Expected outcome:
 - `hill90_edge` and `hill90_internal` Docker networks exist.
 - DNS-01 certificate flow is functional for Tailscale-only routes.
 
-## Deploy Database
-
-```bash
-make deploy-db
-```
-
-Expected outcome:
-- `postgres` container is healthy on the internal network.
-- Required before `make deploy-all` (Keycloak depends on PostgreSQL).
-
 ## Deploy Vault
 
 ```bash
@@ -43,17 +33,6 @@ Expected outcome:
 
 See [Vault Unseal Runbook](./vault-unseal.md) for troubleshooting.
 
-## Deploy Storage (Optional)
-
-```bash
-make deploy-minio
-```
-
-Expected outcome:
-- `minio` container is healthy on edge and internal networks.
-- S3 API available at `http://minio:9000` from internal containers.
-- Console at `https://storage.hill90.com` (Tailscale-only).
-
 ## Deploy Observability
 
 ```bash
@@ -66,16 +45,6 @@ Expected outcome:
 - Grafana accessible at `https://grafana.hill90.com` (Tailscale-only).
 - Prometheus scrape targets all show `up`.
 
-## Deploy Application Services
-
-```bash
-make deploy-all
-```
-
-Expected outcome:
-- `keycloak`, `api`, `ai`, `mcp`, `ui` are running.
-- Public routes respond through Traefik with valid certificates.
-
 ## Validate Deployment
 
 ```bash
@@ -87,19 +56,19 @@ Optional targeted checks:
 
 ```bash
 make logs-traefik
-curl -f https://api.hill90.com/health
-curl -f https://ai.hill90.com/mcp   # MCP gateway (AI service is internal-only)
-curl -f https://auth.hill90.com/realms/hill90/.well-known/openid-configuration
+bash scripts/deploy.sh verify infra
+bash scripts/deploy.sh verify observability
 
-# MinIO console (Tailscale-only):
-curl -f https://storage.hill90.com
+# Tailscale-only surfaces:
+curl -f https://traefik.hill90.com/ping
+curl -f https://grafana.hill90.com/api/health
 ```
 
 ## SSH-Based Deployment (On VPS)
 
 ```bash
 ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com \
-  'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh minio prod && bash scripts/deploy.sh observability prod && bash scripts/deploy.sh all prod'
+  'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh vault prod && bash scripts/deploy.sh observability prod'
 ```
 
 ## Stack-Level Project Isolation
@@ -109,8 +78,7 @@ All Docker Compose operations use explicit project names to prevent cross-stack 
 | Stack | Project Name | Services |
 |-------|-------------|----------|
 | edge | `hill90-prod-edge` | traefik, dns-manager, portainer |
-| platform | `hill90-prod-platform` | postgres, minio |
-| identity | `hill90-prod-identity` | keycloak |
+| platform | `hill90-prod-platform` | openbao |
 | apps | `hill90-prod-apps` | api, ai, mcp, ui |
 | observability | `hill90-prod-observability` | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor |
 
@@ -134,7 +102,7 @@ docker compose -p hill90-prod-observability ps  # Monitoring
 
 ## Pre-Deploy Backups
 
-Stateful service deploys (db, minio, auth, observability) automatically create a backup before the deploy cycle. Infrastructure deploys also backup traefik certificates and portainer data.
+Stateful deploys (vault, observability) automatically create a backup before the deploy cycle. Infrastructure deploys also back up traefik certificates and portainer data.
 
 Backups are stored at `/opt/hill90/backups/<service>/<timestamp>/` on the VPS.
 
@@ -154,7 +122,7 @@ make backup                    # or: bash scripts/backup.sh backup-all
 
 # Backup a specific service
 make backup-db                 # or: bash scripts/backup.sh backup db
-make backup-minio              # or: bash scripts/backup.sh backup minio
+make backup-vault              # or: bash scripts/backup.sh backup vault
 make backup-infra              # or: bash scripts/backup.sh backup infra
 make backup-observability      # or: bash scripts/backup.sh backup observability
 
@@ -174,8 +142,7 @@ make backup-restore SERVICE=db BACKUP_PATH=/opt/hill90/backups/db/20260222_12000
 
 | Service | Backup Method | Files |
 |---------|--------------|-------|
-| db | `pg_dumpall` + volume tar | `database.sql`, `postgres-data.tar.gz` |
-| minio | Volume tar | `minio-data.tar.gz` |
+| vault | Volume tar | `openbao-data.tar.gz` |
 | infra | Volume tar | `traefik-certs.tar.gz`, `portainer-data.tar.gz` |
 | observability | Volume tar | `grafana-data.tar.gz`, `prometheus-data.tar.gz` |
 
@@ -185,8 +152,6 @@ make backup-restore SERVICE=db BACKUP_PATH=/opt/hill90/backups/db/20260222_12000
 2. Restore: `make backup-restore SERVICE=<service> BACKUP_PATH=<path>`
 3. Restart: `docker restart <container>`
 4. Verify: `bash scripts/deploy.sh verify <service>`
-
-For PostgreSQL, prefer the SQL dump restore (`database.sql`) over volume tar — it's portable and handles version differences.
 
 ## Rollback
 
@@ -213,7 +178,7 @@ bash scripts/rollback.sh rollback api HEAD~1
 make rollback SERVICE=api REF=HEAD~1
 
 # After rollback, redeploy and verify
-bash scripts/deploy.sh api prod
+bash scripts/deploy.sh observability prod
 bash scripts/deploy.sh verify api
 ```
 
@@ -240,7 +205,7 @@ When the rollback script detects migration files, it refuses automated rollback 
 
 ## Persistent Volume Safety Invariants
 
-Stateful services (postgres, traefik, portainer, minio, observability) store data in Docker volumes. These invariants prevent data loss from volume namespace drift.
+Stateful services (traefik, portainer, openbao, observability) store data in Docker volumes. These invariants prevent data loss from volume namespace drift.
 
 ### Rules
 
@@ -277,7 +242,6 @@ docker inspect <container> --format \
 ```
 
 Expected outputs:
-- postgres (`/var/lib/postgresql/data`): `prod_postgres-data`
 - traefik (`/letsencrypt`): `prod_traefik-certs`
 - portainer (`/data`): `prod_portainer-data`
 
@@ -294,21 +258,11 @@ If a volume name change causes data loss:
      tar xzf /backup/<volume-name>.tar.gz -C /dest
    ```
 
-## Chat Token Rotation
-
-After rotating `CHAT_CALLBACK_TOKEN`, running agents must be restarted for the new token to take effect. The token is injected into each agentbox container at start time as an env var. Until an agent is stopped and restarted, it continues using the old token — callbacks from those agents will fail with 401.
-
-**Rotation steps:**
-1. Update the token in SOPS and vault (see secrets-workflow.md)
-2. Redeploy API service: `bash scripts/deploy.sh api prod`
-3. Restart all running agents: stop + start each agent via the UI or API
-
 ## Failure Modes
 
 - Missing or invalid secrets: `sops`/runtime env errors at deploy time.
-- Missing Docker networks: app deploy fails until `make deploy-infra` recreates them.
+- Missing Docker networks: vault and observability deploys fail until `make deploy-infra` recreates them.
 - ACME rate limiting: switch to staged testing cadence and retry after cooldown.
-- Chat callback auth failure (401): `CHAT_CALLBACK_TOKEN` mismatch between API and agentbox — restart agents after token rotation.
 
 ## See Also
 

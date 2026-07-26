@@ -1,9 +1,10 @@
 # Infra/App Separation
 
-**Status:** decided, not implemented
+**Status:** implemented
 **Decided:** 2026-07-11
 **Recorded:** 2026-07-25 (salvaged from working session notes before those
 notes were deleted)
+**Implemented:** 2026-07-26
 
 ## Context
 
@@ -51,19 +52,43 @@ deliberately for hands-on exposure to etcd, CNI, and certificate management,
 which is closer to managing a real on-prem cluster. kubeadm v1.35 with
 containerd and Calico is confirmed working on AlmaLinux 10 / Rocky 10.1.
 
-## Status and Open Items
+## Implementation
 
-Nothing has been implemented. No branch, no extraction, no new repositories.
-This repo remains structurally unchanged — `services/`, `platform/`, `infra/`,
-and `deploy/compose` are all still present.
+Carried out on 2026-07-26 across four pull requests, planned in
+[PRD.md](../../PRD.md) and [SPEC.md](../../SPEC.md):
 
-Deferred details, to be settled when the work actually starts:
+| Step | Change |
+|---|---|
+| #494 | Removed the eight application services, their compose files, workflows, tests and secrets |
+| #495 | Removed Keycloak, Postgres and MinIO; vault lost OIDC SSO with them |
+| #496 | Documentation rewritten to describe the infrastructure repo |
+| JON-29 | Observability configuration — Prometheus targets, alert and dashboards |
 
-- Exact content inventory for each boilerplate repo
-- The cert-manager / ingress-nginx / ArgoCD / observability manifest set
-- Secrets and config templating approach
-- Whether the Kubernetes boilerplate carries its own node preparation or
-  references the Docker one
+What remains is three stacks and ten containers: edge (Traefik, dns-manager,
+Portainer), observability (the LGTM stack plus collectors), and OpenBao.
+`services/dns-manager` was kept — it is live infrastructure, the DNS-01 ACME
+webhook Traefik depends on, not application code.
+
+The application is preserved two ways: the `archive/app-stack-final` tag on
+this repository, and the `hill90-app` repository, which holds the eight services
+extracted with full history.
+
+### Deviations from the original decision
+
+- **Hill90 was not archived.** The decision anticipated extracting into fresh
+  boilerplates and leaving this repo untouched. Instead Hill90 stayed live and
+  operational and had the application removed in place, because the infra and
+  observability stacks are still deployed and still wanted.
+- **The generic boilerplates are a separate effort.** `docker-infra-template`
+  and `k8s-cluster-template` are parallel work; the app/infra inventory in
+  `SPEC.md` §7 is the artifact handed to them.
+
+### Open items
+
+- Kubernetes boilerplate content and manifest set (unchanged, deferred)
+- Secrets and config templating approach for the boilerplates (deferred)
+- OpenBao is retained but not currently deployed; it holds no secrets that the
+  three running stacks cannot get from SOPS
 
 ## Provenance
 
