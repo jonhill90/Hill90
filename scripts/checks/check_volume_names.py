@@ -21,9 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # Stateful compose files that must have explicit volume names.
 TARGET_FILES = [
-    "deploy/compose/prod/docker-compose.db.yml",
     "deploy/compose/prod/docker-compose.infra.yml",
-    "deploy/compose/prod/docker-compose.minio.yml",
     "deploy/compose/prod/docker-compose.observability.yml",
     "deploy/compose/prod/docker-compose.vault.yml",
 ]

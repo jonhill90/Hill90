@@ -8,14 +8,12 @@ OpenBao is the runtime source of truth for secrets. SOPS is the bootstrap and di
 ┌─────────────────────────────────────────────────────┐
 │                   Vault (OpenBao)                    │
 │                                                     │
-│  secret/shared/database   secret/api/config         │
-│  secret/shared/jwt        secret/ai/config          │
-│  secret/auth/config       secret/ui/config          │
-│  secret/minio/config      secret/infra/traefik      │
-│  secret/infra/dns-manager secret/observability/...   │
+│  secret/infra/traefik                               │
+│  secret/infra/dns-manager                           │
+│  secret/observability/grafana                       │
 │                                                     │
 │  auth/approle/role/{svc}  (per-service AppRoles)    │
-│  auth/oidc/               (admin SSO via Keycloak)  │
+│  auth/token/              (admin access)            │
 └───────┬─────────────────────────┬───────────────────┘
         │ AppRole login           │ sync-to-sops
         ▼                         ▼
@@ -36,23 +34,13 @@ All secrets are stored in vault KV v2 under `secret/`.
 
 | Path | Keys | Consumers |
 |------|------|-----------|
-| `secret/shared/database` | DB_USER, DB_PASSWORD, DB_NAME | db, auth, api |
-| `secret/shared/jwt` | JWT_SECRET, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY | api, ai, mcp |
-| `secret/api/config` | INTERNAL_SERVICE_SECRET, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | api |
-| `secret/ai/config` | ANTHROPIC_API_KEY, OPENAI_API_KEY, LITELLM_MASTER_KEY | ai |
-| `secret/shared/model-router` | MODEL_ROUTER_INTERNAL_SERVICE_TOKEN, MODEL_ROUTER_SIGNING_PRIVATE_KEY, PROVIDER_KEY_ENCRYPTION_KEY | api, ai |
-| `secret/knowledge/config` | AKM_INTERNAL_SERVICE_TOKEN, AKM_SIGNING_PRIVATE_KEY, AKM_SIGNING_PUBLIC_KEY | api, knowledge |
-| `secret/auth/config` | KC_ADMIN_USERNAME, KC_ADMIN_PASSWORD, SMTP_PASSWORD | auth (Keycloak) |
-| `secret/ui/config` | AUTH_KEYCLOAK_ID, AUTH_KEYCLOAK_SECRET, AUTH_SECRET | ui |
-| `secret/ops/verification` | TEST_USER_USERNAME, TEST_USER_PASSWORD | human verification / QA flows |
-| `secret/minio/config` | MINIO_ROOT_USER, MINIO_ROOT_PASSWORD | minio |
 | `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER | traefik |
 | `secret/infra/dns-manager` | HOSTINGER_API_KEY | dns-manager |
 | `secret/observability/grafana` | GRAFANA_ADMIN_PASSWORD | grafana |
 
-Some keys exist in multiple vault paths (e.g., MINIO_ROOT_USER in both `secret/api/config` and `secret/minio/config`). The schema YAML tracks these as `dedup` annotations to prevent false-positive warnings.
-
-**Signing keys**: `MODEL_ROUTER_SIGNING_PRIVATE_KEY` and `AKM_SIGNING_PRIVATE_KEY` are both Ed25519 (EdDSA) keys — separate key pairs, distinct from the RSA keys used by Keycloak for OIDC. Both private keys are held by the API service; the AI and Knowledge services hold only the corresponding public keys. `PROVIDER_KEY_ENCRYPTION_KEY` is a 64-character hex key used for AES-256-GCM encryption of user-provided API keys (BYOK).
+`platform/vault/secrets-schema.yaml` is the canonical mapping of vault paths to
+SOPS keys to compose `${VAR}` references, and `scripts/checks/check_secrets_schema.py`
+enforces it on every pull request.
 
 ## AppRole Authentication
 
@@ -64,18 +52,26 @@ vault.sh setup → creates AppRole per service
                 → stores credentials in SOPS for deploy-time injection
 ```
 
-Services: db, api, ai, auth, ui, mcp, minio, infra, observability.
+Services: infra, observability.
 
 At deploy time, `deploy.sh` injects the AppRole credentials as environment variables. The container authenticates to vault on startup and reads its scoped secrets.
 
-## OIDC SSO (Admin Access)
+## Admin Access — Token Only
 
-Human operators access vault via OIDC through Keycloak:
+Vault UI and CLI access is **token-based**. There is no SSO.
 
-- Keycloak client: `hill90-vault`
-- Vault role: `admin-sso`
-- Policy: `policy-oidc-admin`
-- Setup: `vault.sh setup-oidc`
+OIDC single sign-on through Keycloak was removed when the Keycloak stack was
+retired alongside the shelved application; the `hill90-vault` client was its only
+remaining consumer, and carrying a full identity provider for one operator was
+not worth the surface. This was a deliberate trade, not an oversight — do not
+re-add `vault.sh setup-oidc` without first re-introducing an identity provider.
+
+To obtain a token:
+
+- The initial root token is emitted by `vault.sh init` and stored in SOPS.
+- For one-off admin work, generate a fresh root token with
+  `bao operator generate-root` and **revoke it immediately afterwards**.
+- Services authenticate by AppRole, never by root token.
 
 ## Auto-Unseal
 
@@ -117,7 +113,7 @@ Not all secrets live in vault. SOPS holds three additional categories:
 | Category | Keys | Purpose |
 |----------|------|---------|
 | Bootstrap | VPS_HOST, VPS_IP, TAILSCALE_AUTH_KEY, GHCR_TOKEN | Infrastructure provisioning (no vault equivalent) |
-| Vault management | OPENBAO_UNSEAL_KEY, VAULT_OIDC_CLIENT_SECRET, VAULT_SYNC_TOKEN | Generated during vault setup, stored for DR |
+| Vault management | OPENBAO_UNSEAL_KEY, VAULT_SYNC_TOKEN | Generated during vault setup, stored for DR |
 | AppRole credentials | VAULT_{SVC}_ROLE_ID, VAULT_{SVC}_SECRET_ID | Per-service vault authentication |
 
 ## See Also

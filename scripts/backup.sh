@@ -10,7 +10,6 @@ source "$SCRIPT_DIR/_common.sh"
 # Default backup root — override with BACKUP_DIR env var
 BACKUP_ROOT="${BACKUP_DIR:-/opt/hill90/backups}"
 DEFAULT_RETENTION_DAYS=7
-DB_USER="${DB_USER:-hill90}"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -31,8 +30,6 @@ Commands:
   help                     Show this help message
 
 Services with backups:
-  db             PostgreSQL (pg_dump + volume tar)
-  minio          MinIO object storage (volume tar)
   vault          OpenBao secrets data (volume tar)
   infra          Traefik certificates + Portainer data (volume tar)
   observability  Grafana dashboards + Prometheus data (volume tar)
@@ -87,32 +84,6 @@ restore_volume() {
 # Per-service backup implementations
 # ---------------------------------------------------------------------------
 
-backup_db() {
-    local backup_dir="$1"
-    mkdir -p "$backup_dir"
-
-    echo "Backing up PostgreSQL..."
-
-    # SQL dump (portable, recommended for restore)
-    if docker exec postgres pg_isready -U "$DB_USER" >/dev/null 2>&1; then
-        docker exec postgres pg_dumpall -U "$DB_USER" > "$backup_dir/database.sql"
-        echo "  ✓ SQL dump saved to $backup_dir/database.sql"
-    else
-        warn "PostgreSQL not running — skipping SQL dump"
-    fi
-
-    # Volume tar (full data directory backup)
-    backup_volume "prod_postgres-data" "$backup_dir/postgres-data.tar.gz" || true
-}
-
-backup_minio() {
-    local backup_dir="$1"
-    mkdir -p "$backup_dir"
-
-    echo "Backing up MinIO..."
-    backup_volume "minio-data" "$backup_dir/minio-data.tar.gz"
-}
-
 backup_infra() {
     local backup_dir="$1"
     mkdir -p "$backup_dir"
@@ -148,8 +119,8 @@ cmd_backup() {
 
     # Validate service before constructing any paths
     case "$service" in
-        db|minio|vault|infra|observability) ;;
-        *) die "Unknown service for backup: $service. Use: db, minio, vault, infra, observability" ;;
+        vault|infra|observability) ;;
+        *) die "Unknown service for backup: $service. Use: vault, infra, observability" ;;
     esac
 
     local timestamp
@@ -157,8 +128,6 @@ cmd_backup() {
     local backup_dir="${BACKUP_ROOT}/${service}/${timestamp}"
 
     case "$service" in
-        db)            backup_db "$backup_dir" ;;
-        minio)         backup_minio "$backup_dir" ;;
         vault)         backup_vault "$backup_dir" ;;
         infra)         backup_infra "$backup_dir" ;;
         observability) backup_observability "$backup_dir" ;;
@@ -174,7 +143,7 @@ cmd_backup_all() {
     echo "================================"
     echo ""
 
-    for svc in db minio vault infra observability; do
+    for svc in vault infra observability; do
         cmd_backup "$svc"
         echo ""
     done
@@ -208,25 +177,6 @@ cmd_restore() {
     sleep 5
 
     case "$service" in
-        db)
-            if [ -f "$backup_dir/database.sql" ]; then
-                echo "Restoring PostgreSQL from SQL dump..."
-                echo "  Importing $backup_dir/database.sql..."
-                docker exec -i postgres psql -U "$DB_USER" < "$backup_dir/database.sql"
-                echo "  ✓ SQL dump restored"
-            elif [ -f "$backup_dir/postgres-data.tar.gz" ]; then
-                warn "No SQL dump found — restoring from volume tar (requires postgres restart)"
-                restore_volume "prod_postgres-data" "$backup_dir/postgres-data.tar.gz"
-                echo "  Restart postgres: docker restart postgres"
-            else
-                die "No backup files found in $backup_dir"
-            fi
-            ;;
-        minio)
-            [ -f "$backup_dir/minio-data.tar.gz" ] || die "minio-data.tar.gz not found in $backup_dir"
-            restore_volume "minio-data" "$backup_dir/minio-data.tar.gz"
-            echo "  Restart minio: docker restart minio"
-            ;;
         infra)
             [ -f "$backup_dir/traefik-certs.tar.gz" ] || die "traefik-certs.tar.gz not found in $backup_dir"
             restore_volume "prod_traefik-certs" "$backup_dir/traefik-certs.tar.gz"

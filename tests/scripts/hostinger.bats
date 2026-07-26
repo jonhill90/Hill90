@@ -16,31 +16,11 @@
   [[ "$output" == *"Usage"* ]] || [[ "$output" == *"VPS Commands"* ]]
 }
 
-@test "hostinger.sh invalid service fails" {
-  run bash scripts/hostinger.sh bogus
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Unknown"* ]]
-}
-
-# ---------------------------------------------------------------------------
-# MinIO DNS tests
-# ---------------------------------------------------------------------------
-
 @test "hostinger.sh dns_sync pair loop includes storage with tailscale_ip" {
   # Verify storage is in the sync pair loop (not just anywhere in the file)
   run bash -c 'sed -n "/^dns_sync/,/^}/p" scripts/hostinger.sh | grep "storage"'
   [ "$status" -eq 0 ]
   [[ "$output" == *"tailscale_ip"* ]]
-}
-
-@test "hostinger.sh dns_sync zone payload includes storage record" {
-  run bash -c 'sed -n "/^dns_sync/,/^}/p" scripts/hostinger.sh | grep "storage.*\\\$ts"'
-  [ "$status" -eq 0 ]
-}
-
-@test "hostinger.sh dns_verify includes storage domain" {
-  run bash -c 'sed -n "/^dns_verify/,/^}/p" scripts/hostinger.sh | grep "storage"'
-  [ "$status" -eq 0 ]
 }
 
 @test "hostinger.sh dns_verify has failure tracking and non-zero return" {
@@ -73,4 +53,10 @@
 @test "hostinger.sh dns_verify includes vault domain" {
   run bash -c 'sed -n "/^dns_verify/,/^}/p" scripts/hostinger.sh | grep "vault"'
   [ "$status" -eq 0 ]
+}
+
+@test "hostinger.sh invalid service fails" {
+  run bash scripts/hostinger.sh bogus
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Unknown"* ]]
 }
