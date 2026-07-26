@@ -102,7 +102,7 @@ This single command:
 - DNS records updated to new VPS IP
 
 ❌ **Application services NOT running:**
-- Database (PostgreSQL), MinIO, Keycloak, API, AI, MCP, UI services require deployment
+- Vault (OpenBao) and the observability stack require deployment
 
 ## Next Steps
 
@@ -113,13 +113,12 @@ After bootstrap completes, deploy infrastructure and application services:
 make deploy-infra
 
 # Deploy database (required before app services)
-make deploy-db
+make deploy-vault
 
 # Deploy storage (optional)
-make deploy-minio
+make deploy-observability
 
 # Deploy application services
-make deploy-all
 
 # Verify health
 make health

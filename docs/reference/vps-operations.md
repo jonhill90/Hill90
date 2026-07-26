@@ -28,22 +28,11 @@ make config-vps VPS_IP=<ip>
 # Step 3: Deploy infrastructure (Traefik, dns-manager, Portainer)
 make deploy-infra
 
-# Step 3b: Deploy database (required before app services)
-make deploy-db
+# Step 3b: Deploy vault
+make deploy-vault  # or: bash scripts/deploy.sh vault prod
 
-# Step 3c: Deploy MinIO storage (optional)
-make deploy-minio
-
-# Step 3d: Deploy observability stack
+# Step 3c: Deploy observability stack
 make deploy-observability  # or: bash scripts/deploy.sh observability prod
-
-# Step 4: Deploy application services
-make deploy-all  # All services
-# OR deploy individually:
-make deploy-auth  # Keycloak identity provider
-make deploy-api   # API service
-make deploy-ai    # AI service
-make deploy-mcp   # MCP service
 ```
 
 ### What Happens Automatically
@@ -79,14 +68,6 @@ make deploy-mcp   # MCP service
 4. Deploys dns-manager (DNS-01 ACME challenges)
 5. Deploys Portainer (container management)
 
-**Step 4: `make deploy-all`** (~2-3 minutes):
-1. Deploys keycloak
-2. Deploys api
-3. Deploys ai
-4. Deploys mcp
-5. Deploys ui
-6. Verifies all services running
-
 ### Infrastructure After Each Step
 
 **After Step 2 (Config VPS):**
@@ -99,35 +80,24 @@ make deploy-mcp   # MCP service
 - ✅ Age key transferred to `/opt/hill90/secrets/keys/keys.txt`
 - ❌ **No containers running**
 
-**After Step 3 (Deploy Infra + DB + MinIO + Observability):**
+**After Step 3 (Deploy Infra + Vault + Observability):**
 - ✅ All above +
 - ✅ Traefik running (reverse proxy)
 - ✅ dns-manager running (DNS-01 challenges)
 - ✅ Portainer running (Tailscale-only access)
 - ✅ Docker networks created
-- ✅ PostgreSQL + postgres-exporter running
-- ✅ MinIO running (optional)
+- ✅ OpenBao running and unsealed
 - ✅ Observability stack running (Prometheus, Grafana, Loki, Tempo, collectors)
-- ❌ **No application services running**
-
-**After Step 4 (Deploy All):**
-- ✅ All services running
-- ✅ Production ready
+- ✅ Ten containers total — fully deployed
 
 ## Per-Service Deployment
 
 Deploy individual services without affecting others:
 
 ```bash
-make deploy-infra   # Traefik, dns-manager, Portainer
-make deploy-db      # PostgreSQL database
-make deploy-auth    # Keycloak identity provider
-make deploy-api     # API service
-make deploy-ai      # AI service
-make deploy-mcp     # MCP service
-make deploy-minio          # MinIO object storage
-make deploy-observability  # Prometheus, Grafana, Loki, Tempo + collectors (or: bash scripts/deploy.sh observability prod)
-make deploy-all            # All app services (not infra or db)
+make deploy-infra          # Traefik, dns-manager, Portainer
+make deploy-vault          # OpenBao (or: bash scripts/deploy.sh vault prod)
+make deploy-observability  # Prometheus, Grafana, Loki, Tempo + collectors
 ```
 
 ## Safety Operations
@@ -237,11 +207,8 @@ make health    # Check all services
 - `scripts/vps.sh recreate` - Full rebuild automation
 - `scripts/vps.sh config` - Ansible bootstrap wrapper
 - `scripts/deploy.sh infra` - Infrastructure deployment
-- `scripts/deploy.sh auth` - Auth service deployment
-- `scripts/deploy.sh api` - API service deployment
-- `scripts/deploy.sh ai` - AI service deployment
-- `scripts/deploy.sh mcp` - MCP service deployment
-- `scripts/deploy.sh minio` - MinIO storage deployment
+- `scripts/deploy.sh vault` - OpenBao deployment
+- `scripts/deploy.sh observability` - Observability stack deployment
 - `scripts/deploy.sh observability` - Observability stack deployment
 - `scripts/deploy.sh all` - All app services deployment
 - `scripts/hostinger.sh` - VPS API operations

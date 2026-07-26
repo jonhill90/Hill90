@@ -1,6 +1,6 @@
 # Hill90 — App/Infra Separation Specification
 
-**Status:** proposed
+**Status:** implemented 2026-07-26
 **Date:** 2026-07-26
 **Companion:** [PRD.md](PRD.md)
 **Decision record:** [docs/decisions/infra-app-separation.md](docs/decisions/infra-app-separation.md)

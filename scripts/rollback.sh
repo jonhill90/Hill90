@@ -44,10 +44,8 @@ EOF
 service_paths() {
     local service="$1"
     case "$service" in
-        auth)          echo "platform/auth/keycloak/ deploy/compose/prod/docker-compose.auth.yml" ;;
-        db)            echo "platform/data/postgres/ deploy/compose/prod/docker-compose.db.yml" ;;
-        infra)         echo "platform/edge/ deploy/compose/prod/docker-compose.infra.yml" ;;
-        minio)         echo "deploy/compose/prod/docker-compose.minio.yml" ;;
+        infra)         echo "platform/edge/ services/dns-manager/ deploy/compose/prod/docker-compose.infra.yml" ;;
+        vault)         echo "platform/vault/ deploy/compose/prod/docker-compose.vault.yml" ;;
         observability) echo "platform/observability/ deploy/compose/prod/docker-compose.observability.yml" ;;
         *)             die "Unknown service: $service" ;;
     esac

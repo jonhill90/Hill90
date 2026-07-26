@@ -1,22 +1,23 @@
 # Hill90 Architecture Overview
 
-*This document describes the high-level architecture of the Hill90 VPS platform.*
+*This document describes the high-level architecture of the Hill90 VPS.*
 
 ## System Architecture
 
-Hill90 is a Docker-based microservices platform hosted on a single Hostinger VPS running AlmaLinux.
+Hill90 is homelab infrastructure on a single Hostinger VPS running AlmaLinux 10.
+It is not an application host — the AI agent application that once ran here was
+shelved in June 2026 and removed in July 2026. See
+[Infra/app separation](../decisions/infra-app-separation.md).
 
 ### Components
 
-- **Edge Layer**: Traefik reverse proxy with automatic HTTPS (dual certificate resolvers)
-- **Application Layer**: Microservices (API, AI, MCP, Knowledge, UI) with Keycloak identity provider
-- **Data Layer**: PostgreSQL database, MinIO S3-compatible object storage
-- **Observability Layer**: LGTM stack (Loki, Grafana, Tempo, Prometheus) with collectors and exporters
+- **Edge Layer**: Traefik reverse proxy with automatic HTTPS (dual certificate resolvers), Portainer, and the DNS-01 challenge webhook
+- **Observability Layer**: LGTM stack (Loki, Grafana, Tempo, Prometheus) with collectors
+- **Secrets Layer**: OpenBao vault, with SOPS/age as the bootstrap and DR backup
 - **Infrastructure Layer**:
   - Docker Compose orchestration
-  - DNS Manager (Let's Encrypt DNS-01 challenge webhook)
-  - Portainer (container management UI)
   - Tailscale VPN (secure admin access)
+  - Ansible playbooks (host provisioning)
 
 ### Network Topology
 
@@ -26,116 +27,83 @@ Internet                         Tailscale Network (100.64.0.0/10)
 Traefik (edge network)           ┌──────────────────────────┐
    ↓                             │ Admin Services           │
 ┌─────────────────────────────┐  │ - Traefik Dashboard      │
-│ Public Services (edge)      │  │ - Portainer UI           │
-│ - API (HTTP-01 cert)        │  │ - LiteLLM Dashboard      │
-│ - MCP gateway (HTTP-01)     │  └──────────────────────────┘
-│ - Keycloak (HTTP-01 cert)   │           ↓ (DNS-01 certs)
-│ - UI (HTTP-01 cert)         │  ┌──────────────────────────┐
-└─────────────────────────────┘  │ DNS Manager              │
-                                 │ (Webhook for ACME)       │
-   ↓                             └──────────────────────────┘
-┌─────────────────────────────┐           ↓
-│ Internal Services (internal)│  Hostinger DNS API
-│ - AI / Model-Router         │  (TXT record management)
-│ - Knowledge / AKM           │
-│ - PostgreSQL                │
-│ - MinIO (S3 API)            │
-│ - LiteLLM                   │
-│ - postgres-exporter         │
-└─────────────────────────────┘
-   ↓
-┌─────────────────────────────┐
-│ Agent (agent_internal)      │
-│ - Agentbox containers       │
-│   → AI service, Knowledge   │
-│   (isolated from edge)      │
-└─────────────────────────────┘
-   ↓
-┌─────────────────────────────┐
-│ Observability (internal)    │  ┌──────────────────────────┐
-│ - Prometheus (metrics)      │  │ Grafana Dashboard        │
-│ - Loki (logs)               │  │ (grafana.hill90.com,     │
-│ - Tempo (traces)            │  │  Tailscale-only)         │
-│ - Promtail (log collector)  │  └──────────────────────────┘
+│ Public entrypoints          │  │ - Portainer UI           │
+│ - :80  (HTTP-01 validation, │  │ - Grafana                │
+│         redirect to :443)   │  │ - OpenBao UI             │
+│ - :443 (TLS termination)    │  └──────────────────────────┘
+└─────────────────────────────┘           ↓ (DNS-01 certs)
+                                 ┌──────────────────────────┐
+   ↓                             │ DNS Manager              │
+┌─────────────────────────────┐  │ (Webhook for ACME)       │
+│ Internal (hill90_internal)  │  └──────────────────────────┘
+│ - Loki (logs)               │           ↓
+│ - Tempo (traces)            │  Hostinger DNS API
+│ - Promtail (log collector)  │  (TXT record management)
 │ - Node Exporter (host)      │
 │ - cAdvisor (containers)     │
+└─────────────────────────────┘
+   ↓
+┌─────────────────────────────┐
+│ Edge + internal             │
+│ - Prometheus (metrics)      │
+│ - Grafana (dashboards)      │
+│ - OpenBao (secrets)         │
 └─────────────────────────────┘
 ```
 
 **Certificate Management:**
-- **Public services** use HTTP-01 challenge (Let's Encrypt validates via port 80)
-- **Tailscale-only services** use DNS-01 challenge (Let's Encrypt validates via DNS TXT records)
+- **Public hostnames** use HTTP-01 challenge (Let's Encrypt validates via port 80)
+- **Tailscale-only hostnames** use DNS-01 challenge (Let's Encrypt validates via DNS TXT records) — they have no public A record, so HTTP-01 cannot reach them
 - DNS Manager translates Traefik ACME requests to Hostinger DNS API calls
 
 **Network Isolation:**
-- **edge network**: Public-facing services (Traefik → API, MCP gateway, Keycloak, UI)
-- **internal network**: Private services (Keycloak, PostgreSQL, AKM, observability stack)
-- **agent_internal network**: Agent containers ↔ API ↔ AKM (isolated from edge)
-- **Tailscale network**: Admin-only services (Traefik dashboard, Portainer, MinIO console, Grafana, LiteLLM dashboard)
-- **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via middleware
+- **edge network**: Traefik and the services it routes
+- **internal network**: `internal: true`, unreachable from outside the host
+- **agent_internal network**: `internal: true`, retained from the shelved application and currently unused
+- **Tailscale network**: admin-only surfaces (Traefik dashboard, Portainer, Grafana, OpenBao)
+- **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via Traefik middleware
+
+`docker-compose.infra.yml` is the sole owner of all three Docker networks; the
+observability and vault stacks attach to them as external.
 
 ## Service Responsibilities
 
-### Application Services
-
-- **API**: REST API gateway — agent lifecycle management, provider connections, model policies, usage queries, token signing
-- **AI (Model-Router)**: Internal policy-gated LLM inference gateway for agents — not publicly routed (`traefik.enable=false`)
-- **MCP**: Model Context Protocol gateway (Keycloak JWT authenticated)
-- **Keycloak**: Identity provider (OIDC/OAuth2) at auth.hill90.com
-- **UI**: Next.js frontend application
-- **Knowledge (AKM)**: Agent Knowledge Manager — persistent agent memory with full-text search, journaling, and context assembly (internal-only, `traefik.enable=false`)
-- **Agentbox**: Sandboxed agent runtime containers — shell and filesystem functions, non-root user, resource limits, network-isolated on `agent_internal`. Runtime-first (Starlette/uvicorn).
-
-### Agent Harness
-
-The AI, Knowledge (AKM), and Agentbox services form the **agent harness** — the subsystem that runs AI agents with sandboxed tool access, policy-gated model inference, and persistent memory. The API service orchestrates the harness: it manages agent lifecycle (create/start/stop/delete), signs Ed25519 JWTs for agent authentication, and proxies user-facing queries to internal services.
-
-See [Agent Harness Architecture](./agent-harness.md) for the full design: agentbox runtime, agent lifecycle, model-router pipeline, AKM knowledge system, and configuration reference.
-
-### Infrastructure Services
-
 - **Traefik**: Reverse proxy, load balancer, automatic HTTPS
-  - HTTP-01 challenge for public services
-  - DNS-01 challenge for Tailscale-only services
-  - Dashboard accessible at https://traefik.hill90.com (Tailscale-only)
-- **Portainer**: Docker container management UI at https://portainer.hill90.com (Tailscale-only)
-- **MinIO**: S3-compatible object storage, console at https://storage.hill90.com (Tailscale-only), S3 API internal-only on `hill90_internal`
+  - HTTP-01 challenge for public hostnames
+  - DNS-01 challenge for Tailscale-only hostnames
+  - Dashboard at https://traefik.hill90.com (Tailscale-only)
 - **DNS Manager**: HTTP webhook for Let's Encrypt DNS-01 challenges
-  - Translates Lego httpreq provider format to Hostinger DNS API
-  - Creates/deletes DNS TXT records for ACME validation
-- **LiteLLM**: LLM proxy for provider API routing. The AI service reaches LiteLLM on the internal network (`http://litellm:4000`). The admin dashboard is exposed at https://litellm.hill90.com (Tailscale-only via DNS-01 cert).
-- **PostgreSQL**: Relational database for persistent storage (separate deploy: `make deploy-db`)
+  - Translates the Lego `httpreq` provider format to the Hostinger DNS API
+  - Creates and deletes DNS TXT records for ACME validation
+  - The only application code in this repository (`services/dns-manager`)
+- **Portainer**: Docker container management UI at https://portainer.hill90.com (Tailscale-only)
+- **OpenBao**: Secrets management at https://vault.hill90.com (Tailscale-only), token-authenticated
+- **Prometheus / Grafana / Loki / Tempo**: Metrics, dashboards, logs and traces
+- **Promtail / Node Exporter / cAdvisor**: Log and metric collectors
 
 ## Technology Stack
 
-- **Languages**: TypeScript (Node.js), Python
-- **Frameworks**: Express, FastAPI, Next.js
+- **Host**: AlmaLinux 10
 - **Infrastructure**:
   - Docker Engine + Docker Compose
-  - Traefik (reverse proxy with Let's Encrypt integration)
+  - Traefik v2.11 (reverse proxy with Let's Encrypt integration)
   - Portainer (container management)
-  - PostgreSQL
-  - MinIO (S3-compatible object storage)
-  - LiteLLM (LLM proxy gateway)
 - **Observability**:
   - Prometheus (metrics collection and alerting)
   - Grafana (dashboards and exploration)
   - Loki (log aggregation)
   - Tempo (distributed tracing)
-  - OpenTelemetry (application tracing instrumentation)
-  - Promtail, Node Exporter, cAdvisor, postgres-exporter (collectors)
+  - Promtail, Node Exporter, cAdvisor (collectors)
 - **Secrets Management**:
   - OpenBao vault (runtime source of truth)
   - SOPS + age (bootstrap and disaster-recovery backup)
-  - AppRole authentication per service
+  - AppRole authentication per stack
   - Auto-unseal via systemd on boot
 - **Security**:
   - Tailscale VPN (admin access)
   - Let's Encrypt (automatic HTTPS)
   - IP whitelist middleware (Tailscale CGNAT range)
   - bcrypt (password hashing for Traefik auth)
-  - Keycloak 26.4 (identity provider, OIDC/OAuth2)
-  - Auth.js v5 (session management)
 - **DNS**: Hostinger DNS API (automated via `scripts/hostinger.sh`)
 - **APIs**:
   - Hostinger VPS API (infrastructure automation)
@@ -143,17 +111,15 @@ See [Agent Harness Architecture](./agent-harness.md) for the full design: agentb
 
 ## Deployment
 
-- **VPS Provisioning**: Hostinger API (fully automated via Makefile)
+- **VPS Provisioning**: Hostinger API (automated via `scripts/vps.sh`)
 - **Configuration as Code**: Ansible playbooks (VPS bootstrap)
-- **Container Orchestration**: Docker Compose
-- **CI/CD**: GitHub Actions (CI, VPS lifecycle, per-service deploy, and Tailscale ACL workflows)
+- **Container Orchestration**: Docker Compose, three stacks
+- **CI/CD**: GitHub Actions (CI, VPS lifecycle, per-stack deploy, Tailscale ACL sync)
 - **DNS Management**: Automated via Hostinger DNS API (`scripts/hostinger.sh`)
 - **Certificate Management**: Automatic via Let's Encrypt (HTTP-01 + DNS-01)
 
 ## See Also
 
-- [UI Component Architecture](./ui-components.md) - AppShell, nav, auth patterns, API proxy
-- [Agent Harness Architecture](./agent-harness.md) - Agentbox, agent lifecycle, model-router, AKM
 - [Certificate Management](./certificates.md) - HTTP-01 vs DNS-01 challenges, DNS Manager implementation
 - [Secrets Architecture](./secrets-model.md) - Vault-first architecture, KV paths, AppRole, sync
 - [Security Architecture](./security.md)
