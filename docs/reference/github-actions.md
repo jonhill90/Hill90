@@ -34,7 +34,7 @@ All deploy workflows share a single concurrency group: `deploy-prod` with `cance
 
 ### Why Global Serialization
 
-Per-service concurrency groups (e.g., `deploy-api`, `deploy-ui`) were considered but rejected:
+Per-stack concurrency groups (e.g., `deploy-vault`, `deploy-observability`) were considered but rejected:
 
 1. **Dependency ordering** — the orchestrator enforces `db -> auth -> api/mcp`. Per-service groups would allow `api` to start before `auth` finishes if they ran in parallel from different triggers.
 2. **VPS resource constraints** — the single-VPS architecture means concurrent deploys compete for CPU/memory during container builds and restarts.
@@ -158,7 +158,7 @@ Policy Gate (Advisory) uses `gate-${{ github.head_ref }}` with `cancel-in-progre
 
 **Certificate Management:**
 - Production certificates by default (workflow uses PRODUCTION ACME server)
-- For staging certificates during local development, use `make deploy-infra` + `make deploy-all` (uses STAGING ACME server)
+- For staging certificates during local development, use `make deploy-infra` (uses STAGING ACME server)
 - Separation between local (staging) and CI/CD (production) certificates
 
 ### Tailscale ACL GitOps Workflow - ✅ OPERATIONAL
@@ -246,17 +246,7 @@ Uses the Hostinger API and Tailscale API directly.
 
 **Certificate Note:**
 - GitHub Actions uses PRODUCTION certificates by default
-- Local `make deploy-infra` / `make deploy-all` uses STAGING certificates by default
-
-### 4. Deploy MinIO Workflow
-
-**`.github/workflows/deploy-minio.yml`** - MinIO Storage Deployment
-- **Trigger:** Manual dispatch only (push-based MinIO deploys go through the orchestrator `deploy.yml`)
-- **Features:**
-  - MinIO storage deployment via reusable deploy template
-  - Container health verification
-- **Duration:** ~1 minute
-- **Status:** ✅ Operational
+- Local `make deploy-infra` uses STAGING certificates by default
 
 ### 5. Tailscale ACL GitOps Workflow
 
@@ -595,7 +585,6 @@ bash scripts/vps.sh tailscale-ip hill90-vps
 - `.github/workflows/recreate-vps.yml` - VPS OS rebuild (Step 1, auto-triggers config-vps)
 - `.github/workflows/config-vps.yml` - Infrastructure bootstrap (Step 2, auto-triggered or manual)
 - `.github/workflows/deploy.yml` - Application deployment (Step 3, production certificates)
-- `.github/workflows/deploy-minio.yml` - MinIO storage deployment (auto on push to main)
 - `.github/workflows/tailscale.yml` - Tailscale ACL GitOps workflow
 
 ---

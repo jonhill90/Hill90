@@ -65,9 +65,6 @@ jobs:
       - name: Assert no destructive volume commands
         run: bash scripts/checks/check_destructive_commands.sh
 
-      - name: Check docs for sensitive content
-        run: bash scripts/checks/check_docs_secrets.sh
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

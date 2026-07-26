@@ -15,20 +15,16 @@ Operational guide for the Hill90 LGTM (Loki, Grafana, Tempo, Prometheus) observa
 | **Promtail** | Log collector (Docker → Loki) | — | Logs |
 | **Node Exporter** | Host-level metrics | 9100 | Metrics |
 | **cAdvisor** | Container metrics | 8080 | Metrics |
-| **postgres-exporter** | PostgreSQL metrics | 9187 | Metrics |
 
 ### Signal Flow
 
 ```
-Application Services
-  ├── Metrics ──→ Prometheus (scrape every 15s)
-  ├── Logs ────→ Promtail → Loki (Docker JSON logs)
-  └── Traces ──→ Tempo (OTLP HTTP :4318 / gRPC :4317)
-
 Infrastructure
-  ├── Host metrics ──→ Node Exporter → Prometheus
-  ├── Container metrics ──→ cAdvisor → Prometheus
-  └── PostgreSQL metrics ──→ postgres-exporter → Prometheus
+  ├── Host metrics ──────→ Node Exporter → Prometheus
+  ├── Container metrics ─→ cAdvisor → Prometheus
+  ├── Edge metrics ──────→ Traefik (:8082) → Prometheus
+  ├── Logs ──────────────→ Promtail → Loki (Docker JSON logs)
+  └── Traces ────────────→ Tempo (OTLP HTTP :4318 / gRPC :4317)
 
 All signals ──→ Grafana (query + visualize)
 ```
@@ -37,17 +33,16 @@ All signals ──→ Grafana (query + visualize)
 
 | Service | Metrics | Logs | Traces |
 |---------|---------|------|--------|
-| API (Node.js) | Prometheus scrape* | Promtail | OTEL auto-instrumentation |
-| AI (Python) | Prometheus scrape* | Promtail | OTEL instrument CLI |
-| MCP (Python) | Prometheus scrape* | Promtail | OTEL instrument CLI |
-| Keycloak | Prometheus (:9000) | Promtail | Native KC_TRACING |
-| PostgreSQL | postgres-exporter | Promtail | — |
-| MinIO | Prometheus (/minio/v2/metrics/cluster) | Promtail | — |
 | Traefik | Prometheus (:8082) | Promtail | — |
-| UI (Next.js) | — | Promtail | — |
+| Node Exporter | Prometheus (:9100) | Promtail | — |
+| cAdvisor | Prometheus (:8080) | Promtail | — |
+| Grafana / Loki / Tempo | Prometheus (self-scrape) | Promtail | — |
 | dns-manager | — | Promtail | — |
+| Portainer | — | Promtail | — |
+| OpenBao | — | Promtail | — |
 
-*App services expose metrics if instrumented; current tracing config sets `OTEL_METRICS_EXPORTER=none`.
+Tempo is deployed and receiving-capable, but nothing currently emits traces —
+tracing was used by the shelved application. It is retained for future use.
 
 ## Deployment
 
@@ -67,8 +62,6 @@ make deploy-observability
 
 Expected outcome: 7 containers healthy — `prometheus`, `grafana`, `loki`, `tempo`, `promtail`, `node-exporter`, `cadvisor`.
 
-The `postgres-exporter` deploys with the database stack (`bash scripts/deploy.sh db prod`).
-
 ### Verification Checklist
 
 After deployment, verify in order:
@@ -81,7 +74,7 @@ docker ps --filter name=prometheus --filter name=grafana --filter name=loki --fi
 
 Or use `bash scripts/ops.sh health`.
 
-> **Caveat**: Docker healthchecks for `promtail` and `postgres-exporter` validate binary presence (`--version`), not endpoint readiness. A healthy Docker status does NOT guarantee the upstream connection is working.
+> **Caveat**: The Docker healthcheck for `promtail` validates binary presence (`--version`), not endpoint readiness. A healthy Docker status does NOT guarantee the upstream connection is working.
 
 **2. Prometheus targets (connection truth — required for exporters):**
 
@@ -89,7 +82,7 @@ Or use `bash scripts/ops.sh health`.
 curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health: .health, lastError: .lastError}'
 ```
 
-This is the authoritative source for whether scrape targets are actually reachable. Always check this for `postgres-exporter` and `promtail`.
+This is the authoritative source for whether scrape targets are actually reachable. Always check this for `promtail`.
 
 **3. Grafana datasource connectivity:**
 
@@ -117,9 +110,6 @@ When investigating an issue, follow this signal hierarchy:
 | Node Exporter | Provisioned | CPU, memory, disk, network (host) |
 | cAdvisor | Provisioned | Container CPU, memory, network |
 | Traefik | Provisioned | Request rates, latencies, errors |
-| PostgreSQL | Custom (`postgres.json`) | Version, connections, transactions, cache hit ratio, locks, DB size |
-| MinIO | Custom (`minio.json`) | Cluster health, drive status, capacity, S3 traffic, node resources |
-| Keycloak | Custom (`keycloak.json`) | JVM memory, HTTP requests/latency, Agroal pool, threads, CPU, cache |
 | Loki Logs | Provisioned | Log search and exploration |
 
 All dashboards are file-provisioned from `platform/observability/grafana/provisioning/dashboards/`.
@@ -133,7 +123,6 @@ Baseline alerts in `platform/observability/prometheus/alerts.yml`:
 | ServiceDown | Any scrape target down > 5m | critical |
 | HighMemoryUsage | Container memory > 90% of limit | warning |
 | DiskSpaceRunningLow | Root filesystem < 15% free | warning |
-| PostgresConnectionsHigh | Active connections > 80% max | warning |
 | LokiIngestionErrors | Ingestion error rate > 0 | warning |
 | TempoIngestionErrors | Ingestion failure rate > 0 | warning |
 
@@ -151,7 +140,6 @@ Volumes are backed up by `bash scripts/ops.sh backup` (Prometheus and Grafana vo
 ## Known Caveats
 
 - **Compose v2 `version` field warnings**: Cosmetic only, ignored by Docker Compose v2+.
-- **Healthcheck binary-only checks**: `promtail --version` and `postgres_exporter --version` validate binary presence, not endpoint readiness. Docker reports healthy even if upstream (Loki, PostgreSQL) is unreachable. Always cross-check Prometheus target status.
+- **Healthcheck binary-only checks**: `promtail --version` validates binary presence, not endpoint readiness. Docker reports healthy even if Loki is unreachable. Always cross-check Prometheus target status.
 - **Tailscale-only access**: Grafana at `grafana.hill90.com` requires Tailscale VPN connection (IP whitelist middleware).
 - **Promtail Docker socket**: Requires `/var/run/docker.sock` mount for container log discovery.
-- **MinIO metrics auth**: Set to `public` (no bearer token required). Safe because MinIO is on `hill90_internal` network only.

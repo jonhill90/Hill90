@@ -1,667 +1,257 @@
 # Hill90
 
-Production-ready Docker-based microservices platform hosted on Hostinger VPS.
+Homelab infrastructure for a single Hostinger VPS: provisioning, edge routing,
+observability, and secrets — automated end to end.
+
+Hill90 is not an application host. It is the automation that takes a bare VPS to
+a running, TLS-terminated, observable, Tailscale-secured Docker host, and keeps
+it there. An AI agent application previously lived here; it was shelved in June
+2026 and removed in July 2026. See
+[Infra/app separation](docs/decisions/infra-app-separation.md) for the record,
+and the `archive/app-stack-final` tag for the code.
+
+## What runs
+
+Ten containers across three stacks.
+
+| Stack | Containers | Deploy |
+|---|---|---|
+| Edge | traefik, dns-manager, portainer | `deploy.sh infra prod` |
+| Observability | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor | `deploy.sh observability prod` |
+| Secrets | openbao | `deploy.sh vault prod` |
+
+| Service | URL | Access |
+|---|---|---|
+| Traefik | https://traefik.hill90.com | Tailscale only |
+| Portainer | https://portainer.hill90.com | Tailscale only |
+| Grafana | https://grafana.hill90.com | Tailscale only |
+| OpenBao | https://vault.hill90.com | Tailscale only |
+| dns-manager | internal | Traefik only |
+
+Everything with a dashboard is Tailscale-only (`100.64.0.0/10`), enforced by a
+Traefik IP-allowlist middleware. Only ports 80 and 443 are open publicly.
 
 ## Architecture
 
-- **VPS**: AlmaLinux 10 on Hostinger
+- **Host**: AlmaLinux 10 on a Hostinger VPS
 - **Runtime**: Docker Engine + Docker Compose
-- **Edge Proxy**: Traefik with Let's Encrypt TLS
-  - **HTTP-01 Challenge**: For public services (api, ai, mcp, keycloak, ui)
-  - **DNS-01 Challenge**: For Tailscale-only services (traefik, portainer, storage, grafana, vault, litellm)
-- **Languages**:
-  - Python (FastAPI) for AI and MCP services
-  - TypeScript (Express/Next.js) for API and UI services
-- **Secrets**: OpenBao vault (runtime) + SOPS/age (bootstrap/backup)
-- **Admin Access**: Tailscale VPN + SSH key authentication
-- **Infrastructure**: Hostinger API + Tailscale API (fully automated)
-- **Configuration**: Ansible playbooks
+- **Edge**: Traefik v2.11 with Let's Encrypt
+  - **HTTP-01** for public hostnames
+  - **DNS-01** via the `dns-manager` webhook for Tailscale-only hostnames, which
+    have no public A record to validate against
+- **Observability**: Prometheus, Grafana, Loki, Tempo, plus Promtail,
+  node-exporter and cAdvisor
+- **Secrets**: OpenBao at runtime, SOPS/age for bootstrap and disaster recovery
+- **Admin access**: Tailscale VPN, SSH key only
+- **Provisioning**: Ansible playbooks, Hostinger API, Tailscale API
 - **CI/CD**: GitHub Actions
-- **DNS**: Hostinger DNS API (automated via `scripts/hostinger.sh`)
+- **DNS**: Hostinger DNS API via `scripts/hostinger.sh`
 
-## Key Features
-
-- **AI Agent Platform** — Create, configure, and manage AI agents with sandboxed Docker containers
-- **Browser Viewer** — Browser-in-browser experience: Take Control (click, scroll, type), Describe (element picker with chat), URL navigation
-- **Knowledge System** — Dual-layer: agent persistent memory (AKM) + shared knowledge library with pgvector semantic search
-- **11 Agent Tools** — Shell, filesystem, browser, tmux, git, http_request, save/search knowledge, search shared knowledge
-- **Model Management** — BYOK provider connections, model policies, rate limits, usage tracking via LiteLLM
-- **Chat** — Direct and group threads with agents, live session pane (terminal, browser, events)
-- **Claude Code Integration** — ANTHROPIC_API_KEY injected into agent containers for Claude CLI
-- **Vault-First Secrets** — OpenBao vault with SOPS/age backup, AppRole per service, auto-unseal
-- **Full Observability** — Prometheus, Grafana, Loki, Tempo with OpenTelemetry instrumentation
-
-## Services
-
-| Service | Language | URL | Description |
-|---------|----------|-----|-------------|
-| Traefik | - | https://traefik.hill90.com | Edge proxy & load balancer |
-| Portainer | - | https://portainer.hill90.com | Docker container management |
-| MinIO | - | https://storage.hill90.com | S3-compatible object storage |
-| Grafana | - | https://grafana.hill90.com | Observability dashboards (metrics, logs, traces) |
-| OpenBao | - | https://vault.hill90.com | Secrets management (vault) |
-| LiteLLM | - | https://litellm.hill90.com | LLM proxy gateway (model routing) |
-| DNS Manager | Python | Internal | DNS-01 challenge webhook for Let's Encrypt |
-| API | TypeScript | https://api.hill90.com | API Gateway |
-| AI | Python | https://ai.hill90.com | Model-router gateway (policy-gated LLM inference) |
-| MCP | Python | https://ai.hill90.com/mcp | MCP Gateway (authenticated) |
-| Keycloak | Java | https://auth.hill90.com | OIDC/OAuth2 identity provider |
-| UI | TypeScript | https://hill90.com | Frontend |
-| Docs | - | https://docs.hill90.com | Platform documentation (Mintlify) |
-
-**Note:** Traefik, Portainer, MinIO console, Grafana, OpenBao, and LiteLLM are accessible only via Tailscale network (100.64.0.0/10).
+`services/dns-manager` is the only application code in this repository — a small
+Flask webhook implementing Traefik's `httpreq` DNS-01 provider against the
+Hostinger API. Without it, certificates for Tailscale-only hosts cannot issue.
 
 ## Prerequisites
 
 - [Ansible](https://docs.ansible.com/ansible/latest/installation_guide/intro_installation.html) (>= 2.15)
 - [SOPS](https://github.com/getsops/sops) (>= 3.8)
 - [age](https://github.com/FiloSottile/age) (>= 1.1)
-- [Docker](https://docs.docker.com/get-docker/) (>= 24.0) - for local development
-- [Node.js](https://nodejs.org/) (>= 20) - for TypeScript services
-- [Python](https://www.python.org/) (>= 3.12) - for Python services
-- [Poetry](https://python-poetry.org/) - Python dependency management
-- [Tailscale](https://tailscale.com/download) - VPN for secure VPS access
+- [Docker](https://docs.docker.com/get-docker/) (>= 24.0)
+- [Tailscale](https://tailscale.com/download) — required for any VPS access
 
-## Quick Start
-
-### 1. Clone Repository
+## Quick start
 
 ```bash
 git clone <repository-url>
 cd Hill90
+brew install ansible sops age     # macOS
+make secrets-init                 # generates age keypair + encrypted secrets
 ```
 
-### 2. Install Dependencies
+Deploys run **on the VPS over SSH**, never from a local Mac. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## VPS rebuild
+
+A full rebuild takes roughly 6–9 minutes.
 
 ```bash
-# macOS
-brew install ansible sops age
-
-# Linux
-# See individual tool documentation for installation
+make snapshot                   # optional safety snapshot
+make recreate-vps               # rebuild OS, rotate Tailscale key, update VPS_IP
+make config-vps VPS_IP=<ip>     # deploy user, Docker, firewall, Tailscale, SOPS
 ```
 
-### 3. Initialize Secrets
+Then, on the VPS:
 
 ```bash
-make secrets-init
-```
-
-This will generate age keypair and create initial encrypted secrets file.
-
-### 4. Rebuild VPS (if needed)
-
-**Complete VPS rebuild is fully automated with a 4-step process:**
-
-#### Step 1: Rebuild VPS OS
-
-```bash
-make recreate-vps
-```
-
-**What happens:**
-- Generates new Tailscale auth key via API
-- Rebuilds VPS OS via Hostinger API (AlmaLinux 10)
-- Waits for VPS to become available
-- Retrieves new public IP
-- Updates `VPS_IP` in encrypted secrets
-- **Time:** ~3-5 minutes
-
-#### Step 2: Bootstrap Infrastructure
-
-```bash
-make config-vps VPS_IP=<ip>
-```
-
-**What happens:**
-- Creates deploy user with SSH keys
-- Installs Docker and Docker Compose
-- Configures firewall (HTTP/HTTPS public, SSH from Tailscale only)
-- Joins Tailscale network and captures IP
-- Installs SOPS and age for secrets management
-- Clones repository and transfers encryption key
-- Deploys Traefik + Portainer (infrastructure only)
-- Updates DNS records automatically
-- Updates `TAILSCALE_IP` in encrypted secrets
-- **Time:** ~3-5 minutes
-
-#### Step 3: Deploy Infrastructure Services
-
-```bash
-make deploy-infra
-```
-
-**What happens:**
-- Deploys Traefik, dns-manager, and Portainer
-- Requests DNS-01 Let's Encrypt certificates for Tailscale-only services
-- **Time:** ~1-2 minutes
-
-#### Step 3b: Deploy MinIO Storage (Optional)
-
-```bash
-make deploy-minio
-```
-
-**What happens:**
-- Deploys MinIO S3-compatible object storage
-- Console accessible at storage.hill90.com (Tailscale-only)
-- S3 API available internally at minio:9000
-- **Time:** ~1 minute
-
-#### Step 3c: Deploy Database
-
-```bash
-make deploy-db
-```
-
-**What happens:**
-- Deploys PostgreSQL database for Keycloak and application services
-- **Time:** ~1 minute
-
-#### Step 3d: Deploy Observability
-
-```bash
+bash scripts/deploy.sh infra prod
+bash scripts/deploy.sh vault prod
 bash scripts/deploy.sh observability prod
-# Or local convenience: make deploy-observability
+bash scripts/deploy.sh verify infra
+bash scripts/deploy.sh verify observability
 ```
 
-**What happens:**
-- Deploys LGTM stack (Prometheus, Grafana, Loki, Tempo) + collectors (Promtail, Node Exporter, cAdvisor)
-- Grafana accessible at grafana.hill90.com (Tailscale-only)
-- **Time:** ~1 minute
+**Why provisioning and deployment are separate:** Let's Encrypt limits
+validation failures to five per hour. Requesting certificates during bootstrap
+would exhaust that budget across repeated rebuild tests, so certificate-issuing
+deploys are a deliberate second phase.
 
-#### Step 4: Deploy Application Services
+Full procedure: [VPS rebuild runbook](docs/runbooks/vps-rebuild.md).
+
+## Commands
+
+`make` targets are local convenience wrappers. On the VPS or in CI, use the
+script form directly. The full mapping is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
-make deploy-all
+make deploy-infra           # Traefik, dns-manager, Portainer
+make deploy-vault           # OpenBao
+make deploy-observability   # Prometheus, Grafana, Loki, Tempo + collectors
+
+make health                 # health check
+make ps                     # running containers
+make logs-traefik           # follow one service
+make validate               # Traefik config, secrets, compose
+
+make backup                 # back up all critical volumes
+make dns-verify             # verify DNS propagation
 ```
 
-**What happens:**
-- Deploys application services (keycloak, api, ai, mcp, ui)
-- Requests Let's Encrypt certificates
-- Verifies service health
-- **Time:** ~2-3 minutes
+## Secrets
 
----
-
-**Total rebuild time:** ~8-13 minutes (4 steps)
-
-**Why 4 steps?**
-- **Infrastructure vs. Application**: Separating infrastructure (Traefik/Portainer) from application services prevents certificate exhaustion during VPS rebuild testing
-- **Certificate Rate Limits**: Let's Encrypt limits failures to 5/hour. Testing rebuild multiple times would hit this limit if certificates were requested during bootstrap.
-- **Flexibility**: Can rebuild infrastructure without redeploying applications
-
-#### GitHub Actions Alternative
-
-**For remote execution or CI/CD integration:**
-
-1. Go to repository → **Actions** → **VPS Recreate (Automated)**
-2. Click **"Run workflow"**
-3. Type **"RECREATE"** to confirm
-4. Watch execution (~10 minutes for Steps 1-2)
-5. Manually trigger deployment workflow (Step 3)
-
-**Status:** ✅ Tested successfully (Run #21128156365)
-
-### 5. Deploy Services
+OpenBao is the runtime source of truth; SOPS/age is the bootstrap and
+disaster-recovery backup. Deploy is vault-first with SOPS fallback.
 
 ```bash
-make deploy-infra          # Infrastructure (Traefik, dns-manager, Portainer)
-make deploy-db             # Database (PostgreSQL)
-make deploy-observability  # Observability (Prometheus, Grafana, Loki, Tempo)
-make deploy-all            # Application services
+make secrets-view KEY=VPS_IP
+make secrets-update KEY=VPS_IP VALUE="1.2.3.4"
+make check-secrets-schema
 ```
 
-### 6. Verify Deployment
-
-```bash
-make health
-```
-
-## Development
-
-### Local Development
-
-Each service can be run locally for development:
-
-```bash
-# API Service (TypeScript)
-cd services/api
-npm install
-npm run dev
-
-# AI Service (Python)
-cd services/ai
-poetry install
-poetry run uvicorn app.main:app --reload
-```
-
-### Building Services
-
-```bash
-make build
-```
-
-### Running Tests
-
-```bash
-make test
-```
-
-### Viewing Logs
-
-```bash
-# All services
-make logs
-
-# Specific service
-make logs-api
-make logs-ai
-```
-
-## Makefile Commands
-
-Run `make help` for a complete, organized list of commands. Key commands:
-
-| Command | Description |
-|---------|-------------|
-| `make help` | Show all available commands (organized by section) |
-| **Infrastructure Setup** | |
-| `make secrets-init` | Initialize SOPS keys |
-| `make secrets-edit` | Edit encrypted secrets interactively |
-| `make secrets-view KEY=<key>` | View specific secret value |
-| `make secrets-update KEY=<key> VALUE=<val>` | Update secret value |
-| **VPS Rebuild** | |
-| `make snapshot` | Create VPS snapshot (safety backup) |
-| `make recreate-vps` | Recreate VPS via API (DESTRUCTIVE) |
-| `make config-vps VPS_IP=<ip>` | Configure VPS with Ansible |
-| **Development** | |
-| `make dev` | Run development environment |
-| `make test` | Run all tests |
-| `make lint` | Lint all code |
-| `make format` | Format all code |
-| `make validate` | Validate infrastructure configuration |
-| **Deployment** | |
-| `make build` | Build all Docker images |
-| `make deploy-infra` | Deploy infrastructure (Traefik, dns-manager, Portainer) |
-| `make deploy-minio` | Deploy MinIO object storage |
-| `make deploy-db` | Deploy PostgreSQL database |
-| `make deploy-observability` | Deploy observability stack (Prometheus, Grafana, Loki, Tempo) |
-| `make deploy-all` | Deploy all application services |
-| **Monitoring** | |
-| `make health` | Check service health |
-| `make logs` | Show logs for all services |
-| `make logs-api` | Show API service logs |
-| `make logs-ai` | Show AI service logs |
-| `make ssh` | SSH into VPS |
-| **DNS Management** | |
-| `make dns-view` | View current DNS records for hill90.com |
-| `make dns-sync` | Sync DNS A records to current VPS_IP |
-| `make dns-snapshots` | List DNS backup snapshots |
-| `make dns-restore SNAPSHOT_ID=<id>` | Restore DNS from snapshot |
-| `make dns-verify` | Verify DNS propagation |
-| **Service Management** | |
-| `make ps` | Show running containers |
-| `make restart` | Restart all services |
-| `make restart-api` | Restart API service |
-| `make clean` | Clean up Docker resources |
-
-## Secrets Management
-
-Secrets are encrypted using SOPS with age encryption.
-
-### Editing Secrets
-
-```bash
-make secrets-edit ENV=prod
-```
-
-### Secrets Structure
-
-```bash
+```text
 infra/secrets/
-├── .sops.yaml              # SOPS configuration
-├── prod.enc.env            # Encrypted production secrets
-├── dev.enc.env             # Encrypted dev secrets
+├── .sops.yaml          # SOPS configuration
+├── prod.enc.env        # encrypted production secrets
 └── keys/
-    ├── age-prod.key        # Production age private key (gitignored)
-    └── age-prod.pub        # Production age public key
+    ├── age-prod.key    # private key (gitignored)
+    └── age-prod.pub    # public key
 ```
 
-**Important**: Never commit decrypted secrets (*.dec.env) or private keys (*.key).
+`platform/vault/secrets-schema.yaml` is the canonical map of vault paths to SOPS
+keys to compose `${VAR}` references, enforced on every pull request.
+
+**Never commit decrypted secrets or private keys.**
+
+Details: [Secrets architecture](docs/architecture/secrets-model.md) ·
+[Secrets workflow](docs/runbooks/secrets-workflow.md)
 
 ## CI/CD
 
-### GitHub Actions Workflows
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `ci.yml` | pull request | bats, pytest, shellcheck, compose validation, link and schema checks |
+| `deploy.yml` | push to `main` | path-filtered deploy of changed stacks |
+| `deploy-{infra,vault,observability}.yml` | manual | single-stack deploy |
+| `recreate-vps.yml`, `config-vps.yml` | manual | VPS lifecycle |
+| `vault-sync-to-sops.yml` | weekly + manual | sync vault back to the SOPS backup |
+| `tailscale.yml` | `policy.hujson` change | sync Tailscale ACLs |
 
-**Five GitHub Actions workflows are available:**
+Required repository secrets: `TAILSCALE_API_KEY`, `TS_OAUTH_CLIENT_ID`,
+`TS_OAUTH_SECRET`, `VPS_SSH_PRIVATE_KEY`, `SOPS_AGE_KEY`.
 
-1. **VPS Recreate Workflow** - `.github/workflows/recreate-vps.yml`
-   - ✅ **Status:** Tested and operational (Run #21128156365)
-   - **Trigger:** Manual via GitHub UI (type "RECREATE" to confirm)
-   - **Duration:** ~3-5 minutes
-   - **Features:**
-     - Full VPS OS rebuild via Hostinger API
-     - Automatic Tailscale auth key generation
-     - VPS IP retrieval and secret updates
-     - Auto-triggers config-vps workflow
-
-2. **Config VPS Workflow** - `.github/workflows/config-vps.yml`
-   - ✅ **Status:** Operational
-   - **Trigger:** Automatic after recreate-vps, or manual via GitHub UI
-   - **Duration:** ~3-5 minutes
-   - **Features:**
-     - Infrastructure bootstrap via Ansible
-     - Traefik + Portainer deployment
-     - Tailscale IP extraction and secret updates
-     - Automatic DNS record updates
-
-3. **Deploy Workflow** - `.github/workflows/deploy.yml`
-   - ✅ **Status:** Operational
-   - **Trigger:** Automatic on push to main, or manual via GitHub UI
-   - **Duration:** ~2-3 minutes
-   - **Features:**
-     - Application service deployment (keycloak, api, ai, mcp, ui)
-     - Production Let's Encrypt certificates
-     - Health check validation
-     - Deploys via SSH over Tailscale
-
-5. **Tailscale ACL GitOps** - `.github/workflows/tailscale.yml`
-   - ✅ **Status:** Operational
-   - **Trigger:** Automatic on push to main (for `policy.hujson` changes)
-   - **Features:**
-     - Automatic ACL deployment to Tailscale network
-     - ACL testing on pull requests
-     - Full audit trail in git
-
-4. **Deploy MinIO Workflow** - `.github/workflows/deploy-minio.yml`
-   - ✅ **Status:** Operational
-   - **Trigger:** Automatic on push to main (for MinIO compose/deploy changes)
-   - **Duration:** ~1 minute
-   - **Features:**
-     - MinIO storage deployment via SSH over Tailscale
-     - Container health verification
-
-### GitHub Secrets Required
-
-To use GitHub Actions workflows, configure these secrets in repository settings:
-
-- `HOSTINGER_API_KEY` - VPS management API access
-- `TAILSCALE_API_KEY` - Tailscale device/auth key management
-- `TS_OAUTH_CLIENT_ID` - GitHub runner network access (ephemeral nodes)
-- `TS_OAUTH_SECRET` - GitHub runner network access (ephemeral nodes)
-- `VPS_SSH_PRIVATE_KEY` - SSH access to VPS
-- `SOPS_AGE_KEY` - Secrets decryption
-
-**Full setup guide:** See [docs/reference/github-actions.md](docs/reference/github-actions.md)
-
-### Manual Deployment
-
-```bash
-# Local deployment (recommended for development)
-make deploy-infra          # Infrastructure (Traefik, dns-manager, Portainer)
-make deploy-db             # Database (PostgreSQL)
-make deploy-observability  # Observability (Prometheus, Grafana, Loki, Tempo)
-make deploy-all            # Application services
-
-# Or via SSH to VPS
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip> 'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/deploy.sh infra prod && bash scripts/deploy.sh db prod && bash scripts/deploy.sh observability prod && bash scripts/deploy.sh all prod'
-```
+Setup guide: [GitHub Actions reference](docs/reference/github-actions.md).
 
 ## Monitoring
 
-### Health Checks
-
 ```bash
-# Check all services
-make health
-
-# Manual checks
-curl https://api.hill90.com/health
-curl https://ai.hill90.com/health
-curl https://auth.hill90.com/realms/hill90
+make health                 # scripted health check
+make ps                     # container census
+make logs-traefik           # follow a service
 ```
 
-### Traefik Dashboard
+Grafana at https://grafana.hill90.com carries dashboards for Traefik, cAdvisor,
+node-exporter and Loki logs. Prometheus alerts cover service availability, memory
+and disk.
 
-Access at https://traefik.hill90.com (requires authentication).
-
-**Authentication:**
-- Username: `admin`
-- Password: Auto-generated during deployment (stored in password manager)
-- Credentials file (`.htpasswd`) is automatically generated from `TRAEFIK_ADMIN_PASSWORD_HASH` secret
-- Accessible only via Tailscale network (IP whitelist: 100.64.0.0/10)
-
-### Grafana Dashboards
-
-Access at https://grafana.hill90.com (requires Tailscale VPN).
-
-Pre-provisioned dashboards: Node Exporter, cAdvisor, Traefik, PostgreSQL, MinIO, Keycloak, Loki Logs.
-
-See [Observability Runbook](docs/runbooks/observability.md) for full details.
-
-### Logs
-
-```bash
-# Stream all logs
-make logs
-
-# Service-specific logs
-docker logs -f api
-docker logs -f ai
-docker logs -f mcp
-```
+Runbook: [Observability](docs/runbooks/observability.md).
 
 ## Security
 
-### SSH Access
+**SSH** — root login disabled, password authentication disabled, key-based only,
+fail2ban enabled, reachable only over Tailscale.
 
-- Root login disabled
-- Password authentication disabled
-- Key-based authentication only
-- Fail2ban enabled
+**Network** — firewall allows 80/443 publicly and SSH from Tailscale only.
+Internal Docker networks are `internal: true` and unreachable from outside.
 
-### Network Security
+**TLS** — certificates renew automatically via Let's Encrypt: HTTP-01 for public
+hostnames, DNS-01 for Tailscale-only ones. Security headers are enforced at
+Traefik, and the Traefik dashboard password hash comes from encrypted secrets.
 
-- Firewall configured (HTTP/HTTPS public, SSH via Tailscale only)
-- Internal Docker network isolated from external access
-- Tailscale VPN for secure admin access to VPS
-- SSH access restricted to Tailscale network (100.64.0.0/10)
-
-### Application Security
-
-- API and MCP validate Keycloak-issued JWTs
-- Keycloak (OIDC/OAuth2) identity provider at auth.hill90.com; Auth.js v5 for UI sessions
-- TLS certificates automatically renewed via Let's Encrypt
-  - HTTP-01 challenge for public services
-  - DNS-01 challenge for Tailscale-only services
-- Security headers enforced via Traefik
-- Traefik dashboard authentication auto-generated from encrypted secrets
-- Tailscale-only services protected by IP whitelist middleware (100.64.0.0/10)
+**Vault** — access is token-based. There is no SSO; OIDC through Keycloak was
+removed with the Keycloak stack. See
+[Secrets architecture](docs/architecture/secrets-model.md).
 
 ## Troubleshooting
 
-### VPS Not Accessible
-
 ```bash
-# Check VPS status via Hostinger CLI (bash scripts/hostinger.sh)
-# (See docs/reference/vps-operations.md for CLI usage)
+# VPS reachable?
+/Applications/Tailscale.app/Contents/MacOS/Tailscale status
+ssh -i ~/.ssh/remote.hill90.com deploy@remote.hill90.com 'uptime'
 
-# Verify Tailscale connection
-tailscale status
+# Service state
+docker ps
+docker compose -p hill90-prod-edge -f deploy/compose/prod/docker-compose.infra.yml ps
+docker logs -f traefik
 
-# Test SSH via Tailscale
-ssh -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>
-```
+# Certificates
+docker logs traefik 2>&1 | grep -i acme
+docker logs dns-manager
+openssl s_client -connect grafana.hill90.com:443 -servername grafana.hill90.com </dev/null 2>/dev/null | openssl x509 -noout -dates
 
-### Service Not Starting
+# Secrets
+SOPS_AGE_KEY_FILE=infra/secrets/keys/age-prod.key sops -d infra/secrets/prod.enc.env >/dev/null && echo OK
 
-```bash
-# Check service logs
-docker logs <service-name>
-
-# Check Docker Compose status (use stack project name)
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-# Restart service
-docker restart <service-name>
-```
-
-### TLS Certificate Issues
-
-```bash
-# Check Traefik logs
-docker logs traefik
-
-# Verify DNS records
-dig api.hill90.com
-dig ai.hill90.com
-
-# Check certificate
-openssl s_client -connect api.hill90.com:443 -showcerts
-```
-
-### Secrets Decryption Fails
-
-```bash
-# Verify age key exists
-ls -la infra/secrets/keys/
-
-# Check SOPS configuration
-cat infra/secrets/.sops.yaml
-
-# Test decryption
-sops -d infra/secrets/prod.enc.env
-```
-
-### DNS-01 Certificate Issues
-
-```bash
-# Check dns-manager logs
-ssh deploy@<tailscale-ip> 'docker logs dns-manager --tail 50'
-
-# Verify DNS TXT records
-dig TXT _acme-challenge.traefik.hill90.com @8.8.8.8
-
-# Check Traefik logs for ACME errors
-docker logs traefik | grep -i acme
-
-# Common issues:
-# 1. Wrong TXT value - dns-manager must compute base64url(SHA256(keyAuth))
-# 2. Timeout during /present - Remove sleep() from dns-manager
-# 3. Rate limiting - Wait 1 hour, use STAGING certificates for testing
-```
-
-### DNS Management Issues
-
-```bash
-# View current DNS records
+# DNS
 make dns-view
-
-# Verify DNS propagation
 make dns-verify
-
-# Check secrets are correct
-make secrets-view KEY=VPS_IP
-make secrets-view KEY=TAILSCALE_IP
-
-# Manually sync DNS after VPS rebuild
-make dns-sync
+make dns-sync            # after a rebuild changes the IP
 ```
+
+**DNS-01 failures** are usually one of three things: `dns-manager` computing the
+wrong TXT value (it must be `base64url(SHA256(keyAuth))`), a timeout during
+`/present`, or Let's Encrypt rate limiting — wait an hour and test against the
+staging CA.
+
+Full guide: [Troubleshooting](docs/runbooks/troubleshooting.md).
 
 ## Documentation
 
-- **[Hill90 Docs](https://docs.hill90.com)** - Platform documentation, API reference, and getting started guides
+**Start here**
+- [Contributing](CONTRIBUTING.md) — workflow, command map, operational guardrails
+- [VPS rebuild](docs/runbooks/vps-rebuild.md) — full rebuild procedure
 
-### Core Documentation
-- **[Contributing Guide](CONTRIBUTING.md)** - Workflow, commands, and operational guardrails
-- **[VPS Rebuild Runbook](docs/runbooks/vps-rebuild.md)** - Complete VPS rebuild automation
-
-### Architecture
-- [Architecture Overview](docs/architecture/overview.md)
-- [Certificate Management](docs/architecture/certificates.md) - HTTP-01 vs DNS-01 challenges
+**Architecture**
+- [Overview](docs/architecture/overview.md)
+- [Certificates](docs/architecture/certificates.md) — HTTP-01 vs DNS-01
+- [Secrets model](docs/architecture/secrets-model.md)
 - [Security](docs/architecture/security.md)
 
-### Runbooks
-- [Bootstrap Runbook](docs/runbooks/bootstrap.md)
-- [Deployment Runbook](docs/runbooks/deployment.md)
-- [Observability Runbook](docs/runbooks/observability.md)
-- [Troubleshooting Guide](docs/runbooks/troubleshooting.md)
+**Runbooks**
+- [Bootstrap](docs/runbooks/bootstrap.md)
+- [Deployment](docs/runbooks/deployment.md)
+- [Disaster recovery](docs/runbooks/disaster-recovery.md)
+- [Observability](docs/runbooks/observability.md)
+- [Secrets workflow](docs/runbooks/secrets-workflow.md)
+- [Vault unseal](docs/runbooks/vault-unseal.md)
+- [Troubleshooting](docs/runbooks/troubleshooting.md)
 
-### Development
-- [Local Development](docs/development/local-setup.md)
-
-## VPS Rebuild
-
-For catastrophic failures or OS reinstalls, the VPS can be rebuilt in ~8-13 minutes using a 4-step process (plus optional snapshot and final health verification):
-
-```bash
-# 1. Create safety snapshot (optional but recommended)
-make snapshot
-
-# 2. Rebuild VPS OS (auto-waits, auto-retrieves IP, auto-updates secrets)
-make recreate-vps
-
-# 3. Bootstrap infrastructure (auto-extracts Tailscale IP, auto-updates secrets, deploys Traefik + Portainer)
-make config-vps VPS_IP=<new_ip>
-
-# 4. Deploy infrastructure (Traefik, dns-manager, Portainer)
-make deploy-infra
-
-# 4b. Deploy MinIO storage (optional)
-make deploy-minio
-
-# 4c. Deploy database (PostgreSQL)
-make deploy-db
-
-# 4d. Deploy observability stack
-bash scripts/deploy.sh observability prod
-# Or: make deploy-observability
-
-# 5. Deploy application services
-make deploy-all
-
-# 6. Verify deployment
-make health
-```
-
-**What happens automatically:**
-
-**Step 2 - Recreate VPS (~3-5 minutes):**
-- Tailscale auth key generation via API
-- VPS OS rebuild via Hostinger API
-- IP address retrieval and secret updates
-
-**Step 3 - Bootstrap Infrastructure (~3-5 minutes):**
-- Deploy user creation with SSH keys
-- Docker and Docker Compose installation
-- Firewall configuration (HTTP/HTTPS public, SSH from Tailscale only)
-- Tailscale network join and IP capture
-- SOPS and age installation
-- Repository clone and encryption key transfer
-- DNS record updates
-
-**Step 4 - Deploy Infrastructure (~1-2 minutes):**
-- Traefik + Portainer + dns-manager deployment
-- DNS-01 Let's Encrypt certificates for Tailscale-only services
-
-**Step 4b - Deploy MinIO (~1 minute):**
-- MinIO S3-compatible object storage
-- Console at storage.hill90.com (Tailscale-only)
-
-**Step 4d - Deploy Observability (~1 minute):**
-- LGTM stack (Prometheus, Grafana, Loki, Tempo)
-- Collectors (Promtail, Node Exporter, cAdvisor)
-- Grafana dashboards provisioned automatically
-
-**Step 5 - Deploy Services (~2-3 minutes):**
-- Application service deployment (keycloak, api, ai, mcp, ui)
-- Let's Encrypt certificate acquisition
-- Service health verification
-
-**Why separate steps?** Separating infrastructure from application deployment prevents Let's Encrypt rate limit exhaustion during VPS rebuild testing.
-
-See [docs/reference/vps-operations.md](docs/reference/vps-operations.md) for complete details.
+**Reference**
+- [Deployment architecture](docs/reference/deployment.md)
+- [GitHub Actions](docs/reference/github-actions.md)
+- [VPS operations](docs/reference/vps-operations.md)
+- [DNS](docs/reference/dns.md)
+- [Secrets](docs/reference/secrets.md)
+- [Tailscale](docs/reference/tailscale.md)
 
 ## License
 

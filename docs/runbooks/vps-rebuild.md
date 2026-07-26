@@ -89,7 +89,6 @@ Use the VPS IP displayed by Step 1.
 - ✅ Portainer running (with DNS-01 certificates for Tailscale-only access)
 - ✅ DNS records updated
 - ✅ SSH locked to Tailscale network only
-- ❌ Application services NOT running yet
 
 **Infrastructure services deployed:**
 - `traefik.hill90.com` - Traefik dashboard (Tailscale-only, authenticated)
@@ -119,57 +118,35 @@ make deploy-infra
 **Result:**
 - ✅ Infrastructure services running
 - ✅ DNS-01 certificates active for Tailscale-only services
-- ❌ Application services NOT running yet
 
 ---
 
-### Step 3b: Deploy Database
+### Step 3b: Deploy Vault
 
 ```bash
-make deploy-db
+make deploy-vault
 ```
 
-Deploys PostgreSQL to the internal network. Required before application services.
+Deploys OpenBao and calls `vault.sh auto-unseal` automatically after compose up.
 
 ---
 
-### Step 3c: Deploy MinIO (Optional)
+### Step 4: Deploy Observability (~1 minute)
 
 ```bash
-make deploy-minio
-```
-
-Deploys MinIO S3-compatible object storage. Console accessible at `storage.hill90.com` (Tailscale-only). S3 API available internally at `http://minio:9000` on `hill90_internal`.
-
----
-
-### Step 4: Deploy Application Services (~2-3 minutes)
-
-Deploy application services:
-
-```bash
-make deploy-all
+make deploy-observability   # or: bash scripts/deploy.sh observability prod
 ```
 
 **What happens automatically:**
-1. Validates infrastructure configuration
+1. Validates configuration
 2. Decrypts secrets with SOPS
-3. Generates Traefik `.htpasswd` file for authentication
-4. Deploys application services (keycloak, api, ai, mcp, ui)
-5. Requests Let's Encrypt certificates
-6. Waits for services to start
-7. Verifies service health
-
-**Application services deployed:**
-- `api.hill90.com` - API Gateway
-- `ai.hill90.com/mcp` - MCP Gateway (authenticated)
-- `hill90.com` - Frontend UI
-- `keycloak` - Keycloak identity provider (auth.hill90.com)
+3. Deploys Prometheus, Grafana, Loki, Tempo, Promtail, node-exporter and cAdvisor
+4. Waits for containers to become healthy
 
 **Result:**
-- ✅ All services running
-- ✅ Let's Encrypt certificates active
-- ✅ Health checks passing
+- ✅ Ten containers running
+- ✅ Grafana at https://grafana.hill90.com (Tailscale-only)
+- ✅ Prometheus scrape targets healthy
 
 ---
 
@@ -182,12 +159,11 @@ make health
 ```
 
 **Checks performed:**
-- ✅ All Docker containers running
+- ✅ All ten Docker containers running
 - ✅ Traefik dashboard accessible (https://traefik.hill90.com via Tailscale)
 - ✅ Portainer accessible (https://portainer.hill90.com via Tailscale)
-- ✅ API service responding (https://api.hill90.com/health)
-- ✅ MCP gateway responding (https://ai.hill90.com/mcp)
-- ✅ Keycloak OIDC responding (https://auth.hill90.com/realms/hill90)
+- ✅ Grafana accessible (https://grafana.hill90.com via Tailscale)
+- ✅ OpenBao unsealed (https://vault.hill90.com via Tailscale)
 - ✅ DNS resolution correct for all domains
 - ✅ SSL certificates valid
 
@@ -294,7 +270,7 @@ bash scripts/hostinger.sh vps snapshot restore
 
 ### Deploy Fails
 
-**Symptom:** `make deploy-infra` or `make deploy-all` fails
+**Symptom:** `make deploy-infra` or `make deploy-observability` fails
 
 **Common causes:**
 - Age key not transferred correctly
@@ -331,9 +307,8 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 2. Recreate VPS: `make recreate-vps`
 3. Bootstrap infrastructure: `make config-vps VPS_IP=<ip>`
 4. Deploy infrastructure: `make deploy-infra`
-5. Deploy database: `make deploy-db`
-6. (Optional) Deploy MinIO: `make deploy-minio`
-7. Deploy applications: `make deploy-all`
+5. Deploy vault: `make deploy-vault`
+6. Deploy observability: `make deploy-observability`
 8. Verify health: `make health`
 
 **Fully automated (no intervention):**

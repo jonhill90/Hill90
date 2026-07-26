@@ -1,6 +1,6 @@
 # Hill90 — Product Requirements
 
-**Status:** proposed
+**Status:** implemented 2026-07-26
 **Author:** strip-app lane
 **Date:** 2026-07-26
 **Supersedes scope of:** [docs/decisions/infra-app-separation.md](docs/decisions/infra-app-separation.md)
