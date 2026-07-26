@@ -159,8 +159,23 @@ cmd_init() {
 # A root token is unconstrained and does not expire. Once setup and seed have
 # run, nothing needs it — day-to-day access is by AppRole. Leaving it on the
 # filesystem is the single largest standing risk in this design.
+#
+# ONE-WAY DOOR. On OpenBao >= 2.5.3 the unauthenticated root-generation
+# endpoints are disabled by default (disable_unauthed_generate_root_endpoints
+# defaults to true), so `bao operator generate-root` returns 403 — verified
+# against 2.6.1, both before and after revocation, with the flag set at
+# listener and top level. Regaining root then requires an existing
+# sudo-capable token, and if none exists the only route back is
+# reinitializing the vault.
+#
+# So: run `setup`, `seed` and `setup-sync-token` BEFORE this. Revoking first
+# leaves a vault that cannot be configured.
 cmd_revoke_root() {
     require_running
+
+    warn "Revoking root is IRREVERSIBLE on OpenBao >= 2.5.3 unless another"
+    warn "sudo-capable token exists. generate-root is disabled by default."
+    warn "Ensure setup/seed/setup-sync-token have already run."
 
     if [ ! -f "$ROOT_TOKEN_PATH" ]; then
         warn "No root token file at ${ROOT_TOKEN_PATH} — nothing to revoke."
@@ -568,10 +583,13 @@ cmd_setup_sync_token() {
         die "Failed to store VAULT_SYNC_TOKEN in SOPS"
     fi
 
+    unset sync_token escaped_token
+
     echo ""
     success "Sync token created and stored in SOPS!"
     echo ""
-    echo "Token: ${sync_token}" >&2
+    # Deliberately NOT printed. This runs in CI, and a printed token would be
+    # a durable copy in the Actions log — the same defect init had.
     echo ""
     echo "IMPORTANT: Commit and push the updated SOPS file so GitHub Actions can read it:"
     echo "  git add infra/secrets/prod.enc.env"
