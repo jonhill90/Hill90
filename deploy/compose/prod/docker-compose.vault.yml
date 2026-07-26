@@ -16,6 +16,23 @@ volumes:
     name: ${VOLUME_PREFIX_BARE:-}openbao-data
 
 services:
+  # Docker copies image ownership into an empty named volume only when the mount
+  # path already exists in the image. /openbao/file does (openbao:openbao), so
+  # the file backend has always worked. /openbao/raft does NOT, so Docker
+  # creates it root-owned and the unprivileged server fails with
+  #   "failed to open bolt file: /openbao/raft/vault.db: permission denied"
+  #
+  # That took the prod vault down on 2026-07-26. This one-shot fixes ownership
+  # before the server starts. It is idempotent and a no-op for the file backend,
+  # where the ownership is already correct.
+  openbao-init:
+    image: alpine:3.20
+    container_name: ${CONTAINER_PREFIX:-}openbao-init
+    command: ["sh", "-c", "chown -R 100:1000 /data && chmod 700 /data"]
+    volumes:
+      - openbao-data:/data
+    restart: "no"
+
   openbao:
     # PINNED DELIBERATELY. This was ghcr.io/openbao/openbao:2 — a floating major
     # tag — which means a routine pull would have taken this container to v2.7.0
@@ -52,6 +69,9 @@ services:
     environment:
       - BAO_ADDR=http://127.0.0.1:8200
       - BAO_LOCAL_CONFIG=
+    depends_on:
+      openbao-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8200/v1/sys/health"]
       interval: 30s
