@@ -1,5 +1,12 @@
 # Infra/App Separation
 
+> **Partly superseded.** The application strip described here was correct, but
+> the reasoning that classified Keycloak and Postgres as application
+> dependencies was not — they are platform services, chosen as open-source
+> counterparts to Entra ID and Azure Database. That intent was never recorded,
+> so the strip removed them. See
+> [platform-primitives.md](platform-primitives.md); they are restored by JON-55.
+
 **Status:** implemented
 **Decided:** 2026-07-11
 **Recorded:** 2026-07-25 (salvaged from working session notes before those

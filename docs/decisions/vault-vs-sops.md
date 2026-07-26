@@ -103,6 +103,14 @@ weight:
 
 ## Recommendation
 
+> **Read with [platform-primitives.md](platform-primitives.md).** The
+> recommendation below asks the vault to justify itself by naming a concrete
+> consumer. That framing treats OpenBao as an optional add-on when it is
+> deliberately the open-source counterpart to Key Vault — a platform primitive,
+> which does not have to point at a current caller to earn its place. The
+> operational points below still stand; the "is it worth running at all" framing
+> does not.
+
 **Document SOPS as the active path. Keep the vault code, dormant.**
 
 Not "remove vault" — the implementation is decent and deleting it would be
