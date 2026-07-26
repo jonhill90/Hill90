@@ -190,6 +190,16 @@ cmd_infra() {
         echo "✓ Created hill90_agent_internal network for agent containers"
     fi
 
+    # Apply Portainer's OAuth settings. Portainer keeps authentication in its own
+    # database, so unlike Grafana this cannot be expressed in compose — without
+    # this step nothing on the VPS ever configures Portainer SSO.
+    #
+    # Non-fatal on purpose: the edge stack must come up whatever happens here,
+    # and Portainer keeps its local admin login regardless.
+    echo "Applying Portainer SSO configuration..."
+    sops exec-env "$secrets_file" 'bash scripts/portainer.sh apply' \
+        || warn "portainer.sh apply failed — Portainer SSO may be unconfigured. The local admin login is unaffected; see docs/runbooks/sso-fallback.md"
+
     echo ""
     echo "================================"
     echo "Edge Stack Deployment Complete!"
@@ -382,6 +392,46 @@ cmd_service() {
     if [ "$service" = "vault" ]; then
         echo "Attempting auto-unseal..."
         bash "$SCRIPT_DIR/vault.sh" auto-unseal || warn "Auto-unseal failed — run 'vault.sh unseal' manually"
+    fi
+
+    # Apply the SSO realm configuration after Keycloak comes up.
+    #
+    # This is not optional decoration: platform-realm.json is imported ONLY on
+    # first boot (IGNORE_EXISTING), so on an existing realm the SSO clients
+    # would otherwise never appear and nothing would report a problem. The
+    # command is idempotent.
+    #
+    # Deliberately non-fatal: a failure here must not take down the identity
+    # provider deploy itself, and every service retains a local admin login.
+    if [ "$service" = "auth" ]; then
+        echo "Applying SSO realm configuration..."
+        # Wait for Keycloak's own healthcheck — kcadm against a still-migrating
+        # Keycloak fails in confusing ways.
+        #
+        # The status template returns an empty string BOTH when the container has
+        # no healthcheck and when it does not exist, so waiting on "!= healthy"
+        # alone would burn the full timeout silently in either case. Distinguish
+        # them and say which happened.
+        local waited=0 health
+        while true; do
+            if ! docker inspect keycloak >/dev/null 2>&1; then
+                warn "Container 'keycloak' does not exist — skipping SSO configuration"
+                break
+            fi
+            health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{end}}' keycloak 2>/dev/null)
+            if [ -z "$health" ]; then
+                warn "Container 'keycloak' has no healthcheck — applying SSO configuration without waiting"
+                break
+            fi
+            [ "$health" = "healthy" ] && break
+            if [ "$waited" -ge 180 ]; then
+                warn "Keycloak still '${health}' after ${waited}s — attempting SSO configuration anyway"
+                break
+            fi
+            sleep 5; waited=$((waited + 5))
+        done
+        bash "$SCRIPT_DIR/keycloak.sh" apply \
+            || warn "keycloak.sh apply failed — SSO clients may be missing. Local admin logins are unaffected; see docs/runbooks/sso-fallback.md"
     fi
 
     echo ""
