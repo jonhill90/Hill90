@@ -7,6 +7,12 @@ services:
   grafana:
     labels:
       - "traefik.http.routers.grafana.tls=false"
+      # Traefik reaches this container over the edge network. The provider-wide
+      # default lives in the static config, which Traefik v2 cannot interpolate,
+      # so it cannot follow NETWORK_PREFIX. This label can, and takes precedence.
+      # Defaults to hill90_edge — exactly what production's traefik.yml already
+      # pins — so production resolves identically.
+      - "traefik.docker.network=${NETWORK_PREFIX:-hill90}_edge"
 
   prometheus:
     # Production deliberately does not route Prometheus: it sits on the internal
@@ -25,3 +31,9 @@ services:
       - "traefik.http.routers.prometheus.tls=false"
       - "traefik.http.routers.prometheus.middlewares=${ADMIN_MIDDLEWARES:-tailscale-only@file}"
       - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+      # Traefik reaches this container over the edge network. The provider-wide
+      # default lives in the static config, which Traefik v2 cannot interpolate,
+      # so it cannot follow NETWORK_PREFIX. This label can, and takes precedence.
+      # Defaults to hill90_edge — exactly what production's traefik.yml already
+      # pins — so production resolves identically.
+      - "traefik.docker.network=${NETWORK_PREFIX:-hill90}_edge"
