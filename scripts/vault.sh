@@ -7,8 +7,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/_common.sh"
 
-CONTAINER_NAME="openbao"
-UNSEAL_KEY_PATH="/opt/hill90/secrets/openbao-unseal.key"
+CONTAINER_NAME="${VAULT_CONTAINER:-openbao}"
+UNSEAL_KEY_PATH="${VAULT_UNSEAL_KEY_PATH:-/opt/hill90/secrets/openbao-unseal.key}"
+# The root token is written to a file rather than printed. It is deliberately
+# short-lived: revoke it with `vault.sh revoke-root` as soon as setup and seed
+# are done.
+ROOT_TOKEN_PATH="${VAULT_ROOT_TOKEN_PATH:-/opt/hill90/secrets/openbao-root.token}"
 SECRETS_FILE="${PROJECT_ROOT}/infra/secrets/prod.enc.env"
 POLICY_DIR="${PROJECT_ROOT}/platform/vault/policies"
 
@@ -26,7 +30,8 @@ Vault CLI — OpenBao secrets management lifecycle
 Usage: vault.sh <command>
 
 Commands:
-  init          Initialize OpenBao (generates unseal key + root token)
+  init          Initialize OpenBao (writes unseal key + root token to 0600 files)
+  revoke-root   Revoke the root token and remove it from disk
   unseal        Unseal OpenBao using host key file or SOPS fallback
   status        Show OpenBao seal/init status
   setup         Enable KV v2, AppRole, audit, apply policies, create roles
@@ -88,31 +93,109 @@ cmd_init() {
         return 0
     fi
 
+    # Both secrets are written straight to 0600 files and never printed.
+    #
+    # This used to echo the unseal key and root token to stdout. Anywhere this
+    # runs — an SSH session, a CI job, a terminal with scrollback — that is a
+    # durable copy of the two credentials that together are complete control of
+    # the vault. There is no safe terminal to print them to, so they are not
+    # printed at all.
+    #
+    # Files are created by whoever runs this (the deploy user on the host), so
+    # they end up deploy:deploy. The previous instructions said to `sudo tee`
+    # the unseal key, which produced a root-owned file that the auto-unseal
+    # systemd unit — running as User=deploy — could not read. That would have
+    # meant a vault which never came back after a reboot.
+    local key_dir
+    key_dir="$(dirname "$UNSEAL_KEY_PATH")"
+    mkdir -p "$key_dir"
+
     echo "Initializing with 1 key share, 1 key threshold..."
+
+    # umask before creation: never let the file exist world-readable, even for
+    # the instant between creat() and chmod().
+    local old_umask
+    old_umask=$(umask)
+    umask 077
+
     local init_output
     init_output=$(bao_exec operator init -key-shares=1 -key-threshold=1 -format=json)
 
-    local unseal_key
-    unseal_key=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['unseal_keys_b64'][0])")
-    local root_token
-    root_token=$(echo "$init_output" | python3 -c "import sys,json; print(json.load(sys.stdin)['root_token'])")
+    printf '%s' "$init_output" \
+        | python3 -c "import sys,json; sys.stdout.write(json.load(sys.stdin)['unseal_keys_b64'][0])" \
+        > "$UNSEAL_KEY_PATH"
+    printf '%s' "$init_output" \
+        | python3 -c "import sys,json; sys.stdout.write(json.load(sys.stdin)['root_token'])" \
+        > "$ROOT_TOKEN_PATH"
 
-    echo ""
-    echo "================================"
-    echo "SAVE THESE VALUES SECURELY"
-    echo "================================"
-    echo ""
-    echo "Unseal Key: ${unseal_key}"
-    echo "Root Token: ${root_token}"
+    unset init_output
+    umask "$old_umask"
+
+    chmod 600 "$UNSEAL_KEY_PATH" "$ROOT_TOKEN_PATH"
+
+    if [ ! -s "$UNSEAL_KEY_PATH" ] || [ ! -s "$ROOT_TOKEN_PATH" ]; then
+        die "Initialization produced an empty key or token file — refusing to continue. Vault is initialized but the credentials were not captured; recover from ${UNSEAL_KEY_PATH} manually before restarting."
+    fi
+
+    success "✓ Unseal key written to ${UNSEAL_KEY_PATH} (0600, $(stat -c '%U:%G' "$UNSEAL_KEY_PATH" 2>/dev/null || stat -f '%Su:%Sg' "$UNSEAL_KEY_PATH"))"
+    success "✓ Root token written to ${ROOT_TOKEN_PATH} (0600)"
     echo ""
     echo "Next steps:"
-    echo "  1. Store unseal key in SOPS: make secrets-update KEY=OPENBAO_UNSEAL_KEY VALUE=\"${unseal_key}\""
-    echo "  2. Copy to host: echo \"${unseal_key}\" | sudo tee ${UNSEAL_KEY_PATH} && sudo chmod 0600 ${UNSEAL_KEY_PATH}"
-    echo "  3. Unseal: bash scripts/vault.sh unseal"
-    echo "  4. Setup: export BAO_TOKEN=\"${root_token}\" && bash scripts/vault.sh setup"
-    echo "  5. Seed: bash scripts/vault.sh seed"
-    echo "  6. Revoke root token: docker exec openbao bao token revoke -self"
+    echo "  1. Unseal:        bash scripts/vault.sh unseal"
+    echo "  2. Setup:         BAO_TOKEN=\"\$(cat ${ROOT_TOKEN_PATH})\" bash scripts/vault.sh setup"
+    echo "  3. Seed:          BAO_TOKEN=\"\$(cat ${ROOT_TOKEN_PATH})\" bash scripts/vault.sh seed"
+    echo "  4. Revoke root:   bash scripts/vault.sh revoke-root"
     echo ""
+    echo "  The unseal key must ALSO be stored in SOPS as OPENBAO_UNSEAL_KEY, so"
+    echo "  it survives loss of this host. The host checkout is reset on every"
+    echo "  deploy, so that has to be committed from a workstation — see"
+    echo "  docs/runbooks/vault-unseal.md."
+    echo ""
+}
+
+# Revoke the root token and remove it from disk.
+#
+# A root token is unconstrained and does not expire. Once setup and seed have
+# run, nothing needs it — day-to-day access is by AppRole. Leaving it on the
+# filesystem is the single largest standing risk in this design.
+cmd_revoke_root() {
+    require_running
+
+    if [ ! -f "$ROOT_TOKEN_PATH" ]; then
+        warn "No root token file at ${ROOT_TOKEN_PATH} — nothing to revoke."
+        return 0
+    fi
+
+    local token
+    token=$(cat "$ROOT_TOKEN_PATH")
+    if [ -z "$token" ]; then
+        warn "Root token file is empty; removing it."
+        rm -f "$ROOT_TOKEN_PATH"
+        return 0
+    fi
+
+    echo "Revoking root token..."
+    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" \
+        "$CONTAINER_NAME" bao token revoke -self >/dev/null 2>&1 || true
+
+    # Verify independently. `token revoke -self` prints "Revoked token (if it
+    # existed)" and exits 0 regardless, so its exit code proves nothing.
+    if ! docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" \
+            "$CONTAINER_NAME" bao token lookup >/dev/null 2>&1; then
+        success "✓ Root token revoked and confirmed dead"
+    else
+        unset token
+        die "Root token is STILL VALID after the revoke call. Do NOT leave this host until it is revoked — a live root token is unconstrained access to every secret."
+    fi
+    unset token
+
+    # Best-effort overwrite before unlinking.
+    if command -v shred >/dev/null 2>&1; then
+        shred -u "$ROOT_TOKEN_PATH" 2>/dev/null || rm -f "$ROOT_TOKEN_PATH"
+    else
+        rm -f "$ROOT_TOKEN_PATH"
+    fi
+    success "✓ Removed ${ROOT_TOKEN_PATH}"
 }
 
 cmd_unseal() {
@@ -132,6 +215,11 @@ cmd_unseal() {
 
     # Try host key file first
     if [ -f "$UNSEAL_KEY_PATH" ]; then
+        if [ ! -r "$UNSEAL_KEY_PATH" ]; then
+            # Almost always a root-owned file and a deploy-user caller. Say so,
+            # rather than dying inside a command substitution.
+            die "Unseal key at ${UNSEAL_KEY_PATH} exists but is not readable by $(id -un). It must be owned by deploy:deploy with mode 0600 — the auto-unseal systemd unit runs as deploy."
+        fi
         unseal_key=$(cat "$UNSEAL_KEY_PATH")
         info "Using unseal key from ${UNSEAL_KEY_PATH}"
     fi
@@ -636,6 +724,7 @@ main() {
 
     case "$cmd" in
         init)          cmd_init "$@" ;;
+        revoke-root)   cmd_revoke_root "$@" ;;
         unseal)        cmd_unseal "$@" ;;
         status)        cmd_status "$@" ;;
         setup)         cmd_setup "$@" ;;
