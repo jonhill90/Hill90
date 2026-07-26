@@ -1,5 +1,24 @@
 # Secrets Architecture
 
+> **Status as of 2026-07-26: SOPS is the active path. No vault is deployed.**
+>
+> There has been no `openbao` container, and no vault volume, since the June 14
+> rebuild. Every secret in use has been served by SOPS + age for six weeks,
+> without incident, and nothing noticed the vault was gone.
+>
+> The vault-first machinery below is **implemented and dormant**, not running.
+> `deploy.sh` still tries vault first and falls back to SOPS when it is absent
+> (`_common.sh:vault_available`), which is why deploys have kept working. The
+> design described in this document is therefore the *intended* model, not a
+> description of what is live.
+>
+> Whether to bring the vault back is an open question — see
+> [Vault vs SOPS](../decisions/vault-vs-sops.md). Until that is settled, read
+> this document as "how vault works here if enabled", and treat SOPS as the
+> system of record.
+
+## Intended model
+
 OpenBao is the runtime source of truth for secrets. SOPS is the bootstrap and disaster-recovery backup. Deploy is vault-first with SOPS fallback.
 
 ## Architecture Overview
