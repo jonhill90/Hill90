@@ -114,14 +114,14 @@
 # ---------------------------------------------------------------------------
 
 @test "all expected policy HCL files exist" {
-  local expected_policies="policy-db policy-api policy-ai policy-auth policy-ui policy-mcp policy-minio policy-infra policy-observability policy-admin"
+  local expected_policies="policy-db policy-auth policy-minio policy-infra policy-observability policy-admin"
   for policy in $expected_policies; do
     [ -f "platform/vault/policies/${policy}.hcl" ]
   done
 }
 
 @test "service policies grant only read and list (no write/create/delete)" {
-  local service_policies="policy-db policy-api policy-ai policy-auth policy-ui policy-mcp policy-minio policy-infra policy-observability"
+  local service_policies="policy-db policy-auth policy-minio policy-infra policy-observability"
   for policy in $service_policies; do
     local file="platform/vault/policies/${policy}.hcl"
     # Only check secret/ paths (not auth/token paths which need update)
@@ -225,10 +225,10 @@ assert records[0]["content"] == "${TAILSCALE_IP}"
 # Seed key name tests
 # ---------------------------------------------------------------------------
 
-@test "vault.sh seed uses MINIO_ROOT_USER not MINIO_ACCESS_KEY in api/config" {
-  run bash -c 'sed -n "/Seeding secret\/api\/config/,/^$/p" scripts/vault.sh | grep "MINIO_ROOT_USER"'
+@test "vault.sh seed uses MINIO_ROOT_USER not MINIO_ACCESS_KEY in minio/config" {
+  run bash -c 'sed -n "/Seeding secret\/minio\/config/,/^$/p" scripts/vault.sh | grep "MINIO_ROOT_USER"'
   [ "$status" -eq 0 ]
-  run bash -c 'sed -n "/Seeding secret\/api\/config/,/^$/p" scripts/vault.sh | grep "MINIO_ACCESS_KEY"'
+  run bash -c 'sed -n "/Seeding secret\/minio\/config/,/^$/p" scripts/vault.sh | grep "MINIO_ACCESS_KEY"'
   [ "$status" -eq 1 ]
 }
 

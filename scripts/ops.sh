@@ -30,8 +30,7 @@ EOF
 
 cmd_health() {
     local services=(
-        "https://api.hill90.com/health"
-        "https://ai.hill90.com/health"
+        "https://traefik.hill90.com/ping"
     )
 
     echo "================================"
@@ -158,7 +157,7 @@ cmd_health() {
         echo "Expected VPS IP: $vps_ip"
         echo ""
 
-        local public_domains=("api.hill90.com" "ai.hill90.com" "auth.hill90.com" "hill90.com")
+        local public_domains=("auth.hill90.com" "hill90.com")
         local dns_all_correct=true
 
         for domain in "${public_domains[@]}"; do

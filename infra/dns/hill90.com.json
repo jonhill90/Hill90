@@ -9,20 +9,6 @@
     },
     {
       "type": "A",
-      "name": "api",
-      "content": "${VPS_IP}",
-      "ttl": 3600,
-      "priority": null
-    },
-    {
-      "type": "A",
-      "name": "ai",
-      "content": "${VPS_IP}",
-      "ttl": 3600,
-      "priority": null
-    },
-    {
-      "type": "A",
       "name": "auth",
       "content": "${VPS_IP}",
       "ttl": 3600,

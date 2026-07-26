@@ -97,18 +97,6 @@ def dorny_filters(deploy_config):
 class TestDornyFilters:
     """L2: Verify dorny filter routing for each service."""
 
-    def test_api_change_triggers_only_api(self, dorny_filters):
-        services = _services_for_path("services/api/src/index.ts", dorny_filters)
-        assert services == {"api"}
-
-    def test_ui_change_triggers_only_ui(self, dorny_filters):
-        services = _services_for_path("services/ui/src/App.tsx", dorny_filters)
-        assert services == {"ui"}
-
-    def test_mcp_change_triggers_only_mcp(self, dorny_filters):
-        services = _services_for_path("services/mcp/src/main.py", dorny_filters)
-        assert services == {"mcp"}
-
     def test_auth_change_triggers_only_auth(self, dorny_filters):
         services = _services_for_path(
             "platform/auth/keycloak/themes/hill90/login/theme.properties",
@@ -157,21 +145,6 @@ class TestDornyFilters:
         )
         assert services == {"vault"}
 
-    def test_knowledge_change_triggers_only_knowledge(self, dorny_filters):
-        services = _services_for_path("services/knowledge/app/main.py", dorny_filters)
-        assert services == {"knowledge"}
-
-    def test_knowledge_compose_triggers_only_knowledge(self, dorny_filters):
-        services = _services_for_path(
-            "deploy/compose/prod/docker-compose.knowledge.yml", dorny_filters
-        )
-        assert services == {"knowledge"}
-
-    def test_agentbox_change_triggers_agentbox_and_api(self, dorny_filters):
-        """Agentbox source changes trigger both agentbox build and API deploy."""
-        services = _services_for_path("services/agentbox/app/main.py", dorny_filters)
-        assert "agentbox" in services or services == {"api"}
-
     def test_contributing_md_triggers_no_services(self, dorny_filters):
         services = _services_for_path("CONTRIBUTING.md", dorny_filters)
         assert services == set()
@@ -192,12 +165,6 @@ class TestTriggerPaths:
         paths must be reflected here, preventing silent scope creep.
         """
         expected = sorted([
-            "services/api/**",
-            "services/agentbox/**",
-            "services/ai/**",
-            "services/mcp/**",
-            "services/ui/**",
-            "services/knowledge/**",
             "platform/auth/keycloak/**",
             "platform/data/postgres/**",
             "platform/observability/**",
@@ -205,17 +172,9 @@ class TestTriggerPaths:
             "deploy/compose/prod/docker-compose.minio.yml",
             "deploy/compose/prod/docker-compose.vault.yml",
             "deploy/compose/prod/docker-compose.auth.yml",
-            "deploy/compose/prod/docker-compose.api.yml",
-            "deploy/compose/prod/docker-compose.ai.yml",
-            "deploy/compose/prod/docker-compose.mcp.yml",
-            "deploy/compose/prod/docker-compose.ui.yml",
-            "deploy/compose/prod/docker-compose.knowledge.yml",
             "deploy/compose/prod/docker-compose.observability.yml",
         ])
         assert sorted(trigger_paths) == expected
-
-    def test_trigger_paths_include_api(self, trigger_paths):
-        assert _matches_any("services/api/src/index.ts", trigger_paths)
 
     def test_trigger_paths_include_auth_platform(self, trigger_paths):
         assert _matches_any(
@@ -249,10 +208,6 @@ class TestTriggerPaths:
 
     def test_trigger_paths_exclude_edge(self, trigger_paths):
         assert not _matches_any("platform/edge/traefik/traefik.yml", trigger_paths)
-
-    def test_trigger_paths_include_agentbox_service(self, trigger_paths):
-        """Agentbox source changes trigger the workflow (API rebuilds image)."""
-        assert _matches_any("services/agentbox/app/main.py", trigger_paths)
 
     def test_trigger_paths_exclude_agentbox_platform(self, trigger_paths):
         """Platform agentbox configs don't trigger deploy."""

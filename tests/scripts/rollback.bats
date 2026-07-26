@@ -56,7 +56,7 @@
 }
 
 @test "rollback.sh service_paths covers all services" {
-  for svc in api ai mcp ui auth db infra minio observability; do
+  for svc in auth db infra minio observability; do
     run bash -c "sed -n '/^service_paths/,/^}/p' scripts/rollback.sh | grep '${svc})'"
     [ "$status" -eq 0 ]
   done
@@ -88,7 +88,7 @@
 
 @test "rollback.sh classify reports 'none' when no service files changed" {
   # HEAD vs HEAD should always be 'none'
-  run bash scripts/rollback.sh classify api HEAD
+  run bash scripts/rollback.sh classify observability HEAD
   [ "$status" -eq 0 ]
   [[ "$output" == *"none"* ]]
 }
@@ -109,21 +109,21 @@
 }
 
 @test "rollback.sh paths outputs only path tokens (shell-safe for command substitution)" {
-  run bash scripts/rollback.sh paths api
+  run bash scripts/rollback.sh paths observability
   [ "$status" -eq 0 ]
   # No blank lines, no prose — every line must start with a path-like character
   [[ ! "$output" =~ ^[[:space:]]*$ ]]
-  [[ "$output" == *"services/api"* ]]
+  [[ "$output" == *"platform/observability/"* ]]
 }
 
 @test "rollback.sh classify outputs change class field" {
-  run bash scripts/rollback.sh classify api HEAD~1
+  run bash scripts/rollback.sh classify observability HEAD~1
   [ "$status" -eq 0 ]
   [[ "$output" == *"Class:"* ]]
 }
 
 @test "rollback.sh classify shows current and target refs" {
-  run bash scripts/rollback.sh classify api HEAD~1
+  run bash scripts/rollback.sh classify observability HEAD~1
   [ "$status" -eq 0 ]
   [[ "$output" == *"Current:"* ]]
   [[ "$output" == *"Target:"* ]]

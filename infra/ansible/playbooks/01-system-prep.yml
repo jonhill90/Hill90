@@ -59,7 +59,6 @@
   loop:
     - "{{ app_directory }}"
     - "{{ app_directory }}/backups"
-    - "{{ app_directory }}/agentbox-configs"
     - "{{ deploy_home }}"
 
 - name: Clone Hill90 application repository
