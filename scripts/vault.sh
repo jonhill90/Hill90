@@ -459,6 +459,38 @@ cmd_seed() {
         grep "^${1}=" "$temp_file" | cut -d '=' -f 2-
     }
 
+    # Every key that must be present and non-empty before anything is written.
+    #
+    # An unguarded `grep | cut` returns the empty string for a key that is not
+    # in the file, and `bao kv put KEY=` accepts that happily. Seeding would
+    # then print "All secrets seeded to KV v2!" while installing a blank
+    # credential, and `sync-to-sops` would write the blank back into the
+    # encrypted file as a real, present key. For CF_DNS_API_TOKEN that is
+    # invisible for ~60 days and then surfaces as expired certificates on the
+    # Tailscale-only hosts, because lego validates the token only at renewal.
+    #
+    # This check must run in THIS shell, not inside the `$(get_secret ...)`
+    # command substitutions below: `exit` inside a substitution kills only the
+    # subshell, so the seed would carry on with an empty value.
+    local required_keys=(
+        TRAEFIK_ADMIN_PASSWORD_HASH
+        ACME_EMAIL
+        ACME_CA_SERVER
+        CF_DNS_API_TOKEN
+        HOSTINGER_API_KEY
+        GRAFANA_ADMIN_PASSWORD
+    )
+    local missing=()
+    local key
+    for key in "${required_keys[@]}"; do
+        if [ -z "$(get_secret "$key")" ]; then
+            missing+=("$key")
+        fi
+    done
+    if [ ${#missing[@]} -gt 0 ]; then
+        die "Refusing to seed — these keys are missing or empty in ${SECRETS_FILE}: ${missing[*]}. A blank credential seeds silently and fails much later. Add them first: make secrets-update KEY=<key> VALUE=<value>"
+    fi
+
     # Seed infra/traefik
     echo "Seeding secret/infra/traefik..."
     bao_exec_env kv put secret/infra/traefik \
@@ -466,6 +498,11 @@ cmd_seed() {
         "ACME_EMAIL=$(get_secret ACME_EMAIL)" \
         "ACME_CA_SERVER=$(get_secret ACME_CA_SERVER)" \
         "CF_DNS_API_TOKEN=$(get_secret CF_DNS_API_TOKEN)"
+
+    # Seed infra/vps — Hostinger VPS management, not a DNS or certificate path.
+    echo "Seeding secret/infra/vps..."
+    bao_exec_env kv put secret/infra/vps \
+        "HOSTINGER_API_KEY=$(get_secret HOSTINGER_API_KEY)"
 
     # Seed observability/grafana
     echo "Seeding secret/observability/grafana..."
@@ -507,6 +544,7 @@ cmd_export() {
 
     local paths=(
         "secret/infra/traefik"
+        "secret/infra/vps"
         "secret/observability/grafana"
     )
 
@@ -532,6 +570,7 @@ cmd_sync_to_sops() {
     # later paths skip already-seen keys.
     local SYNC_PATHS=(
         "secret/infra/traefik"
+        "secret/infra/vps"
         "secret/observability/grafana"
     )
 

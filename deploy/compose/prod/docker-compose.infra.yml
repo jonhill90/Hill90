@@ -1,6 +1,6 @@
 version: '3.9'
 
-# Infrastructure services: Traefik, dns-manager, Portainer
+# Infrastructure services: Traefik, Portainer
 # Deploy with: make deploy-infra
 
 networks:

@@ -130,9 +130,24 @@ certificatesResolvers:
 > do nothing. Check the pinned version before copying from current Traefik docs.
 
 > **Important:** Traefik does NOT interpolate `${VAR}` in its YAML config files.
-> Email must be hardcoded in `traefik.yml`. The `caServer` is set via Docker Compose
-> CLI args (`command:` in the compose file), because Docker Compose does interpolate
-> environment variables.
+> Email must be hardcoded in `traefik.yml`.
+>
+> **`ACME_CA_SERVER` is currently inert, and this is a trap.**
+> `docker-compose.infra.yml` passes the CA as
+> `--certificatesresolvers.*.acme.caserver=` CLI flags. **Traefik v2 ignores CLI
+> flags entirely when a static config file is mounted**, and `traefik.yml` is
+> mounted and defines no `caServer` key — so both resolvers silently fall back to
+> the default, which is **production** Let's Encrypt. Compose does interpolate the
+> variable; Traefik then discards the flag.
+>
+> This is documented from observed behaviour in
+> `deploy/compose/overrides/local.infra.yml` and `platform/edge/traefik.local.yml`.
+> Two consequences: you cannot switch to the staging CA through `ACME_CA_SERVER`
+> as written, and every failed DNS-01 attempt burns production rate limit
+> (5 failed authorizations per hostname per hour). Switching to staging requires
+> adding an explicit `caServer:` under each resolver in `traefik.yml`.
+>
+> This predates the Cloudflare migration and is not fixed by it.
 
 **Environment Variables:**
 
@@ -171,7 +186,7 @@ labels:
 
 ## Critical DNS-01 Implementation Details
 
-### 1. Lego httpreq Provider Format
+### 1. What lego handles for you now
 
 The TXT value, the FQDN, and the record cleanup are all lego's responsibility
 now. The failure modes that used to dominate this section — computing the TXT
