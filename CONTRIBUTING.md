@@ -70,7 +70,12 @@ the script form directly.
 |-----------|-------------------|--------------------|
 | Recreate VPS | `bash scripts/vps.sh recreate` | `make recreate-vps` |
 | Configure VPS | `bash scripts/vps.sh config <ip>` | `make config-vps VPS_IP=<ip>` |
+| Bring up locally | `bash scripts/local.sh up` | — |
+| Local health | `bash scripts/local.sh health` | — |
+| Local teardown | `bash scripts/local.sh down` | — |
+| Local reset (destructive) | `bash scripts/local.sh reset` | — |
 | Deploy infra | `bash scripts/deploy.sh infra prod` | `make deploy-infra` |
+| Teardown a stack | `bash scripts/deploy.sh teardown <stack> prod` | — |
 | Deploy vault | `bash scripts/deploy.sh vault prod` | `make deploy-vault` |
 | Deploy observability | `bash scripts/deploy.sh observability prod` | `make deploy-observability` |
 | Health check | `bash scripts/ops.sh health` | `make health` |
@@ -101,6 +106,7 @@ workflow, on a weekly schedule or manual trigger.
 
 **Runbooks**
 
+- [Local development](docs/runbooks/local-development.md)
 - [VPS rebuild](docs/runbooks/vps-rebuild.md)
 - [Disaster recovery](docs/runbooks/disaster-recovery.md)
 - [Deployment](docs/runbooks/deployment.md)

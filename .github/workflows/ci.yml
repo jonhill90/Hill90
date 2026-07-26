@@ -57,6 +57,9 @@ jobs:
       - name: Assert compose volume naming
         run: python3 scripts/checks/check_volume_names.py
 
+      - name: Validate local/prod config surface
+        run: python3 scripts/checks/check_env_surface.py
+
       - name: Validate secrets schema consistency
         env:
           SECRETS_SCHEMA_STRICT: "0"
