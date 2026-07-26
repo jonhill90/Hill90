@@ -30,9 +30,7 @@ Change classes:
   mixed          Multiple change classes — requires review
 
 Supported services:
-  api, ai, mcp, ui              Code-only rollback (checkout + redeploy)
-  auth, infra, observability    Config rollback (checkout + redeploy)
-  db                            Schema-aware (refuses if migrations detected)
+  infra, vault, observability   Config rollback (checkout + redeploy)
 EOF
 }
 
@@ -149,8 +147,8 @@ cmd_classify() {
             echo ""
             echo "Steps:"
             echo "  1. Restore database from pre-deploy backup:"
-            echo "     bash scripts/backup.sh list db"
-            echo "     bash scripts/backup.sh restore db <backup-dir>"
+            echo "     bash scripts/backup.sh list ${service}"
+            echo "     bash scripts/backup.sh restore ${service} <backup-dir>"
             echo "  2. Then rollback code:"
             echo "     git checkout ${target_ref} -- \$(service_paths ${service})"
             echo "     bash scripts/deploy.sh ${service} prod"
@@ -200,18 +198,17 @@ cmd_rollback() {
             echo ""
             echo "Manual restore procedure:"
             echo "  1. List available backups:"
-            echo "     bash scripts/backup.sh list db"
+            echo "     bash scripts/backup.sh list ${service}"
             echo ""
             echo "  2. Restore from pre-deploy backup:"
-            echo "     bash scripts/backup.sh restore db <backup-dir>"
+            echo "     bash scripts/backup.sh restore ${service} <backup-dir>"
             echo ""
             echo "  3. Then rollback the code:"
-            echo "     git checkout ${target_ref} -- platform/data/postgres/"
-            echo "     bash scripts/deploy.sh db prod"
+            echo "     git checkout ${target_ref} -- $(service_paths "${service}")"
+            echo "     bash scripts/deploy.sh ${service} prod"
             echo ""
             echo "  4. Verify:"
-            echo "     bash scripts/deploy.sh verify db"
-            echo "     bash scripts/deploy.sh verify api"
+            echo "     bash scripts/deploy.sh verify ${service}"
             exit 1
             ;;
         code-only|config-only|mixed)

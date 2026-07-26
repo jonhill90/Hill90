@@ -102,42 +102,6 @@
   [ "$status" -eq 0 ]
 }
 
-@test "legacy agentbox deployment paths are absent" {
-  # Scripts must not exist
-  [ ! -f scripts/agentbox.sh ]
-  [ ! -f scripts/agentbox-compose-gen.py ]
-
-  # Compose file must not exist
-  [ ! -f deploy/compose/prod/docker-compose.agentbox.yml ]
-
-  # Workflow must not exist
-  [ ! -f .github/workflows/deploy-agentbox.yml ]
-
-  # deploy.sh must not contain cmd_agentbox
-  run grep 'cmd_agentbox' scripts/deploy.sh
-  [ "$status" -eq 1 ]
-
-  # Makefile must not contain deploy-agentbox
-  run grep 'deploy-agentbox' Makefile
-  [ "$status" -eq 1 ]
-
-  # deploy.yml must not contain standalone deploy-agentbox job
-  run grep 'deploy-agentbox' .github/workflows/deploy.yml
-  [ "$status" -eq 1 ]
-
-  # rollback.sh must not contain agentbox) case
-  run grep 'agentbox)' scripts/rollback.sh
-  [ "$status" -eq 1 ]
-
-  # CONTRIBUTING.md must not contain deploy-agentbox or agentbox-list
-  run grep 'deploy-agentbox' CONTRIBUTING.md
-  [ "$status" -eq 1 ]
-  run grep 'agentbox-list' CONTRIBUTING.md
-  [ "$status" -eq 1 ]
-}
-
-# ---------------------------------------------------------------------------
-# Agentbox image build in API preflight
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------

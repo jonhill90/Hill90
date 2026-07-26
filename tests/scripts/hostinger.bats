@@ -16,11 +16,17 @@
   [[ "$output" == *"Usage"* ]] || [[ "$output" == *"VPS Commands"* ]]
 }
 
-@test "hostinger.sh dns_sync pair loop includes storage with tailscale_ip" {
-  # Verify storage is in the sync pair loop (not just anywhere in the file)
-  run bash -c 'sed -n "/^dns_sync/,/^}/p" scripts/hostinger.sh | grep "storage"'
+@test "hostinger.sh dns_sync pair loop includes grafana with tailscale_ip" {
+  # Verify grafana is in the sync pair loop (not just anywhere in the file)
+  run bash -c 'sed -n "/^dns_sync/,/^}/p" scripts/hostinger.sh | grep "grafana"'
   [ "$status" -eq 0 ]
   [[ "$output" == *"tailscale_ip"* ]]
+}
+
+@test "hostinger.sh dns_sync pair list excludes removed app hosts" {
+  # Scope to the "for pair in ..." line so the Hostinger API URL path does not match.
+  run bash -c 'grep "^    for pair in" scripts/hostinger.sh | grep -E "\"(storage|litellm|api|ai|auth):"'
+  [ "$status" -eq 1 ]
 }
 
 @test "hostinger.sh dns_verify has failure tracking and non-zero return" {
