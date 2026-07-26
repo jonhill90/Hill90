@@ -2,6 +2,22 @@
 
 OpenBao (vault) starts sealed after every container restart. This runbook covers the auto-unseal mechanisms and manual fallback.
 
+> **Do not revoke the root token before the vault is configured (2026-07-26).**
+> On OpenBao >= 2.5.3 the unauthenticated root-generation endpoints are disabled
+> by default, so `bao operator generate-root` returns **403** — verified against
+> 2.6.1, both before and after revocation, with the flag set at listener and at
+> top level. With no other sudo-capable token, there is then no supported way
+> back to root, and the vault cannot be configured at all.
+>
+> Correct order: `init` -> `unseal` -> `setup` -> `seed` -> `setup-sync-token`
+> -> `revoke-root`. The `vault-init` workflow now leaves the root token in place
+> by default (`revoke_root: false`) for exactly this reason.
+>
+> This is what happened on 2026-07-26: root was revoked immediately after init,
+> which left a healthy but permanently unconfigurable vault. Recovering means
+> reinitializing.
+
+
 > **Fresh initialization (2026-07-26).** `vault.sh init` no longer prints the
 > unseal key or root token. It writes both to `0600` files owned by whoever
 > runs it — on the host that is `deploy`, which is what the auto-unseal systemd

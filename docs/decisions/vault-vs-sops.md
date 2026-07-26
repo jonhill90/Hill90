@@ -17,6 +17,12 @@ because it was never about whether a vault *could* run.
 - **It holds no policies, no AppRoles and no KV data.** `setup` and `seed` have
   not been run. Every deploy still falls back to SOPS, which the green
   `deploy-vault` run logged explicitly.
+- **And it cannot currently be configured.** The root token was revoked right
+  after init, and on OpenBao 2.6.1 `bao operator generate-root` returns 403 —
+  the unauthenticated root-generation endpoints are disabled by default since
+  2.5.3. With no other sudo-capable token, the only route back to root is
+  reinitializing. So the running vault is not just empty, it is inert until
+  someone decides to reinitialize it.
 - Between the June 14 rebuild and 2026-07-26 there was no vault at all, and
   nothing noticed.
 - Every secret in use has been served by SOPS + age for six weeks. Nothing
