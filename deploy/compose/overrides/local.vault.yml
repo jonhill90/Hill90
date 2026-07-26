@@ -13,3 +13,16 @@ services:
   openbao:
     labels:
       - "traefik.http.routers.vault.tls=false"
+    # OIDC against the local Keycloak needs the issuer OpenBao sees to match the
+    # issuer Keycloak advertises, exactly. Keycloak advertises
+    # http://auth.localtest.me:8080/realms/platform (its KC_HOSTNAME), so
+    # reaching Keycloak on its internal name would fail the issuer check even
+    # though the JSON is identical.
+    #
+    # localtest.me resolves to 127.0.0.1, which inside a container is the
+    # container itself. host-gateway sends it back out to the Docker host, where
+    # port 8080 is Traefik, which routes it to Keycloak by Host header — the same
+    # path a browser takes. In production auth.hill90.com resolves publicly and
+    # none of this applies.
+    extra_hosts:
+      - "${AUTH_HOST:-auth}.${BASE_DOMAIN:-hill90.com}:host-gateway"

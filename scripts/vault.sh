@@ -17,7 +17,7 @@ SECRETS_FILE="${VAULT_SECRETS_FILE:-${PROJECT_ROOT}/infra/secrets/prod.enc.env}"
 POLICY_DIR="${PROJECT_ROOT}/platform/vault/policies"
 
 # Services that get their own AppRole
-VAULT_SERVICES="infra observability"
+VAULT_SERVICES="db auth infra observability"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -36,6 +36,7 @@ Commands:
   unseal        Unseal OpenBao using host key file or SOPS fallback
   status        Show OpenBao seal/init status
   setup         Enable KV v2, AppRole, audit, apply policies, create roles
+  setup-oidc    Configure OIDC auth against the Keycloak platform realm
   seed          Seed KV v2 paths from SOPS-encrypted secrets
   policy-apply  Apply all policy HCL files
   backup        Backup OpenBao data volume
@@ -353,6 +354,84 @@ cmd_setup() {
         echo "  role_id:    bao read auth/approle/role/${svc}/role-id"
         echo "  secret_id:  bao write -f auth/approle/role/${svc}/secret-id"
     done
+    echo ""
+}
+
+# Platform-to-platform SSO: OpenBao authenticating humans against Keycloak.
+# This is the Key-Vault-behind-Entra pairing the project mirrors — see
+# docs/decisions/platform-primitives.md.
+#
+# It targets the PLATFORM realm, not an application realm. Infrastructure
+# services (Grafana, Portainer, Traefik) deliberately do NOT authenticate this
+# way: it would make them unreachable whenever the IdP is unhealthy.
+cmd_setup_oidc() {
+    require_running
+
+    local secrets_file="${SECRETS_FILE}"
+    require_file "$secrets_file" "Secrets file"
+    ensure_age_key prod
+
+    echo "================================"
+    echo "OpenBao OIDC Setup (Keycloak)"
+    echo "================================"
+    echo ""
+
+    # Read OIDC client secret from SOPS
+    local client_secret
+    client_secret=$(sops -d "$secrets_file" 2>/dev/null | grep "^VAULT_OIDC_CLIENT_SECRET=" | cut -d= -f2-)
+
+    if [ -z "$client_secret" ]; then
+        die "VAULT_OIDC_CLIENT_SECRET not found in SOPS. Create the Keycloak client first."
+    fi
+
+    # Enable OIDC auth method (idempotent)
+    echo "Enabling OIDC auth method..."
+    bao_exec_env auth enable oidc 2>/dev/null || info "OIDC auth already enabled"
+
+    # Configure OIDC provider (Keycloak)
+    echo "Configuring OIDC provider (Keycloak)..."
+    bao_exec_env write auth/oidc/config \
+        oidc_discovery_url="${VAULT_OIDC_DISCOVERY_URL:-https://auth.hill90.com/realms/platform}" \
+        oidc_client_id="hill90-vault" \
+        oidc_client_secret="$client_secret" \
+        default_role="admin-sso"
+
+    # Apply OIDC admin policy
+    echo "Applying OIDC admin policy..."
+    bao_exec_env policy write policy-oidc-admin "/openbao/policies/policy-oidc-admin.hcl"
+
+    # Create admin-sso role (maps Keycloak admin role to vault policy)
+    # Uses JSON via stdin because bound_claims requires a map type that
+    # the CLI doesn't parse correctly from positional arguments.
+    echo "Creating admin-sso OIDC role..."
+    # Redirect URIs must match the vault's own public URL. Defaulting to the
+    # production URL keeps this byte-identical to what prod got before; local
+    # rehearsal sets VAULT_PUBLIC_URL instead of forking the command.
+    local vault_url="${VAULT_PUBLIC_URL:-https://vault.hill90.com}"
+    local role_json
+    role_json=$(python3 -c '
+import json, sys
+base = sys.argv[1].rstrip("/")
+print(json.dumps({
+    "role_type": "oidc",
+    "user_claim": "sub",
+    "policies": ["policy-oidc-admin"],
+    "oidc_scopes": ["openid", "profile", "email"],
+    "bound_claims": {"realm_roles": ["admin"]},
+    "allowed_redirect_uris": [
+        base + "/v1/auth/oidc/callback",
+        base + "/ui/vault/auth/oidc/oidc/callback",
+    ],
+}))' "$vault_url")
+    local token="${BAO_TOKEN:-}"
+    echo "$role_json" | docker exec -i -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" "$CONTAINER_NAME" \
+        bao write auth/oidc/role/admin-sso -
+
+    echo ""
+    success "OIDC setup complete!"
+    echo "  Login at: ${vault_url}/ui/"
+    echo "  Auth method: OIDC"
+    echo "  Keycloak users with 'admin' role can now sign in."
     echo ""
 }
 
@@ -792,6 +871,7 @@ main() {
         unseal)        cmd_unseal "$@" ;;
         status)        cmd_status "$@" ;;
         setup)         cmd_setup "$@" ;;
+        setup-oidc)    cmd_setup_oidc "$@" ;;
         seed)          cmd_seed "$@" ;;
         policy-apply)  cmd_policy_apply "$@" ;;
         backup)        cmd_backup "$@" ;;

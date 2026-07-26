@@ -1,0 +1,8 @@
+# Local development override for the platform database.
+#
+# Layered on deploy/compose/prod/docker-compose.db.yml — the SAME file prod uses.
+# Postgres is internal-only in both environments, so there is nothing to reroute
+# and nothing to override. This file exists so every prod stack has a local
+# counterpart, which is the parity rule; credentials come from .env.local.
+services:
+  postgres: {}

@@ -4,7 +4,11 @@ on:
   push:
     branches: [main]
     paths:
+      - 'platform/auth/keycloak/**'
+      - 'platform/data/postgres/**'
       - 'platform/observability/**'
+      - 'deploy/compose/prod/docker-compose.db.yml'
+      - 'deploy/compose/prod/docker-compose.auth.yml'
       - 'deploy/compose/prod/docker-compose.vault.yml'
       - 'deploy/compose/prod/docker-compose.observability.yml'
   workflow_dispatch:
@@ -12,7 +16,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, vault, observability]
+        options: [all, db, auth, vault, observability]
         default: 'all'
 
 permissions:
@@ -27,6 +31,8 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
+      db: ${{ steps.filter.outputs.db }}
+      auth: ${{ steps.filter.outputs.auth }}
       vault: ${{ steps.filter.outputs.vault }}
       observability: ${{ steps.filter.outputs.observability }}
     steps:
@@ -35,6 +41,12 @@ jobs:
         id: filter
         with:
           filters: |
+            db:
+              - 'deploy/compose/prod/docker-compose.db.yml'
+              - 'platform/data/postgres/**'
+            auth:
+              - 'deploy/compose/prod/docker-compose.auth.yml'
+              - 'platform/auth/keycloak/**'
             vault:
               - 'deploy/compose/prod/docker-compose.vault.yml'
             observability:
@@ -42,6 +54,23 @@ jobs:
               - 'platform/observability/**'
 
   # --- Platform layer ---
+
+  deploy-db:
+    needs: [changes]
+    if: needs.changes.outputs.db == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'db'
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service: db
+    secrets: inherit
+
+  # Keycloak stores realms in Postgres, so it waits for the database.
+  deploy-auth:
+    needs: [changes, deploy-db]
+    if: always() && (needs.changes.outputs.auth == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'auth') && !failure() && !cancelled()
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service: auth
+    secrets: inherit
 
   deploy-vault:
     needs: [changes]

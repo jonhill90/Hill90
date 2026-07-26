@@ -26,6 +26,8 @@ ENV_EXAMPLE="$PROJECT_ROOT/.env.local.example"
 EDGE_PROJECT="hill90-local-edge"
 OBS_PROJECT="hill90-local-observability"
 VAULT_PROJECT="hill90-local-platform"
+DB_PROJECT="hill90-local-db"
+AUTH_PROJECT="hill90-local-identity"
 
 # Vault state lives beside the repo, not in /opt/hill90 as it does on the VPS.
 # vault.sh takes both paths from the environment, so nothing in it needs to know
@@ -72,6 +74,20 @@ require_env() {
         cp "$ENV_EXAMPLE" "$ENV_FILE"
         success "Created $ENV_FILE"
     fi
+
+    # The header of this script promises it never touches the VPS. Compose
+    # operations are safe by construction (every project is hill90-local-*), but
+    # cmd_up also runs raw `docker exec "${CONTAINER_PREFIX}keycloak"` to relax
+    # sslRequired and add local OIDC callbacks. CONTAINER_PREFIX defaults to
+    # EMPTY, and the production container is named exactly `keycloak` — so on a
+    # host that has both, an empty prefix would point those two security-relevant
+    # mutations at production. Refuse instead.
+    local prefix; prefix=$(env_get CONTAINER_PREFIX "")
+    if [ -z "$prefix" ]; then
+        die "CONTAINER_PREFIX is empty in ${ENV_FILE}. Local containers must be
+  prefixed (the example uses 'hill90dev-'), because an empty prefix makes
+  local commands address production container names directly."
+    fi
 }
 
 # Both stacks, base + local override, with .env.local supplying the values.
@@ -85,6 +101,18 @@ compose_obs() {
     docker compose --env-file "$ENV_FILE" -p "$OBS_PROJECT" \
         -f "$COMPOSE_DIR/docker-compose.observability.yml" \
         -f "$OVERRIDE_DIR/local.observability.yml" "$@"
+}
+
+compose_db() {
+    docker compose --env-file "$ENV_FILE" -p "$DB_PROJECT" \
+        -f "$COMPOSE_DIR/docker-compose.db.yml" \
+        -f "$OVERRIDE_DIR/local.db.yml" "$@"
+}
+
+compose_auth() {
+    docker compose --env-file "$ENV_FILE" -p "$AUTH_PROJECT" \
+        -f "$COMPOSE_DIR/docker-compose.auth.yml" \
+        -f "$OVERRIDE_DIR/local.auth.yml" "$@"
 }
 
 compose_vault() {
@@ -201,6 +229,71 @@ cmd_up() {
     info "Starting the observability stack (prometheus, grafana, loki, tempo, collectors)..."
     compose_obs up -d || die "Observability stack failed to start"
 
+    info "Starting the platform database (postgres)..."
+    compose_db up -d || die "Database stack failed to start"
+
+    # Keycloak stores realms in Postgres; wait rather than crash-loop.
+    local waited=0
+    until docker exec "$(env_get CONTAINER_PREFIX '')postgres" pg_isready -U "$(env_get DB_USER hill90)" >/dev/null 2>&1; do
+        [ "$waited" -ge 60 ] && die "postgres did not become ready"
+        sleep 3; waited=$((waited + 3))
+    done
+
+    info "Starting the identity provider (keycloak)..."
+    compose_auth up -d || die "Auth stack failed to start"
+
+    # Keycloak imports the realm and runs migrations on first boot, which takes
+    # appreciably longer than the container being "started". Everything below
+    # talks to its admin API, so wait for the container's own healthcheck.
+    local cpfx; cpfx=$(env_get CONTAINER_PREFIX "")
+    waited=0
+    until [ "$(docker inspect "${cpfx}keycloak" --format '{{.State.Health.Status}}' 2>/dev/null)" = "healthy" ]; do
+        [ "$waited" -ge 180 ] && die "keycloak did not become healthy within 180s"
+        sleep 5; waited=$((waited + 5))
+    done
+
+    # The platform realm ships with sslRequired=external. That is correct for
+    # production and it is why plain HTTP locally returns
+    # 403 {"error":"invalid_request","error_description":"HTTPS required"}.
+    # Relax it on the RUNNING realm only — platform-realm.json is untouched, so
+    # production still gets external. This is the same shape as the other local
+    # accommodations: production values are the defaults, local adds deltas.
+    if docker exec "${cpfx}keycloak" sh -c \
+        "/opt/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 \
+           --realm master --user \"$(env_get KC_ADMIN_USERNAME admin)\" --password \"$(env_get KC_ADMIN_PASSWORD admin)\" && \
+         /opt/keycloak/bin/kcadm.sh update realms/platform -s sslRequired=NONE" >/dev/null 2>&1; then
+        success "Relaxed sslRequired on the local platform realm"
+    else
+        warn "Could not relax sslRequired on the platform realm — http://auth.$(base_domain):$(http_port)/realms/platform will return 403 until it is set to NONE"
+    fi
+
+    # Same shape, second delta: hill90-vault ships production redirect URIs, so
+    # a local OIDC login is rejected with "Invalid parameter: redirect_uri".
+    # Append the local callbacks to the RUNNING client, keeping the production
+    # ones — platform-realm.json is again untouched.
+    local vault_local; vault_local="$(base_url "$(env_get VAULT_HOST vault)")"
+    local uris_json
+    uris_json=$(python3 -c '
+import json, sys
+base = sys.argv[1].rstrip("/")
+print(json.dumps([
+    "https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback",
+    "https://vault.hill90.com/v1/auth/oidc/callback",
+    base + "/ui/vault/auth/oidc/oidc/callback",
+    base + "/v1/auth/oidc/callback",
+]))' "$vault_local")
+    local vault_cid
+    vault_cid=$(docker exec "${cpfx}keycloak" /opt/keycloak/bin/kcadm.sh get clients \
+        -r "${KC_PLATFORM_REALM:-platform}" -q clientId=hill90-vault --fields id \
+        --format csv --noquotes 2>/dev/null | tr -d '\r')
+    if [ -n "$vault_cid" ] && docker exec "${cpfx}keycloak" /opt/keycloak/bin/kcadm.sh update \
+        "clients/${vault_cid}" -r "${KC_PLATFORM_REALM:-platform}" \
+        -s "redirectUris=${uris_json}" >/dev/null 2>&1; then
+        success "Added local OIDC callbacks to the hill90-vault client"
+    else
+        warn "Could not add local OIDC callbacks to hill90-vault — 'local.sh vault setup-oidc' logins will fail with 'Invalid parameter: redirect_uri'"
+    fi
+
     info "Starting the vault stack (openbao)..."
     compose_vault up -d || die "Vault stack failed to start"
 
@@ -257,6 +350,10 @@ cmd_down() {
     require_env
     info "Stopping the vault stack..."
     compose_vault down --remove-orphans 2>/dev/null || true
+    info "Stopping the identity provider..."
+    compose_auth down --remove-orphans 2>/dev/null || true
+    info "Stopping the platform database..."
+    compose_db down --remove-orphans 2>/dev/null || true
     info "Stopping the observability stack..."
     compose_obs down --remove-orphans 2>/dev/null || true
     info "Stopping the edge stack..."
@@ -302,6 +399,8 @@ cmd_reset() {
 
     info "Tearing down with volumes..."
     compose_vault down -v --remove-orphans 2>/dev/null || true
+    compose_auth down -v --remove-orphans 2>/dev/null || true
+    compose_db down -v --remove-orphans 2>/dev/null || true
     rm -rf "$LOCAL_VAULT_DIR"
     compose_obs down -v --remove-orphans 2>/dev/null || true
     compose_edge down -v --remove-orphans 2>/dev/null || true
@@ -320,6 +419,12 @@ cmd_status() {
     docker ps -a \
         --filter "label=com.docker.compose.project=${VAULT_PROJECT}" \
         --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
+    docker ps -a \
+        --filter "label=com.docker.compose.project=${AUTH_PROJECT}" \
+        --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
+    docker ps -a \
+        --filter "label=com.docker.compose.project=${DB_PROJECT}" \
+        --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
 }
 
 cmd_urls() {
@@ -330,6 +435,7 @@ cmd_urls() {
     echo "  Grafana             $(base_url "$(env_get GRAFANA_HOST grafana)")/"
     echo "  Prometheus          $(base_url "$(env_get PROMETHEUS_HOST prometheus)")/  (local only; prod reaches it via Grafana)"
     echo "  OpenBao             $(base_url "$(env_get VAULT_HOST vault)")/  (uninitialized until: local.sh vault init)"
+    echo "  Keycloak            $(base_url "$(env_get AUTH_HOST auth)")/  (platform realm; admin/admin)"
 }
 
 cmd_health() {
@@ -355,11 +461,46 @@ cmd_health() {
     # reported separately because both are legitimate local states.
     if docker inspect "${cp}openbao" >/dev/null 2>&1; then
         check_exec "OpenBao responding" "${cp}openbao" sh -c 'wget -qO- --spider http://127.0.0.1:8200/v1/sys/seal-status' || failed=1
+        # `bao status` exits 2 when sealed and 2 when uninitialized — both are
+        # normal here. Under `set -o pipefail` that non-zero status fails the
+        # whole pipeline even though the JSON parsed fine, so the `|| echo`
+        # fallback fired *as well* and put two lines in one variable. Run the
+        # capture in a subshell with pipefail off so only the parse decides.
         local seal
-        seal=$(docker exec -e BAO_ADDR=http://127.0.0.1:8200 "${cp}openbao" bao status -format=json 2>/dev/null \
-               | python3 -c 'import sys,json;d=json.load(sys.stdin);print(("uninitialized" if not d["initialized"] else ("sealed" if d["sealed"] else "unsealed")))' 2>/dev/null || echo unknown)
-        echo "  ${BLUE}i${NC} OpenBao state — ${seal}"
+        seal=$(set +o pipefail
+               docker exec -e BAO_ADDR=http://127.0.0.1:8200 "${cp}openbao" bao status -format=json 2>/dev/null \
+               | python3 -c 'import sys,json;d=json.load(sys.stdin);print("uninitialized" if not d["initialized"] else ("sealed" if d["sealed"] else "unsealed"))' 2>/dev/null)
+        echo "  ${BLUE}i${NC} OpenBao state — ${seal:-unknown}"
     fi
+
+    echo ""
+    echo "${BOLD}Platform services${NC}"
+    # Postgres is a platform primitive, not an app dependency — it exists here
+    # to back Keycloak. See docs/decisions/platform-primitives.md.
+    check_exec "Postgres accepting connections" "${cp}postgres" \
+        pg_isready -U "$(env_get DB_USER hill90)" || failed=1
+
+    # Guard the reason Postgres was deleted in #495: if application databases
+    # reappear here, Postgres has drifted back into being an app dependency.
+    local appdbs
+    # An ALLOWLIST, not a hill90_* prefix match: a database called `litellm` is
+    # just as much an application database, and a denylist silently passes it.
+    appdbs=$(docker exec "${cp}postgres" psql -U "$(env_get DB_USER hill90)" -tAc \
+        "SELECT datname FROM pg_database
+          WHERE datistemplate = false
+            AND datname NOT IN ('postgres', 'keycloak', '$(env_get DB_USER hill90)')" \
+        2>/dev/null | tr -d '\r' | tr '\n' ' ')
+    if [ -n "${appdbs// /}" ]; then
+        echo "  ${RED}✗${NC} Platform-only databases — found non-platform databases: ${appdbs}"
+        failed=1
+    else
+        echo "  ${GREEN}✓${NC} Platform-only databases (only postgres, keycloak and the owner role's database)"
+    fi
+
+    # The realm must actually serve OIDC discovery over the local scheme; a
+    # healthy container proves nothing if sslRequired still rejects plain HTTP.
+    check_http "Keycloak platform realm (OIDC discovery)" \
+        "$(base_url "$(env_get AUTH_HOST auth)")/realms/${KC_PLATFORM_REALM:-platform}/.well-known/openid-configuration" 200 || failed=1
 
     echo ""
     if [ "$failed" -eq 0 ]; then

@@ -30,6 +30,7 @@ Commands:
   help                     Show this help message
 
 Services with backups:
+  db             PostgreSQL SQL dump + data volume tar
   vault          OpenBao secrets data (volume tar)
   infra          Traefik certificates + Portainer data (volume tar)
   observability  Grafana dashboards + Prometheus data (volume tar)
@@ -84,6 +85,49 @@ restore_volume() {
 # Per-service backup implementations
 # ---------------------------------------------------------------------------
 
+backup_db() {
+    local backup_dir="$1"
+    mkdir -p "$backup_dir"
+
+    echo "Backing up PostgreSQL..."
+
+    # deploy.sh calls the pre-deploy backup BEFORE it loads secrets, so DB_USER
+    # arrives empty. That used to produce a zero-byte database.sql and, because
+    # `set -e` killed the script on the failed pg_dumpall, the volume tar below
+    # never ran either — a deploy that destroys and recreates the container
+    # while reporting only "Pre-deploy backup failed (continuing deploy)".
+    # Load secrets here rather than depending on the caller's ordering.
+    local db_user="${DB_USER:-}"
+    if [ -z "$db_user" ] && [ -f "${PROJECT_ROOT}/infra/secrets/prod.enc.env" ]; then
+        db_user=$(sops -d "${PROJECT_ROOT}/infra/secrets/prod.enc.env" 2>/dev/null \
+                  | grep '^DB_USER=' | cut -d= -f2- || true)
+    fi
+
+    # pg_isready is NOT an authentication check — it exits 0 for any role name,
+    # including one that does not exist and including the empty string. Prove
+    # the credentials work by running a query.
+    if [ -z "$db_user" ]; then
+        warn "DB_USER could not be resolved — skipping SQL dump (volume tar still taken)"
+    elif ! docker exec postgres psql -U "$db_user" -tAc 'SELECT 1' >/dev/null 2>&1; then
+        warn "Cannot authenticate to PostgreSQL as '${db_user}' — skipping SQL dump (volume tar still taken)"
+    else
+        # Never leave a truncated dump behind claiming to be a backup: write to
+        # a temp file, check the exit status AND that it is non-empty, and only
+        # then move it into place.
+        if docker exec postgres pg_dumpall -U "$db_user" > "$backup_dir/.database.sql.partial" 2>/dev/null \
+           && [ -s "$backup_dir/.database.sql.partial" ]; then
+            mv "$backup_dir/.database.sql.partial" "$backup_dir/database.sql"
+            echo "  ✓ SQL dump saved to $backup_dir/database.sql ($(wc -c < "$backup_dir/database.sql") bytes)"
+        else
+            rm -f "$backup_dir/.database.sql.partial"
+            warn "pg_dumpall failed or produced an empty dump — no SQL backup was taken"
+        fi
+    fi
+
+    # Volume tar (full data directory backup). Runs regardless of the dump.
+    backup_volume "prod_postgres-data" "$backup_dir/postgres-data.tar.gz" || true
+}
+
 backup_infra() {
     local backup_dir="$1"
     mkdir -p "$backup_dir"
@@ -119,8 +163,8 @@ cmd_backup() {
 
     # Validate service before constructing any paths
     case "$service" in
-        vault|infra|observability) ;;
-        *) die "Unknown service for backup: $service. Use: vault, infra, observability" ;;
+        db|vault|infra|observability) ;;
+        *) die "Unknown service for backup: $service. Use: db, vault, infra, observability" ;;
     esac
 
     local timestamp
@@ -128,6 +172,7 @@ cmd_backup() {
     local backup_dir="${BACKUP_ROOT}/${service}/${timestamp}"
 
     case "$service" in
+        db)            backup_db "$backup_dir" ;;
         vault)         backup_vault "$backup_dir" ;;
         infra)         backup_infra "$backup_dir" ;;
         observability) backup_observability "$backup_dir" ;;
@@ -143,7 +188,7 @@ cmd_backup_all() {
     echo "================================"
     echo ""
 
-    for svc in vault infra observability; do
+    for svc in db vault infra observability; do
         cmd_backup "$svc"
         echo ""
     done

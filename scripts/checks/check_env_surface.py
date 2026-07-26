@@ -56,6 +56,14 @@ SENSITIVE = {
     "TRAEFIK_ADMIN_PASSWORD_HASH",
     "GRAFANA_ADMIN_PASSWORD",
     "HOSTINGER_API_KEY",
+    # Platform database and identity-provider credentials. Supplied by SOPS or
+    # vault at deploy time; a fallback value would let a misconfigured deploy
+    # come up with a known database password or Keycloak admin login.
+    "DB_USER",
+    "DB_PASSWORD",
+    "KC_ADMIN_USERNAME",
+    "KC_ADMIN_PASSWORD",
+    "VAULT_OIDC_CLIENT_SECRET",
 }
 
 # Consumed by scripts rather than by compose substitution.
