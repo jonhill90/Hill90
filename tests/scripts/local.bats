@@ -136,3 +136,70 @@
   run bash -c 'sed -n "/^check_http/,/^}/p" scripts/local.sh | grep -c -- "curl -sL"'
   [ "$output" = "1" ]
 }
+
+# --- Local vault parity (JON-50) --------------------------------------------
+
+@test "a local override exists for every prod stack" {
+  for stack in infra observability vault; do
+    [ -f "deploy/compose/overrides/local.${stack}.yml" ]
+  done
+}
+
+@test "local.sh brings up the vault stack" {
+  run grep -c "compose_vault up -d" scripts/local.sh
+  [ "$output" = "1" ]
+}
+
+@test "local.sh exposes a vault subcommand" {
+  run bash scripts/local.sh
+  [[ "$output" == *"vault"* ]]
+}
+
+@test "local vault state is gitignored and outside /opt" {
+  run grep -qxF ".local-vault/" .gitignore
+  [ "$status" -eq 0 ]
+  run bash -c 'grep -c "LOCAL_VAULT_DIR=\"\$PROJECT_ROOT/.local-vault\"" scripts/local.sh'
+  [ "$output" = "1" ]
+}
+
+@test "local vault never points at the production secrets file" {
+  # VAULT_SECRETS_FILE must resolve under LOCAL_VAULT_DIR (which test above
+  # pins to .local-vault), and must never name the production secrets file.
+  run bash -c 'sed -n "/^cmd_vault/,/^}/p" scripts/local.sh | grep "VAULT_SECRETS_FILE"'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'LOCAL_VAULT_DIR'* ]]
+  [[ "$output" != *"infra/secrets"* ]]
+  # And nothing in the local path may reference the prod secrets file at all.
+  run bash -c 'sed -n "/^cmd_vault/,/^}/p" scripts/local.sh | grep -c "prod.enc.env"'
+  [ "$output" = "0" ]
+}
+
+@test "local vault uses vault.sh unmodified, via its documented env overrides" {
+  # vault.sh reads each of these as a ${VAR:-<prod default>}, so local can point
+  # them elsewhere without the script differing by a byte from the VPS copy.
+  run grep -c 'VAULT_CONTAINER:-' scripts/vault.sh
+  [ "$output" = "1" ]
+  run grep -c 'VAULT_UNSEAL_KEY_PATH:-' scripts/vault.sh
+  [ "$output" = "1" ]
+  run grep -c 'VAULT_ROOT_TOKEN_PATH:-' scripts/vault.sh
+  [ "$output" = "1" ]
+  run grep -c 'VAULT_SECRETS_FILE:-' scripts/vault.sh
+  [ "$output" = "1" ]
+}
+
+@test "vault compose resolves to production names with no environment set" {
+  run docker compose -f deploy/compose/prod/docker-compose.vault.yml config
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"container_name: openbao"* ]]
+  [[ "$output" == *"vault.hill90.com"* ]]
+  [[ "$output" == *"tailscale-only@file"* ]]
+}
+
+@test "local vault override produces local routing from the same file" {
+  run docker compose --env-file .env.local.example \
+        -f deploy/compose/prod/docker-compose.vault.yml \
+        -f deploy/compose/overrides/local.vault.yml config
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"vault.localtest.me"* ]]
+  [[ "$output" != *"tailscale-only@file"* ]]
+}
