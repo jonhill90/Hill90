@@ -263,10 +263,9 @@ cmd_secrets() {
 
     local required_secrets=(
         "VPS_IP" "VPS_HOST" "DB_USER" "DB_PASSWORD" "DB_NAME"
-        "JWT_SECRET" "ACME_EMAIL" "ACME_CA_SERVER"
+        "ACME_EMAIL" "ACME_CA_SERVER"
     )
     local optional_secrets=(
-        "ANTHROPIC_API_KEY" "OPENAI_API_KEY" "JWT_PRIVATE_KEY" "JWT_PUBLIC_KEY"
         "MINIO_ROOT_USER" "MINIO_ROOT_PASSWORD"
     )
 

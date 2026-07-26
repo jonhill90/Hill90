@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth deploy-api deploy-ai deploy-mcp deploy-ui deploy-knowledge deploy-all test logs health ssh secrets-edit secrets-init secrets-view secrets-update lint format ps snapshot recreate-vps config-vps validate dev dev-logs dev-down docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-minio deploy-vault deploy-observability deploy-auth test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
 
 # Environment
 ENV ?= prod
@@ -23,7 +23,7 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(COLOR_GREEN)%-25s$(COLOR_RESET) %s\n", $$1, $$2}'
 	@echo ""
 	@echo "$(COLOR_BLUE)Per-service commands:$(COLOR_RESET)"
-	@echo "  $(COLOR_GREEN)logs-<service>            $(COLOR_RESET) Show logs (e.g., make logs-api)"
+	@echo "  $(COLOR_GREEN)logs-<service>            $(COLOR_RESET) Show logs (e.g., make logs-traefik)"
 	@echo "  $(COLOR_GREEN)restart-<service>         $(COLOR_RESET) Restart (e.g., make restart-traefik)"
 	@echo "  $(COLOR_GREEN)exec-<service>            $(COLOR_RESET) Shell in (e.g., make exec-auth)"
 	@echo ""
@@ -94,52 +94,22 @@ config-vps: ## Configure VPS OS only (no containers deployed)
 	@echo ""
 	@echo "$(COLOR_YELLOW)Next: Deploy infrastructure and services$(COLOR_RESET)"
 	@echo "  make deploy-infra    # Traefik, dns-manager, Portainer"
-	@echo "  make deploy-all      # All app services"
 	@echo ""
 
 # ============================================================================
 # Development
 # ============================================================================
 
-dev: ## Run development environment
-	docker compose -f deploy/compose/dev/docker-compose.yml up -d
-
 docs-dev: ## Run Mintlify docs site locally (port 3333)
 	cd docs/site && npm run dev
 
-dev-logs: ## Show development logs
-	docker compose -f deploy/compose/dev/docker-compose.yml logs -f
-
-dev-down: ## Stop development environment
-	docker compose -f deploy/compose/dev/docker-compose.yml down
-
-test: ## Run all tests (API + UI + agentbox + infra + checks)
+test: ## Run all tests (infra + checks)
 	@echo "$(COLOR_BOLD)Running all test suites...$(COLOR_RESET)"
-	@echo "$(COLOR_BLUE)API tests (jest)...$(COLOR_RESET)"
-	cd services/api && npx jest --silent || true
-	@echo "$(COLOR_BLUE)UI tests (vitest)...$(COLOR_RESET)"
-	cd services/ui && npx vitest run || true
-	@echo "$(COLOR_BLUE)Agentbox tests (pytest)...$(COLOR_RESET)"
-	cd services/agentbox && python3 -m pytest tests/ -q || true
 	@echo "$(COLOR_BLUE)Infrastructure tests (bats)...$(COLOR_RESET)"
 	bats tests/scripts/*.bats || true
 	@echo "$(COLOR_BLUE)Check scripts (pytest)...$(COLOR_RESET)"
 	python3 -m pytest tests/checks/ -q || true
 	@echo "$(COLOR_GREEN)All test suites complete!$(COLOR_RESET)"
-
-lint: ## Lint all code
-	@echo "$(COLOR_BOLD)Linting code...$(COLOR_RESET)"
-	@echo "$(COLOR_BLUE)Linting API service...$(COLOR_RESET)"
-	cd services/api && npm run lint || true
-	@echo "$(COLOR_BLUE)Linting AI service...$(COLOR_RESET)"
-	cd services/ai && poetry run ruff check app/ || true
-
-format: ## Format all code
-	@echo "$(COLOR_BOLD)Formatting code...$(COLOR_RESET)"
-	@echo "$(COLOR_BLUE)Formatting API service...$(COLOR_RESET)"
-	cd services/api && npm run format || true
-	@echo "$(COLOR_BLUE)Formatting AI service...$(COLOR_RESET)"
-	cd services/ai && poetry run black app/ || true
 
 validate: ## Validate infrastructure configuration (Traefik, secrets, Docker Compose)
 	@echo "$(COLOR_BOLD)Validating infrastructure...$(COLOR_RESET)"
@@ -181,37 +151,9 @@ deploy-auth: ## Deploy auth identity provider (Keycloak)
 	@echo "$(COLOR_YELLOW)Deploying auth (Keycloak)...$(COLOR_RESET)"
 	bash scripts/deploy.sh auth $(ENV)
 
-deploy-api: ## Deploy API service
-	@echo "$(COLOR_YELLOW)Deploying API service...$(COLOR_RESET)"
-	bash scripts/deploy.sh api $(ENV)
-
-build-agentbox: ## Build agentbox image and recycle containers
-	@echo "$(COLOR_YELLOW)Building agentbox image...$(COLOR_RESET)"
-	bash scripts/deploy.sh agentbox $(ENV)
-
-deploy-ai: ## Deploy AI service
-	@echo "$(COLOR_YELLOW)Deploying AI service...$(COLOR_RESET)"
-	bash scripts/deploy.sh ai $(ENV)
-
-deploy-mcp: ## Deploy MCP service
-	@echo "$(COLOR_YELLOW)Deploying MCP service...$(COLOR_RESET)"
-	bash scripts/deploy.sh mcp $(ENV)
-
-deploy-ui: ## Deploy UI service
-	@echo "$(COLOR_YELLOW)Deploying UI service...$(COLOR_RESET)"
-	bash scripts/deploy.sh ui $(ENV)
-
-deploy-knowledge: ## Deploy Agent Knowledge Manager (AKM)
-	@echo "$(COLOR_YELLOW)Deploying Agent Knowledge Manager...$(COLOR_RESET)"
-	bash scripts/deploy.sh knowledge $(ENV)
-
 deploy-observability: ## Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
 	@echo "$(COLOR_YELLOW)Deploying observability stack...$(COLOR_RESET)"
 	bash scripts/deploy.sh observability $(ENV)
-
-deploy-all: ## Deploy all application services (NOT infrastructure)
-	@echo "$(COLOR_YELLOW)Deploying all application services...$(COLOR_RESET)"
-	bash scripts/deploy.sh all $(ENV)
 
 # ============================================================================
 # Monitoring & Maintenance
@@ -228,11 +170,11 @@ logs: ## Show recent logs for all services (use logs-<name> to follow specific)
 		echo ""; \
 	done
 
-logs-%: ## Show logs for a service (e.g., make logs-api)
+logs-%: ## Show logs for a service (e.g., make logs-traefik)
 	docker logs -f $*
 
 ps: ## Show running containers
-	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|api|docker-proxy|ai|mcp|ui|minio|openbao|grafana|agentbox)" || true
+	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|postgres|keycloak|minio|openbao|prometheus|grafana|loki|tempo|promtail|cadvisor|node-exporter)" || true
 
 ssh: ## SSH into VPS
 	@if [ -z "$(VPS_HOST)" ]; then \
@@ -268,13 +210,13 @@ down: ## Stop a service (usage: make down-<service>)
 	@echo "Use 'make down-<service>' for targeted shutdown"
 	@echo "Full platform shutdown requires VPS SSH maintenance window"
 
-down-%: ## Stop a specific service (e.g., make down-api)
+down-%: ## Stop a specific service (e.g., make down-observability)
 	docker stop $* && docker rm $* || true
 
-restart-%: ## Restart a service (e.g., make restart-api)
+restart-%: ## Restart a service (e.g., make restart-traefik)
 	docker restart $*
 
-exec-%: ## Shell into a container (e.g., make exec-api)
+exec-%: ## Shell into a container (e.g., make exec-traefik)
 	docker exec -it $* sh
 
 # ============================================================================
@@ -302,14 +244,14 @@ backup-restore: ## Restore from backup (usage: make backup-restore SERVICE=db BA
 	fi
 	bash scripts/backup.sh restore $(SERVICE) $(BACKUP_PATH)
 
-rollback: ## Rollback a service (usage: make rollback SERVICE=api REF=HEAD~1)
+rollback: ## Rollback a service (usage: make rollback SERVICE=observability REF=HEAD~1)
 	@if [ -z "$(SERVICE)" ]; then \
 		echo "$(COLOR_YELLOW)Usage: make rollback SERVICE=<service> [REF=<git-ref>]$(COLOR_RESET)"; \
 		exit 1; \
 	fi
 	bash scripts/rollback.sh rollback $(SERVICE) $(REF)
 
-rollback-classify: ## Classify changes for a service (usage: make rollback-classify SERVICE=api REF=HEAD~1)
+rollback-classify: ## Classify changes for a service (usage: make rollback-classify SERVICE=observability REF=HEAD~1)
 	@if [ -z "$(SERVICE)" ]; then \
 		echo "$(COLOR_YELLOW)Usage: make rollback-classify SERVICE=<service> [REF=<git-ref>]$(COLOR_RESET)"; \
 		exit 1; \

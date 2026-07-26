@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Deploy CLI — deploy infrastructure and application services
-# Usage: deploy.sh {infra|db|minio|vault|auth|api|ai|mcp|ui|knowledge|all|verify|backup} [env]
+# Deploy CLI — deploy infrastructure stacks
+# Usage: deploy.sh {infra|db|minio|vault|auth|observability|verify|backup} [env]
 
 set -e
 
@@ -13,7 +13,7 @@ source "$SCRIPT_DIR/_common.sh"
 
 usage() {
     cat <<EOF
-Deploy CLI — Hill90 service deployment
+Deploy CLI — Hill90 infrastructure deployment
 
 Usage: deploy.sh <command> [env]
 
@@ -23,13 +23,7 @@ Commands:
   minio    Deploy MinIO object storage
   vault    Deploy OpenBao secrets management
   auth     Deploy auth identity provider (Keycloak)
-  api      Deploy API service
-  ai       Deploy AI service
-  mcp      Deploy MCP service
-  ui       Deploy UI service
-  knowledge  Deploy Agent Knowledge Manager (AKM)
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
-  all      Deploy all application services (NOT infrastructure or db)
   verify   Run post-deploy readiness check for a service
   backup   Run pre-deploy backup for a service (db, minio, infra, observability)
   help     Show this help message
@@ -75,16 +69,10 @@ cmd_verify() {
     case "$service" in
         db)            check_cmd='docker exec postgres pg_isready -U postgres'; diag_container="postgres" ;;
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
-        api)           check_cmd='docker exec api node -e "require(\"http\").get(\"http://localhost:3000/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="api" ;;
-        ai)            check_cmd='docker exec ai python -c "import urllib.request, sys; r=urllib.request.urlopen(\"http://localhost:8000/health/ready\"); sys.exit(0 if r.status < 400 else 1)"'; diag_container="ai" ;;
-        mcp)           check_cmd='docker exec mcp python -c "import requests; r=requests.get(\"http://localhost:8001/health\"); exit(0 if r.ok else 1)"'; diag_container="mcp" ;;
-        ui)            check_cmd='docker exec ui node -e "require(\"http\").get(\"http://localhost:3000/api/health\",(r)=>{process.exit(r.statusCode===200?0:1)})"'; diag_container="ui" ;;
-        knowledge)     check_cmd='docker exec knowledge python -c "from urllib.request import urlopen; r=urlopen(\"http://localhost:8002/health\"); exit(0 if r.status == 200 else 1)"'; diag_container="knowledge" ;;
         minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
-        agentbox)      check_cmd='docker image inspect hill90/agentbox:latest >/dev/null 2>&1'; diag_container="" ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
     esac
 
@@ -219,53 +207,12 @@ cmd_infra() {
 }
 
 # ---------------------------------------------------------------------------
-# Application service deployment
+# Platform service deployment
 # ---------------------------------------------------------------------------
 
 cmd_service() {
     local service="$1"
     local env="${2:-prod}"
-
-    # --- Agentbox image-only deploy (no compose file) ---
-    if [[ "$service" == "agentbox" ]]; then
-        echo ""
-        echo "================================"
-        echo " Agentbox Image Build"
-        echo "================================"
-
-        if ! docker image inspect hill90/knowledge:latest >/dev/null 2>&1; then
-            die "Cannot build agentbox: hill90/knowledge:latest not found. Deploy knowledge first: bash scripts/deploy.sh knowledge prod"
-        fi
-
-        echo "Building hill90/agentbox:latest..."
-        docker build --no-cache -t hill90/agentbox:latest services/agentbox/
-        echo "Agentbox image built successfully"
-
-        # Recycle running agentbox containers so they pick up the new image
-        local agentbox_containers
-        agentbox_containers=$(docker ps -q --filter "label=managed-by=hill90-api" --filter "name=agentbox-" 2>/dev/null || true)
-        if [ -n "$agentbox_containers" ]; then
-            echo "Recycling running agentbox containers..."
-            echo "$agentbox_containers" | while read -r cid; do
-                local cname
-                cname=$(docker inspect --format '{{.Name}}' "$cid" | sed 's|^/||')
-                echo "  Stopping $cname..."
-                docker stop "$cid" 2>/dev/null || true
-                docker rm "$cid" 2>/dev/null || true
-            done
-            echo "Agentbox containers recycled — agents will start fresh on next request"
-        else
-            echo "No running agentbox containers to recycle"
-        fi
-
-        echo ""
-        echo "================================"
-        echo " Agentbox Image Build Complete!"
-        echo "================================"
-        echo "Image: hill90/agentbox:latest"
-        docker image inspect hill90/agentbox:latest --format 'Built: {{.Created}}  Size: {{.Size}}' 2>/dev/null || true
-        return 0
-    fi
 
     local compose_file banner containers summary stack stateful
     case "$service" in
@@ -288,34 +235,6 @@ cmd_service() {
             summary="Service deployed:
   - keycloak (identity provider at auth.hill90.com)"
             ;;
-        api)
-            compose_file="deploy/compose/${env}/docker-compose.api.yml"
-            containers="api docker-proxy"
-            banner="API Service Deployment"
-            stack="apps"
-            stateful=false
-            summary="Services deployed:
-  - api (API Gateway at api.hill90.com)
-  - docker-proxy (Docker socket proxy for agentbox management)"
-            ;;
-        ai)
-            compose_file="deploy/compose/${env}/docker-compose.ai.yml"
-            containers="ai"
-            banner="AI Service Deployment"
-            stack="apps"
-            stateful=false
-            summary="Service deployed:
-  - ai (AI service at ai.hill90.com)"
-            ;;
-        mcp)
-            compose_file="deploy/compose/${env}/docker-compose.mcp.yml"
-            containers="mcp"
-            banner="MCP Service Deployment"
-            stack="apps"
-            stateful=false
-            summary="Service deployed:
-  - mcp (MCP Gateway at ai.hill90.com/mcp)"
-            ;;
         minio)
             compose_file="deploy/compose/${env}/docker-compose.minio.yml"
             containers="minio"
@@ -333,24 +252,6 @@ cmd_service() {
             stateful=true
             summary="Service deployed:
   - openbao (secrets management at vault.hill90.com, Tailscale-only)"
-            ;;
-        ui)
-            compose_file="deploy/compose/${env}/docker-compose.ui.yml"
-            containers="ui"
-            banner="UI Service Deployment"
-            stack="apps"
-            stateful=false
-            summary="Service deployed:
-  - ui (UI at hill90.com)"
-            ;;
-        knowledge)
-            compose_file="deploy/compose/${env}/docker-compose.knowledge.yml"
-            containers="knowledge"
-            banner="Agent Knowledge Manager Deployment"
-            stack="apps"
-            stateful=false
-            summary="Service deployed:
-  - knowledge (Agent Knowledge Manager on internal network, port 8002)"
             ;;
         observability)
             compose_file="deploy/compose/${env}/docker-compose.observability.yml"
@@ -377,55 +278,9 @@ cmd_service() {
     require_file "$secrets_file" "Secrets file"
 
     # Service-specific preflight checks
-    if [[ "$service" == "api" ]]; then
-        # Ensure agentbox config directory exists with correct ownership
-        # API container runs as node (uid 1000) — needs write access to this bind mount
-        mkdir -p /opt/hill90/agentbox-configs
-        sudo chown 1000:1000 /opt/hill90/agentbox-configs
-
-        # Build agentbox base image — dynamically spawned by API via docker-proxy
-        echo "Building agentbox base image..."
-        if ! docker image inspect hill90/knowledge:latest >/dev/null 2>&1; then
-            die "Cannot build agentbox: hill90/knowledge:latest not found. Deploy knowledge first: bash scripts/deploy.sh knowledge prod"
-        fi
-        docker build --no-cache -t hill90/agentbox:latest services/agentbox/
-        echo "Agentbox image built successfully"
-    fi
     if [[ "$service" == "minio" ]]; then
         sops exec-env "$secrets_file" 'test -n "$MINIO_ROOT_USER" && test -n "$MINIO_ROOT_PASSWORD"' \
             || die "MINIO_ROOT_USER and MINIO_ROOT_PASSWORD must be set in secrets. Run: make secrets-update KEY=MINIO_ROOT_USER VALUE=..."
-    fi
-    if [[ "$service" == "knowledge" || "$service" == "ai" ]]; then
-        # Populate akm-keys volume with Ed25519 PEM files from secrets
-        echo "Populating akm-keys volume with signing keys..."
-        docker volume create akm-keys 2>/dev/null || true
-        if [[ "$service" == "knowledge" ]]; then
-            sops exec-env "$secrets_file" '
-                if [ -z "$AKM_SIGNING_PUBLIC_KEY" ] || [ -z "$AKM_SIGNING_PRIVATE_KEY" ]; then
-                    echo "WARNING: AKM signing keys not found in secrets — akm-keys volume will be empty"
-                else
-                    printf "%b\n" "$AKM_SIGNING_PUBLIC_KEY" | docker run --rm -i \
-                        -v akm-keys:/etc/akm alpine sh -c \
-                        "cat > /etc/akm/public.pem && chmod 644 /etc/akm/public.pem && chown 1000:1000 /etc/akm/public.pem"
-                    printf "%b\n" "$AKM_SIGNING_PRIVATE_KEY" | docker run --rm -i \
-                        -v akm-keys:/etc/akm alpine sh -c \
-                        "cat > /etc/akm/private.pem && chmod 600 /etc/akm/private.pem && chown 1000:1000 /etc/akm/private.pem"
-                    echo "akm-keys volume populated with public.pem and private.pem"
-                fi
-            '
-        fi
-        if [[ "$service" == "ai" ]]; then
-            sops exec-env "$secrets_file" '
-                if [ -z "$MODEL_ROUTER_SIGNING_PUBLIC_KEY" ]; then
-                    echo "WARNING: MODEL_ROUTER_SIGNING_PUBLIC_KEY not found in secrets — model-router auth will fail"
-                else
-                    printf "%b\n" "$MODEL_ROUTER_SIGNING_PUBLIC_KEY" | docker run --rm -i \
-                        -v akm-keys:/etc/akm alpine sh -c \
-                        "cat > /etc/akm/model-router-public.pem && chmod 644 /etc/akm/model-router-public.pem && chown 1000:1000 /etc/akm/model-router-public.pem"
-                    echo "akm-keys volume populated with model-router-public.pem"
-                fi
-            '
-        fi
     fi
 
     # Check that networks exist (infrastructure must be deployed first)
@@ -440,13 +295,6 @@ cmd_service() {
     case "$service" in
         auth)
             check_dependency postgres || die "Cannot deploy auth: postgres is not healthy"
-            ;;
-        api|mcp)
-            check_dependency postgres || die "Cannot deploy ${service}: postgres is not healthy"
-            check_dependency keycloak || die "Cannot deploy ${service}: keycloak is not healthy"
-            ;;
-        knowledge)
-            check_dependency postgres || die "Cannot deploy knowledge: postgres is not healthy"
             ;;
     esac
 
@@ -558,26 +406,6 @@ cmd_service() {
         bash "$SCRIPT_DIR/vault.sh" auto-unseal || warn "Auto-unseal failed — run 'vault.sh unseal' manually"
     fi
 
-    # Recycle running agentbox containers after API deploy (AI-99)
-    # The agentbox image is rebuilt during API preflight, but running
-    # containers keep the old image. This stops and removes them so the
-    # API creates fresh containers on next agent start.
-    if [ "$service" = "api" ]; then
-        local agentbox_containers
-        agentbox_containers=$(docker ps -q --filter "label=managed-by=hill90-api" --filter "name=agentbox-" 2>/dev/null || true)
-        if [ -n "$agentbox_containers" ]; then
-            echo "Recycling running agentbox containers to pick up new image..."
-            echo "$agentbox_containers" | while read -r cid; do
-                local cname
-                cname=$(docker inspect --format '{{.Name}}' "$cid" | sed 's|^/||')
-                echo "  Stopping $cname..."
-                docker stop "$cid" 2>/dev/null || true
-                docker rm "$cid" 2>/dev/null || true
-            done
-            echo "Agentbox containers recycled — agents will start fresh on next request"
-        fi
-    fi
-
     echo ""
     echo "================================"
     echo "${banner} Complete!"
@@ -586,54 +414,6 @@ cmd_service() {
 
     echo ""
     echo "$summary"
-    echo ""
-}
-
-# ---------------------------------------------------------------------------
-# Deploy all application services
-# ---------------------------------------------------------------------------
-
-cmd_all() {
-    local env="${1:-prod}"
-
-    echo "================================"
-    echo "All Services Deployment - ${env}"
-    echo "================================"
-    echo ""
-    echo "This will deploy all application services:"
-    echo "  1. keycloak (auth)"
-    echo "  2. api"
-    echo "  3. ai"
-    echo "  4. mcp"
-    echo "  5. ui"
-    echo ""
-
-    if ! docker network inspect hill90_edge >/dev/null 2>&1; then
-        die "Network hill90_edge not found. Deploy infrastructure first: make deploy-infra"
-    fi
-
-    if ! docker ps --format '{{.Names}}' | grep -q '^postgres$'; then
-        echo "WARNING: postgres container not running. Keycloak requires it."
-        echo "Run 'make deploy-db' first, then re-run 'make deploy-all'."
-        die "Prerequisite not met: postgres must be running before deploy-all"
-    fi
-
-    for svc in auth api ai mcp ui; do
-        echo "Deploying ${svc} service..."
-        cmd_service "$svc" "$env"
-        echo ""
-    done
-
-    echo ""
-    echo "================================"
-    echo "All Services Deployment Complete!"
-    echo "================================"
-    echo ""
-    echo "Running containers:"
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|api|ai|mcp|keycloak|ui)" || true
-    echo ""
-    echo "Check service health:"
-    echo "  make health"
     echo ""
 }
 
@@ -652,8 +432,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|api|ai|mcp|minio|vault|ui|knowledge|observability|agentbox) cmd_service "$cmd" "$@" ;;
-        all)            cmd_all "$@" ;;
+        db|auth|minio|vault|observability) cmd_service "$cmd" "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;
         help|--help|-h) usage ;;

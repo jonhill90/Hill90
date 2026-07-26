@@ -25,9 +25,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bats
 
-      - name: Check legacy agentbox paths removed
-        run: bash scripts/checks/check_legacy_agentbox.sh
-
       - name: Run bats tests
         run: bats tests/scripts/
 
@@ -68,32 +65,8 @@ jobs:
       - name: Assert no destructive volume commands
         run: bash scripts/checks/check_destructive_commands.sh
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Run API tests
-        working-directory: services/api
-        run: npm ci && npm test
-
-      - name: Validate OpenAPI spec
-        working-directory: services/api
-        run: npx --yes @redocly/cli lint src/openapi/openapi.yaml --skip-rule no-unused-components
-
-      - name: Validate docs OpenAPI sync
-        run: diff services/api/src/openapi/openapi.yaml docs/site/openapi.yaml
-
       - name: Check docs for sensitive content
         run: bash scripts/checks/check_docs_secrets.sh
-
-      - name: Run UI tests
-        working-directory: services/ui
-        run: npm ci && npm test
-
-      - name: Verify UI production build
-        working-directory: services/ui
-        run: npm run build
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -102,16 +75,3 @@ jobs:
 
       - name: Run check script tests
         run: pip install pytest pyyaml && pytest tests/checks/ -v
-
-      - name: Run MCP tests
-        working-directory: services/mcp
-        run: |
-          pip install poetry
-          poetry install --no-root
-          poetry run pytest tests/ -v
-
-      - name: Run Agentbox tests
-        working-directory: services/agentbox
-        run: |
-          poetry install --no-root
-          poetry run pytest tests/ -v

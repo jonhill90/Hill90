@@ -4,10 +4,6 @@ on:
   push:
     branches: [main]
     paths:
-      - 'services/api/**'
-      - 'services/ai/**'
-      - 'services/mcp/**'
-      - 'services/ui/**'
       - 'platform/auth/keycloak/**'
       - 'platform/data/postgres/**'
       - 'platform/observability/**'
@@ -15,20 +11,13 @@ on:
       - 'deploy/compose/prod/docker-compose.minio.yml'
       - 'deploy/compose/prod/docker-compose.vault.yml'
       - 'deploy/compose/prod/docker-compose.auth.yml'
-      - 'deploy/compose/prod/docker-compose.api.yml'
-      - 'deploy/compose/prod/docker-compose.ai.yml'
-      - 'deploy/compose/prod/docker-compose.mcp.yml'
-      - 'deploy/compose/prod/docker-compose.ui.yml'
-      - 'services/agentbox/**'
-      - 'services/knowledge/**'
-      - 'deploy/compose/prod/docker-compose.knowledge.yml'
       - 'deploy/compose/prod/docker-compose.observability.yml'
   workflow_dispatch:
     inputs:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, db, minio, vault, auth, api, agentbox, ai, mcp, ui, knowledge, observability]
+        options: [all, db, minio, vault, auth, observability]
         default: 'all'
 
 permissions:
@@ -47,12 +36,6 @@ jobs:
       minio: ${{ steps.filter.outputs.minio }}
       vault: ${{ steps.filter.outputs.vault }}
       auth: ${{ steps.filter.outputs.auth }}
-      api: ${{ steps.filter.outputs.api }}
-      agentbox: ${{ steps.filter.outputs.agentbox }}
-      ai: ${{ steps.filter.outputs.ai }}
-      mcp: ${{ steps.filter.outputs.mcp }}
-      ui: ${{ steps.filter.outputs.ui }}
-      knowledge: ${{ steps.filter.outputs.knowledge }}
       observability: ${{ steps.filter.outputs.observability }}
     steps:
       - uses: actions/checkout@v4
@@ -70,23 +53,6 @@ jobs:
             auth:
               - 'platform/auth/keycloak/**'
               - 'deploy/compose/prod/docker-compose.auth.yml'
-            api:
-              - 'services/api/**'
-              - 'deploy/compose/prod/docker-compose.api.yml'
-            agentbox:
-              - 'services/agentbox/**'
-            ai:
-              - 'services/ai/**'
-              - 'deploy/compose/prod/docker-compose.ai.yml'
-            mcp:
-              - 'services/mcp/**'
-              - 'deploy/compose/prod/docker-compose.mcp.yml'
-            ui:
-              - 'services/ui/**'
-              - 'deploy/compose/prod/docker-compose.ui.yml'
-            knowledge:
-              - 'services/knowledge/**'
-              - 'deploy/compose/prod/docker-compose.knowledge.yml'
             observability:
               - 'deploy/compose/prod/docker-compose.observability.yml'
               - 'platform/observability/**'
@@ -123,55 +89,6 @@ jobs:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: auth
-    secrets: inherit
-
-  # --- App layer (after identity) ---
-  deploy-api:
-    needs: [changes, deploy-auth]
-    if: always() && (needs.changes.outputs.api == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'api') && !failure() && !cancelled()
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: api
-    secrets: inherit
-
-  build-agentbox:
-    needs: [changes]
-    if: needs.changes.outputs.agentbox == 'true'
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: agentbox
-    secrets: inherit
-
-  deploy-ai:
-    needs: [changes]
-    if: needs.changes.outputs.ai == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'ai'
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: ai
-    secrets: inherit
-
-  deploy-mcp:
-    needs: [changes, deploy-auth]
-    if: always() && (needs.changes.outputs.mcp == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'mcp') && !failure() && !cancelled()
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: mcp
-    secrets: inherit
-
-  deploy-ui:
-    needs: [changes]
-    if: needs.changes.outputs.ui == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'ui'
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: ui
-    secrets: inherit
-
-  deploy-knowledge:
-    needs: [changes, deploy-db]
-    if: always() && (needs.changes.outputs.knowledge == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'knowledge') && !failure() && !cancelled()
-    uses: ./.github/workflows/reusable-deploy-service.yml
-    with:
-      service: knowledge
     secrets: inherit
 
   deploy-observability:
