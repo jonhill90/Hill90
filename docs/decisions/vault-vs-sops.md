@@ -150,7 +150,39 @@ it over.
   only on the host at `/opt/hill90/secrets/openbao-unseal.key`.
 - Roughly 20 minutes, most of it waiting on workflow runs and one merge.
 
-### The steps, in order
+### One action, not seven steps
+
+`.github/workflows/vault-reinitialize.yml` runs the whole sequence:
+
+```
+gh workflow run vault-reinitialize.yml \
+  -f confirm=REINITIALIZE \
+  -f i_have_read_the_decision_doc=true \
+  -f switch_to_raft=true
+```
+
+It does, in this order: back up the volume and verify the archive → wipe →
+redeploy (onto raft if asked) → init → unseal → store the key in SOPS → setup →
+seed → mint the sync token → prove auto-unseal survives a restart → open a PR
+with the new secrets.
+
+**Storage is switched in the same run**, because the volume is being wiped
+anyway. Doing it separately means a second outage and an `operator migrate` for
+no benefit.
+
+**Root is not revoked.** That is the one-way door, and revoking it before
+anything was configured is precisely what produced the current inert vault. The
+run summary prints the single command to do it once you are satisfied.
+
+It cannot fire by accident. The confirmation input must be exactly
+`REINITIALIZE`, a second acknowledgement input must be set, the run refuses if
+the vault holds KV data, and it refuses if the pre-wipe backup is missing or
+empty.
+
+Two things remain manual afterwards: merge the secrets PR — until then `main`
+carries an unseal key for a vault that no longer exists — and revoke root.
+
+### The steps, in order, if you would rather do it by hand
 
 Order matters. Revoking root before `setup-sync-token` is what produced the
 current inert vault.
