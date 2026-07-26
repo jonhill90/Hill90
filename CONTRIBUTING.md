@@ -9,6 +9,43 @@ secrets, and Tailscale-secured SSH.
 > [Infra/app separation](docs/decisions/infra-app-separation.md); the code is
 > preserved at the `archive/app-stack-final` tag.
 
+## Issue Tracking
+
+Issues live in **GitHub Issues, in the repository whose code they touch**.
+
+| Work | Repository |
+|---|---|
+| VPS, Traefik, observability, secrets, Ansible, deploy | [Hill90](https://github.com/jonhill90/Hill90) — public |
+| The AI agent platform | [hill90-app](https://github.com/jonhill90/hill90-app) — **private** |
+| The published docs site, docs.hill90.com | [hill90-docs](https://github.com/jonhill90/hill90-docs) — **private** |
+| The extracted, reusable compose template | [docker-infra-template](https://github.com/jonhill90/docker-infra-template) — public |
+
+Two of those repositories are private and will 404 for anyone but their owner.
+If you cannot reach the repository a thing belongs to, file it here instead.
+
+Work spanning more than one repository is filed here in Hill90 and links out to
+the repositories it touches. Do not mirror one issue into several repositories.
+Hill90 is public, so keep anything that should not be public — private-repo
+internals, hostnames, anything resembling a credential — in the private
+repository's own issue and link to it rather than restating it here.
+
+### `AI-###` and `JON-###` in the history
+
+Until 2026-07-26 this project tracked work in a Linear workspace with two teams:
+`AI` for the application and `JON` for the infrastructure. Identifiers like
+`AI-124` or `JON-47` appear throughout commit messages, code comments, decision
+records and runbooks in all four repositories. **They are Linear identifiers,
+not GitHub issue numbers** — `JON-47` is unrelated to `#47` in this repository,
+which is a pull request about logo animation.
+
+That workspace was retired as a tracker but deliberately not deleted; it is the
+record of how the project got here. It held about 250 issues across the two
+teams, and all but two were already closed at the cutover, so only those two
+were carried across: `JON-55` became [#532](https://github.com/jonhill90/Hill90/issues/532)
+here, and `AI-258` became [hill90-app#8](https://github.com/jonhill90/hill90-app/issues/8).
+The rest were deliberately left in Linear rather than imported, so following one
+of those identifiers means looking it up there.
+
 ## Pull Request Workflow
 
 1. **Plan** — for anything touching three or more files, agree on the approach
