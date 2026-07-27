@@ -232,24 +232,29 @@ echo | openssl s_client -connect api.hill90.com:443 -servername api.hill90.com 2
 
 ### DNS API Errors
 
-**Problem**: DNS updates fail via Hostinger API
+**Problem**: DNS updates fail via the Cloudflare API
 
 **Solutions**:
 
-1. **Verify API key:**
+1. **Verify the token:**
    ```bash
-   make secrets-view KEY=HOSTINGER_API_KEY
+   make secrets-view KEY=CF_DNS_API_TOKEN
    ```
+   It needs `Zone / Zone / Read` **and** `Zone / DNS / Edit`, scoped to
+   `hill90.com`. A 403 means one of the two is missing.
 
-2. **Check rate limiting:**
-   - Wait 5-10 minutes if hitting rate limits
-   - Use `make dns-snapshots` to verify snapshots exist
-
-3. **Restore from DNS snapshot:**
+2. **Confirm the zone is authoritative:**
    ```bash
-   make dns-snapshots
-   make dns-restore SNAPSHOT_ID=<id>
+   dig NS hill90.com +short
    ```
+   If this still returns `ns1.dns-parking.com` / `ns2.dns-parking.com`, the
+   nameservers have not moved and writes are going to a zone nobody serves.
+
+3. **Rolling a record back:** there is no snapshot API on Cloudflare. Re-run
+   `make dns-sync` with the correct IP — sync is idempotent and per-record.
+   Cloudflare keeps per-record change history in its dashboard.
+
+See [DNS reference](../reference/dns.md) for the full safety contract.
 
 ---
 

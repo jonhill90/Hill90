@@ -166,4 +166,4 @@ VPS recreate -> VPS config -> infra -> vault (deploy+init+unseal+setup+seed)
 - SOPS is the bootstrap mechanism. All runtime secrets must be present in SOPS to seed vault on a fresh install.
 - `SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt` must be set in the deploy user's environment for SOPS fallback to work. The Ansible bootstrap (playbook 12) configures this automatically.
 - After recovery, run `vault.sh sync-to-sops` periodically to keep the SOPS backup current.
-- DNS records may need updating if the VPS IP changed: `bash scripts/hostinger.sh dns sync`.
+- DNS records may need updating if the VPS IP changed: `bash scripts/cloudflare.sh dns sync`.
