@@ -276,3 +276,47 @@ for name,v in r.items():
   [ "$status" -eq 0 ]
   rm -f "$out"
 }
+
+# ---------------------------------------------------------------------------
+# tailscale-only allowlist scope
+#
+# Same family as the rest of this file: a rule that is silently permissive
+# rather than loudly wrong. An allowlist entry that admits more than it names
+# reads as a working control while narrowing nothing.
+# ---------------------------------------------------------------------------
+
+@test "tailscale-only allows only the Tailscale CGNAT range" {
+  run bash -c '
+    python3 - <<PY
+import sys, yaml
+d = yaml.safe_load(open("platform/edge/dynamic/middlewares.yml"))
+rng = d["http"]["middlewares"]["tailscale-only"]["ipWhiteList"]["sourceRange"]
+if rng != ["100.64.0.0/10"]:
+    print("tailscale-only sourceRange is not exactly the CGNAT range:", rng)
+    sys.exit(1)
+PY
+  '
+  [ "$status" -eq 0 ]
+}
+
+@test "tailscale-only carries no bridge, private or loopback CIDR" {
+  # The Docker bridge gateway in particular: any request the container runtime
+  # rewrites arrives with that source, so the address says nothing about where
+  # the request came from. It cannot distinguish on-network from off-network
+  # traffic, which is the whole job of this middleware.
+  run bash -c '
+    body=$(sed -n "/tailscale-only:/,/^    [a-z]/p" platform/edge/dynamic/middlewares.yml | grep -v "^[[:space:]]*#")
+    echo "$body" | grep -E "\"(172\.|10\.|192\.168\.|127\.|0\.0\.0\.0)" && exit 1
+    exit 0
+  '
+  [ "$status" -eq 0 ]
+}
+
+@test "no admin route relies on basic auth alone for network scoping" {
+  # portainer, grafana and vault use tailscale-only WITHOUT auth@file, so the
+  # allowlist is their only network control. That is fine, but it means the
+  # allowlist must actually be narrow — which is what the two tests above check.
+  run bash -c 'grep -h "middlewares=" deploy/compose/prod/*.yml deploy/compose/overrides/*.yml | grep -c "tailscale-only@file"'
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 4 ]
+}

@@ -191,6 +191,17 @@ cmd_traefik() {
             echo "⊘ Skipped (PyYAML not installed)"
         fi
 
+        echo -n "Checking tailscale-only allowlist scope... "
+        if sed -n "/tailscale-only:/,/^    [a-z]/p" "$dynamic_dir/middlewares.yml" 2>/dev/null \
+             | grep -v "^[[:space:]]*#" | grep -qE "\"(172\.|10\.|192\.168\.|127\.)"; then
+            echo "✗ Allowlist contains a private or bridge CIDR"
+            echo "   Only the Tailscale CGNAT range belongs here. A runtime-rewritten"
+            echo "   source address cannot distinguish on-network from off-network traffic."
+            all_valid=false
+        else
+            echo "✓"
+        fi
+
         echo -n "Checking tailscale-only middleware... "
         if grep -q "tailscale-only:" "$dynamic_dir/middlewares.yml" 2>/dev/null; then
             echo "✓"
