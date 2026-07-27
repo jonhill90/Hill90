@@ -218,14 +218,11 @@
 # ---------------------------------------------------------------------------
 
 @test "DNS config includes vault A record" {
-  run python3 -c '
-import json
-data = json.load(open("infra/dns/hill90.com.json"))
-records = [r for r in data["records"] if r["name"] == "vault"]
-assert len(records) == 1, f"Expected 1 vault record, got {len(records)}"
-assert records[0]["type"] == "A"
-assert records[0]["content"] == "${TAILSCALE_IP}"
-'
+  # vault.hill90.com is Tailscale-only, so its A record must track TAILSCALE_IP.
+  # Asserted against MANAGED_RECORDS in scripts/cloudflare.sh, which is now the
+  # single source of truth; infra/dns/hill90.com.json was deleted because it
+  # duplicated this and had already drifted.
+  run bash -c "sed -n '/^MANAGED_RECORDS=(/,/^)\$/p' scripts/cloudflare.sh | grep -F '\"vault:tailscale\"'"
   [ "$status" -eq 0 ]
 }
 

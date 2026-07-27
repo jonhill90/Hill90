@@ -145,7 +145,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 | Component | Verdict | Notes |
 |---|---|---|
 | `infra/ansible/**` | **KEEP** (EDIT) | One app reference in the entire tree: `playbooks/01-system-prep.yml:62` creates `{{ app_directory }}/agentbox-configs`, the host bind mount for the api container (`docker-compose.api.yml:94`). Remove that one task. Everything grepping as "api" in `09-traefik.yml` is `api@internal` or Let's Encrypt. |
-| `infra/dns/hill90.com.json` | **KEEP** (EDIT) | Eight A records. Remove `api` and `ai`; remove `auth` and `storage` with Keycloak and MinIO. Keep `@`, `vault`, `portainer`, `traefik`. |
+| `infra/dns/hill90.com.json` | **REMOVED** | Nothing read it — no script, workflow, playbook or Makefile target. It duplicated the managed record set and had already drifted. `MANAGED_RECORDS` in `scripts/cloudflare.sh` is now the single source; zone backups come from Cloudflare's export endpoint on demand. |
 | `infra/secrets/.sops.yaml`, `keys/` | **KEEP** | — |
 | `infra/secrets/prod.enc.env` + `.example` | **KEEP** (EDIT) | Prune app keys. See §2.5. |
 | `infra/systemd/hill90-vault-unseal.service` | **KEEP** | Depends on `scripts/vault.sh` staying at its path. See §5, note 1. |
@@ -438,7 +438,7 @@ wrong. Audit `docs/reference/deployment.md:128-131`, `README.md:229,234`,
 
 | File | Change |
 |---|---|
-| `infra/dns/hill90.com.json` | Remove the `api` and `ai` A records; remove `auth` and `storage` with their stacks. |
+| `infra/dns/hill90.com.json` | Deleted outright — see §1.1. |
 | `scripts/hostinger.sh:356` | Prune `api`, `ai`, `auth`, `storage`, `litellm` from the sync pair list. |
 | `scripts/hostinger.sh:386-395` | Same, in the JSON payload builder. |
 | `scripts/hostinger.sh:431,456` | Same, in the two verify loops. |
@@ -566,7 +566,7 @@ and `.github/workflows/deploy-{auth,db,minio}.yml`.
 
 Edit: `deploy.sh` remaining arms; `backup.sh` targets; `ops.sh` MinIO health;
 `check_volume_names.py:23-29`; `validate.sh:262-267` required-secrets;
-`hostinger.sh` auth and storage records; `infra/dns/hill90.com.json`;
+`hostinger.sh` auth and storage records;
 `secrets-schema.yaml` and `prod.enc.env.example` DB/MinIO/Keycloak keys;
 `vault.sh` `VAULT_SERVICES`; the bats suites; Makefile targets.
 
@@ -698,8 +698,10 @@ irreversible.
    adopting a lighter one.
 3. **DNS drift, out of scope but recorded.** `vps.hill90.com` and
    `openclaw.hill90.com` still resolve to a stale address. Separately, `admin`
-   and `grafana` records exist in `scripts/hostinger.sh:356` but not in
-   `infra/dns/hill90.com.json` — the two DNS sources disagree.
+   and `grafana` records existed in `scripts/hostinger.sh:356` but not in
+   `infra/dns/hill90.com.json` — the two DNS sources disagreed. Resolved by
+   deleting the JSON: there is now one source, `MANAGED_RECORDS` in
+   `scripts/cloudflare.sh`.
 4. **`docs/site/` handoff must be coordinated** with the `hill90-app` lane, not
    performed unilaterally. `docs.hill90.com` publishes via the Mintlify GitHub
    App, not a workflow in this repo, so retiring or repointing the domain is a
