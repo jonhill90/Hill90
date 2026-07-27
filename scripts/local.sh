@@ -450,6 +450,44 @@ cmd_reset() {
     success "Local stack reset. Run 'bash scripts/local.sh up' to rebuild from the repo."
 }
 
+# ---------------------------------------------------------------------------
+# Env drift
+# ---------------------------------------------------------------------------
+#
+# .env.local is gitignored, so it does not move when .env.local.example gains a
+# variable. Compose substitutes an unset variable with an empty string rather
+# than failing, so the stack comes up looking fine with auth, the database or
+# SSO silently unconfigured. This check exists because that happened: a
+# .env.local drifted twenty variables behind the example with no signal at all.
+#
+# Reports only. It never edits .env.local.
+check_env_drift() {
+    local example="${PROJECT_ROOT}/.env.local.example"
+    local envfile="${PROJECT_ROOT}/.env.local"
+
+    [ -f "$example" ] || return 0
+    if [ ! -f "$envfile" ]; then
+        echo "${YELLOW}!${NC} .env.local does not exist — copy it from .env.local.example"
+        return 0
+    fi
+
+    local missing
+    missing=$(comm -23 \
+        <(grep -oE '^[A-Z_]+' "$example" | sort -u) \
+        <(grep -oE '^[A-Z_]+' "$envfile" | sort -u))
+
+    if [ -n "$missing" ]; then
+        local count
+        count=$(echo "$missing" | wc -l | tr -d ' ')
+        echo "${YELLOW}!${NC} .env.local is missing ${count} variable(s) present in .env.local.example:"
+        echo "$missing" | sed 's/^/    /'
+        echo "  Compose substitutes these as empty strings rather than failing, so the"
+        echo "  stack may start with those features silently unconfigured."
+    else
+        echo "${GREEN}✓${NC} .env.local carries every variable in .env.local.example"
+    fi
+}
+
 cmd_status() {
     require_docker
     echo "${BOLD}Containers${NC}"
@@ -468,6 +506,9 @@ cmd_status() {
     docker ps -a \
         --filter "label=com.docker.compose.project=${DB_PROJECT}" \
         --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
+    echo
+    echo "${BOLD}Environment${NC}"
+    check_env_drift
 }
 
 cmd_urls() {
