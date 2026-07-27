@@ -285,28 +285,37 @@ for name,v in r.items():
 # reads as a working control while narrowing nothing.
 # ---------------------------------------------------------------------------
 
-@test "tailscale-only allows only the Tailscale CGNAT range" {
+@test "tailscale-only allows the CGNAT range plus at most the documented bridge exception" {
+  # This asserted an exact match on the CGNAT range alone until 2026-07-27,
+  # when enforcing that took every admin surface to 403: Docker rewrites some
+  # Tailscale traffic to the bridge gateway, so the exception is load-bearing.
+  # The guard is kept but narrowed — nothing may appear here except those two.
   run bash -c '
     python3 - <<PY
 import sys, yaml
 d = yaml.safe_load(open("platform/edge/dynamic/middlewares.yml"))
-rng = d["http"]["middlewares"]["tailscale-only"]["ipWhiteList"]["sourceRange"]
-if rng != ["100.64.0.0/10"]:
-    print("tailscale-only sourceRange is not exactly the CGNAT range:", rng)
-    sys.exit(1)
+rng = set(d["http"]["middlewares"]["tailscale-only"]["ipWhiteList"]["sourceRange"])
+allowed = {"100.64.0.0/10", "172.18.0.1/32"}
+if "100.64.0.0/10" not in rng:
+    print("tailscale-only is missing the CGNAT range:", sorted(rng)); sys.exit(1)
+extra = rng - allowed
+if extra:
+    print("tailscale-only carries undocumented CIDRs:", sorted(extra)); sys.exit(1)
 PY
   '
   [ "$status" -eq 0 ]
 }
 
-@test "tailscale-only carries no bridge, private or loopback CIDR" {
-  # The Docker bridge gateway in particular: any request the container runtime
-  # rewrites arrives with that source, so the address says nothing about where
-  # the request came from. It cannot distinguish on-network from off-network
-  # traffic, which is the whole job of this middleware.
+@test "tailscale-only carries no private or loopback CIDR beyond the bridge gateway" {
+  # Removing the bridge gateway entirely 403'd every admin surface on
+  # 2026-07-27 — Docker rewrites some Tailscale traffic to it, so it is
+  # load-bearing until the source rewrite itself is fixed. It remains a weak
+  # control: once a source is rewritten the address says nothing about origin.
+  # So the single documented exception is tolerated and everything else is not.
   run bash -c '
     body=$(sed -n "/tailscale-only:/,/^    [a-z]/p" platform/edge/dynamic/middlewares.yml | grep -v "^[[:space:]]*#")
-    echo "$body" | grep -E "\"(172\.|10\.|192\.168\.|127\.|0\.0\.0\.0)" && exit 1
+    echo "$body" | grep -E "\"(10\.|192\.168\.|127\.|0\.0\.0\.0)" && exit 1
+    echo "$body" | grep -E "\"172\." | grep -v "172\.18\.0\.1/32" && exit 1
     exit 0
   '
   [ "$status" -eq 0 ]
