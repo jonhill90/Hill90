@@ -350,10 +350,15 @@ assert '\"SSO\": True' not in src
   done
 }
 
-@test "the runbook states plainly that MinIO SSO is deferred" {
-  # MinIO is in issue #530 but is not deployed in this repository. Saying so is
-  # the requirement; quietly skipping it is not acceptable.
-  run grep -iE "MinIO is not deployed|deferred, not done" docs/runbooks/sso-fallback.md
+@test "the runbook states plainly that MinIO has no SSO" {
+  # This started life asserting MinIO was DEFERRED. MinIO is now deployed, so
+  # the claim to guard changed: it must say plainly that there is no SSO login,
+  # because MinIO removed the console from the AGPL build in May 2025. The
+  # failure mode is someone reading "OIDC configured" as "SSO works".
+  # ONE exact phrase, no alternation. An earlier version offered several
+  # acceptable spellings, so deleting the disclaimer still passed via a
+  # different clause — the same tautology this suite has been bitten by before.
+  run grep -F "MinIO has no SSO login." docs/runbooks/sso-fallback.md
   [ "$status" -eq 0 ]
 }
 
@@ -467,5 +472,97 @@ c = m[0][\"config\"].get(\"claim.name\")
 assert c == \"realm_roles\", c
 "
   '
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Object store (MinIO) — restored as a platform service
+#
+# The load-bearing claim is a NEGATIVE one: this is not SSO. MinIO removed the
+# console from the AGPL build in May 2025, so the console is root-credential
+# only. These guard against that being quietly overstated later.
+# ---------------------------------------------------------------------------
+
+@test "MinIO is pinned to a specific release, not a floating tag" {
+  # A floating tag would silently change the console behaviour the docs describe.
+  run grep -E 'image: minio/minio:RELEASE\.[0-9]' deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+  run grep -E 'image: minio/minio:(latest|edge)' deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -ne 0 ]
+}
+
+@test "MinIO is not pinned to a pre-console-removal release" {
+  # Pinning RELEASE.2025-04-22 or earlier would restore the SSO button at the
+  # cost of freezing an internet-facing service on an unpatched build. That was
+  # considered and rejected; this stops it being done by accident.
+  run grep -E 'image: minio/minio:RELEASE\.2025-0[1-4]' deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -ne 0 ]
+}
+
+@test "the S3 API is not routed externally" {
+  # Only the console gets a router. Publishing the API would mean a hostname
+  # with no DNS record and a second certificate that has never issued.
+  run python3 -c "
+import re
+body = [l for l in open('deploy/compose/prod/docker-compose.minio.yml') if not re.match(r'\s*#', l)]
+src = ''.join(body)
+assert 'minio-console.rule' in src, 'console router missing'
+assert 'minio-api' not in src, 'S3 API router present — it should stay internal'
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "MinIO's certificate resolver is inherited, not hardcoded" {
+  # storage.hill90.com has never issued under the current ACME path (#538), and
+  # DNS-01 is mid-migration to Cloudflare (#535). Hardcoding a resolver here
+  # would pin the wrong provider.
+  run grep -F 'ADMIN_CERT_RESOLVER' deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+  run python3 -c "
+import re
+body = [l for l in open('deploy/compose/prod/docker-compose.minio.yml') if not re.match(r'\s*#', l)]
+for l in body:
+    if 'certresolver=' in l:
+        assert 'ADMIN_CERT_RESOLVER' in l, l
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "the docs do not claim MinIO has SSO" {
+  # The single most likely thing to be overstated.
+  for f in docs/decisions/object-store.md docs/runbooks/object-store.md; do
+    [ -f "$f" ]
+    run grep -iE "root credentials only|no SSO|not SSO" "$f"
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "the MinIO admin policy separates s3 and admin actions" {
+  # MinIO rejects a statement mixing them with
+  # "unsupported admin action 's3:*'", which fails policy creation outright.
+  run python3 -c "
+import json, re, subprocess
+src = open('scripts/minio.sh').read()
+m = re.search(r\"admin\)\s+echo '([^']+)'\", src)
+assert m, 'admin policy not found'
+doc = json.loads(m.group(1))
+stmts = doc['Statement']
+for s in stmts:
+    acts = s['Action']
+    assert not (any(a.startswith('s3:') for a in acts) and any(a.startswith('admin:') for a in acts)), acts
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "MinIO policies are provisioned on deploy, not just documented" {
+  # Without them every federated login is rejected with "no policy found".
+  run grep -F 'minio.sh" apply' scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "the object store decision record flags the maintenance question" {
+  # MinIO community's latest release is ~10 months old; the alternatives belong
+  # in their own decision, but the question must be on the record.
+  run grep -iE "Garage|SeaweedFS" docs/decisions/object-store.md
   [ "$status" -eq 0 ]
 }

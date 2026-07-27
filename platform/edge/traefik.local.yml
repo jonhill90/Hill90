@@ -88,11 +88,10 @@ providers:
     # environment interpolation in the static config file, so a placeholder
     # here is matched as the literal string and silently matches nothing.
     #
-    # CONFLICT WARNING: branch feat/restore-minio also appends to this same line,
-    # adding `hill90-local-storage`. Whichever merges second must keep both
-    # clauses -- dropping either silently 404s that stack's hostnames, with no
-    # error anywhere.
-    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local-identity`) || Label(`com.docker.compose.project`,`hill90-local-platform`) || Label(`com.docker.compose.project`,`hill90-local-db`) || Label(`com.docker.compose.project`,`hill90-local`)"
+    # Every local compose project must be listed. Dropping one silently 404s that
+    # stack's hostnames with no error anywhere — which is why the branch that added
+    # `hill90-local-storage` left a conflict warning here. Both clauses kept.
+    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local-identity`) || Label(`com.docker.compose.project`,`hill90-local-platform`) || Label(`com.docker.compose.project`,`hill90-local-db`) || Label(`com.docker.compose.project`,`hill90-local-storage`) || Label(`com.docker.compose.project`,`hill90-local`)"
 
   file:
     directory: /etc/traefik/dynamic

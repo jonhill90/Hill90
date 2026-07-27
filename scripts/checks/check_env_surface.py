@@ -74,6 +74,9 @@ SENSITIVE = {
     # import with a KNOWN client secret for the client that fronts hill90.com,
     # and nothing would report it. Fail closed instead.
     "HILL90_UI_CLIENT_SECRET",
+    "MINIO_ROOT_USER",
+    "MINIO_ROOT_PASSWORD",
+    "MINIO_OIDC_CLIENT_SECRET",
 }
 
 # Consumed by scripts rather than by compose substitution.

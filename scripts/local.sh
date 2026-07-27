@@ -28,6 +28,7 @@ OBS_PROJECT="hill90-local-observability"
 VAULT_PROJECT="hill90-local-platform"
 DB_PROJECT="hill90-local-db"
 AUTH_PROJECT="hill90-local-identity"
+MINIO_PROJECT="hill90-local-storage"
 
 # Vault state lives beside the repo, not in /opt/hill90 as it does on the VPS.
 # vault.sh takes both paths from the environment, so nothing in it needs to know
@@ -116,6 +117,12 @@ compose_auth() {
         -f "$OVERRIDE_DIR/local.auth.yml" "$@"
 }
 
+compose_minio() {
+    docker compose --env-file "$ENV_FILE" -p "$MINIO_PROJECT" \
+        -f "$COMPOSE_DIR/docker-compose.minio.yml" \
+        -f "$OVERRIDE_DIR/local.minio.yml" "$@"
+}
+
 compose_vault() {
     docker compose --env-file "$ENV_FILE" -p "$VAULT_PROJECT" \
         -f "$COMPOSE_DIR/docker-compose.vault.yml" \
@@ -146,9 +153,12 @@ cmd_sso() {
     GRAFANA_PUBLIC_URL="$(base_url "$(env_get GRAFANA_HOST grafana)")" \
     PORTAINER_PUBLIC_URL="$(base_url "$(env_get PORTAINER_HOST portainer)")" \
     VAULT_PUBLIC_URL="$(base_url "$(env_get VAULT_HOST vault)")" \
+    MINIO_PUBLIC_URL="$(base_url "$(env_get MINIO_HOST storage)")" \
+    MINIO_OIDC_CLAIM_NAME="$(env_get MINIO_OIDC_CLAIM_NAME minio_policy)" \
     GRAFANA_OIDC_CLIENT_SECRET="$(env_get GRAFANA_OIDC_CLIENT_SECRET "")" \
     PORTAINER_OIDC_CLIENT_SECRET="$(env_get PORTAINER_OIDC_CLIENT_SECRET "")" \
     VAULT_OIDC_CLIENT_SECRET="$(env_get VAULT_OIDC_CLIENT_SECRET "")" \
+    MINIO_OIDC_CLIENT_SECRET="$(env_get MINIO_OIDC_CLIENT_SECRET "")" \
         bash "$SCRIPT_DIR/keycloak.sh" apply || die "keycloak.sh apply failed"
 
     echo ""
@@ -165,6 +175,16 @@ cmd_sso() {
     KC_REALM="$(env_get KC_REALM platform)" \
         bash "$SCRIPT_DIR/portainer.sh" apply \
         || warn "portainer.sh apply failed — is the Portainer admin initialised? See docs/runbooks/sso-fallback.md"
+
+    echo ""
+    info "Provisioning MinIO policies for Keycloak roles..."
+    MINIO_CONTAINER="${cp}minio" \
+    MINIO_SECRETS_FILE="$LOCAL_VAULT_DIR/local.enc.env" \
+    SOPS_AGE_KEY_FILE="$LOCAL_VAULT_DIR/age.key" \
+    MINIO_ROOT_USER="$(env_get MINIO_ROOT_USER "")" \
+    MINIO_ROOT_PASSWORD="$(env_get MINIO_ROOT_PASSWORD "")" \
+        bash "$SCRIPT_DIR/minio.sh" apply \
+        || warn "minio.sh apply failed — federated S3 access will be rejected with 'no policy found'"
 }
 
 # Run a vault.sh subcommand against the LOCAL vault. Every variable here is an
@@ -360,6 +380,8 @@ print(json.dumps([
     else
         warn "Could not reconcile the tenant clients — pointing the tenant's local stack at this Keycloak will fail. Run: bash scripts/keycloak.sh tenant-clients"
     fi
+    info "Starting the object store (minio)..."
+    compose_minio up -d || die "Object store failed to start"
 
     info "Starting the vault stack (openbao)..."
     compose_vault up -d || die "Vault stack failed to start"
@@ -415,6 +437,8 @@ print(json.dumps([
 cmd_down() {
     require_docker
     require_env
+    info "Stopping the object store..."
+    compose_minio down --remove-orphans 2>/dev/null || true
     info "Stopping the vault stack..."
     compose_vault down --remove-orphans 2>/dev/null || true
     info "Stopping the identity provider..."
@@ -465,6 +489,7 @@ cmd_reset() {
     fi
 
     info "Tearing down with volumes..."
+    compose_minio down -v --remove-orphans 2>/dev/null || true
     compose_vault down -v --remove-orphans 2>/dev/null || true
     compose_auth down -v --remove-orphans 2>/dev/null || true
     compose_db down -v --remove-orphans 2>/dev/null || true
@@ -569,6 +594,9 @@ cmd_status() {
     docker ps -a \
         --filter "label=com.docker.compose.project=${DB_PROJECT}" \
         --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
+    docker ps -a \
+        --filter "label=com.docker.compose.project=${MINIO_PROJECT}" \
+        --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null | tail -n +2
     echo
     echo "${BOLD}Environment${NC}"
     check_env_drift
@@ -583,6 +611,7 @@ cmd_urls() {
     echo "  Prometheus          $(base_url "$(env_get PROMETHEUS_HOST prometheus)")/  (local only; prod reaches it via Grafana)"
     echo "  OpenBao             $(base_url "$(env_get VAULT_HOST vault)")/  (uninitialized until: local.sh vault init)"
     echo "  Keycloak            $(base_url "$(env_get AUTH_HOST auth)")/  (platform realm; admin/admin)"
+    echo "  MinIO console       $(base_url "$(env_get MINIO_HOST storage)")/  (ROOT CREDENTIALS ONLY — no SSO in the AGPL build)"
 }
 
 cmd_health() {

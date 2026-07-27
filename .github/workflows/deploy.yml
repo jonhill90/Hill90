@@ -8,6 +8,7 @@ on:
       - 'platform/data/postgres/**'
       - 'platform/observability/**'
       - 'deploy/compose/prod/docker-compose.db.yml'
+      - 'deploy/compose/prod/docker-compose.minio.yml'
       - 'deploy/compose/prod/docker-compose.auth.yml'
       - 'deploy/compose/prod/docker-compose.vault.yml'
       - 'deploy/compose/prod/docker-compose.observability.yml'
@@ -16,7 +17,7 @@ on:
       service:
         description: 'Service to deploy (or "all")'
         type: choice
-        options: [all, db, auth, vault, observability]
+        options: [all, db, auth, minio, vault, observability]
         default: 'all'
 
 permissions:
@@ -33,6 +34,7 @@ jobs:
     outputs:
       db: ${{ steps.filter.outputs.db }}
       auth: ${{ steps.filter.outputs.auth }}
+      minio: ${{ steps.filter.outputs.minio }}
       vault: ${{ steps.filter.outputs.vault }}
       observability: ${{ steps.filter.outputs.observability }}
     steps:
@@ -47,6 +49,8 @@ jobs:
             auth:
               - 'deploy/compose/prod/docker-compose.auth.yml'
               - 'platform/auth/keycloak/**'
+            minio:
+              - 'deploy/compose/prod/docker-compose.minio.yml'
             vault:
               - 'deploy/compose/prod/docker-compose.vault.yml'
             observability:
@@ -70,6 +74,17 @@ jobs:
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: auth
+    secrets: inherit
+
+  # MinIO validates OIDC tokens against Keycloak, so it follows auth. It does
+  # not depend on it to START — a slow or absent IdP only affects federated
+  # logins, never root-credential access.
+  deploy-minio:
+    needs: [changes, deploy-auth]
+    if: always() && (needs.changes.outputs.minio == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'minio') && !failure() && !cancelled()
+    uses: ./.github/workflows/reusable-deploy-service.yml
+    with:
+      service: minio
     secrets: inherit
 
   deploy-vault:
