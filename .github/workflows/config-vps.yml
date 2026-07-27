@@ -207,7 +207,7 @@ jobs:
           echo "  • traefik.hill90.com → ${{ steps.get-tailscale-ip.outputs.tailscale_ip }}"
           echo ""
           echo "🚀 Infrastructure deployment auto-triggered:"
-          echo "  • deploy-infra workflow will deploy Traefik, dns-manager, Portainer"
+          echo "  • deploy-infra workflow will deploy Traefik, Portainer"
           echo "  • Monitor progress: gh run list --workflow=deploy-infra.yml --limit 1"
           echo ""
           echo "✅ SSH access:"

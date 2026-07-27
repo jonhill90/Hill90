@@ -47,7 +47,7 @@
       import_tasks: 12-deploy-profile.yml
 
     # NOTE: Playbooks 09-traefik.yml and 10-portainer.yml are NOT run during bootstrap
-    # Infrastructure containers (Traefik, dns-manager, Portainer) are deployed separately
+    # Infrastructure containers (Traefik, Portainer) are deployed separately
     # via: make deploy-infra
 
   handlers:

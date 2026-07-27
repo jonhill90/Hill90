@@ -42,7 +42,7 @@ EOF
 service_paths() {
     local service="$1"
     case "$service" in
-        infra)         echo "platform/edge/ services/dns-manager/ deploy/compose/prod/docker-compose.infra.yml" ;;
+        infra)         echo "platform/edge/ deploy/compose/prod/docker-compose.infra.yml" ;;
         vault)         echo "platform/vault/ deploy/compose/prod/docker-compose.vault.yml" ;;
         observability) echo "platform/observability/ deploy/compose/prod/docker-compose.observability.yml" ;;
         *)             die "Unknown service: $service" ;;

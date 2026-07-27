@@ -86,7 +86,7 @@ jobs:
       - name: Verify containers running
         run: |
           echo "Checking required containers..."
-          for svc in traefik dns-manager portainer; do
+          for svc in traefik portainer; do
             STATUS=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
               deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
               "docker inspect -f '{{.State.Status}}' $svc 2>/dev/null || echo missing")
@@ -132,4 +132,4 @@ jobs:
         if: success()
         run: |
           echo "Infrastructure deployment complete!"
-          echo "Services: traefik, dns-manager, portainer"
+          echo "Services: traefik, portainer"

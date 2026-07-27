@@ -93,7 +93,7 @@ config-vps: ## Configure VPS OS only (no containers deployed)
 	@echo "$(COLOR_GREEN)✓ VPS configured!$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_YELLOW)Next: Deploy infrastructure and services$(COLOR_RESET)"
-	@echo "  make deploy-infra    # Traefik, dns-manager, Portainer"
+	@echo "  make deploy-infra    # Traefik, Portainer"
 	@echo ""
 
 # ============================================================================
@@ -126,7 +126,7 @@ build: ## Build all Docker images (per-service compose files)
 		docker compose -f "$$f" build --parallel || true; \
 	done
 
-deploy-infra: ## Deploy infrastructure (Traefik, dns-manager, Portainer)
+deploy-infra: ## Deploy infrastructure (Traefik, Portainer)
 	@echo "$(COLOR_YELLOW)Deploying infrastructure services...$(COLOR_RESET)"
 	bash scripts/deploy.sh infra $(ENV)
 
@@ -162,7 +162,7 @@ logs-%: ## Show logs for a service (e.g., make logs-traefik)
 	docker logs -f $*
 
 ps: ## Show running containers
-	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|dns-manager|portainer|openbao|prometheus|grafana|loki|tempo|promtail|cadvisor|node-exporter)" || true
+	docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "(NAMES|traefik|portainer|openbao|prometheus|grafana|loki|tempo|promtail|cadvisor|node-exporter)" || true
 
 ssh: ## SSH into VPS
 	@if [ -z "$(VPS_HOST)" ]; then \

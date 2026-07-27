@@ -75,6 +75,35 @@
   [ "$status" -eq 0 ]
 }
 
+@test "vault.sh seed refuses to seed a missing or empty credential" {
+  # A blank credential seeds silently and then fails much later — for
+  # CF_DNS_API_TOKEN, ~60 days later as an expired certificate. The seed must
+  # abort before writing anything.
+  run grep -n "required_keys=(" scripts/vault.sh
+  [ "$status" -eq 0 ]
+  run grep -n "Refusing to seed" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh seed validates required keys in the parent shell, not a subshell" {
+  # `exit` inside a $(...) substitution kills only the subshell, so the seed
+  # would carry on with an empty value. The emptiness check must therefore run
+  # before the `bao ... kv put` lines, not inside get_secret.
+  local guard_line put_line
+  guard_line=$(grep -n "Refusing to seed" scripts/vault.sh | head -1 | cut -d: -f1)
+  put_line=$(grep -n "kv put secret/infra/traefik" scripts/vault.sh | head -1 | cut -d: -f1)
+  [ -n "$guard_line" ]
+  [ -n "$put_line" ]
+  [ "$guard_line" -lt "$put_line" ]
+}
+
+@test "vault.sh seed requires CF_DNS_API_TOKEN" {
+  # The DNS-01 credential for the Tailscale-only hosts. lego only validates it
+  # at renewal time, so an empty value is invisible until certificates expire.
+  run grep -E "^\s+CF_DNS_API_TOKEN$" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
 # ---------------------------------------------------------------------------
 # Docker Compose validation
 # ---------------------------------------------------------------------------

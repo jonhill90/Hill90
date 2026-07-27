@@ -178,7 +178,7 @@ cmd_up() {
     # config is a bind mount that Traefik reads once at startup and never
     # watches. Without a recreate, editing traefik.local.yml appears to do
     # nothing.
-    info "Building and starting the edge stack (traefik, dns-manager, portainer)..."
+    info "Building and starting the edge stack (traefik, portainer)..."
     compose_edge up -d --build --force-recreate || die "Edge stack failed to start"
 
     # Refuse to share networks with an unrelated project.

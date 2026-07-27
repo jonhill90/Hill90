@@ -43,7 +43,7 @@ document exists so the next one loses.
 | Azure Monitor / Log Analytics | **OTEL + Prometheus, Loki, Tempo, Grafana** | Metrics, logs, traces, dashboards |
 | Application Gateway / Front Door | **Traefik** | Edge routing, TLS termination, WAF-ish middleware |
 | VNet / Private Link | **Tailscale** | Private network, no public admin surface |
-| Azure DNS | **Hostinger DNS API + dns-manager** | DNS as code, DNS-01 issuance |
+| Azure DNS | **Cloudflare DNS + lego (in Traefik)** | DNS as code, DNS-01 issuance |
 | Azure Database for PostgreSQL | **Postgres** | Managed relational store for platform services |
 
 ## What follows from it

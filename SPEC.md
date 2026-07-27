@@ -28,7 +28,7 @@ days, public IP `76.13.26.69`, tailnet peer `hill90-vps` at `100.88.29.112`).
 Ten containers running, and only these:
 
 ```
-traefik  dns-manager  portainer
+traefik  portainer
 prometheus  grafana  loki  tempo  promtail  cadvisor  node-exporter
 ```
 
@@ -48,8 +48,8 @@ were verified directly.
 
 | Assumption | Reality |
 |---|---|
-| `services/` is entirely application | **`services/dns-manager` is live infrastructure.** A Flask webhook implementing Traefik's `httpreq` DNS-01 provider against the Hostinger API (`services/dns-manager/app.py:1-5`), built by `deploy/compose/prod/docker-compose.infra.yml:27`, and one of the ten running containers. `services/` must not be deleted wholesale. |
-| `services/` is api, ai, ui, mcp, knowledge, chat, agentbox | There is no `chat` service — chat lives inside `services/agentbox/app/chat.py`. There are three the decision record never named: `cli`, `discord-bot`, `dns-manager`. |
+| `services/` is entirely application | **Was true with one exception, now resolved.** `services/dns-manager` was live infrastructure — a Flask webhook implementing Traefik's `httpreq` DNS-01 provider against the Hostinger API. When `hill90.com` moved to Cloudflare it was replaced by lego's built-in `cloudflare` provider, which is configuration, not code. `services/` no longer exists. |
+| `services/` is api, ai, ui, mcp, knowledge, chat, agentbox | There is no `chat` service — chat lives inside `services/agentbox/app/chat.py`. There are three the decision record never named: `cli`, `discord-bot`, and `dns-manager` (since deleted). |
 | The app is coherent | Three parts are **already orphaned**: `services/cli` has zero references anywhere outside itself; `deploy/compose/prod/docker-compose.discord-bot.yml` has no deploy case, Makefile target or CI job; `deploy/compose/dev/docker-compose.yml:55` builds `services/auth`, which does not exist. |
 | The VPS may be unreachable | A wrong-tailnet artifact in this session. The host is healthy and SSH works. |
 
@@ -72,7 +72,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 
 | Component | Verdict | Reasoning | Evidence |
 |---|---|---|---|
-| `services/dns-manager` | **KEEP** | Traefik DNS-01 ACME webhook. Running in prod. Without it, certificate issuance for Tailscale-only hosts breaks. | `docker-compose.infra.yml:27`; `platform/edge/traefik.yml:75` |
+| `services/dns-manager` | **REMOVED** | Was the Traefik DNS-01 ACME webhook. Superseded by lego's built-in `cloudflare` provider when the zone moved to Cloudflare; deleted. | `platform/edge/traefik.yml:75` now reads `provider: cloudflare` |
 | `services/api` | REMOVE | TypeScript control plane for the shelved agent platform. | `docker-compose.api.yml:77` |
 | `services/ai` | REMOVE | Model-router in front of LiteLLM. Application by explicit decision. | `docker-compose.ai.yml:60` |
 | `services/ui` | REMOVE | Next.js frontend, NextAuth + Keycloak. | `docker-compose.ui.yml:16` |
@@ -86,7 +86,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 
 | Component | Verdict | Reasoning | Evidence |
 |---|---|---|---|
-| `prod/docker-compose.infra.yml` | **KEEP** | Live. Sole owner of `hill90_edge`, `hill90_internal`, `hill90_agent_internal`. Runs traefik, dns-manager, portainer. | `:7-17,27,45,81` |
+| `prod/docker-compose.infra.yml` | **KEEP** | Live. Sole owner of `hill90_edge`, `hill90_internal`, `hill90_agent_internal`. Runs traefik, portainer. | `:7-17,27,45,81` |
 | `prod/docker-compose.observability.yml` | **KEEP** (EDIT) | Live. Seven containers. Edits confined to Prometheus config, not this file. | `:27-157` |
 | `prod/docker-compose.vault.yml` | **KEEP** | OpenBao. Not currently deployed but retained by decision. | `:19` |
 | `prod/docker-compose.db.yml` | REMOVE | Postgres + postgres-exporter. Not running; last tenant was Keycloak. | `:16,35` |
@@ -646,12 +646,12 @@ ssh deploy@remote.hill90.com 'cd /opt/hill90/app && bash scripts/deploy.sh verif
 ssh deploy@remote.hill90.com 'cd /opt/hill90/app && bash scripts/deploy.sh verify observability'
 ```
 
-Expected census, unchanged throughout: `traefik`, `dns-manager`, `portainer`,
+Expected census, unchanged throughout: `traefik`, `portainer`,
 `prometheus`, `grafana`, `loki`, `tempo`, `promtail`, `cadvisor`, `node-exporter`.
 
 Post-Step-3 additional checks: Prometheus `/targets` shows no permanently-down
 job; Grafana logs contain no dashboard provisioning errors; certificate renewal
-still works (Traefik logs, `dns-manager` reachable).
+still works (Traefik logs show the ACME challenge result).
 
 **Standing rule:** deploys run on the VPS over SSH, never from the Mac, and
 never without asking in the same turn. Read-only inspection over SSH is fine.

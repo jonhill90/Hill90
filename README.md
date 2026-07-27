@@ -12,11 +12,11 @@ and the `archive/app-stack-final` tag for the code.
 
 ## What runs
 
-Ten containers across three stacks.
+Nine containers across three stacks.
 
 | Stack | Containers | Deploy |
 |---|---|---|
-| Edge | traefik, dns-manager, portainer | `deploy.sh infra prod` |
+| Edge | traefik, portainer | `deploy.sh infra prod` |
 | Observability | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor | `deploy.sh observability prod` |
 | Secrets | openbao | `deploy.sh vault prod` |
 
@@ -26,7 +26,6 @@ Ten containers across three stacks.
 | Portainer | https://portainer.hill90.com | Tailscale only |
 | Grafana | https://grafana.hill90.com | Tailscale only |
 | OpenBao | https://vault.hill90.com | Tailscale only |
-| dns-manager | internal | Traefik only |
 
 Everything with a dashboard is Tailscale-only (`100.64.0.0/10`), enforced by a
 Traefik IP-allowlist middleware. Only ports 80 and 443 are open publicly.
@@ -37,19 +36,22 @@ Traefik IP-allowlist middleware. Only ports 80 and 443 are open publicly.
 - **Runtime**: Docker Engine + Docker Compose
 - **Edge**: Traefik v2.11 with Let's Encrypt
   - **HTTP-01** for public hostnames
-  - **DNS-01** via the `dns-manager` webhook for Tailscale-only hostnames, which
-    have no public A record to validate against
+  - **DNS-01** via lego's built-in Cloudflare provider for Tailscale-only
+    hostnames, whose A records point into the Tailscale range and so cannot be
+    reached by an HTTP-01 validator
 - **Observability**: Prometheus, Grafana, Loki, Tempo, plus Promtail,
   node-exporter and cAdvisor
 - **Secrets**: OpenBao at runtime, SOPS/age for bootstrap and disaster recovery
 - **Admin access**: Tailscale VPN, SSH key only
 - **Provisioning**: Ansible playbooks, Hostinger API, Tailscale API
 - **CI/CD**: GitHub Actions
-- **DNS**: Hostinger DNS API via `scripts/hostinger.sh`
+- **DNS**: Cloudflare (zone `hill90.com`). Hostinger remains the VPS host and
+  mail provider; `scripts/hostinger.sh` is VPS management
 
-`services/dns-manager` is the only application code in this repository — a small
-Flask webhook implementing Traefik's `httpreq` DNS-01 provider against the
-Hostinger API. Without it, certificates for Tailscale-only hosts cannot issue.
+This repository contains no application code. DNS-01 issuance is configuration:
+Traefik embeds lego, which talks to the Cloudflare API directly using
+`CF_DNS_API_TOKEN`. The `services/dns-manager` shim that previously bridged to
+the Hostinger DNS API was deleted when the zone moved to Cloudflare.
 
 ## Prerequisites
 
@@ -121,7 +123,7 @@ script form directly. The full mapping is in [CONTRIBUTING.md](CONTRIBUTING.md).
 ```bash
 bash scripts/local.sh up    # the whole stack, locally
 
-make deploy-infra           # Traefik, dns-manager, Portainer
+make deploy-infra           # Traefik, Portainer
 make deploy-vault           # OpenBao
 make deploy-observability   # Prometheus, Grafana, Loki, Tempo + collectors
 
@@ -222,7 +224,6 @@ docker logs -f traefik
 
 # Certificates
 docker logs traefik 2>&1 | grep -i acme
-docker logs dns-manager
 openssl s_client -connect grafana.hill90.com:443 -servername grafana.hill90.com </dev/null 2>/dev/null | openssl x509 -noout -dates
 
 # Secrets
@@ -234,10 +235,11 @@ make dns-verify
 make dns-sync            # after a rebuild changes the IP
 ```
 
-**DNS-01 failures** are usually one of three things: `dns-manager` computing the
-wrong TXT value (it must be `base64url(SHA256(keyAuth))`), a timeout during
-`/present`, or Let's Encrypt rate limiting — wait an hour and test against the
-staging CA.
+**DNS-01 failures** are usually the `CF_DNS_API_TOKEN` being absent, empty or
+under-scoped (it needs Zone/Zone/Read *and* Zone/DNS/Edit on `hill90.com`), the
+zone not yet being authoritative, or Let's Encrypt rate limiting. Read the
+Traefik log — there is no separate DNS container, and Traefik stays healthy
+through a failed renewal.
 
 Full guide: [Troubleshooting](docs/runbooks/troubleshooting.md).
 

@@ -91,8 +91,8 @@ make secrets-view KEY=SPECIFIC_KEY
 | `secret/shared/jwt` | JWT_SECRET, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY | All services needing JWT |
 | `secret/ai/config` | ANTHROPIC_API_KEY, OPENAI_API_KEY | AI service |
 | `secret/ops/verification` | TEST_USER_USERNAME, TEST_USER_PASSWORD | Human-operated supported-path verification |
-| `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER | Traefik reverse proxy |
-| `secret/infra/dns-manager` | HOSTINGER_API_KEY | DNS manager |
+| `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER, CF_DNS_API_TOKEN | Traefik reverse proxy |
+| `secret/infra/vps` | HOSTINGER_API_KEY | VPS management (not DNS) |
 | `secret/observability/grafana` | GRAFANA_ADMIN_PASSWORD | Grafana |
 | `secret/mcp/config` | INTERNAL_SERVICE_SECRET | MCP service (duplicate from api/config) |
 
