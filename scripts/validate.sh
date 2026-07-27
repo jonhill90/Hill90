@@ -192,11 +192,17 @@ cmd_traefik() {
         fi
 
         echo -n "Checking tailscale-only allowlist scope... "
-        if sed -n "/tailscale-only:/,/^    [a-z]/p" "$dynamic_dir/middlewares.yml" 2>/dev/null \
-             | grep -v "^[[:space:]]*#" | grep -qE "\"(172\.|10\.|192\.168\.|127\.)"; then
-            echo "✗ Allowlist contains a private or bridge CIDR"
-            echo "   Only the Tailscale CGNAT range belongs here. A runtime-rewritten"
-            echo "   source address cannot distinguish on-network from off-network traffic."
+        # 172.18.0.1/32 is the one tolerated exception. Removing it on
+        # 2026-07-27 took every admin surface to 403, because Docker rewrites
+        # some Tailscale traffic to the bridge gateway. It is a weak control --
+        # a rewritten source says nothing about origin -- but it is load-bearing
+        # until that rewrite is fixed. Everything else is still rejected.
+        _ts_body=$(sed -n "/tailscale-only:/,/^    [a-z]/p" "$dynamic_dir/middlewares.yml" 2>/dev/null \
+             | grep -v "^[[:space:]]*#")
+        if echo "$_ts_body" | grep -qE "\"(10\.|192\.168\.|127\.|0\.0\.0\.0)" \
+           || echo "$_ts_body" | grep -E "\"172\." | grep -qv "172\.18\.0\.1/32"; then
+            echo "✗ Allowlist contains an undocumented private or bridge CIDR"
+            echo "   Only the Tailscale CGNAT range and 172.18.0.1/32 belong here."
             all_valid=false
         else
             echo "✓"
