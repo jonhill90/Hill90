@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-vault deploy-observability test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-snapshots dns-restore dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
+.PHONY: help build deploy-infra deploy-infra-production deploy-vault deploy-observability test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
 
 # Environment
 ENV ?= prod
@@ -175,20 +175,21 @@ ssh: ## SSH into VPS
 # DNS Management
 # ============================================================================
 
-dns-view: ## View current DNS records for hill90.com
-	@bash scripts/hostinger.sh dns get
+# DNS is Cloudflare. Hostinger remains the VPS host and the mail provider.
+#
+# dns-snapshots and dns-restore are gone: they wrapped Hostinger's zone-snapshot
+# API, which Cloudflare has no equivalent of. Cloudflare keeps its own change
+# history per record in the dashboard. Rolling a record back is `make dns-sync`
+# with the right IP, because sync is idempotent and per-record.
+
+dns-view: ## View the managed DNS records for hill90.com
+	@bash scripts/cloudflare.sh dns get
 
 dns-sync: ## Sync DNS A records to current VPS_IP
-	@bash scripts/hostinger.sh dns sync
-
-dns-snapshots: ## List DNS backup snapshots
-	@bash scripts/hostinger.sh dns snapshot list
-
-dns-restore: ## Restore DNS from snapshot (usage: make dns-restore SNAPSHOT_ID=123)
-	@bash scripts/hostinger.sh dns snapshot restore $(SNAPSHOT_ID)
+	@bash scripts/cloudflare.sh dns sync
 
 dns-verify: ## Verify DNS propagation
-	@bash scripts/hostinger.sh dns verify
+	@bash scripts/cloudflare.sh dns verify
 
 # ============================================================================
 # Service Management
