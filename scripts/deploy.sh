@@ -18,7 +18,7 @@ Deploy CLI — Hill90 infrastructure deployment
 Usage: deploy.sh <command> [env]
 
 Commands:
-  infra    Deploy infrastructure (Traefik, dns-manager, Portainer)
+  infra    Deploy infrastructure (Traefik, Portainer)
   db       Deploy PostgreSQL (platform database)
   auth     Deploy Keycloak (platform identity provider)
   vault    Deploy OpenBao secrets management
@@ -99,7 +99,7 @@ cmd_infra() {
     # One-time migration: remove old-project containers that would collide
     local project_name="hill90-${env}-edge"
     local old_project
-    for container in traefik dns-manager portainer; do
+    for container in traefik portainer; do
         old_project=$(docker inspect "$container" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null) || true
         if [ -n "$old_project" ] && [ "$old_project" = "prod" ]; then
             echo "Migrating $container from old project '$old_project' to $project_name..."
@@ -136,7 +136,7 @@ cmd_infra() {
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' build --parallel
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' pull --ignore-buildable
 
-            echo "Deploying edge stack (traefik, dns-manager, portainer)..."
+            echo "Deploying edge stack (traefik, portainer)..."
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' up -d --force-recreate
         '
     }
@@ -154,7 +154,7 @@ cmd_infra() {
             docker compose -p "hill90-${env}-edge" -f "$compose_file" build --parallel --no-cache
             docker compose -p "hill90-${env}-edge" -f "$compose_file" pull --ignore-buildable
 
-            echo "Deploying edge stack (traefik, dns-manager, portainer)..."
+            echo "Deploying edge stack (traefik, portainer)..."
             docker compose -p "hill90-${env}-edge" -f "$compose_file" up -d --force-recreate
         ) || {
             warn "Vault deploy failed for infra, retrying with SOPS fallback"
@@ -184,7 +184,6 @@ cmd_infra() {
     echo ""
     echo "Services deployed:"
     echo "  - Traefik (reverse proxy with SSL)"
-    echo "  - dns-manager (DNS-01 ACME challenges)"
     echo "  - Portainer (container management, Tailscale-only)"
     echo ""
 }

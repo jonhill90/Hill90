@@ -70,12 +70,9 @@ observability and vault stacks attach to them as external.
 
 - **Traefik**: Reverse proxy, load balancer, automatic HTTPS
   - HTTP-01 challenge for public hostnames
-  - DNS-01 challenge for Tailscale-only hostnames
+  - DNS-01 challenge for Tailscale-only hostnames, via lego's built-in
+    Cloudflare provider (`CF_DNS_API_TOKEN`) — no helper service
   - Dashboard at https://traefik.hill90.com (Tailscale-only)
-- **DNS Manager**: HTTP webhook for Let's Encrypt DNS-01 challenges
-  - Translates the Lego `httpreq` provider format to the Hostinger DNS API
-  - Creates and deletes DNS TXT records for ACME validation
-  - The only application code in this repository (`services/dns-manager`)
 - **Portainer**: Docker container management UI at https://portainer.hill90.com (Tailscale-only)
 - **OpenBao**: Secrets management at https://vault.hill90.com (Tailscale-only), token-authenticated
 - **Prometheus / Grafana / Loki / Tempo**: Metrics, dashboards, logs and traces

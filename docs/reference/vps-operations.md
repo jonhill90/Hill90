@@ -25,7 +25,7 @@ make recreate-vps
 # NOTE: This only configures the OS - no containers deployed!
 make config-vps VPS_IP=<ip>
 
-# Step 3: Deploy infrastructure (Traefik, dns-manager, Portainer)
+# Step 3: Deploy infrastructure (Traefik, Portainer)
 make deploy-infra
 
 # Step 3b: Deploy vault
@@ -65,7 +65,6 @@ make deploy-observability  # or: bash scripts/deploy.sh observability prod
 1. Creates Docker networks (hill90_edge, hill90_internal)
 2. Generates Traefik .htpasswd file
 3. Deploys Traefik (reverse proxy with SSL)
-4. Deploys dns-manager (DNS-01 ACME challenges)
 5. Deploys Portainer (container management)
 
 ### Infrastructure After Each Step
@@ -83,7 +82,6 @@ make deploy-observability  # or: bash scripts/deploy.sh observability prod
 **After Step 3 (Deploy Infra + Vault + Observability):**
 - ✅ All above +
 - ✅ Traefik running (reverse proxy)
-- ✅ dns-manager running (DNS-01 challenges)
 - ✅ Portainer running (Tailscale-only access)
 - ✅ Docker networks created
 - ✅ OpenBao running and unsealed
@@ -95,7 +93,7 @@ make deploy-observability  # or: bash scripts/deploy.sh observability prod
 Deploy individual services without affecting others:
 
 ```bash
-make deploy-infra          # Traefik, dns-manager, Portainer
+make deploy-infra          # Traefik, Portainer
 make deploy-vault          # OpenBao (or: bash scripts/deploy.sh vault prod)
 make deploy-observability  # Prometheus, Grafana, Loki, Tempo + collectors
 ```

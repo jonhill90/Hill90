@@ -37,7 +37,7 @@ The scope after this change is exactly what is deployed today:
 | Layer | Contents |
 |---|---|
 | Provisioning | Hostinger VPS lifecycle, Ansible bootstrap, OS hardening, Tailscale, Docker |
-| Edge | Traefik with DNS-01 ACME via the `dns-manager` webhook, Portainer |
+| Edge | Traefik with DNS-01 ACME via lego's built-in Cloudflare provider, Portainer |
 | Observability | Prometheus, Grafana, Loki, Tempo, Promtail, node-exporter, cAdvisor |
 | Secrets | SOPS/age at rest, OpenBao as the runtime source of truth, schema validation |
 | Operations | Deploy, verify, backup, rollback, health, DNS sync |
@@ -120,7 +120,8 @@ The work is complete when all of the following hold.
 
 **Repository state**
 
-- [ ] `services/` contains exactly one directory: `dns-manager`.
+- [x] `services/` no longer exists — `dns-manager` was its last occupant and was
+      deleted when DNS-01 moved to Cloudflare.
 - [ ] `deploy/compose/prod/` contains exactly three files: `docker-compose.infra.yml`,
       `docker-compose.observability.yml`, `docker-compose.vault.yml`.
 - [ ] `deploy/compose/dev/` no longer exists.

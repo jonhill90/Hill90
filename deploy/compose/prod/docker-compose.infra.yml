@@ -1,6 +1,6 @@
 version: '3.9'
 
-# Infrastructure services: Traefik, dns-manager, Portainer
+# Infrastructure services: Traefik, Portainer
 # Deploy with: make deploy-infra
 
 networks:
@@ -23,24 +23,6 @@ volumes:
     name: ${VOLUME_PREFIX:-prod}_portainer-data
 
 services:
-  # DNS Manager for DNS-01 ACME challenges
-  dns-manager:
-    build:
-      context: ../../../services/dns-manager
-      dockerfile: Dockerfile
-    image: hill90/dns-manager:${VERSION:-latest}
-    container_name: ${CONTAINER_PREFIX:-}dns-manager
-    restart: unless-stopped
-    networks:
-      - edge
-    environment:
-      - HOSTINGER_API_KEY=${HOSTINGER_API_KEY:-}
-    healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
   # Traefik Edge Proxy
   traefik:
     image: traefik:v2.11
@@ -62,13 +44,9 @@ services:
       - traefik-certs:/letsencrypt
     environment:
       - ACME_CA_SERVER=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
-      # DNS-01 challenge via dns-manager service (httpreq provider)
-      - HTTPREQ_ENDPOINT=http://dns-manager:8080
-      - HTTPREQ_MODE=RAW
-      - HTTPREQ_POLLING_INTERVAL=30s
-      - HTTPREQ_PROPAGATION_TIMEOUT=300s
-    depends_on:
-      - dns-manager
+      # DNS-01 challenge via lego's built-in Cloudflare provider. Token must be
+      # scoped to the hill90.com zone: Zone/Zone/Read + Zone/DNS/Edit.
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.traefik.rule=Host(`${TRAEFIK_HOST:-traefik}.${BASE_DOMAIN:-hill90.com}`)"

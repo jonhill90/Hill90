@@ -441,7 +441,7 @@ cmd_all() {
         echo "✓ All validation checks passed!"
         echo ""
         echo "Ready to deploy:"
-        echo "  make deploy-infra        # Infrastructure (Traefik, dns-manager, Portainer)"
+        echo "  make deploy-infra        # Infrastructure (Traefik, Portainer)"
         echo "  make deploy-all          # All application services"
         echo ""
         echo "========================================"

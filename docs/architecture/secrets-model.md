@@ -40,7 +40,6 @@ OpenBao is the runtime source of truth for secrets. SOPS is the bootstrap and di
 │                   Vault (OpenBao)                    │
 │                                                     │
 │  secret/infra/traefik                               │
-│  secret/infra/dns-manager                           │
 │  secret/observability/grafana                       │
 │                                                     │
 │  auth/approle/role/{svc}  (per-service AppRoles)    │
@@ -65,8 +64,8 @@ All secrets are stored in vault KV v2 under `secret/`.
 
 | Path | Keys | Consumers |
 |------|------|-----------|
-| `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER | traefik |
-| `secret/infra/dns-manager` | HOSTINGER_API_KEY | dns-manager |
+| `secret/infra/traefik` | TRAEFIK_ADMIN_PASSWORD_HASH, ACME_EMAIL, ACME_CA_SERVER, CF_DNS_API_TOKEN | traefik |
+| `secret/infra/vps` | HOSTINGER_API_KEY | VPS management (not DNS) |
 | `secret/observability/grafana` | GRAFANA_ADMIN_PASSWORD | grafana |
 
 `platform/vault/secrets-schema.yaml` is the canonical mapping of vault paths to

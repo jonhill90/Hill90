@@ -25,30 +25,6 @@
     group: "{{ deploy_user }}"
     mode: '0755'
 
-- name: Create DNS manager source directory
-  file:
-    path: "{{ app_directory }}/app/services/dns-manager"
-    state: directory
-    owner: "{{ deploy_user }}"
-    group: "{{ deploy_user }}"
-    mode: '0755'
-
-- name: Deploy DNS manager app.py
-  copy:
-    src: "{{ playbook_dir }}/../../../services/dns-manager/app.py"
-    dest: "{{ app_directory }}/app/services/dns-manager/app.py"
-    owner: "{{ deploy_user }}"
-    group: "{{ deploy_user }}"
-    mode: '0644'
-
-- name: Deploy DNS manager Dockerfile
-  copy:
-    src: "{{ playbook_dir }}/../../../services/dns-manager/Dockerfile"
-    dest: "{{ app_directory }}/app/services/dns-manager/Dockerfile"
-    owner: "{{ deploy_user }}"
-    group: "{{ deploy_user }}"
-    mode: '0644'
-
 - name: Create Traefik config directory
   file:
     path: "{{ app_directory }}/infra/traefik/config"
@@ -129,7 +105,7 @@
             email: {{ acme_email }}
             storage: /letsencrypt/acme-dns.json
             dnsChallenge:
-              provider: httpreq
+              provider: cloudflare
               delayBeforeCheck: 30s
             caServer: {% if letsencrypt_env == 'production' %}https://acme-v02.api.letsencrypt.org/directory{% else %}https://acme-staging-v02.api.letsencrypt.org/directory{% endif %}
 
@@ -190,21 +166,6 @@
           name: traefik-certs
 
       services:
-        # DNS Manager for DNS-01 ACME challenges
-        dns-manager:
-          build: {{ app_directory }}/app/services/dns-manager
-          container_name: dns-manager
-          restart: unless-stopped
-          networks:
-            - edge
-          environment:
-            - HOSTINGER_API_KEY={{ hostinger_api_key }}
-          healthcheck:
-            test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8080/health')"]
-            interval: 30s
-            timeout: 5s
-            retries: 3
-
         traefik:
           image: traefik:v2.11
           container_name: traefik
@@ -221,13 +182,16 @@
             - traefik-certs:/letsencrypt
           environment:
             - ACME_EMAIL={{ acme_email }}
-            # HTTP Request DNS provider config for DNS-01
-            - HTTPREQ_ENDPOINT=http://dns-manager:8080
-            - HTTPREQ_MODE=RAW
-            - HTTPREQ_POLLING_INTERVAL=30s
-            - HTTPREQ_PROPAGATION_TIMEOUT=300s
-          depends_on:
-            - dns-manager
+            # DNS-01 via lego's built-in Cloudflare provider. Deliberately has
+            # no default: an empty token would produce a Traefik that starts
+            # healthy and then fails every renewal silently. Supply it with
+            # -e "cf_dns_api_token=..." if this playbook is ever run.
+            #
+            # NOTE: no runner imports this playbook — bootstrap.yml explicitly
+            # skips it and deploys go through deploy/compose/prod/docker-compose.infra.yml
+            # with platform/edge/traefik.yml. It is kept in sync so the two
+            # copies do not drift, but platform/edge/traefik.yml is what runs.
+            - CF_DNS_API_TOKEN={{ cf_dns_api_token }}
           labels:
             - "traefik.enable=true"
             - "traefik.http.routers.traefik.rule=Host(`traefik.{{ domain }}`)"

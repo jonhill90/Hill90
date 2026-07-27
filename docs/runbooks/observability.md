@@ -37,7 +37,6 @@ All signals ──→ Grafana (query + visualize)
 | Node Exporter | Prometheus (:9100) | Promtail | — |
 | cAdvisor | Prometheus (:8080) | Promtail | — |
 | Grafana / Loki / Tempo | Prometheus (self-scrape) | Promtail | — |
-| dns-manager | — | Promtail | — |
 | Portainer | — | Promtail | — |
 | OpenBao | — | Promtail | — |
 
