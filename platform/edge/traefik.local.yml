@@ -87,7 +87,14 @@ providers:
     # These are literals rather than ${VAR} on purpose: Traefik v2.11 does no
     # environment interpolation in the static config file, so a placeholder
     # here is matched as the literal string and silently matches nothing.
-    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local-identity`) || Label(`com.docker.compose.project`,`hill90-local-platform`) || Label(`com.docker.compose.project`,`hill90-local-db`) || Label(`com.docker.compose.project`,`hill90-local-storage`)"
+    #
+    # THIS LINE ACCUMULATES ONE CLAUSE PER LOCAL STACK, and two branches have
+    # already collided on it (#557 added `hill90-local`, this branch added
+    # `hill90-local-storage`). Dropping a clause during a conflict resolution
+    # silently 404s that stack's hostnames with no error logged anywhere, so
+    # a merge that "looks resolved" can still be wrong. When resolving, count
+    # the clauses: one per Hill90 local stack, plus `hill90-local` for the app.
+    constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local-identity`) || Label(`com.docker.compose.project`,`hill90-local-platform`) || Label(`com.docker.compose.project`,`hill90-local-db`) || Label(`com.docker.compose.project`,`hill90-local-storage`) || Label(`com.docker.compose.project`,`hill90-local`)"
 
   file:
     directory: /etc/traefik/dynamic
