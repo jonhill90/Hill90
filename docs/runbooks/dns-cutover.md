@@ -23,7 +23,7 @@ Related: [Certificates](../architecture/certificates.md), issue #529, issue #538
 | **1 — Cloudflare API token** | — | **Done.** Minted, in SOPS, verified against the live zone. No longer a prerequisite. |
 | **2 — Lower Hostinger TTLs (T1)** | Jon | **≥ 4 hours of waiting** before Step 6. Recommended, not optional — see Reference A. |
 | **4 — MERGE #535 and #540** | dns-manager lane | Days. Both merged **before** Step 6. **Merge only — do not deploy.** |
-| **6 — Nameserver change (J3)** | **Jon alone** | Then a **24-hour** window (Step 10), not 48. |
+| **6 — Nameserver change (J3)** | **Jon alone** | Then a **48-hour** window (Step 10) — the parent-zone TTL, and the rollback ceiling. |
 | **7a — DEPLOY #535** | dns-manager lane | Only *after* Cloudflare is answering. Deploying earlier breaks all issuance. |
 | **8a — Verify DNS-01 issuance** | You | **Hard deadline 2026-08-13** — the first certificate renewal. |
 | **9 — Mail send/receive (J4)** | Jon | The step that decides success. |
@@ -387,8 +387,9 @@ done
 **This loop does not exit on its own — press Ctrl-C when you have seen enough.**
 It replaces `watch`, which macOS does not ship.
 
-Poll public resolvers explicitly. Expect disagreement for roughly a day; treat
-disagreement past ~30 hours as anomalous, not normal (Reference D):
+Poll public resolvers explicitly. **Expect disagreement for up to 48 hours** —
+that is the parent-zone delegation TTL and it is normal, not a fault. Treat
+disagreement still present *after* 48 hours as anomalous (Reference D):
 
 ```bash
 for r in 1.1.1.1 8.8.8.8 9.9.9.9 208.67.222.222; do
@@ -517,8 +518,9 @@ Confirm — note how these differ from Step 5:
 - **`_domainconnect` must now be present at BOTH resolvers.** In Step 5 it
   existed only on Cloudflare. Absent from one resolver means that resolver is
   still on Hostinger.
-- Mixed results across the two resolvers are normal early in the window and
-  expected to converge. Persisting past ~30 hours is anomalous — see Reference D.
+- Mixed results across the two resolvers are normal throughout the window and
+  expected to converge within **48 hours**, the parent-zone delegation TTL.
+  Persisting beyond that is anomalous — see Reference D.
 
 *If a record is wrong:* correcting it is no longer cheap. The fix reaches only
 the resolvers already on Cloudflare, and the rest on Hostinger's TTL — up to 4
@@ -714,19 +716,26 @@ it, up to 4 hours for MX — and a full rollback is a day or more.
 
 **The window is closed when all of the following are true:**
 
-1. At least **24 hours** have elapsed since Step 6. That is the 86400s child-zone
-   NS TTL, which is what real resolvers actually serve — not the parent's
-   172800s. See Reference D; do not wait out 48 hours by default.
+1. At least **48 hours** have elapsed since Step 6. That is the parent `.com`
+   delegation TTL of 172800s, measured directly — see Reference D. It is the
+   **rollback ceiling**, and it is the number to plan on. Do not substitute the
+   86400s child-zone TTL a recursive will show you; that describes typical
+   resolver behaviour, not the worst case, and planning on it leaves you wrong by
+   a day.
 2. All four public resolvers in Step 7 return the Cloudflare nameservers.
 3. Step 9 has passed.
 
-**If condition 2 has not been met by ~30 hours, stop waiting and investigate.**
-Reference D item 2 describes resolvers that can self-refresh from Cloudflare and
-may never re-consult the parent, so universal agreement is not guaranteed to
-arrive on its own. At that point the window is not "still settling" — something
-is wrong, or a specific resolver is stuck and should be treated as an exception
-rather than a blocker. Do not let an unsatisfiable condition hold the freeze
-open indefinitely.
+**If condition 2 has not been met once 48 hours have passed, stop waiting and
+investigate.** Reference D describes resolvers that can self-refresh from
+Cloudflare and may never re-consult the parent, so universal agreement is not
+guaranteed to arrive on its own. Past the ceiling the window is no longer
+"still settling" — either something is wrong, or a specific resolver is stuck and
+should be treated as an exception rather than a blocker. Do not let an
+unsatisfiable condition hold the freeze open indefinitely.
+
+Until condition 1 is met, **the Hostinger zone stays intact.** Some resolvers may
+still be following the old delegation for the full 48 hours, and deleting the
+zone early breaks them.
 
 Only then:
 
@@ -813,35 +822,50 @@ what you will actually observe in the logs.
 
 ## D. Rollback, and why it is weaker than it sounds
 
-Reverting nameservers at the registrar is bounded by TTLs nobody controls, and by
-more than one of them:
+### The rollback ceiling is 48 hours
+
+Measured against the `.com` gTLD servers on 2026-07-26, not argued:
 
 ```
-$ dig NS hill90.com @a.gtld-servers.net +noall +authority
-hill90.com.  172800  IN  NS  ns1.dns-parking.com.      # parent (.com): 48h
-
-$ dig NS hill90.com @1.1.1.1 +noall +answer
-hill90.com.   86400  IN  NS  ns1.dns-parking.com.      # what resolvers serve: 24h
+$ dig +noall +authority NS hill90.com @a.gtld-servers.net
+hill90.com.		172800	IN	NS	ns1.dns-parking.com.
+hill90.com.		172800	IN	NS	ns2.dns-parking.com.
 ```
 
-**86400 is usually the number that matters, not 172800.** Both child zones
-publish an 86400 NS RRset and real recursives return the child value; the
-parent's 172800 applies to resolvers priming from the gTLD servers.
+**172800 seconds — 48 hours.** That is the number to plan a rollback on.
 
-1. Typical resolvers are on a 24-hour clock. Disagreement past ~30 hours is
-   anomalous, not something to wait out.
-2. Some resolvers are stickier than either number. One that learned
+A second, smaller TTL exists and is a trap. The child zones publish their own NS
+RRset at 86400, and a recursive will show you that value:
+
+```
+$ dig +noall +answer NS hill90.com @1.1.1.1
+hill90.com.		86400	IN	NS	ns1.dns-parking.com.
+```
+
+An earlier draft of this runbook argued 86400 was therefore "the number that
+matters." **That was wrong**, and the error is worth naming because the output
+invites it: 86400 describes how a *typical* resolver behaves, not the worst case.
+A resolver holding only the parent referral is on the 172800 clock, and you
+cannot know which resolvers those are. A rollback window must be planned on the
+ceiling, and the ceiling is the parent's 172800.
+
+Planning on 86400 would leave an operator wrong by a full day about when a revert
+is universally honoured.
+
+Two further bounds, neither of which shortens the above:
+
+1. Some resolvers are stickier than either number. One that learned
    NS=Cloudflare from the child refreshes by asking *Cloudflare*, which re-serves
    NS=Cloudflare at 86400 — a loop that need never re-consult the reverted
    parent.
-3. Negative caching differs: Hostinger SOA minimum 600, Cloudflare 1800. An
+2. Negative caching differs: Hostinger SOA minimum 600, Cloudflare 1800. An
    NXDOMAIN learned from Cloudflare persists three times longer than expected.
 
 Registrar publication delay is **not measured**. Do not assume minutes.
 
-**Plainly: a revert is one edit, and completes over roughly a day for most of the
-internet, up to two for some, and indefinitely for a stubborn minority.** Anyone
-calling this cutover easily reversible is wrong.
+**Plainly: a revert is one edit at the registrar, and takes up to 48 hours to be
+universally honoured — longer for a stubborn minority.** Anyone calling this
+cutover easily reversible is wrong.
 
 The real protections, in order of how much work they do: the pre-delegation diff
 (Step 5); the Hostinger zone staying untouched so reverting is one registrar
