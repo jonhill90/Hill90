@@ -23,7 +23,7 @@ Cloudflare cannot proxy SMTP, and the Tailscale-only hosts resolve into
 > | Artifact | What it claimed | Reality |
 > |---|---|---|
 > | `hill90-dns-backup.json` | a stale `remote` address | superseded IP |
-> | `infra/dns/hill90.com.json` | read as "the zone" | it is a 7-record managed subset of ~33 |
+> | `infra/dns/hill90.com.json` | read as "the zone" | a 7-record subset of 32 — **deleted**, see below |
 > | this document, before 2026-07-26 | `remote` = a Mac at `31.97.42.69`; Tailscale IP `100.78.82.89` | `remote` is the **VPS**, on the current Tailscale IP |
 >
 > The last one is instructive: `dns_sync` and the bats suite had described
@@ -68,10 +68,13 @@ The zone holds roughly 33 record groups. **Everything else — mail, `www`, `doc
 the CAA records, the minecraft SRV — is invisible to this tooling.** It is never
 read for comparison and never written.
 
-The declared record set lives in `infra/dns/hill90.com.json`, and
-`tests/scripts/cloudflare.bats` asserts it stays in lockstep with the allowlist
-in the script. Two sources describing the zone that can drift apart is how a host
-silently stops being managed.
+`MANAGED_RECORDS` in `scripts/cloudflare.sh` is the **only** declaration of the
+managed set. There used to be a second one, `infra/dns/hill90.com.json`; it was
+deleted. Nothing read it — no script, workflow, playbook or Makefile target — so
+it never drove behaviour, and it had already drifted (`admin` and `grafana`
+existed in `hostinger.sh` but not in the JSON). Two sources describing the zone
+that can disagree is how a host silently stops being managed; the fix is one
+source, not a test keeping two in step.
 
 ## Safety contract
 
@@ -185,6 +188,27 @@ nobody is serving.
 
 DNS forbids a CNAME coexisting with other records at the same name. `www` is a
 CNAME to the apex and is not managed here; do not add an A record for it.
+
+## Backing up the zone
+
+There is no zone backup committed to this repository, deliberately.
+
+Cloudflare regenerates a complete, current BIND export on demand:
+
+```bash
+curl -sS -H "Authorization: Bearer $CF_DNS_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/zones/<zone-id>/dns_records/export" \
+  > hill90.com.zone
+```
+
+That is a true backup of all 32 records. A committed snapshot is not: it is
+correct on the day it is written and wrong from then on, and **a stale backup is
+worse than no backup, because someone will trust it**. The previous one held
+`remote` at a superseded Tailscale address — the record that is the only SSH path
+to the box.
+
+If you take an export, treat it as a point-in-time artifact: use it and delete
+it. Do not commit it.
 
 ## Security Notes
 

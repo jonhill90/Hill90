@@ -203,23 +203,22 @@
 # Parity with the declared record set (ported from hostinger.bats, JON-47 era)
 # ---------------------------------------------------------------------------
 
-@test "MANAGED_RECORDS and infra/dns/hill90.com.json describe the same records" {
-  # Two sources describing the zone that can disagree is how a host silently
-  # stops being managed. They must stay in lockstep.
-  run bash -c '
-    managed=$(sed -n "/^MANAGED_RECORDS=(/,/^)$/p" scripts/cloudflare.sh \
-      | grep -oE "\"[a-z@]+:" | tr -d "\":" | sort -u)
-    declared=$(python3 -c "
-import json
-print(chr(10).join(sorted(r[\"name\"] for r in json.load(open(\"infra/dns/hill90.com.json\"))[\"records\"])))")
-    [ "$managed" = "$declared" ]'
-  [ "$status" -eq 0 ]
+@test "MANAGED_RECORDS excludes app-era hostnames" {
+  # These services are decommissioned or were never DNS-01 managed. A stale name
+  # here would have the rebuild write records for hosts that no longer exist.
+  for name in api ai auth storage litellm openclaw admin; do
+    run bash -c "sed -n '/^MANAGED_RECORDS=(/,/^)\$/p' scripts/cloudflare.sh | grep -F '\"${name}:'"
+    [ "$status" -ne 0 ]
+  done
 }
 
-@test "infra/dns/hill90.com.json has no app-era hostnames" {
-  run python3 -c "
-import json,sys
-names={r['name'] for r in json.load(open('infra/dns/hill90.com.json'))['records']}
-sys.exit(1 if names & {'api','ai','auth','storage','litellm','openclaw','admin'} else 0)"
-  [ "$status" -eq 0 ]
+@test "no committed file re-declares the zone or the record set" {
+  # infra/dns/hill90.com.json was deleted: nothing read it, it duplicated
+  # MANAGED_RECORDS, and it had already drifted (admin and grafana were in
+  # hostinger.sh but not in the JSON). Every file in this repo that hardcoded a
+  # record set or an address has turned out to be wrong. A real zone backup
+  # comes from Cloudflare's export endpoint on demand.
+  [ ! -f infra/dns/hill90.com.json ]
+  run bash -c 'git ls-files | grep -E "dns.*\.json$|.*zone.*\.json$"'
+  [ "$status" -ne 0 ]
 }
