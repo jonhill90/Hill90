@@ -18,8 +18,18 @@
 @test "every certresolver referenced in compose is defined in the Traefik template" {
   run bash -c '
     defined=$(awk "/^certificatesResolvers:/{f=1;next} f&&/^[a-zA-Z]/{f=0} f&&/^  [a-zA-Z0-9_-]+:/{gsub(/[ :]/,\"\");print}" platform/edge/traefik.yml.tmpl | sort -u)
-    referenced=$(grep -rhoE "certresolver=\\\$\{[A-Z_]+:-[a-z0-9-]+\}|certresolver=[a-z0-9-]+" deploy/compose/prod/*.yml \
-      | sed -E "s/.*:-//; s/\}$//; s/certresolver=//" | sort -u)
+    [ -n "$defined" ] || { echo "extracted NO resolver names from the template"; exit 1; }
+    raw=$(grep -rhoE "certresolver=[^\"]+" deploy/compose/prod/*.yml | sed "s/certresolver=//" | sort -u)
+    [ -n "$raw" ] || { echo "extracted NO certresolver references from compose"; exit 1; }
+    referenced=""
+    for r in $raw; do
+      case "$r" in
+        *:-*) referenced="$referenced ${r#*:-}" ;;
+        \$*)  echo "defaultless certresolver reference, cannot verify: $r"; exit 1 ;;
+        *)    referenced="$referenced $r" ;;
+      esac
+    done
+    referenced=$(echo "$referenced" | tr " " "\n" | sed "s/}$//" | grep -v "^$" | sort -u)
     missing=""
     for r in $referenced; do
       echo "$defined" | grep -qx "$r" || missing="$missing $r"
@@ -49,12 +59,15 @@
 @test "every playbook on disk is imported by bootstrap.yml" {
   # An unimported playbook is one nobody runs and nobody notices rotting.
   run bash -c '
+    imported=$(grep -oE "import_tasks:[[:space:]]*[0-9A-Za-z._-]+" infra/ansible/playbooks/bootstrap.yml \
+               | sed -E "s/.*[[:space:]]//" | sort -u)
+    [ -n "$imported" ] || { echo "no import_tasks found in bootstrap.yml"; exit 1; }
     orphans=""
     for f in infra/ansible/playbooks/[0-9]*.yml; do
       b=$(basename "$f")
-      grep -q "$b" infra/ansible/playbooks/bootstrap.yml || orphans="$orphans $b"
+      echo "$imported" | grep -qx "$b" || orphans="$orphans $b"
     done
-    [ -z "$orphans" ] || { echo "not imported by bootstrap.yml:$orphans"; exit 1; }
+    [ -z "$orphans" ] || { echo "on disk but not import_tasks in bootstrap.yml:$orphans"; exit 1; }
   '
   [ "$status" -eq 0 ]
 }
@@ -159,4 +172,107 @@ for name,v in r.items():
   [ "$output" -eq 2 ]
   run grep -F "bash '\"\$SCRIPT_DIR\"'/render-traefik-config.sh" scripts/deploy.sh
   [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Deploy-path failure propagation
+#
+# The original fix rendered the config correctly and still would have taken the
+# stack down, because the SOPS path ignored the render's exit status.
+# ---------------------------------------------------------------------------
+
+@test "the SOPS deploy path sets -e so a failed render aborts it" {
+  # `sops exec-env` runs its command in a NEW shell that does not inherit
+  # deploy.sh's `set -e`, and exec-env returns 0 regardless of what the command
+  # did. Without `set -e` inside the string, a failed render is swallowed and
+  # `docker compose up` runs anyway — mounting a config that does not exist,
+  # which Docker materialises as a DIRECTORY, which stops Traefik and takes
+  # every routed service down while the deploy reports success.
+  run bash -c "sed -n '/_deploy_infra_with_sops() {/,/^    }\$/p' scripts/deploy.sh | grep -c '^            set -e\$'"
+  [ "$output" -eq 1 ]
+}
+
+@test "both deploy paths preflight the rendered config before compose up" {
+  run bash -c 'grep -c "preflight-edge.sh" scripts/deploy.sh'
+  [ "$output" -eq 2 ]
+  run bash -c '
+    pf=$(grep -n "preflight-edge.sh" scripts/deploy.sh | cut -d: -f1 | tr "\n" " ")
+    up=$(grep -n "up -d --force-recreate" scripts/deploy.sh | cut -d: -f1 | tr "\n" " ")
+    set -- $pf; p1=$1; p2=$2
+    set -- $up; u1=$1; u2=$2
+    [ "$p1" -lt "$u1" ] && [ "$p2" -lt "$u2" ]
+  '
+  [ "$status" -eq 0 ]
+}
+
+@test "a failed render does not destroy an existing good config" {
+  # `>` truncates before sed runs, so writing straight to the output would leave
+  # a zero-byte file that compose would happily mount.
+  out=/tmp/bats_atomic.yml
+  echo "PREEXISTING GOOD CONFIG" > "$out"
+  run env ACME_CA_SERVER='https://a|b/directory' TRAEFIK_CONFIG_OUTPUT="$out" bash scripts/render-traefik-config.sh
+  [ "$status" -ne 0 ]
+  run cat "$out"
+  [ "$output" = "PREEXISTING GOOD CONFIG" ]
+  rm -f "$out"
+}
+
+@test "render clears a directory left at the output path" {
+  out=/tmp/bats_dir_out.yml
+  rm -rf "$out"; mkdir -p "$out"
+  run env ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory TRAEFIK_CONFIG_OUTPUT="$out" bash scripts/render-traefik-config.sh
+  [ "$status" -eq 0 ]
+  [ -f "$out" ]
+  rm -f "$out"
+}
+
+@test "ACME_REQUIRE_PRODUCTION refuses a staging CA" {
+  # The CA comes from the secrets store, which overrides anything the caller
+  # exports. This flag is not a secret, so the store cannot override it.
+  out=/tmp/bats_req.yml; rm -f "$out"
+  run env ACME_REQUIRE_PRODUCTION=1 ACME_CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory TRAEFIK_CONFIG_OUTPUT="$out" bash scripts/render-traefik-config.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"STAGING"* ]]
+  [ ! -f "$out" ]
+}
+
+@test "ACME_REQUIRE_PRODUCTION allows a production CA" {
+  out=/tmp/bats_req2.yml
+  run env ACME_REQUIRE_PRODUCTION=1 ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory TRAEFIK_CONFIG_OUTPUT="$out" bash scripts/render-traefik-config.sh
+  [ "$status" -eq 0 ]
+  rm -f "$out"
+}
+
+@test "no deploy path exports ACME_CA_SERVER, which the secrets store overrides" {
+  # Makefile and deploy-infra.yml used to export it. Both `sops exec-env` and
+  # the `set -a; source` in _common.sh replace a caller-set value, so those
+  # exports chose nothing while appearing to.
+  run bash -c 'grep -nE "^[^#]*ACME_CA_SERVER=" Makefile .github/workflows/deploy-infra.yml'
+  [ "$status" -ne 0 ]
+  run grep -F 'ACME_REQUIRE_PRODUCTION=1' Makefile
+  [ "$status" -eq 0 ]
+  run grep -F 'ACME_REQUIRE_PRODUCTION=1' .github/workflows/deploy-infra.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "preflight rejects a missing, empty, or directory config" {
+  rm -rf /tmp/bats_pf; mkdir -p /tmp/bats_pf
+  run env TRAEFIK_CONFIG_OUTPUT=/tmp/bats_pf/missing.yml bash scripts/preflight-edge.sh
+  [ "$status" -ne 0 ]
+  : > /tmp/bats_pf/empty.yml
+  run env TRAEFIK_CONFIG_OUTPUT=/tmp/bats_pf/empty.yml bash scripts/preflight-edge.sh
+  [ "$status" -ne 0 ]
+  mkdir -p /tmp/bats_pf/adir.yml
+  run env TRAEFIK_CONFIG_OUTPUT=/tmp/bats_pf/adir.yml bash scripts/preflight-edge.sh
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"DIRECTORY"* ]]
+  rm -rf /tmp/bats_pf
+}
+
+@test "preflight accepts a correctly rendered config" {
+  out=/tmp/bats_pf_ok.yml
+  env ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory TRAEFIK_CONFIG_OUTPUT="$out" bash scripts/render-traefik-config.sh >/dev/null 2>&1
+  run env TRAEFIK_CONFIG_OUTPUT="$out" bash scripts/preflight-edge.sh
+  [ "$status" -eq 0 ]
+  rm -f "$out"
 }

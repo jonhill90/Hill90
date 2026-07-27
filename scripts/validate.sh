@@ -35,7 +35,11 @@ EOF
 
 cmd_traefik() {
     local env="${1:-prod}"
+    # Validate the template, and ALSO the rendered file when one exists — on the
+    # VPS that is what Traefik actually mounts, and a template that validates
+    # says nothing about a generated file that is stale, empty, or a directory.
     local traefik_config="platform/edge/traefik.yml.tmpl"
+    local traefik_rendered="platform/edge/traefik.generated.yml"
     local dynamic_dir="platform/edge/dynamic"
 
     echo "================================"
@@ -144,6 +148,19 @@ cmd_traefik() {
             echo "   A resolver without caServer silently uses production Lets Encrypt."
             all_valid=false
         fi
+    fi
+
+    echo -n "Checking the rendered config that Traefik mounts... "
+    if [ -e "$traefik_rendered" ]; then
+        if bash "$SCRIPT_DIR/preflight-edge.sh" >/dev/null 2>&1; then
+            echo "✓"
+        else
+            echo "✗ Rendered config is unusable"
+            bash "$SCRIPT_DIR/preflight-edge.sh" 2>&1 | sed 's/^/     /' || true
+            all_valid=false
+        fi
+    else
+        echo "⊘ Not rendered here (created at deploy time by render-traefik-config.sh)"
     fi
 
     echo -n "Checking dynamic config directory... "

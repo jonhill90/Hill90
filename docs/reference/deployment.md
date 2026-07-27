@@ -127,8 +127,8 @@ gh workflow run deploy.yml -f service=all             # everything in order
 
 **Certificate Rate Limits**
 
-- `make deploy-infra` uses **STAGING** certificates by default (`ACME_CA_SERVER` defaults to staging in compose)
-- `make deploy-infra-production` uses **PRODUCTION** certificates (explicitly sets `ACME_CA_SERVER` to the production URL)
+- `make deploy-infra` uses whichever CA the **secrets store** holds in `ACME_CA_SERVER` (vault `secret/infra/traefik`, SOPS as fallback). There is no default anywhere: an unset value fails the deploy. Selecting staging renders, but warns loudly.
+- `make deploy-infra-production` sets `ACME_REQUIRE_PRODUCTION=1`, which makes the render **refuse** if the configured CA is staging. It does not set `ACME_CA_SERVER` — the secrets store overrides a caller-set value, so exporting it would choose nothing.
 - The `deploy-infra.yml` workflow also sets production certificates automatically
 - Rate limits (production): 5 failures/hour, 50 certs/week
 

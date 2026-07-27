@@ -335,7 +335,8 @@ the three `excluded_vars` at `:17-19` (Discord and Tavily tokens).
 db, auth, minio (`:229,233,235`).
 
 **Keep:** `TRAEFIK_ADMIN_PASSWORD_HASH` (`:169`), `ACME_EMAIL` (`:173`),
-`ACME_CA_SERVER` (`:177`), `HOSTINGER_API_KEY` (`:183`),
+`ACME_CA_SERVER` (no longer a compose variable — consumed by
+`scripts/render-traefik-config.sh`), `HOSTINGER_API_KEY` (`:183`),
 `GRAFANA_ADMIN_PASSWORD` (`:205`), the bootstrap secrets (`:213-217`), and
 AppRoles for infra and observability (`:236,237`).
 

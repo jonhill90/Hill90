@@ -1,6 +1,7 @@
 ---
 # Master Bootstrap Playbook
-# Runs all numbered playbooks in sequence (01-09)
+# Runs the numbered playbooks it imports below (01-08, 11, 12).
+# It does NOT deploy containers — see the note at the end of this file.
 # Based on working bootstrap-v2.yml logic
 
 - name: Bootstrap VPS Infrastructure

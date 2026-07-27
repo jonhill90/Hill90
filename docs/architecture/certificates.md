@@ -157,7 +157,12 @@ platform/edge/traefik.generated.yml     <- gitignored, mounted by compose
 
 ### `ACME_CA_SERVER` is required and has no default
 
-`render-traefik-config.sh` refuses to render without it, so the deploy stops.
+`render-traefik-config.sh` refuses to render without it, and both deploy paths
+abort. That required care: the SOPS fallback runs its deploy inside
+`sops exec-env '<command>'`, a new shell that does not inherit `deploy.sh`'s
+`set -e`, and `exec-env` returns 0 regardless of what the command did. Without
+an explicit `set -e` inside that string, a failed render was swallowed and
+`docker compose up` ran anyway.
 Both possible defaults are dangerous, in opposite directions:
 
 | Default | Failure |
