@@ -487,11 +487,13 @@ check_env_drift() {
         echo "${GREEN}✓${NC} .env.local carries every variable in .env.local.example"
     fi
 
-    # Structural variables: the example is authoritative, not a suggestion.
+    # Structural variables: differing from the example is meaningful, not neutral.
     #
-    # These name the containers, networks and volumes the stack creates. They are
-    # not personal preferences like ports or passwords -- a local value that
-    # disagrees with the example does not customise anything, it forks the stack.
+    # These name the containers, networks and volumes the stack creates. Changing
+    # them is a supported, deliberate act -- it is how you run two stacks side by
+    # side, and docs/runbooks/local-development.md tells you to do exactly that
+    # when a network turns out to be shared. What is NOT safe is changing them
+    # while a stack is already running under the old prefix.
     # Compose keys containers on container_name, so `up` with a different prefix
     # orphans whatever is already running and builds a duplicate set beside it,
     # which then collides on the published ports.
@@ -512,11 +514,14 @@ check_env_drift() {
     done
 
     if [ -n "$mismatched" ]; then
-        echo "${YELLOW}!${NC} .env.local disagrees with the example on structural variables:"
+        echo "${YELLOW}!${NC} .env.local uses non-default values for structural variables:"
         printf "%b" "$mismatched"
-        echo "  These name containers, networks and volumes -- the example is authoritative."
-        echo "  Running 'up' with a different prefix orphans the current stack and builds a"
-        echo "  duplicate beside it, which then collides on the published ports."
+        echo "  These name the containers, networks and volumes this stack creates."
+        echo "  Deliberate? Fine -- that is how you run two stacks side by side. But bring"
+        echo "  the other one down first: compose keys containers on container_name, so 'up'"
+        echo "  under a new prefix orphans whatever is running and builds a duplicate beside"
+        echo "  it, which then collides on the published ports."
+        echo "  Unintentional? Align them with .env.local.example before running 'up'."
     else
         echo "${GREEN}✓${NC} structural prefixes match the example"
     fi
