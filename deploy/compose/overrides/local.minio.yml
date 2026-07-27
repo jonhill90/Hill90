@@ -1,0 +1,15 @@
+# Local development override for the object store.
+#
+# Layered on deploy/compose/prod/docker-compose.minio.yml — the SAME file prod
+# uses. Only the routing differences a Mac forces, exactly as the other local
+# overrides do.
+services:
+  minio:
+    labels:
+      - "traefik.http.routers.minio-console.tls=false"
+    # MinIO validates OIDC tokens server-side, so it has to REACH Keycloak.
+    # auth.localtest.me resolves to 127.0.0.1, which inside a container is the
+    # container itself — the same trap local.vault.yml and local.observability.yml
+    # document. Without this the OIDC config silently fails to load.
+    extra_hosts:
+      - "${AUTH_HOST:-auth}.${BASE_DOMAIN:-hill90.com}:host-gateway"
