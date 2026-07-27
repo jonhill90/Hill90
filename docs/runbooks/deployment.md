@@ -15,7 +15,7 @@ make deploy-infra
 ```
 
 Expected outcome:
-- `traefik`, `dns-manager`, and `portainer` containers are healthy.
+- `traefik` and `portainer` containers are healthy.
 - `hill90_edge` and `hill90_internal` Docker networks exist.
 - DNS-01 certificate flow is functional for Tailscale-only routes.
 
@@ -77,7 +77,7 @@ All Docker Compose operations use explicit project names to prevent cross-stack 
 
 | Stack | Project Name | Services |
 |-------|-------------|----------|
-| edge | `hill90-prod-edge` | traefik, dns-manager, portainer |
+| edge | `hill90-prod-edge` | traefik, portainer |
 | platform | `hill90-prod-platform` | openbao |
 | apps | `hill90-prod-apps` | api, ai, mcp, ui |
 | observability | `hill90-prod-observability` | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor |

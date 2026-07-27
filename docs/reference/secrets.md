@@ -115,7 +115,13 @@ Ephemeral auth key for Tailscale (90-day expiry, automatically generated during 
 
 ### HOSTINGER_API_KEY
 
-API key for Hostinger DNS and VPS management.
+API key for Hostinger VPS management, used by `scripts/vps.sh` and the
+`recreate-vps` workflow. No longer part of any certificate or DNS-01 path.
+
+### CF_DNS_API_TOKEN
+
+Cloudflare API token used by Traefik/lego for the ACME DNS-01 challenge. Scoped
+to the `hill90.com` zone with Zone/Zone/Read and Zone/DNS/Edit. Not a Global API Key.
 
 ## Best Practices
 

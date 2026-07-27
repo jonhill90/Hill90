@@ -54,7 +54,7 @@ observability and vault stacks attach to them as external.
 ## TLS And Certificate Controls
 
 - Public services use Let's Encrypt HTTP-01.
-- Tailscale-only services use Let's Encrypt DNS-01 via `dns-manager` and the Hostinger DNS API — they have no public A record, so HTTP-01 cannot validate them.
+- Tailscale-only services use Let's Encrypt DNS-01 via lego's built-in Cloudflare provider inside Traefik — they have no public A record, so HTTP-01 cannot validate them.
 - ACME state is persisted in mounted Traefik storage for renewal continuity.
 - Security headers are applied by a shared Traefik middleware.
 

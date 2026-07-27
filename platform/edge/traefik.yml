@@ -71,8 +71,12 @@ certificatesResolvers:
     acme:
       email: admin@hill90.com
       storage: /letsencrypt/acme-dns.json
+      # lego's first-class Cloudflare provider. Credential is CF_DNS_API_TOKEN,
+      # a token scoped to the hill90.com zone with Zone/Zone/Read + Zone/DNS/Edit.
+      # Keys here are flat because Traefik is pinned to v2.11; the propagation.*
+      # block is v3-only and would be silently ignored.
       dnsChallenge:
-        provider: httpreq
+        provider: cloudflare
         delayBeforeCheck: 30s
         resolvers:
           - 1.1.1.1:53

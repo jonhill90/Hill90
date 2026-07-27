@@ -154,7 +154,7 @@ vault_paths_for_service() {
     case "$service" in
         db)            echo "secret/shared/database" ;;
         auth)          echo "secret/shared/database secret/auth/config" ;;
-        infra)         echo "secret/infra/traefik secret/infra/dns-manager" ;;
+        infra)         echo "secret/infra/traefik" ;;
         observability) echo "secret/observability/grafana" ;;
         *)             echo "" ;;
     esac

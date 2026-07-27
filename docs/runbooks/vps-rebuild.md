@@ -8,7 +8,7 @@ The VPS rebuild is fully automated and requires **zero manual intervention**. Th
 
 1. **Recreate VPS** (~3-5 minutes) - OS rebuild via Hostinger API
 2. **Config VPS** (~3-5 minutes) - Infrastructure bootstrap via Ansible
-3. **Deploy Infra** (~1-2 minutes) - Infrastructure service deployment (Traefik, dns-manager, Portainer)
+3. **Deploy Infra** (~1-2 minutes) - Infrastructure service deployment (Traefik, Portainer)
 4. **Deploy All** (~2-3 minutes) - Application service deployment
 
 ## Prerequisites
@@ -93,13 +93,12 @@ Use the VPS IP displayed by Step 1.
 **Infrastructure services deployed:**
 - `traefik.hill90.com` - Traefik dashboard (Tailscale-only, authenticated)
 - `portainer.hill90.com` - Portainer UI (Tailscale-only)
-- `dns-manager` - DNS-01 challenge webhook (internal)
 
 ---
 
 ### Step 3: Deploy Infrastructure Services (~1-2 minutes)
 
-Deploy infrastructure services (Traefik, dns-manager, Portainer):
+Deploy infrastructure services (Traefik, Portainer):
 
 ```bash
 make deploy-infra
@@ -107,13 +106,12 @@ make deploy-infra
 
 **What happens automatically:**
 1. Decrypts secrets with SOPS
-2. Deploys Traefik, dns-manager, and Portainer
+2. Deploys Traefik and Portainer
 3. Requests DNS-01 Let's Encrypt certificates for Tailscale-only services
 
 **Infrastructure services deployed:**
 - `traefik.hill90.com` - Traefik dashboard (Tailscale-only, authenticated)
 - `portainer.hill90.com` - Portainer UI (Tailscale-only)
-- `dns-manager` - DNS-01 challenge webhook (internal)
 
 **Result:**
 - ✅ Infrastructure services running
