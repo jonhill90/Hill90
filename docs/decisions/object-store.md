@@ -73,6 +73,17 @@ with real migration cost and it deserves its own decision record — it is
 deliberately *not* smuggled into this change. This note exists so the question is
 on the record rather than discovered later.
 
+## The policy namespace is shared, and that is a sharp edge
+
+Realm role names map directly onto MinIO policy names, and MinIO's built-in
+policies — `consoleAdmin`, `readwrite`, `readonly`, `writeonly`, `diagnostics` —
+live in the same namespace. Today `REALM_ROLES` is fixed at `admin editor
+viewer`, so there is no collision.
+
+**A future realm role named `consoleAdmin` would silently grant MinIO admin** to
+anyone holding it, without anything in this repository changing. If the realm
+role set grows, check it against MinIO's built-ins first.
+
 ## Certificate path
 
 `storage.hill90.com` has **never issued a certificate** under the current ACME
