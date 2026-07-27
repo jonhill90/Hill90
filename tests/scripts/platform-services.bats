@@ -457,19 +457,36 @@ assert c == \"realm_roles\", c
   # Pinning RELEASE.2025-04-22 or earlier would restore the SSO button at the
   # cost of freezing an internet-facing service on an unpatched build. That was
   # considered and rejected; this stops it being done by accident.
-  run grep -E 'image: minio/minio:RELEASE\.2025-0[1-4]' deploy/compose/prod/docker-compose.minio.yml
-  [ "$status" -ne 0 ]
+  # Asserting a MINIMUM, not blacklisting four months of 2025: the first
+  # version of this test used RELEASE\.2025-0[1-4] and happily passed a 2024
+  # pin, which is even older and even more unpatched.
+  run python3 -c "
+import re
+src = open('deploy/compose/prod/docker-compose.minio.yml').read()
+m = re.search(r'image: minio/minio:RELEASE\.(\d{4})-(\d{2})', src)
+assert m, 'no pinned RELEASE tag found'
+year, month = int(m.group(1)), int(m.group(2))
+# The console was removed in May 2025; anything earlier keeps the SSO button
+# only by freezing on an unpatched build.
+assert (year, month) >= (2025, 5), (year, month)
+"
+  [ "$status" -eq 0 ]
 }
 
 @test "the S3 API is not routed externally" {
   # Only the console gets a router. Publishing the API would mean a hostname
   # with no DNS record and a second certificate that has never issued.
+  # Assert on the SHAPE, not on one router name: the first version banned the
+  # literal string 'minio-api', so a router called anything else pointing at
+  # port 9000 sailed through.
   run python3 -c "
 import re
 body = [l for l in open('deploy/compose/prod/docker-compose.minio.yml') if not re.match(r'\s*#', l)]
 src = ''.join(body)
-assert 'minio-console.rule' in src, 'console router missing'
-assert 'minio-api' not in src, 'S3 API router present — it should stay internal'
+routers = set(re.findall(r'traefik\.http\.routers\.([A-Za-z0-9_-]+)\.', src))
+assert routers == {'minio-console'}, routers
+ports = set(re.findall(r'loadbalancer\.server\.port=(\d+)', src))
+assert ports == {'9001'}, ports
 "
   [ "$status" -eq 0 ]
 }
@@ -492,11 +509,12 @@ for l in body:
 
 @test "the docs do not claim MinIO has SSO" {
   # The single most likely thing to be overstated.
-  for f in docs/decisions/object-store.md docs/runbooks/object-store.md; do
-    [ -f "$f" ]
-    run grep -iE "root credentials only|no SSO|not SSO" "$f"
-    [ "$status" -eq 0 ]
-  done
+  # One exact phrase per file, no alternation — three acceptable spellings meant
+  # deleting two of them still passed on the third.
+  run grep -F "This is not SSO and must not be described as SSO." docs/decisions/object-store.md
+  [ "$status" -eq 0 ]
+  run grep -F "The console has no SSO button" docs/runbooks/object-store.md
+  [ "$status" -eq 0 ]
 }
 
 @test "the MinIO admin policy separates s3 and admin actions" {
@@ -518,7 +536,12 @@ for s in stmts:
 
 @test "MinIO policies are provisioned on deploy, not just documented" {
   # Without them every federated login is rejected with "no policy found".
-  run grep -F 'minio.sh" apply' scripts/deploy.sh
+  # Comment lines excluded: prefixing the call with # left this passing.
+  run python3 -c "
+import re
+body = [l for l in open('scripts/deploy.sh') if not re.match(r'\s*#', l)]
+assert any('minio.sh\" apply' in l for l in body), 'minio.sh apply is not invoked'
+"
   [ "$status" -eq 0 ]
 }
 

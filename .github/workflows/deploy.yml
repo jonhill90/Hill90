@@ -12,6 +12,7 @@ on:
       - 'deploy/compose/prod/docker-compose.auth.yml'
       - 'deploy/compose/prod/docker-compose.vault.yml'
       - 'deploy/compose/prod/docker-compose.observability.yml'
+      - 'scripts/minio.sh'
   workflow_dispatch:
     inputs:
       service:
@@ -51,6 +52,7 @@ jobs:
               - 'platform/auth/keycloak/**'
             minio:
               - 'deploy/compose/prod/docker-compose.minio.yml'
+              - 'scripts/minio.sh'
             vault:
               - 'deploy/compose/prod/docker-compose.vault.yml'
             observability:
@@ -76,9 +78,10 @@ jobs:
       service: auth
     secrets: inherit
 
-  # MinIO validates OIDC tokens against Keycloak, so it follows auth. It does
-  # not depend on it to START — a slow or absent IdP only affects federated
-  # logins, never root-credential access.
+  # MinIO validates OIDC tokens against Keycloak, so it is ordered after auth
+  # (and therefore transitively after db). That is ordering, not a runtime
+  # dependency: MinIO STARTS fine with Keycloak absent, and root-credential
+  # access is unaffected — only federated S3 logins need the IdP.
   deploy-minio:
     needs: [changes, deploy-auth]
     if: always() && (needs.changes.outputs.minio == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'minio') && !failure() && !cancelled()

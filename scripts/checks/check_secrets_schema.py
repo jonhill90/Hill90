@@ -24,7 +24,10 @@ SCHEMA_PATH = ROOT / "platform" / "vault" / "secrets-schema.yaml"
 COMPOSE_DIR = ROOT / "deploy" / "compose" / "prod"
 SOPS_EXAMPLE = ROOT / "infra" / "secrets" / "prod.enc.env.example"
 
-VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::-[^}]*)?\}")
+# Matches ${VAR}, ${VAR:-default} and ${VAR:?message}. The :? form marks a
+# variable that MUST be supplied — compose refuses to render without it —
+# and is used for credentials where an empty value would be dangerous.
+VAR_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::[-?][^}]*)?\}")
 
 
 def load_schema(path: Path) -> dict:

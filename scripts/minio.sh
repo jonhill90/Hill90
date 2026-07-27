@@ -68,13 +68,29 @@ mc_setup() {
     local user pass
     user=$(secret_for MINIO_ROOT_USER) || die "Cannot resolve MINIO_ROOT_USER"
     pass=$(secret_for MINIO_ROOT_PASSWORD) || die "Cannot resolve MINIO_ROOT_PASSWORD"
-    # Credentials go in on stdin, not argv, so they never reach the host process
-    # list. `mc alias set` reads them from the environment when not passed.
-    MC_HOST_local="http://${user}:${pass}@127.0.0.1:9000" \
-        docker exec -e MC_HOST_local -i "$MINIO_CONTAINER" mc ready local >/dev/null 2>&1 \
-        || die "MinIO is not ready, or the root credentials are wrong"
+
+    # Credentials travel in the ENVIRONMENT, not argv: `docker exec -e VAR`
+    # with no value passes the variable through, so the password never reaches
+    # the host process list.
     MC_ALIAS_ENV="http://${user}:${pass}@127.0.0.1:9000"
     export MC_ALIAS_ENV
+
+    # `mc admin info`, NOT `mc ready`, for two reasons:
+    #   1. `mc ready` is UNAUTHENTICATED — it returns "cluster is ready" for
+    #      completely bogus credentials, so it cannot detect a wrong root
+    #      password and the operator gets pointed at policy creation instead.
+    #   2. `mc ready` has no timeout and retries forever against an unreachable
+    #      MinIO. Inside a deploy that means the job blocks until the CI
+    #      six-hour default while holding the deploy-prod concurrency group.
+    # `timeout` bounds it either way.
+    local out rc=0
+    out=$(MC_HOST_local="$MC_ALIAS_ENV" timeout 30 docker exec -e MC_HOST_local \
+            "$MINIO_CONTAINER" mc admin info local 2>&1) || rc=$?
+    if [ "$rc" -eq 124 ]; then
+        die "MinIO did not answer within 30s — it is running but not serving. Check: docker logs ${MINIO_CONTAINER}"
+    elif [ "$rc" -ne 0 ]; then
+        die "Cannot authenticate to MinIO as '${user}'. Are MINIO_ROOT_USER/MINIO_ROOT_PASSWORD correct for this data volume? (${out})"
+    fi
 }
 
 mc() { MC_HOST_local="$MC_ALIAS_ENV" docker exec -e MC_HOST_local -i "$MINIO_CONTAINER" mc "$@"; }
@@ -135,8 +151,11 @@ cmd_status() {
     mc admin policy ls local 2>/dev/null | sed 's/^/  /'
     echo ""
     echo "OIDC configuration loaded by the server:"
+    # Case-insensitive: the lowercase config key and the uppercase env override
+    # are both possible spellings. mc happens not to echo the env form, but this
+    # filter should not be the only reason nothing leaks.
     mc admin config get local identity_openid 2>/dev/null \
-        | tr ' ' '\n' | grep -vE 'client_secret' | sed 's/^/  /'
+        | tr ' ' '\n' | grep -viE 'client_secret' | sed 's/^/  /'
 }
 
 main() {

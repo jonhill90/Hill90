@@ -165,6 +165,9 @@ class TestTriggerPaths:
             "deploy/compose/prod/docker-compose.db.yml",
             # MinIO restored as a platform service; see docs/decisions/object-store.md.
             "deploy/compose/prod/docker-compose.minio.yml",
+            # scripts/minio.sh owns the policy documents deploy.sh applies, so a
+            # change to it must actually reach production.
+            "scripts/minio.sh",
         ])
         assert sorted(trigger_paths) == expected
 

@@ -56,7 +56,10 @@ cmd_verify() {
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
-        minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
+        # `mc ready` is unauthenticated AND has no timeout: against an
+        # unreachable MinIO it retries forever, so the retry loop below would
+        # never run. `mc admin info` proves the credentials too.
+        minio)         check_cmd='timeout 15 docker exec -e MC_HOST_local="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@127.0.0.1:9000" minio mc admin info local'; diag_container="minio" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
     esac
@@ -497,17 +500,7 @@ cmd_teardown() {
             ;;
         minio)
             compose_file="deploy/compose/${env}/docker-compose.minio.yml"
-            containers="minio"
-            banner="Object Store Deployment"
-            stack="platform"
-            stateful=true
-            summary="Services deployed:
-  - minio (object store; console on storage.hill90.com, S3 API internal only)
-
-  Console login is ROOT CREDENTIALS ONLY. MinIO removed the management
-  console from the AGPL build in May 2025, so there is no SSO button.
-  Keycloak identities work on the S3/STS path — see
-  docs/runbooks/object-store.md."
+            project_name="hill90-${env}-platform"
             ;;
         auth)
             compose_file="deploy/compose/${env}/docker-compose.auth.yml"
@@ -519,7 +512,7 @@ cmd_teardown() {
                                    || project_name="hill90-${env}-observability"
             ;;
         *)
-            die "Unknown stack for teardown: $stack. Use: infra, db, auth, vault, observability"
+            die "Unknown stack for teardown: $stack. Use: infra, db, auth, minio, vault, observability"
             ;;
     esac
 
