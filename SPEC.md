@@ -72,7 +72,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 
 | Component | Verdict | Reasoning | Evidence |
 |---|---|---|---|
-| `services/dns-manager` | **REMOVED** | Was the Traefik DNS-01 ACME webhook. Superseded by lego's built-in `cloudflare` provider when the zone moved to Cloudflare; deleted. | `platform/edge/traefik.yml:75` now reads `provider: cloudflare` |
+| `services/dns-manager` | **REMOVED** | Was the Traefik DNS-01 ACME webhook. Superseded by lego's built-in `cloudflare` provider when the zone moved to Cloudflare; deleted. | `platform/edge/traefik.yml.tmpl` now reads `provider: cloudflare` |
 | `services/api` | REMOVE | TypeScript control plane for the shelved agent platform. | `docker-compose.api.yml:77` |
 | `services/ai` | REMOVE | Model-router in front of LiteLLM. Application by explicit decision. | `docker-compose.ai.yml:60` |
 | `services/ui` | REMOVE | Next.js frontend, NextAuth + Keycloak. | `docker-compose.ui.yml:16` |
@@ -104,7 +104,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 
 | Component | Verdict | Reasoning | Evidence |
 |---|---|---|---|
-| `platform/edge/traefik.yml` | **KEEP** (EDIT) | Live Traefik config. Strip app hostnames from the comment at `:61`. | — |
+| `platform/edge/traefik.yml.tmpl` | **KEEP** (EDIT) | Authoritative Traefik static config, rendered to `traefik.generated.yml` at deploy time so `ACME_CA_SERVER` is actually applied. | — |
 | `platform/edge/dynamic/middlewares.yml` | **KEEP** (EDIT) | Generic middlewares. Remove `mcp-strip` (`:44-47`, used only by `docker-compose.mcp.yml:48`) and the app domains in the CORS origin list (`:62-65`). | — |
 | `platform/observability/**` | **KEEP** (EDIT) | Live. See §2.3 for the exact Prometheus and Grafana edits. | — |
 | `platform/vault/config.hcl` | **KEEP** | OpenBao server config. | — |

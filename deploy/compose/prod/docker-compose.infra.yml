@@ -2,6 +2,21 @@ version: '3.9'
 
 # Infrastructure services: Traefik, Portainer
 # Deploy with: make deploy-infra
+#
+# WHICH PATH OWNS WHAT:
+#
+# THIS FILE is the RUNNING path. It is the single declaration of the traefik and
+# portainer containers, and platform/edge/traefik.yml.tmpl (rendered to
+# traefik.generated.yml at deploy time) is the authoritative Traefik static
+# configuration.
+#
+# infra/ansible/playbooks/bootstrap.yml is the BOOTSTRAP path. It prepares a
+# bare VPS — OS, firewall, Tailscale, Docker, secrets — and stops before
+# containers. It must not declare any.
+#
+# 09-traefik.yml and 10-portainer.yml used to declare these same two containers
+# and a second Traefik static config. Nothing imported them, so they drifted,
+# and 09 ended up naming a certResolver it never defined. They were deleted.
 
 networks:
   edge:
@@ -33,17 +48,25 @@ services:
     ports:
       - "${HTTP_PORT:-80}:80"
       - "${HTTPS_PORT:-443}:443"
-    command:
-      # Override Let's Encrypt CA server to support staging/production switching
-      - "--certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
-      - "--certificatesresolvers.letsencrypt-dns.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}"
+    # NO `command:` block. Traefik's static-config sources — file, CLI flags and
+    # environment variables — are mutually exclusive, and the mounted file wins.
+    # This service used to pass
+    #   --certificatesresolvers.*.acme.caserver=${ACME_CA_SERVER:-<staging>}
+    # which Compose interpolated and Traefik then discarded. The CA is now
+    # rendered into the config file itself by scripts/render-traefik-config.sh.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../../../platform/edge/${TRAEFIK_STATIC_CONFIG:-traefik.yml}:/etc/traefik/traefik.yml:ro
+      # Rendered from platform/edge/traefik.yml.tmpl at deploy time. Generated,
+      # gitignored, and the template is what you edit.
+      - ../../../platform/edge/${TRAEFIK_STATIC_CONFIG:-traefik.generated.yml}:/etc/traefik/traefik.yml:ro
       - ../../../platform/edge/dynamic:/etc/traefik/dynamic:ro
       - traefik-certs:/letsencrypt
     environment:
-      - ACME_CA_SERVER=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
+      # ACME_CA_SERVER is deliberately NOT here. As an environment variable it
+      # was inert (the mounted file wins), and giving it a default here is what
+      # made an accidental staging deploy silent. It is consumed by
+      # render-traefik-config.sh, which requires it and fails loudly if unset.
+      #
       # DNS-01 challenge via lego's built-in Cloudflare provider. Token must be
       # scoped to the hill90.com zone: Zone/Zone/Read + Zone/DNS/Edit.
       - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-}

@@ -190,3 +190,6 @@ tests/e2e/playwright-report/
 next-env.d.ts
 *.tsbuildinfo
 .local-vault/
+
+# Rendered from platform/edge/traefik.yml.tmpl by scripts/render-traefik-config.sh
+platform/edge/traefik.generated.yml

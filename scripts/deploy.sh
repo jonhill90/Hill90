@@ -132,6 +132,8 @@ cmd_infra() {
             echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
+            bash '"$SCRIPT_DIR"'/render-traefik-config.sh
+
             echo "Building and pulling images..."
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' build --parallel
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' pull --ignore-buildable
@@ -149,6 +151,8 @@ cmd_infra() {
             mkdir -p platform/edge/dynamic
             echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
+
+            bash "$SCRIPT_DIR/render-traefik-config.sh"
 
             echo "Building and pulling images..."
             docker compose -p "hill90-${env}-edge" -f "$compose_file" build --parallel --no-cache

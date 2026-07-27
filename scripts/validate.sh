@@ -35,7 +35,7 @@ EOF
 
 cmd_traefik() {
     local env="${1:-prod}"
-    local traefik_config="platform/edge/traefik.yml"
+    local traefik_config="platform/edge/traefik.yml.tmpl"
     local dynamic_dir="platform/edge/dynamic"
 
     echo "================================"
@@ -116,12 +116,33 @@ cmd_traefik() {
             all_valid=false
         fi
 
-        echo -n "Checking for uninterpolated env vars in traefik.yml... "
-        if grep -q '\${' "$traefik_config"; then
-            echo "✗ Found \${...} — Traefik does not interpolate env vars in YAML"
+        # Traefik does not interpolate ${VAR} in its own YAML, so a variable
+        # reaching the MOUNTED config is silently wrong. The template is
+        # therefore allowed exactly one placeholder — ACME_CA_SERVER, which
+        # render-traefik-config.sh substitutes — and nothing else.
+        echo -n "Checking template placeholders are only ACME_CA_SERVER... "
+        local stray
+        stray=$(grep -v '^[[:space:]]*#' "$traefik_config" \
+                | grep -oE '\$\{[A-Z_]+\}' | sort -u | grep -v '^\${ACME_CA_SERVER}$' || true)
+        if [ -n "$stray" ]; then
+            echo "✗ Unexpected placeholders: $(echo "$stray" | tr '\n' ' ')"
+            echo "   Traefik does not interpolate env vars in YAML. Only ACME_CA_SERVER"
+            echo "   is substituted, by scripts/render-traefik-config.sh."
             all_valid=false
         else
             echo "✓"
+        fi
+
+        echo -n "Checking caServer is templated on every resolver... "
+        local resolver_count ca_count
+        resolver_count=$(grep -cE '^    acme:' "$traefik_config" || true)
+        ca_count=$(grep -cF 'caServer: ${ACME_CA_SERVER}' "$traefik_config" || true)
+        if [ "$resolver_count" -gt 0 ] && [ "$resolver_count" = "$ca_count" ]; then
+            echo "✓ ($ca_count/$resolver_count)"
+        else
+            echo "✗ $ca_count of $resolver_count resolvers set caServer"
+            echo "   A resolver without caServer silently uses production Lets Encrypt."
+            all_valid=false
         fi
     fi
 
@@ -373,8 +394,8 @@ cmd_compose() {
 
     echo ""
     echo "Checking Traefik configuration files:"
-    echo -n "  traefik.yml... "
-    if [ -f "platform/edge/traefik.yml" ]; then
+    echo -n "  traefik.yml.tmpl... "
+    if [ -f "platform/edge/traefik.yml.tmpl" ]; then
         echo "✓"
     else
         echo "✗ File not found"

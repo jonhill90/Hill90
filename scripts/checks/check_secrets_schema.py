@@ -41,7 +41,15 @@ def extract_compose_vars(compose_dir: Path) -> dict[str, set[str]]:
     refs: dict[str, set[str]] = {}
     for f in sorted(compose_dir.glob("docker-compose.*.yml")):
         content = f.read_text(encoding="utf-8")
-        for match in VAR_RE.finditer(content):
+        # Whole-line comments are not references. Without this, a comment
+        # explaining why a variable was REMOVED counts as a use of it, and the
+        # schema's compose_refs stay green while being wrong — which is how
+        # ACME_CA_SERVER kept a stale docker-compose.infra.yml ref after the
+        # flags that used it were deleted.
+        body = "\n".join(
+            line for line in content.splitlines() if not line.lstrip().startswith("#")
+        )
+        for match in VAR_RE.finditer(body):
             var = match.group(1)
             refs.setdefault(var, set()).add(f.name)
     return refs

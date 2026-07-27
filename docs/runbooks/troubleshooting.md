@@ -167,7 +167,7 @@ Common issues and solutions for Hill90 VPS infrastructure.
 
 5. **Verify Traefik DNS-01 configuration:**
    ```bash
-   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/platform/edge/traefik.yml | grep -A5 dnsChallenge'
+   ssh deploy@<tailscale-ip> 'cat /opt/hill90/app/platform/edge/traefik.generated.yml | grep -A5 dnsChallenge'
    ```
 
 6. **Rate limiting:**
