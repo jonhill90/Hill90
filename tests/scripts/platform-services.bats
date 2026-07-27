@@ -266,3 +266,168 @@ for p in ('scripts/backup.sh', 'scripts/deploy.sh'):
 "
   [ "$status" -eq 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# Keycloak SSO for platform services (issue #530)
+#
+# The non-negotiable requirement is the FALLBACK: Keycloak must never be the
+# only way into anything. These guard the settings that make that true.
+# ---------------------------------------------------------------------------
+
+@test "Grafana keeps its local login form alongside SSO" {
+  # GF_AUTH_DISABLE_LOGIN_FORM=true would hide the username/password form and
+  # AUTO_LOGIN=true would skip it — either makes Keycloak the only way in.
+  run grep -F 'GF_AUTH_DISABLE_LOGIN_FORM=false' deploy/compose/prod/docker-compose.observability.yml
+  [ "$status" -eq 0 ]
+  run grep -F 'GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN=false' deploy/compose/prod/docker-compose.observability.yml
+  [ "$status" -eq 0 ]
+}
+
+@test "Portainer never hides its internal login form" {
+  # Portainer's OAuth "SSO" flag suppresses the internal form.
+  run python3 -c "
+import re
+body = [l for l in open('scripts/portainer.sh') if not re.match(r'\s*#', l)]
+src = ''.join(body)
+assert '\"SSO\": False' in src, 'portainer.sh must set SSO=False'
+assert '\"SSO\": True' not in src
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "Grafana uses explicit OAuth endpoints, not OIDC discovery" {
+  # Discovery would make Grafana fetch from Keycloak, coupling its startup to
+  # the IdP being reachable.
+  for v in AUTH_URL TOKEN_URL API_URL; do
+    run grep -F "GF_AUTH_GENERIC_OAUTH_${v}=" deploy/compose/prod/docker-compose.observability.yml
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "the SSO fallback runbook exists and every service is covered" {
+  [ -f docs/runbooks/sso-fallback.md ]
+  for svc in Grafana Portainer OpenBao; do
+    run grep -F "$svc" docs/runbooks/sso-fallback.md
+    [ "$status" -eq 0 ]
+  done
+}
+
+@test "the runbook states plainly that MinIO SSO is deferred" {
+  # MinIO is in issue #530 but is not deployed in this repository. Saying so is
+  # the requirement; quietly skipping it is not acceptable.
+  run grep -iE "MinIO is not deployed|deferred, not done" docs/runbooks/sso-fallback.md
+  [ "$status" -eq 0 ]
+}
+
+@test "SSO realm configuration is applied on deploy, not just documented" {
+  # platform-realm.json is first-boot-only, so without this the SSO clients
+  # would never appear on the existing production realm.
+  run grep -F 'keycloak.sh" apply' scripts/deploy.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "keycloak.sh and portainer.sh default to the production URLs" {
+  run grep -F 'KC_PUBLIC_URL:-https://auth.hill90.com' scripts/keycloak.sh
+  [ "$status" -eq 0 ]
+  run grep -F 'PORTAINER_PUBLIC_URL:-https://portainer.hill90.com' scripts/portainer.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "no OIDC client secret is hardcoded in the SSO scripts" {
+  # An earlier version of this test had escape clauses ('$' in line, or the
+  # variable name appearing) that a real hardcoded secret satisfied, so it
+  # passed on GRAFANA_OIDC_CLIENT_SECRET=hunter2. Assert on the VALUE instead:
+  # anything assigned to a *_SECRET that is not a variable reference is literal.
+  run python3 -c "
+import re
+pat = re.compile(r'([A-Z_]*SECRET)=([^\s;|&)]+)')
+for p in ('scripts/keycloak.sh', 'scripts/portainer.sh'):
+    for n, l in enumerate(open(p), 1):
+        if re.match(r'\s*#', l):
+            continue
+        for var, val in pat.findall(l):
+            # Acceptable: a variable reference, or the empty-default idiom.
+            assert val.startswith('\"\$') or val.startswith('\$') or val in ('\"\"', \"''\"), (p, n, var, val)
+"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Behavioural tests — these RUN keycloak.sh rather than grepping it.
+#
+# They need the local stack (bash scripts/local.sh up && sso) and skip cleanly
+# without it, so CI stays green while local runs get real coverage. The two
+# properties below are the ones that were most expensive to get wrong.
+# ---------------------------------------------------------------------------
+
+setup_local_kc() {
+    KC_TEST_CONTAINER="hill90dev-keycloak"
+    docker inspect "$KC_TEST_CONTAINER" >/dev/null 2>&1 \
+        || skip "local Keycloak not running (bash scripts/local.sh up)"
+    [ "$(docker inspect --format '{{.State.Health.Status}}' "$KC_TEST_CONTAINER" 2>/dev/null)" = "healthy" ] \
+        || skip "local Keycloak not healthy yet"
+}
+
+kc_secret() {
+    KC_CONTAINER="$KC_TEST_CONTAINER" KC_ADMIN_USERNAME=admin KC_ADMIN_PASSWORD=admin \
+        bash scripts/keycloak.sh client-secret "$1" 2>/dev/null | tr -d '\r\n'
+}
+
+@test "keycloak.sh apply refuses to write an empty client secret" {
+  setup_local_kc
+  local before after
+  before=$(kc_secret grafana)
+  [ -n "$before" ] || skip "grafana client not configured yet (bash scripts/local.sh sso)"
+
+  # An unresolvable secret must abort the whole run, not blank the client and
+  # exit 0 — which is exactly what it used to do, because `die` inside $( )
+  # only exits the subshell.
+  run env KC_CONTAINER="$KC_TEST_CONTAINER" KC_ADMIN_USERNAME=admin KC_ADMIN_PASSWORD=admin \
+      KC_SECRETS_FILE=/nonexistent-secrets-file \
+      GRAFANA_OIDC_CLIENT_SECRET= PORTAINER_OIDC_CLIENT_SECRET=x VAULT_OIDC_CLIENT_SECRET=y \
+      bash scripts/keycloak.sh apply
+  [ "$status" -ne 0 ]
+
+  after=$(kc_secret grafana)
+  [ "$before" = "$after" ]
+}
+
+@test "keycloak.sh apply is idempotent" {
+  setup_local_kc
+  docker inspect hill90dev-portainer >/dev/null 2>&1 || skip "local stack incomplete"
+
+  run bash scripts/local.sh sso
+  [ "$status" -eq 0 ] || skip "local.sh sso unavailable in this environment"
+
+  local first second
+  first=$(kc_secret grafana)
+  run bash scripts/local.sh sso
+  [ "$status" -eq 0 ]
+  second=$(kc_secret grafana)
+
+  # A regenerated secret would break every already-configured service.
+  [ "$first" = "$second" ]
+}
+
+@test "the OpenBao client keeps the claim its bound_claims expects" {
+  setup_local_kc
+  # vault.sh binds realm_roles; a mapper on realm_access.roles would mean
+  # OpenBao's bound claim can never match and SSO silently fails for everyone.
+  run bash -c '
+    kc() { docker exec hill90dev-keycloak /opt/keycloak/bin/kcadm.sh "$@"; }
+    KC_CLI_PASSWORD=admin docker exec -e KC_CLI_PASSWORD hill90dev-keycloak \
+      /opt/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 \
+      --realm master --user admin >/dev/null 2>&1
+    uuid=$(kc get clients -r platform -q clientId=hill90-vault --fields id --format csv --noquotes 2>/dev/null | tr -d "\r")
+    [ -n "$uuid" ] || exit 1
+    kc get "clients/$uuid/protocol-mappers/models" -r platform 2>/dev/null | python3 -c "
+import json, sys
+ms = json.load(sys.stdin)
+m = [x for x in ms if x[\"name\"] == \"realm-roles\"]
+assert m, \"no realm-roles mapper\"
+c = m[0][\"config\"].get(\"claim.name\")
+assert c == \"realm_roles\", c
+"
+  '
+  [ "$status" -eq 0 ]
+}

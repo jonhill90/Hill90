@@ -98,6 +98,33 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-https://grafana.hill90.com}
+      # --- Keycloak SSO (issue #530) ---------------------------------------
+      # THE LOCAL ADMIN LOGIN STAYS. disable_login_form defaults to false and is
+      # pinned here so nobody "tidies" it later: Keycloak must never be the only
+      # way into Grafana. auto_login is false for the same reason — with it on,
+      # the login form is skipped and an unhealthy IdP locks you out.
+      - GF_AUTH_DISABLE_LOGIN_FORM=false
+      - GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN=false
+      - GF_AUTH_GENERIC_OAUTH_ENABLED=${GRAFANA_OIDC_ENABLED:-true}
+      - GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET}
+      - GF_AUTH_GENERIC_OAUTH_SCOPES=openid email profile
+      # Explicit endpoints rather than OIDC discovery, deliberately: discovery
+      # would make Grafana fetch from Keycloak, and a slow or absent IdP should
+      # not affect Grafana starting. Verified: Grafana boots fine with Keycloak
+      # stopped and the local login form still works.
+      - GF_AUTH_GENERIC_OAUTH_AUTH_URL=${KC_PUBLIC_URL:-https://auth.hill90.com}/realms/${KC_REALM:-platform}/protocol/openid-connect/auth
+      - GF_AUTH_GENERIC_OAUTH_TOKEN_URL=${KC_PUBLIC_URL:-https://auth.hill90.com}/realms/${KC_REALM:-platform}/protocol/openid-connect/token
+      - GF_AUTH_GENERIC_OAUTH_API_URL=${KC_PUBLIC_URL:-https://auth.hill90.com}/realms/${KC_REALM:-platform}/protocol/openid-connect/userinfo
+      # Realm role -> Grafana role. Grafana evaluates against the ID token first
+      # and falls back to userinfo; keycloak.sh puts realm_access.roles in both.
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(realm_access.roles[*], 'admin') && 'Admin' || contains(realm_access.roles[*], 'editor') && 'Editor' || 'Viewer'
+      # Realm roles map to Grafana ORGANISATION roles only. Server-admin rights
+      # stay with the local `admin` account, so no SSO identity can ever be more
+      # powerful than the fallback login. (Users with no mapped role fall through
+      # to Viewer via role_attribute_strict, which defaults to false.)
+      - GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN=false
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
