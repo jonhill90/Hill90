@@ -199,10 +199,10 @@ cmd_traefik() {
         # until that rewrite is fixed. Everything else is still rejected.
         _ts_body=$(sed -n "/tailscale-only:/,/^    [a-z]/p" "$dynamic_dir/middlewares.yml" 2>/dev/null \
              | grep -v "^[[:space:]]*#")
-        if echo "$_ts_body" | grep -qE "\"(10\.|192\.168\.|127\.|0\.0\.0\.0)" \
-           || echo "$_ts_body" | grep -E "\"172\." | grep -qv "172\.18\.0\.1/32"; then
-            echo "✗ Allowlist contains an undocumented private or bridge CIDR"
-            echo "   Only the Tailscale CGNAT range and 172.18.0.1/32 belong here."
+        if echo "$_ts_body" | grep -qE "\"(172\.|10\.|192\.168\.|127\.|0\.0\.0\.0)"; then
+            echo "✗ Allowlist contains a private or bridge CIDR"
+            echo "   Only the Tailscale CGNAT range belongs here. Re-adding the bridge"
+            echo "   gateway breaks tailnet traffic and reopens the inbound IPv6 path."
             all_valid=false
         else
             echo "✓"
