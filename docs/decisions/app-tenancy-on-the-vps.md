@@ -472,13 +472,16 @@ healthcheck, not because they are failing.
 
 ## Known-unverified
 
-- **No issuance was attempted.** That HTTP-01 will succeed for `api`, `ai`,
-  `hill90.com` and `www` is inferred from it having succeeded for
-  `auth.hill90.com` through the same resolver on the same host, plus the live
-  port-80 and challenge-path probes. It is a strong inference, not an
-  observation. The first real test is the first deploy.
-- **Cloudflare proxy status is inferred from resolution**, not read from the
-  Cloudflare API. No API token was loaded for this assessment.
+- **No issuance was attempted**, and it cannot be without a router, which
+  requires a deploy. Every *input* to HTTP-01 has since been verified per-host
+  rather than inferred from symmetry — record type, proxy status, CAA at three
+  levels, multi-resolver agreement, the redirect exemption on the challenge
+  path, and the ACME account — and `api`/`ai` are indistinguishable from
+  `auth.hill90.com`, which holds a certificate from the same resolver. See
+  [tenant-app-deployment.md](../runbooks/tenant-app-deployment.md) §1. The act
+  itself remains unperformed; the first real test is the first deploy.
+- ~~Cloudflare proxy status is inferred from resolution~~ — **resolved.** Read
+  from the Cloudflare API: every A record in the zone is `proxied=false`.
 - **Firewall rules were not enumerated.** `firewall-cmd --list-ports` returned
   nothing over the SSH chain. Ports 80 and 443 are known reachable because they
   were reached from the public internet, which is the property that matters.
