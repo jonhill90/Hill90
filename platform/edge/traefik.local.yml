@@ -87,6 +87,11 @@ providers:
     # These are literals rather than ${VAR} on purpose: Traefik v2.11 does no
     # environment interpolation in the static config file, so a placeholder
     # here is matched as the literal string and silently matches nothing.
+    #
+    # CONFLICT WARNING: branch feat/restore-minio also appends to this same line,
+    # adding `hill90-local-storage`. Whichever merges second must keep both
+    # clauses -- dropping either silently 404s that stack's hostnames, with no
+    # error anywhere.
     constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local-identity`) || Label(`com.docker.compose.project`,`hill90-local-platform`) || Label(`com.docker.compose.project`,`hill90-local-db`) || Label(`com.docker.compose.project`,`hill90-local`)"
 
   file:
