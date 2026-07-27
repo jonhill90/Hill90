@@ -486,6 +486,40 @@ check_env_drift() {
     else
         echo "${GREEN}✓${NC} .env.local carries every variable in .env.local.example"
     fi
+
+    # Structural variables: the example is authoritative, not a suggestion.
+    #
+    # These name the containers, networks and volumes the stack creates. They are
+    # not personal preferences like ports or passwords -- a local value that
+    # disagrees with the example does not customise anything, it forks the stack.
+    # Compose keys containers on container_name, so `up` with a different prefix
+    # orphans whatever is already running and builds a duplicate set beside it,
+    # which then collides on the published ports.
+    #
+    # Observed: a .env.local carrying hill90local- while every running container,
+    # network and volume used hill90dev-.
+    local structural="CONTAINER_PREFIX NETWORK_PREFIX VOLUME_PREFIX VOLUME_PREFIX_BARE"
+    local mismatched=""
+    local key exval myval
+    for key in $structural; do
+        exval=$(grep -E "^${key}=" "$example" 2>/dev/null | head -1 | cut -d= -f2-)
+        myval=$(grep -E "^${key}=" "$envfile" 2>/dev/null | head -1 | cut -d= -f2-)
+        [ -z "$exval" ] && continue
+        [ -z "$myval" ] && continue
+        if [ "$exval" != "$myval" ]; then
+            mismatched="${mismatched}    ${key}: yours=${myval}  example=${exval}\n"
+        fi
+    done
+
+    if [ -n "$mismatched" ]; then
+        echo "${YELLOW}!${NC} .env.local disagrees with the example on structural variables:"
+        printf "%b" "$mismatched"
+        echo "  These name containers, networks and volumes -- the example is authoritative."
+        echo "  Running 'up' with a different prefix orphans the current stack and builds a"
+        echo "  duplicate beside it, which then collides on the published ports."
+    else
+        echo "${GREEN}✓${NC} structural prefixes match the example"
+    fi
 }
 
 cmd_status() {
