@@ -144,7 +144,14 @@ and no path to Let's Encrypt. Each difference is one variable:
 | Port 80 already in use | `HTTP_PORT=8080` | `80` |
 | Coexist with other stacks | `CONTAINER_PREFIX`, `NETWORK_PREFIX`, `VOLUME_PREFIX` | unset / `hill90` / `prod` |
 
-If `up` reports a network is shared, change `NETWORK_PREFIX` in `.env.local`.
+If `up` reports a network is shared, change `NETWORK_PREFIX` in `.env.local` —
+but **bring the current stack down first**. Compose keys containers on
+`container_name`, so starting up under a new prefix does not rename the running
+containers; it leaves them orphaned and builds a second set beside them, which
+then collides on `HTTP_PORT`/`HTTPS_PORT`. `local.sh status` warns when these
+four differ from `.env.local.example` for exactly this reason. A deliberate
+change is fine — an accidental one is how you end up with fifteen orphaned
+containers and a port conflict.
 The check looks at what is actually attached to the network, not just its
 compose-project label, because `internal` and `agent_internal` are created by
 hand and carry no label — and because another stack can join a network this one
