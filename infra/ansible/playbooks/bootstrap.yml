@@ -1,6 +1,7 @@
 ---
 # Master Bootstrap Playbook
-# Runs all numbered playbooks in sequence (01-09)
+# Runs the numbered playbooks it imports below (01-08, 11, 12).
+# It does NOT deploy containers — see the note at the end of this file.
 # Based on working bootstrap-v2.yml logic
 
 - name: Bootstrap VPS Infrastructure
@@ -46,9 +47,27 @@
     - name: "12 - Deploy Profile"
       import_tasks: 12-deploy-profile.yml
 
-    # NOTE: Playbooks 09-traefik.yml and 10-portainer.yml are NOT run during bootstrap
-    # Infrastructure containers (Traefik, Portainer) are deployed separately
-    # via: make deploy-infra
+    # WHICH PATH OWNS WHAT — read this before adding an edge playbook.
+    #
+    # This playbook is the BOOTSTRAP path: it prepares a bare VPS (OS, firewall,
+    # Tailscale, SSH lockdown, Docker, SOPS/age, secrets, vault unseal, deploy
+    # profile). It stops at the point where a machine can run containers.
+    #
+    # deploy/compose/prod/docker-compose.infra.yml is the RUNNING path: it owns
+    # traefik and portainer, and platform/edge/traefik.yml.tmpl is the
+    # authoritative Traefik static configuration. Deploy them with
+    # `make deploy-infra`.
+    #
+    # There used to be 09-traefik.yml and 10-portainer.yml here, declaring their
+    # own traefik and portainer containers and their own Traefik static config.
+    # No runner ever imported them — not this playbook, not vps.sh, not any
+    # workflow — so they drifted from the compose files unchecked, and 09 ended
+    # up rendering a config in which every router requested a certResolver the
+    # same file never defined. Running it would have broken TLS outright.
+    #
+    # They were deleted rather than repaired. Two divergent declarations of one
+    # container is what produced that bug; keeping both in step forever is not a
+    # fix. Do not reintroduce container definitions here — put them in compose.
 
   handlers:
     - name: restart docker
@@ -61,7 +80,3 @@
         name: sshd
         state: restarted
 
-    - name: restart fail2ban
-      systemd:
-        name: fail2ban
-        state: restarted

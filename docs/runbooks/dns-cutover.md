@@ -234,11 +234,13 @@ Freeze, from Step 3 until Step 10 closes:
 
 **Triggers certificate issuance:**
 - Any deploy that adds, removes or relabels a Traefik router
-- `infra/ansible/playbooks/09-traefik.yml`. Beyond the DNS-01 change, it declares
-  `storage: /letsencrypt/acme-http.json` at line 121 while the live
-  `platform/edge/traefik.yml:65` uses `/letsencrypt/acme.json`. Running the
-  playbook repoints the HTTP-01 store at a file that does not exist and forces
-  reissuance of every HTTP-01 certificate.
+- ~~`infra/ansible/playbooks/09-traefik.yml`~~ — **resolved by #545, which deleted
+  it.** It declared `storage: /letsencrypt/acme-http.json` while the live config
+  uses `/letsencrypt/acme.json`, so running it would have repointed the HTTP-01
+  store at a file that does not exist and forced reissuance of every HTTP-01
+  certificate. It also named a `certResolver` it never defined. No runner ever
+  imported it, so it drifted unchecked; it was deleted rather than repaired, and
+  a test now asserts no playbook declares a container or a static config.
 
 All the workflows are `workflow_dispatch` only, so nothing fires unattended. The
 risk is an operator reaching for VPS recovery mid-incident.
@@ -299,9 +301,11 @@ whichever way it is sequenced, DNS-01 is briefly broken. That gap is safe becaus
 **The earliest renewal attempt is ~2026-08-13.** The gap is bounded by
 certificate expiry, not by urgency — a deadline, not a race.
 
-**Both** Traefik configs must change in the merge:
-`platform/edge/traefik.yml:75` and the embedded copy in
-`09-traefik.yml:131-132`. Changing one is a silent half-migration.
+**This hazard is resolved by #545.** There used to be two Traefik configs —
+`platform/edge/traefik.yml` and an embedded copy in `09-traefik.yml` — and
+changing one was a silent half-migration. The embedded copy is deleted, so
+there is now a single authoritative source: `platform/edge/traefik.yml.tmpl`,
+rendered to `platform/edge/traefik.generated.yml` at deploy time.
 
 ### Do not attempt the `acmetest` proof here
 
@@ -414,6 +418,17 @@ Once Cloudflare is answering, deploy #535. This removes `dns-manager` and points
 Traefik's DNS-01 at the Cloudflare provider, matching the now-authoritative zone.
 
 ### Two deploy hazards, both silent
+
+> **#545 changes this mechanism. If it has merged, read this section as history.**
+>
+> `ACME_CA_SERVER` was a compose interpolation into container args, and Traefik
+> discarded it: its static-config sources are mutually exclusive and the mounted
+> file wins. The variable was inert, and its compose default was staging.
+>
+> After #545 the CA is rendered into the config file itself, the variable is
+> **required with no default**, and a deploy without it fails rather than
+> guessing. `ACME_REQUIRE_PRODUCTION=1` (set by `make deploy-infra-production`
+> and the deploy workflow) refuses to render a staging CA at all.
 
 `ACME_CA_SERVER` is a compose interpolation into container args
 (`deploy/compose/prod/docker-compose.infra.yml`), and **its default is staging**.
@@ -653,7 +668,7 @@ cannot audit.
      'docker logs --since 10m -t traefik 2>&1 | grep -i acme | tail -40'
    ```
 
-   Traefik runs at `log.level: INFO` (`platform/edge/traefik.yml`), and in v2.11
+   Traefik runs at `log.level: INFO` (`platform/edge/traefik.yml.tmpl`), and in v2.11
    every ACME *success* path logs at debug — only failures log at error. Verified:
    the two real issuances on 2026-07-26 (`vault` 07:14:33, `auth` 19:55:13)
    produced **zero** ACME log lines. So empty output here is what success looks
@@ -795,7 +810,7 @@ a zone-wipe hazard. Sweep them in Step 10.
 
 ## C. Certificate state before the cutover
 
-Two resolvers are configured in `platform/edge/traefik.yml`:
+Two resolvers are configured in `platform/edge/traefik.yml.tmpl`:
 
 | Resolver | Challenge | Store | Holds |
 |---|---|---|---|

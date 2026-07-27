@@ -1,0 +1,136 @@
+# Traefik Static Configuration — TEMPLATE, rendered at deploy time
+# https://doc.traefik.io/traefik/v2.11/
+#
+# ---------------------------------------------------------------------------
+# THIS FILE IS THE AUTHORITATIVE Traefik static configuration.
+# ---------------------------------------------------------------------------
+#
+# It is rendered by scripts/deploy.sh into platform/edge/traefik.generated.yml
+# (gitignored) and that rendered file is what docker-compose.infra.yml mounts.
+# Edit this template, never the generated file.
+#
+# WHY A TEMPLATE AT ALL:
+#
+# Traefik has three ways to supply static configuration — a file, CLI flags and
+# environment variables — and the v2.11 docs state they are "mutually exclusive
+# (i.e. you can use only one at the same time)". Because this file is mounted,
+# the CLI flags and environment variables are DISCARDED. Traefik does not
+# interpolate ${VAR} in its own YAML either.
+#
+# So the compose file used to pass
+#   --certificatesresolvers.*.acme.caserver=${ACME_CA_SERVER}
+# which Compose duly interpolated and Traefik then threw away. ACME_CA_SERVER
+# was inert, and nobody could test issuance against the staging CA. Rendering
+# the value in here is what makes the variable actually mean something.
+#
+# There is no default. An unset ACME_CA_SERVER fails the deploy loudly rather
+# than silently choosing a CA — see the note above certificatesResolvers.
+
+global:
+  checkNewVersion: true
+  sendAnonymousUsage: false
+
+# API and Dashboard
+api:
+  dashboard: true
+  insecure: false
+
+# Logging
+log:
+  level: INFO
+  format: json
+
+# Access Logs
+accessLog:
+  format: json
+  bufferingSize: 100
+  filters:
+    statusCodes:
+      - "400-599"
+
+# Entry Points
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+      middlewares:
+        - security-headers@file
+
+  metrics:
+    address: ":8082"
+
+# Providers
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: hill90_edge
+
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+# Certificate Resolvers
+#
+# RESOLVER NAMES ARE A CONTRACT. Compose router labels request resolvers by
+# name — `letsencrypt` (docker-compose.auth.yml) and `letsencrypt-dns`
+# (infra, observability, vault). A router that names a resolver defined nowhere
+# does not fall back to anything: Traefik cannot serve TLS for it at all.
+# tests/scripts/traefik-config.bats asserts every referenced name is defined
+# here. Do not rename these without changing every caller.
+#
+# caServer is rendered from ACME_CA_SERVER at deploy time and has NO default.
+# Two failure modes are being avoided, and they pull in opposite directions:
+#
+#   - Defaulting to STAGING (what this repo used to do) means any deploy run
+#     without secrets loaded silently replaces every certificate with an
+#     untrusted one, and every browser hard-fails.
+#   - Defaulting to PRODUCTION makes the opposite mistake cheap: an
+#     unconfigured environment burns real rate limits — 50 certificates per
+#     registered domain per week, 5 failed validations per hostname per hour.
+#
+# So there is no default. deploy.sh refuses to render without ACME_CA_SERVER.
+certificatesResolvers:
+  # HTTP-01 for public services (auth)
+  letsencrypt:
+    acme:
+      email: admin@hill90.com
+      storage: /letsencrypt/acme.json
+      caServer: ${ACME_CA_SERVER}
+      httpChallenge:
+        entryPoint: web
+
+  # DNS-01 for Tailscale-only services (traefik, portainer, grafana, vault)
+  letsencrypt-dns:
+    acme:
+      email: admin@hill90.com
+      storage: /letsencrypt/acme-dns.json
+      caServer: ${ACME_CA_SERVER}
+      # lego's first-class Cloudflare provider. Credential is CF_DNS_API_TOKEN,
+      # a token scoped to the hill90.com zone with Zone/Zone/Read + Zone/DNS/Edit.
+      # Keys here are flat because Traefik is pinned to v2.11; the propagation.*
+      # block is v3-only and would be silently ignored.
+      dnsChallenge:
+        provider: cloudflare
+        delayBeforeCheck: 30s
+        resolvers:
+          - 1.1.1.1:53
+          - 8.8.8.8:53
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addServicesLabels: true
+    addRoutersLabels: true

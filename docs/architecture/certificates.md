@@ -80,7 +80,7 @@ to Cloudflare; see the "History" section below.
 
 3. **Traefik waits for DNS propagation:**
    ```yaml
-   # platform/edge/traefik.yml
+   # platform/edge/traefik.yml.tmpl  (rendered to traefik.generated.yml at deploy)
    dnsChallenge:
      delayBeforeCheck: 30s  # Wait for DNS to propagate
    ```
@@ -99,7 +99,7 @@ to Cloudflare; see the "History" section below.
 **Certificate Resolvers:**
 
 ```yaml
-# platform/edge/traefik.yml
+# platform/edge/traefik.yml.tmpl  (rendered to traefik.generated.yml at deploy)
 
 certificatesResolvers:
   # HTTP-01 for public services (api, ai, mcp)
@@ -129,25 +129,74 @@ certificatesResolvers:
 > **Traefik v3 only** — writing it here would parse without error and silently
 > do nothing. Check the pinned version before copying from current Traefik docs.
 
-> **Important:** Traefik does NOT interpolate `${VAR}` in its YAML config files.
-> Email must be hardcoded in `traefik.yml`.
->
-> **`ACME_CA_SERVER` is currently inert, and this is a trap.**
-> `docker-compose.infra.yml` passes the CA as
-> `--certificatesresolvers.*.acme.caserver=` CLI flags. **Traefik v2 ignores CLI
-> flags entirely when a static config file is mounted**, and `traefik.yml` is
-> mounted and defines no `caServer` key — so both resolvers silently fall back to
-> the default, which is **production** Let's Encrypt. Compose does interpolate the
-> variable; Traefik then discards the flag.
->
-> This is documented from observed behaviour in
-> `deploy/compose/overrides/local.infra.yml` and `platform/edge/traefik.local.yml`.
-> Two consequences: you cannot switch to the staging CA through `ACME_CA_SERVER`
-> as written, and every failed DNS-01 attempt burns production rate limit
-> (5 failed authorizations per hostname per hour). Switching to staging requires
-> adding an explicit `caServer:` under each resolver in `traefik.yml`.
->
-> This predates the Cloudflare migration and is not fixed by it.
+> **Important:** Traefik does NOT interpolate `${VAR}` in its own YAML config.
+> Email is hardcoded in the template.
+
+### How `ACME_CA_SERVER` reaches Traefik
+
+Traefik has three static-configuration sources — a file, CLI flags, and
+environment variables — and the v2.11 docs state they are **"mutually exclusive
+(i.e. you can use only one at the same time)"**. Because a config file is
+mounted, the CLI flags and environment variables are discarded.
+
+This repository used to pass the CA as
+`--certificatesresolvers.*.acme.caserver=${ACME_CA_SERVER}` in the compose
+`command:`. Compose interpolated it faithfully; Traefik then threw it away. So
+`ACME_CA_SERVER` and the Ansible `letsencrypt_env` variable were **inert**, both
+resolvers silently used the Traefik default (production Let's Encrypt), and
+nobody could test issuance against staging.
+
+The CA is now rendered into the config file itself:
+
+```
+platform/edge/traefik.yml.tmpl          <- authoritative, edit this
+        |  scripts/render-traefik-config.sh   (deploy time, both vault and SOPS paths)
+        v
+platform/edge/traefik.generated.yml     <- gitignored, mounted by compose
+```
+
+### `ACME_CA_SERVER` is required and has no default
+
+`render-traefik-config.sh` refuses to render without it, and both deploy paths
+abort. That required care: the SOPS fallback runs its deploy inside
+`sops exec-env '<command>'`, a new shell that does not inherit `deploy.sh`'s
+`set -e`, and `exec-env` returns 0 regardless of what the command did. Without
+an explicit `set -e` inside that string, a failed render was swallowed and
+`docker compose up` ran anyway.
+Both possible defaults are dangerous, in opposite directions:
+
+| Default | Failure |
+|---|---|
+| **Staging** (what the compose file used to do) | Any deploy without secrets loaded silently replaces every certificate with an untrusted one. Browsers hard-fail. |
+| **Production** | An unconfigured environment burns real rate limits — 50 certificates per registered domain per week, 5 failed validations per hostname per hour. |
+
+A deploy that stops is strictly better than either. Selecting staging still
+renders, but warns loudly — an intentional staging deploy is fine, an accidental
+one must not pass unremarked.
+
+### ⚠️ Recovering from an accidental staging issuance is expensive
+
+This is why the staging default mattered so much more than it looks.
+
+**Traefik will not reissue a certificate it considers valid.** A staging
+certificate is structurally valid — correctly signed, unexpired — it is merely
+signed by a CA no browser trusts. So redeploying with the right CA does *not* fix
+it. Traefik looks at its store, sees a valid certificate, and keeps serving it.
+
+Recovery means deleting the stored certificates so Traefik requests new ones:
+
+- The ACME stores live in the `traefik-certs` Docker volume, **root-owned**
+  inside the container.
+- `acme-dns.json` holds **all four DNS-01 certificates in one file** — traefik,
+  portainer, grafana, vault. There is no way to clear one host's certificate
+  without clearing the others; every one of them is reissued.
+- `acme.json` separately holds the HTTP-01 certificate for `auth`.
+- The stored ACME **account registrations** are production registrations, which
+  is a further mismatch when the resolver has been pointed at staging.
+
+So a single unconfigured deploy costs a full reissue of every certificate on the
+host, performed by hand against root-owned files. That is the cost being avoided
+by refusing to guess a default.
 
 **Environment Variables:**
 

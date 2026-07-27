@@ -77,7 +77,7 @@ jobs:
              git fetch origin && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             export ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory && \
+             export ACME_REQUIRE_PRODUCTION=1 && \
              bash scripts/deploy.sh infra prod"
 
       - name: Wait for services to start
