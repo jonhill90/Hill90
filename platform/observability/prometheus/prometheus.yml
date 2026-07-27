@@ -50,3 +50,23 @@ scrape_configs:
     metrics_path: /minio/v2/metrics/cluster
     static_configs:
       - targets: ['minio:9000']
+
+  # The tenant application (github.com/jonhill90/hill90-app) keeps its own
+  # Postgres — Hill90's platform database is deliberately not shared, and its
+  # health check asserts platform-only databases. So the app's database needs
+  # its own exporter, and Hill90 scrapes it because Hill90 owns observability.
+  #
+  # `app-postgres-exporter` is the RENAMED container. The app currently ships
+  # `container_name: postgres-exporter`, which collides with the platform
+  # exporter below and cannot start alongside it. This target therefore stays
+  # DOWN until the app renames it AND is deployed — see
+  # docs/runbooks/tenant-app-deployment.md §3 phase A.
+  #
+  # A down target matches the ServiceDown rule in alerts.yml (up == 0, for 5m,
+  # severity critical). There is no Alertmanager, so nothing is paged, but it
+  # will show as a firing critical in Prometheus and Grafana until the app
+  # deploys. That is a deliberate trade: a visible reminder of unmonitored
+  # tenant state, rather than silently forgetting to add the job later.
+  - job_name: app-postgres-exporter
+    static_configs:
+      - targets: ["app-postgres-exporter:9187"]

@@ -88,6 +88,15 @@ providers:
     # environment interpolation in the static config file, so a placeholder
     # here is matched as the literal string and silently matches nothing.
     #
+    # CHANGING THIS LINE REQUIRES A TRAEFIK RESTART, NOT A RELOAD. It lives in
+    # the STATIC configuration, and only the `file` provider's dynamic directory
+    # is watched (`watch: true` below). Editing constraints and waiting will
+    # appear to do nothing: the routers stay dropped, no error is logged, and
+    # the file on disk already shows the value you wanted — which is the most
+    # misleading state this file can be in. Restart the container:
+    #
+    #   docker restart hill90dev-traefik
+    #
     # THIS LINE ACCUMULATES ONE CLAUSE PER LOCAL STACK, and two branches have
     # already collided on it (#557 added `hill90-local`, this branch added
     # `hill90-local-storage`). Dropping a clause during a conflict resolution
