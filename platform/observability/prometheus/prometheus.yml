@@ -42,3 +42,11 @@ scrape_configs:
   - job_name: tempo
     static_configs:
       - targets: ["tempo:3200"]
+
+  # MinIO exposes cluster metrics without auth because the compose file sets
+  # MINIO_PROMETHEUS_AUTH_TYPE=public. The endpoint is on the internal network
+  # only; nothing external can reach it.
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    static_configs:
+      - targets: ['minio:9000']

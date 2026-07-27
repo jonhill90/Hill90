@@ -163,6 +163,8 @@ class TestTriggerPaths:
             "deploy/compose/prod/docker-compose.observability.yml",
             "deploy/compose/prod/docker-compose.auth.yml",
             "deploy/compose/prod/docker-compose.db.yml",
+            # MinIO restored as a platform service; see docs/decisions/object-store.md.
+            "deploy/compose/prod/docker-compose.minio.yml",
         ])
         assert sorted(trigger_paths) == expected
 

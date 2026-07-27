@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy CLI — deploy infrastructure stacks
-# Usage: deploy.sh {infra|db|auth|vault|observability|verify|backup} [env]
+# Usage: deploy.sh {infra|db|auth|minio|vault|observability|verify|backup} [env]
 
 set -e
 
@@ -21,6 +21,7 @@ Commands:
   infra    Deploy infrastructure (Traefik, Portainer)
   db       Deploy PostgreSQL (platform database)
   auth     Deploy Keycloak (platform identity provider)
+  minio    Deploy MinIO object store (platform storage)
   vault    Deploy OpenBao secrets management
   observability  Deploy observability stack (Grafana, Prometheus, Loki, Tempo)
   teardown Stop and remove a stack's containers and networks (volumes KEPT)
@@ -55,6 +56,7 @@ cmd_verify() {
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
+        minio)         check_cmd='docker exec minio mc ready local'; diag_container="minio" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
     esac
@@ -233,6 +235,20 @@ cmd_service() {
   - postgres (platform database — Keycloak's store)
   - postgres-exporter (Prometheus metrics on :9187)"
             ;;
+        minio)
+            compose_file="deploy/compose/${env}/docker-compose.minio.yml"
+            containers="minio"
+            banner="Object Store Deployment"
+            stack="platform"
+            stateful=true
+            summary="Services deployed:
+  - minio (object store; console on storage.hill90.com, S3 API internal only)
+
+  Console login is ROOT CREDENTIALS ONLY. MinIO removed the management
+  console from the AGPL build in May 2025, so there is no SSO button.
+  Keycloak identities work on the S3/STS path — see
+  docs/runbooks/object-store.md."
+            ;;
         auth)
             compose_file="deploy/compose/${env}/docker-compose.auth.yml"
             containers="keycloak"
@@ -394,6 +410,18 @@ cmd_service() {
         bash "$SCRIPT_DIR/vault.sh" auto-unseal || warn "Auto-unseal failed — run 'vault.sh unseal' manually"
     fi
 
+    # Provision the MinIO policies that Keycloak realm roles map onto. MinIO
+    # grants the policy NAMED in the token claim, so admin/editor/viewer have to
+    # exist as policies or every federated login is rejected.
+    #
+    # Non-fatal: the object store must come up regardless, and root-credential
+    # access is unaffected.
+    if [ "$service" = "minio" ]; then
+        echo "Provisioning MinIO policies..."
+        bash "$SCRIPT_DIR/minio.sh" apply \
+            || warn "minio.sh apply failed — federated S3 access will be rejected with 'no policy found'. Root credentials are unaffected."
+    fi
+
     # Apply the SSO realm configuration after Keycloak comes up.
     #
     # This is not optional decoration: platform-realm.json is imported ONLY on
@@ -467,6 +495,20 @@ cmd_teardown() {
             compose_file="deploy/compose/${env}/docker-compose.db.yml"
             project_name="hill90-${env}-platform"
             ;;
+        minio)
+            compose_file="deploy/compose/${env}/docker-compose.minio.yml"
+            containers="minio"
+            banner="Object Store Deployment"
+            stack="platform"
+            stateful=true
+            summary="Services deployed:
+  - minio (object store; console on storage.hill90.com, S3 API internal only)
+
+  Console login is ROOT CREDENTIALS ONLY. MinIO removed the management
+  console from the AGPL build in May 2025, so there is no SSO button.
+  Keycloak identities work on the S3/STS path — see
+  docs/runbooks/object-store.md."
+            ;;
         auth)
             compose_file="deploy/compose/${env}/docker-compose.auth.yml"
             project_name="hill90-${env}-identity"
@@ -517,7 +559,7 @@ main() {
 
     case "$cmd" in
         infra)          cmd_infra "$@" ;;
-        db|auth|vault|observability) cmd_service "$cmd" "$@" ;;
+        db|auth|minio|vault|observability) cmd_service "$cmd" "$@" ;;
         teardown)       cmd_teardown "$@" ;;
         verify)         cmd_verify "$@" ;;
         backup)         bash "$SCRIPT_DIR/backup.sh" backup "$@" ;;

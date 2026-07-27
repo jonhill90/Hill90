@@ -32,6 +32,7 @@ KC_PUBLIC_URL="${KC_PUBLIC_URL:-https://auth.hill90.com}"
 GRAFANA_PUBLIC_URL="${GRAFANA_PUBLIC_URL:-https://grafana.hill90.com}"
 PORTAINER_PUBLIC_URL="${PORTAINER_PUBLIC_URL:-https://portainer.hill90.com}"
 VAULT_PUBLIC_URL="${VAULT_PUBLIC_URL:-https://vault.hill90.com}"
+MINIO_PUBLIC_URL="${MINIO_PUBLIC_URL:-https://storage.hill90.com}"
 
 # Realm roles mapped onto each service's own role model.
 REALM_ROLES="admin editor viewer"
@@ -56,6 +57,7 @@ Environment variables:
   GRAFANA_PUBLIC_URL     Grafana public base URL
   PORTAINER_PUBLIC_URL   Portainer public base URL
   VAULT_PUBLIC_URL       OpenBao public base URL
+  MINIO_PUBLIC_URL       MinIO public base URL
 
 Every default above is the production value. Local development overrides them;
 with nothing set, this configures production.
@@ -270,6 +272,9 @@ cmd_apply() {
         || die "Cannot resolve PORTAINER_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
     vault_secret=$(secret_for VAULT_OIDC_CLIENT_SECRET) \
         || die "Cannot resolve VAULT_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
+    local minio_secret
+    minio_secret=$(secret_for MINIO_OIDC_CLIENT_SECRET) \
+        || die "Cannot resolve MINIO_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
 
     ensure_realm_roles
     echo ""
@@ -291,6 +296,18 @@ cmd_apply() {
         "${VAULT_PUBLIC_URL}/v1/auth/oidc/callback,${VAULT_PUBLIC_URL}/ui/vault/auth/oidc/oidc/callback" \
         "${VAULT_PUBLIC_URL}" \
         "realm_roles"
+
+    # MinIO reads the policy to grant from a dedicated claim, NOT from
+    # realm_access.roles: its claim is a policy NAME, and MinIO grants exactly
+    # the policy the claim contains. Pointing it at realm_access.roles would
+    # hand it a list of role names that are not MinIO policies.
+    #
+    # The console gets no SSO from this — MinIO removed the console from the
+    # AGPL build in May 2025. This gates the S3/STS path only.
+    ensure_client "minio" "$minio_secret" \
+        "${MINIO_PUBLIC_URL}/oauth_callback,${MINIO_PUBLIC_URL}/*" \
+        "${MINIO_PUBLIC_URL}" \
+        "${MINIO_OIDC_CLAIM_NAME:-minio_policy}"
 
     echo ""
     success "Realm '${KC_REALM}' configured."

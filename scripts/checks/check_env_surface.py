@@ -69,6 +69,9 @@ SENSITIVE = {
     "KC_ADMIN_PASSWORD",
     "VAULT_OIDC_CLIENT_SECRET",
     "GRAFANA_OIDC_CLIENT_SECRET",
+    "MINIO_ROOT_USER",
+    "MINIO_ROOT_PASSWORD",
+    "MINIO_OIDC_CLIENT_SECRET",
 }
 
 # Consumed by scripts rather than by compose substitution.
