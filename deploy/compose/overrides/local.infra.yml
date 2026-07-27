@@ -19,5 +19,11 @@ services:
       - "traefik.http.routers.traefik.tls=false"
 
   portainer:
+    # Server-side token exchange needs to REACH Keycloak. auth.localtest.me
+    # resolves to 127.0.0.1, which inside a container is the container itself,
+    # so the exchange fails with "connection refused" AFTER a successful login —
+    # the same trap local.vault.yml already documents for OpenBao.
+    extra_hosts:
+      - "${AUTH_HOST:-auth}.${BASE_DOMAIN:-hill90.com}:host-gateway"
     labels:
       - "traefik.http.routers.portainer.tls=false"

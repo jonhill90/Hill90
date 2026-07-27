@@ -55,6 +55,7 @@ Commands:
   status    Show container status
   health    Probe every routed surface over HTTP
   vault     Run a vault.sh subcommand against the LOCAL vault
+  sso       Configure Keycloak SSO for Grafana, Portainer and OpenBao
   logs      Follow logs (optionally: logs <container>)
   urls      Print the local URLs
   help      Show this help
@@ -121,9 +122,51 @@ compose_vault() {
         -f "$OVERRIDE_DIR/local.vault.yml" "$@"
 }
 
-# Point vault.sh at the local container and local state. Every one of these is
-# an override vault.sh already supports, so the script itself is identical to
-# what runs on the VPS.
+# Run the SSO configuration scripts against the LOCAL stack. Same scripts the
+# VPS runs; only the container names and public URLs differ, exactly as
+# cmd_vault does for vault.sh.
+cmd_sso() {
+    require_docker
+    require_env
+    local cp; cp=$(env_get CONTAINER_PREFIX "")
+    local kc_url; kc_url=$(base_url "$(env_get AUTH_HOST auth)")
+
+    info "Configuring Keycloak realm clients..."
+    # Point the secret lookup at LOCAL state. Without this, any value missing
+    # from .env.local falls back to infra/secrets/prod.enc.env — so on a machine
+    # holding the prod age key, a local run would decrypt production secrets and
+    # write them into the throwaway local realm. cmd_vault already does this.
+    KC_SECRETS_FILE="$LOCAL_VAULT_DIR/local.enc.env" \
+    SOPS_AGE_KEY_FILE="$LOCAL_VAULT_DIR/age.key" \
+    KC_CONTAINER="${cp}keycloak" \
+    KC_REALM="$(env_get KC_REALM platform)" \
+    KC_ADMIN_USERNAME="$(env_get KC_ADMIN_USERNAME admin)" \
+    KC_ADMIN_PASSWORD="$(env_get KC_ADMIN_PASSWORD admin)" \
+    KC_PUBLIC_URL="$kc_url" \
+    GRAFANA_PUBLIC_URL="$(base_url "$(env_get GRAFANA_HOST grafana)")" \
+    PORTAINER_PUBLIC_URL="$(base_url "$(env_get PORTAINER_HOST portainer)")" \
+    VAULT_PUBLIC_URL="$(base_url "$(env_get VAULT_HOST vault)")" \
+    GRAFANA_OIDC_CLIENT_SECRET="$(env_get GRAFANA_OIDC_CLIENT_SECRET "")" \
+    PORTAINER_OIDC_CLIENT_SECRET="$(env_get PORTAINER_OIDC_CLIENT_SECRET "")" \
+    VAULT_OIDC_CLIENT_SECRET="$(env_get VAULT_OIDC_CLIENT_SECRET "")" \
+        bash "$SCRIPT_DIR/keycloak.sh" apply || die "keycloak.sh apply failed"
+
+    echo ""
+    info "Configuring Portainer OAuth..."
+    PORTAINER_SECRETS_FILE="$LOCAL_VAULT_DIR/local.enc.env" \
+    SOPS_AGE_KEY_FILE="$LOCAL_VAULT_DIR/age.key" \
+    PORTAINER_CONTAINER="${cp}portainer" \
+    PORTAINER_INTERNAL_URL="$(base_url "$(env_get PORTAINER_HOST portainer)")" \
+    PORTAINER_PUBLIC_URL="$(base_url "$(env_get PORTAINER_HOST portainer)")" \
+    PORTAINER_ADMIN_USERNAME="$(env_get PORTAINER_ADMIN_USERNAME admin)" \
+    PORTAINER_ADMIN_PASSWORD="$(env_get PORTAINER_ADMIN_PASSWORD "")" \
+    PORTAINER_OIDC_CLIENT_SECRET="$(env_get PORTAINER_OIDC_CLIENT_SECRET "")" \
+    KC_PUBLIC_URL="$kc_url" \
+    KC_REALM="$(env_get KC_REALM platform)" \
+        bash "$SCRIPT_DIR/portainer.sh" apply \
+        || warn "portainer.sh apply failed — is the Portainer admin initialised? See docs/runbooks/sso-fallback.md"
+}
+
 # Run a vault.sh subcommand against the LOCAL vault. Every variable here is an
 # override vault.sh already supports, so the script executed is byte-identical
 # to the one that runs on the VPS — which is what makes this a rehearsal rather
@@ -558,6 +601,7 @@ main() {
         status)         cmd_status "$@" ;;
         health)         cmd_health "$@" ;;
         vault)          cmd_vault "$@" ;;
+        sso)            cmd_sso "$@" ;;
         logs)           cmd_logs "$@" ;;
         urls)           cmd_urls "$@" ;;
         help|--help|-h) usage ;;

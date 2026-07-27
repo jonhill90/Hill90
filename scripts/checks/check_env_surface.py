@@ -68,6 +68,7 @@ SENSITIVE = {
     "KC_ADMIN_USERNAME",
     "KC_ADMIN_PASSWORD",
     "VAULT_OIDC_CLIENT_SECRET",
+    "GRAFANA_OIDC_CLIENT_SECRET",
 }
 
 # Consumed by scripts rather than by compose substitution.
@@ -78,6 +79,15 @@ SCRIPT_ONLY = {
     "VOLUME_PREFIX_BARE",
     "HTTP_PORT",
     "HTTPS_PORT",
+    # Portainer stores its OAuth configuration in its own database, applied
+    # through its API by scripts/portainer.sh — there is no compose ${VAR} to
+    # reference, but the value still has to be documented and kept in SOPS.
+    "PORTAINER_OIDC_CLIENT_SECRET",
+    # Portainer's own admin account, used by scripts/portainer.sh to reach the
+    # API and — more importantly — the way in when Keycloak is unavailable.
+    # Not a compose variable: Portainer owns its user database.
+    "PORTAINER_ADMIN_USERNAME",
+    "PORTAINER_ADMIN_PASSWORD",
 }
 
 
