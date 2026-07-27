@@ -31,6 +31,22 @@ http:
         usersFile: /etc/traefik/dynamic/.htpasswd
 
     # Tailscale-only access (CGNAT range)
+    #
+    # This is CGNAT-only again as of 2026-07-27, and it is now a real control.
+    # Traefik previously saw 172.18.0.1 for tailnet traffic because Tailscale
+    # masqueraded anything carrying its firewall mark; `tailscale set
+    # --snat-subnet-routes=false` removed that rule, and Traefik now logs true
+    # client addresses (verified: a request from 100.127.120.73 logs as
+    # 100.127.120.73, not the gateway).
+    #
+    # Removing the gateway CIDR also closed an inbound IPv6 path. hill90_edge is
+    # IPv4-only so Docker writes no v6 DNAT rule, but docker-proxy still binds
+    # [::]:443, so a v6 connection is re-originated from the bridge gateway.
+    # It used to match this list. It no longer does: grafana and portainer now
+    # answer 403 to that path and 302/200 over the tailnet.
+    #
+    # Do not re-add 172.18.0.1/32 without first re-checking the SNAT rule --
+    # if it returns, tailnet traffic breaks and adding the CIDR back reopens v6.
     # NOTE: ipWhiteList is Traefik v2. If upgrading to v3, use ipAllowList.
     #
     # This list must contain ONLY the Tailscale CGNAT range. It previously also
@@ -61,21 +77,6 @@ http:
       ipWhiteList:
         sourceRange:
           - "100.64.0.0/10"
-          # RESTORED 2026-07-27. Removing this in #545 took grafana, portainer,
-          # traefik and vault to HTTP 403 for legitimate Tailscale traffic.
-          #
-          # #545 argued the entry was stale, citing an access-log window in which
-          # every Tailscale request carried its real CGNAT source. That window did
-          # not contain the triggering condition. The original comment said the
-          # symptom appears after a daemon restart; Traefik was restarted several
-          # times that night, and afterwards a request from Tailscale 100.127.120.73
-          # arrived at Traefik as ClientHost 172.18.0.1.
-          #
-          # So the entry is load-bearing, not vestigial. It is also genuinely a weak
-          # control -- it cannot distinguish on- from off-network traffic once the
-          # source has been rewritten. The real fix is to stop the rewrite so Traefik
-          # sees true client addresses; until then this stays.
-          - "172.18.0.1/32"
 
     # Compression
     compress:
