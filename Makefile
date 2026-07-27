@@ -130,10 +130,19 @@ deploy-infra: ## Deploy infrastructure (Traefik, Portainer)
 	@echo "$(COLOR_YELLOW)Deploying infrastructure services...$(COLOR_RESET)"
 	bash scripts/deploy.sh infra $(ENV)
 
-deploy-infra-production: ## Deploy infrastructure with PRODUCTION certificates
+# The ACME CA comes from the secrets store (vault secret/infra/traefik, SOPS as
+# fallback). Both `sops exec-env` and the `set -a; source` in _common.sh REPLACE
+# a caller-set ACME_CA_SERVER, so exporting it here would be inert — this target
+# used to do exactly that, and it chose nothing.
+#
+# ACME_REQUIRE_PRODUCTION is not a secret, so the store cannot override it. The
+# render refuses if the configured CA is staging, which turns the intent of this
+# target into something enforced rather than merely stated.
+deploy-infra-production: ## Deploy infrastructure, refusing to proceed unless the CA is production
 	@echo "$(COLOR_BOLD)⚠️  WARNING: PRODUCTION CERTIFICATES ⚠️$(COLOR_RESET)"
+	@echo "Refuses to deploy if the configured CA is Let's Encrypt staging."
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
-	ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory bash scripts/deploy.sh infra $(ENV)
+	ACME_REQUIRE_PRODUCTION=1 bash scripts/deploy.sh infra $(ENV)
 
 deploy-vault: ## Deploy OpenBao secrets management
 	@echo "$(COLOR_YELLOW)Deploying OpenBao vault...$(COLOR_RESET)"

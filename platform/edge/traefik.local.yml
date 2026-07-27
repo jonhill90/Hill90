@@ -13,7 +13,7 @@
 # every other difference in this repo is. It is a second file, and
 # scripts/checks/check_local_parity.py guards the two against structural drift.
 #
-# The differences from platform/edge/traefik.yml, and only these, are:
+# The differences from platform/edge/traefik.yml.tmpl, and only these, are:
 #   - no certificatesResolvers   (no Let's Encrypt: nothing can validate 127.0.0.1)
 #   - no HTTPS redirect on :80   (plain HTTP locally; there is no cert to redirect to)
 #   - no TLS on :443             (the entrypoint still exists so routing parity holds)

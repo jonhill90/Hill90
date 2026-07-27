@@ -126,17 +126,29 @@ cmd_infra() {
 
     # Helper: infra deploy with SOPS
     _deploy_infra_with_sops() {
+        # `set -e` is essential and easy to lose. `sops exec-env` runs this
+        # string in a NEW shell that does NOT inherit deploy.sh's `set -e`, and
+        # exec-env returns 0 regardless of what the command did. Without it, a
+        # failed render is swallowed and `docker compose up` runs anyway —
+        # mounting a missing config, which Docker materialises as a DIRECTORY,
+        # which stops Traefik and takes every routed service down while the
+        # deploy reports success.
         sops exec-env "$secrets_file" '
+            set -e
+
             echo "Generating Traefik basic auth credentials..."
             mkdir -p platform/edge/dynamic
             echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
+
+            bash '"$SCRIPT_DIR"'/render-traefik-config.sh
 
             echo "Building and pulling images..."
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' build --parallel
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' pull --ignore-buildable
 
             echo "Deploying edge stack (traefik, portainer)..."
+            bash '"$SCRIPT_DIR"'/preflight-edge.sh
             docker compose -p "hill90-'"$env"'-edge" -f '"$compose_file"' up -d --force-recreate
         '
     }
@@ -150,11 +162,14 @@ cmd_infra() {
             echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
+            bash "$SCRIPT_DIR/render-traefik-config.sh"
+
             echo "Building and pulling images..."
             docker compose -p "hill90-${env}-edge" -f "$compose_file" build --parallel --no-cache
             docker compose -p "hill90-${env}-edge" -f "$compose_file" pull --ignore-buildable
 
             echo "Deploying edge stack (traefik, portainer)..."
+            bash "$SCRIPT_DIR/preflight-edge.sh"
             docker compose -p "hill90-${env}-edge" -f "$compose_file" up -d --force-recreate
         ) || {
             warn "Vault deploy failed for infra, retrying with SOPS fallback"

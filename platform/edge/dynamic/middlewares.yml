@@ -32,13 +32,35 @@ http:
 
     # Tailscale-only access (CGNAT range)
     # NOTE: ipWhiteList is Traefik v2. If upgrading to v3, use ipAllowList.
+    #
+    # This list must contain ONLY the Tailscale CGNAT range. It previously also
+    # carried the Docker bridge gateway, "172.18.0.1/32", added because proxied
+    # requests were once observed arriving with the gateway as their source
+    # after a daemon restart.
+    #
+    # That entry is removed, for two reasons.
+    #
+    # It is stale. The access log covers a daemon restart (2026-07-21 03:02 UTC)
+    # and every Tailscale request after it arrived with its real CGNAT source
+    # address, never the gateway. The IPv4 DNAT rules that preserve the source
+    # address are present, which is why.
+    #
+    # More importantly it is not a workable control even if the symptom returns.
+    # The gateway address carries no information about where a request came
+    # from: anything the container runtime rewrites arrives with that same
+    # source, so a rewritten request from off-network is indistinguishable from
+    # a rewritten request from Tailscale. An allowlist entry that cannot tell
+    # those apart is not narrowing anything.
+    #
+    # If the restart symptom does recur, admin routes return 403 until the
+    # runtime's forwarding rules settle. That is the correct direction to fail:
+    # a temporary lockout, recoverable over SSH, rather than a permanently
+    # widened allowlist. Do not re-add a bare gateway CIDR to fix it — match on
+    # something an external client cannot present.
     tailscale-only:
       ipWhiteList:
         sourceRange:
           - "100.64.0.0/10"
-          # AlmaLinux/Docker can surface proxied Tailscale requests as bridge
-          # gateway source after daemon restart.
-          - "172.18.0.1/32"
 
     # Compression
     compress:

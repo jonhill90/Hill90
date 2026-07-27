@@ -154,7 +154,8 @@ than removing something another stack still needs.
 
 ### The one file that is genuinely duplicated
 
-`platform/edge/traefik.local.yml` exists alongside `platform/edge/traefik.yml`.
+`platform/edge/traefik.local.yml` exists alongside `platform/edge/traefik.yml.tmpl`, the
+production template.
 
 This is not a shortcut. Traefik v2 reads its **static** configuration from
 exactly one source — a file, environment variables, or CLI flags — and does not

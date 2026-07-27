@@ -34,13 +34,32 @@
 # Traefik config regression tests
 
 @test "traefik.yml has letsencrypt-dns resolver" {
-  run grep "^  letsencrypt-dns:" platform/edge/traefik.yml
+  run grep "^  letsencrypt-dns:" platform/edge/traefik.yml.tmpl
   [ "$status" -eq 0 ]
 }
 
 @test "traefik.yml has no uninterpolated env vars" {
-  run grep -c '\${' platform/edge/traefik.yml
-  [ "$status" -eq 1 ]
+  # Traefik does not interpolate ${VAR} in its own YAML, so a variable reaching
+  # the MOUNTED file is a silent misconfiguration. That is why the config is
+  # rendered: the template carries the variable, the generated file must not.
+  #
+  # This test used to assert the invariant against platform/edge/traefik.yml
+  # directly. That was correct about the danger but could not express the
+  # distinction, which is why ACME_CA_SERVER stayed inert for so long — the
+  # only way to satisfy it was to hardcode the CA.
+  local out=/tmp/bats_validate_render.yml
+  ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory \
+    TRAEFIK_CONFIG_OUTPUT="$out" bash scripts/render-traefik-config.sh >/dev/null 2>&1
+
+  # Rendered file: no placeholders on any configuration line.
+  run bash -c "grep -v '^[[:space:]]*#' $out | grep -c '\${'"
+  [ "$output" -eq 0 ]
+
+  # Template: exactly one variable, and it is the CA server.
+  run bash -c "grep -v '^[[:space:]]*#' platform/edge/traefik.yml.tmpl | grep -oE '\\\$\{[A-Z_]+\}' | sort -u"
+  [ "$output" = '${ACME_CA_SERVER}' ]
+
+  rm -f "$out"
 }
 
 @test "middlewares.yml has tailscale-only middleware" {
