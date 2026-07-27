@@ -1,5 +1,35 @@
 ---
 # SSH Lockdown to Tailscale Network
+#
+# ---------------------------------------------------------------------------
+# WHY THIS WRITES A DROP-IN AND NOT sshd_config
+# ---------------------------------------------------------------------------
+#
+# This role used to set hardening with `lineinfile` against /etc/ssh/sshd_config.
+# It ran, reported changed, and had no effect on the setting that mattered.
+#
+# sshd takes the FIRST value it encounters for a keyword. On AlmaLinux/RHEL 9+
+# the stock sshd_config carries `Include /etc/ssh/sshd_config.d/*.conf` near the
+# top — line 15 on this host — while the value this role wrote landed at line
+# 64. Cloud images ship /etc/ssh/sshd_config.d/50-cloud-init.conf containing
+# `PasswordAuthentication yes`, which the include pulls in first, so the
+# hardened value further down was never reached.
+#
+# Observed on the running host: `sshd -T` reported `passwordauthentication yes`
+# while sshd_config:64 said no. `PermitRootLogin no` and `MaxAuthTries 3` did
+# take effect, because no drop-in overrides those — which is exactly why this
+# went unnoticed. Two thirds of the role worked.
+#
+# cloud-init regenerates its drop-in, so this is a recurring regression rather
+# than one-off drift: it would come back after any rebuild.
+#
+# The fix is to write a drop-in that sorts BEFORE cloud-init's. Drop-ins are
+# read in lexical glob order and first-match-wins, so 00-hill90-hardening.conf
+# is authoritative over 50-cloud-init.conf. cloud-init is additionally told not
+# to manage the setting, so the two do not fight on rebuild.
+#
+# Every change is then verified against `sshd -T`. An assertion nobody checks is
+# how the previous version survived a full rebuild.
 
 - name: Lock SSH to Tailscale network only (100.64.0.0/10)
   firewalld:
@@ -15,48 +45,140 @@
     state: disabled
     immediate: yes
 
-- name: Configure SSH hardening
-  lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: "{{ item.regexp }}"
-    line: "{{ item.line }}"
-    state: present
-  loop:
-    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
-    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
-    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
-    - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
-    - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
-    - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
-    - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
-  notify: restart sshd
+# ---------------------------------------------------------------------------
+# SSH hardening, written where it wins
+# ---------------------------------------------------------------------------
 
-- name: Install fail2ban
-  dnf:
-    name: fail2ban
-    state: present
-  ignore_errors: yes
-
-- name: Configure fail2ban for SSH
+- name: Deploy SSH hardening drop-in (sorts before cloud-init's)
   copy:
-    dest: /etc/fail2ban/jail.local
+    dest: /etc/ssh/sshd_config.d/00-hill90-hardening.conf
+    owner: root
+    group: root
+    mode: '0600'
     content: |
-      [DEFAULT]
-      bantime = 3600
-      findtime = 600
-      maxretry = 3
+      # Managed by infra/ansible/playbooks/04-ssh-lockdown.yml — do not edit by hand.
+      #
+      # Named 00- so it is read before 50-cloud-init.conf. sshd takes the FIRST
+      # value it sees for a keyword, so settings here win over both the
+      # cloud-init drop-in and /etc/ssh/sshd_config.
+      #
+      # Verify with: sudo sshd -T | grep -E '^(passwordauthentication|permitrootlogin)'
 
-      [sshd]
-      enabled = true
-      port = ssh
-      logpath = /var/log/secure
-    mode: '0644'
-  ignore_errors: yes
-  notify: restart fail2ban
+      PermitRootLogin no
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      KbdInteractiveAuthentication no
+      PermitEmptyPasswords no
+      MaxAuthTries 3
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+  register: sshd_dropin
 
-- name: Enable and start fail2ban
+# `sshd -t` validates the FULL effective configuration, includes and all, which
+# is the only way to know the drop-in composes correctly with what is already
+# there. It runs BEFORE any restart, and a bad file is removed rather than left
+# in place — otherwise the next restart by anything at all would fail, and the
+# only route in is the tailnet.
+- name: Validate the effective sshd configuration
+  command: /usr/sbin/sshd -t
+  register: sshd_validate
+  changed_when: false
+  failed_when: false
+
+- name: Remove the drop-in if it produced an invalid configuration
+  file:
+    path: /etc/ssh/sshd_config.d/00-hill90-hardening.conf
+    state: absent
+  when: sshd_validate.rc != 0
+
+- name: Fail loudly if the hardening drop-in is invalid
+  fail:
+    msg: |
+      The SSH hardening drop-in produced an invalid sshd configuration and has
+      been removed. sshd was NOT restarted, so access is unaffected.
+
+      sshd -t said:
+      {{ sshd_validate.stderr | default('(no output)') }}
+  when: sshd_validate.rc != 0
+
+- name: Restart sshd to apply the drop-in
   systemd:
-    name: fail2ban
-    enabled: yes
-    state: started
-  ignore_errors: yes
+    name: sshd
+    state: restarted
+  when: sshd_dropin.changed
+
+# Stop cloud-init reasserting PasswordAuthentication on rebuild. The 00- drop-in
+# already wins, but leaving cloud-init writing the opposite value means the host
+# carries two files that disagree, and the next reader has to know the ordering
+# rule to work out which applies.
+- name: Stop cloud-init from managing SSH password authentication
+  copy:
+    dest: /etc/cloud/cloud.cfg.d/99-hill90-ssh.cfg
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by infra/ansible/playbooks/04-ssh-lockdown.yml
+      # Password authentication is set in /etc/ssh/sshd_config.d/00-hill90-hardening.conf
+      ssh_pwauth: false
+  failed_when: false   # cloud-init is not on every image; its absence is not fatal
+
+# ---------------------------------------------------------------------------
+# Verification — the part whose absence let this persist
+# ---------------------------------------------------------------------------
+#
+# `sshd -T` is the effective, post-include configuration. Comparing intent
+# against it is the only check that would have caught the original defect: the
+# file said the right thing and the running daemon did not.
+
+- name: Read the effective sshd configuration
+  command: /usr/sbin/sshd -T
+  register: sshd_effective
+  changed_when: false
+
+- name: Assert SSH hardening actually applied
+  assert:
+    that:
+      - "'passwordauthentication no' in sshd_effective.stdout_lines"
+      - "'permitrootlogin no' in sshd_effective.stdout_lines"
+      - "'pubkeyauthentication yes' in sshd_effective.stdout_lines"
+      - "'kbdinteractiveauthentication no' in sshd_effective.stdout_lines"
+      - "'permitemptypasswords no' in sshd_effective.stdout_lines"
+      - "'maxauthtries 3' in sshd_effective.stdout_lines"
+    fail_msg: |
+      SSH hardening did NOT take effect. The effective configuration disagrees
+      with what this role wrote, which means something is overriding it.
+
+      Effective values:
+      {{ sshd_effective.stdout_lines
+         | select('match', '^(passwordauthentication|permitrootlogin|pubkeyauthentication|kbdinteractiveauthentication|permitemptypasswords|maxauthtries)')
+         | list | join('\n') }}
+
+      Find the file that wins with:
+        sudo grep -rniE '^\s*(PasswordAuthentication|PermitRootLogin)' /etc/ssh/
+    success_msg: "SSH hardening verified against sshd -T (password auth off, root login off, key auth on)"
+
+# ---------------------------------------------------------------------------
+# NOTE ON fail2ban
+# ---------------------------------------------------------------------------
+#
+# This role used to install, configure and start fail2ban with `ignore_errors:
+# yes` on all three tasks. fail2ban is in none of the repositories enabled on
+# this host — AlmaLinux 10 BaseOS, AppStream, CRB, Extras, Docker CE and
+# Tailscale — so the install failed, the failure was ignored, the configure and
+# start tasks failed and were ignored too, and the play reported success. The
+# binary is absent on the running host while the docs claimed the service was
+# enabled.
+#
+# That is the same defect as the sshd_config problem above: a step that cannot
+# work, reporting that it did. The tasks are removed rather than left pretending,
+# and docs/architecture/security.md no longer claims it.
+#
+# Restoring it would mean enabling EPEL — a deliberate decision about adding a
+# third-party repository to a hardened host, not one to make silently. Its value
+# is also limited in this topology: SSH is not reachable from the public
+# internet (firewalld carries no ssh service; verified externally) and, after
+# this change, accepts keys only, so there is no exposed surface for the
+# brute-force protection fail2ban provides. If it is wanted as defence in depth,
+# add EPEL and fail2ban deliberately, with verification, and update the docs to
+# match. Do not restore tasks that report success when they have done nothing.

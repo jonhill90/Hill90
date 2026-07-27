@@ -14,7 +14,19 @@ restricting administration to a private network.
 
 ## Identity And Secrets
 
-- SSH uses key-based authentication only; password auth and root login are disabled.
+- SSH uses key-based authentication only; password auth and root login are
+  disabled. This is set in `/etc/ssh/sshd_config.d/00-hill90-hardening.conf`,
+  **not** in `sshd_config`. The name matters: sshd takes the first value it sees
+  for a keyword, drop-ins are read in lexical order at the `Include` near the top
+  of `sshd_config`, and cloud images ship a `50-cloud-init.conf` that enables
+  password authentication. A setting written into `sshd_config` itself is read
+  too late and has no effect — which is what this repository did until #539.
+  - Verify the **effective** configuration rather than the files:
+    `sudo bash scripts/verify-ssh-hardening.sh`, or `sudo sshd -T`. The
+    bootstrap play asserts the same values and fails if they disagree.
+  - **Not yet applied to the running host.** The fix ships in the playbook;
+    until `make config-vps` runs, `sshd -T` still reports
+    `passwordauthentication yes`. Exposure is bounded — see below.
 - **OpenBao vault is the runtime source of truth for secrets.** SOPS + age serves as bootstrap and disaster-recovery backup. Deploy is vault-first with SOPS fallback, so a sealed or absent vault degrades to the encrypted file rather than failing.
 - Each stack authenticates to vault via AppRole and reads only its assigned KV paths.
 - Vault auto-unseals on boot via a systemd oneshot service; the unseal key is stored on the host at `/opt/hill90/secrets/openbao-unseal.key` with 0600 permissions.
@@ -60,7 +72,17 @@ observability and vault stacks attach to them as external.
 
 ## Operational Hardening
 
-- Host firewall allows 80/443 publicly and blocks public SSH; fail2ban is enabled.
+- Host firewall allows 80/443 publicly and blocks public SSH. Verified
+  externally: port 22 on the public address refuses connections, and firewalld
+  carries no `ssh` service. SSH is reachable over the tailnet only.
+- **fail2ban is not installed.** This document previously said it was enabled.
+  The bootstrap role attempted to install it with `ignore_errors: yes`, and
+  fail2ban is in none of the repositories enabled on the host, so the install
+  failed silently and the play reported success. The tasks were removed rather
+  than left pretending. Restoring it would mean enabling EPEL — a deliberate
+  decision about adding a third-party repository to a hardened host. Its value
+  here is limited: SSH is not publicly reachable and accepts keys only, so there
+  is no exposed surface for brute-force protection to defend.
 - Deploy/rebuild actions run through scripted workflows (`make` + `scripts/*.sh`) to reduce manual drift.
 - Deploys run on the VPS over SSH, never from a workstation.
 - DNS and infrastructure reconciliation are automated during VPS rebuild/bootstrap.
