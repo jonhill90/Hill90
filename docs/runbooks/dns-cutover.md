@@ -53,6 +53,36 @@ are meaningless while different NS **names** are the failure being hunted.
 If output and intent disagree, the intent is not automatically right. One of them
 is wrong and it is worth a minute to find out which.
 
+### What has actually been run, and what has not
+
+On 2026-07-26 every read-only command in this runbook was executed verbatim on a
+macOS operator machine against live state, in order, and its real output compared
+to what this document claims. That pass found three defects, now fixed: the
+`docs` volatility noted in Step 8, an abbreviated expected-output line in Step 0,
+and a missing exit instruction in Step 7.
+
+**Exercised and confirmed working:** Steps 0, 1, 5, 7, 7a's gate and post-deploy
+checks, 8's record/public/SSH/certificate blocks, 8a's log check, and References
+C and D.
+
+**NOT exercised, because each writes, delegates or deploys:**
+
+| Step | Why not |
+|---|---|
+| 2 (T1) | Writes TTLs to the live Hostinger zone |
+| 4 | Merges PRs |
+| 6 (J3) | The registrar change itself |
+| 7a deploy | Deploys #535 |
+| 8a items 1 and 5 | Create/delete a file on the VPS and trigger real ACME issuance |
+| 9 (J4) | Sending and receiving real mail |
+| 10 | Cleanup writes |
+
+**Assertions that cannot be true until after delegation**, so they remain
+untested rather than passing: Step 8's "same nameserver names from both
+resolvers" and "`_domainconnect` present at both", Step 7a's gate *passing* (its
+failing path is confirmed — it correctly refuses to deploy today), and the whole
+of Step 8a. Those are the runbook's genuinely unproven surface.
+
 ## Command portability
 
 `openssl` **is** used, in Steps 8 and 8a. Stock `/usr/bin/openssl` on macOS is
@@ -95,7 +125,13 @@ and is **not** on `PATH`:
 
 ```bash
 /Applications/Tailscale.app/Contents/MacOS/Tailscale status | grep hill90-vps
-# expect: 100.88.29.112   hill90-vps   tagged-devices   linux
+```
+
+Real output carries trailing status and byte counters, so match on the leading
+fields rather than the whole line:
+
+```
+100.88.29.112   hill90-vps   tagged-devices   linux   idle, tx 1051824 rx 1224112
 ```
 
 ```bash
@@ -348,6 +384,9 @@ while :; do
 done
 ```
 
+**This loop does not exit on its own — press Ctrl-C when you have seen enough.**
+It replaces `watch`, which macOS does not ship.
+
 Poll public resolvers explicitly. Expect disagreement for roughly a day; treat
 disagreement past ~30 hours as anomalous, not normal (Reference D):
 
@@ -496,6 +535,32 @@ for r in 1.1.1.1 8.8.8.8; do
   done
 done
 ```
+
+Expected:
+
+- `hill90.com`, `api`, `ai`, `auth` → `76.13.26.69`, identical from both resolvers.
+- `www` → the CNAME `hill90.com.` followed by `76.13.26.69`.
+- **`docs` is the exception — its addresses are supposed to differ, on every
+  query.** It CNAMEs to Mintlify, which chains to Vercel, whose geo-distributed
+  DNS returns a different address set each time. Three consecutive lookups from
+  the *same* resolver returned:
+
+  ```
+  66.33.60.34   76.76.21.164
+  66.33.60.35   76.76.21.123
+  66.33.60.193  76.76.21.241
+  ```
+
+  That is normal and is not evidence of anything. The stable thing to check for
+  `docs` is the **CNAME target**, which must remain `cname.mintlify-dns.com.`:
+
+  ```bash
+  dig +short CNAME docs.hill90.com @1.1.1.1     # cname.mintlify-dns.com.
+  ```
+
+  Do not compare `docs` A records between resolvers or against an earlier
+  capture. They will never match, and treating that as a failure mid-cutover
+  would send you hunting a problem that does not exist.
 
 **SSH must be tested against a real lookup.** `ssh deploy@remote.hill90.com` does
 **not** resolve the name — `~/.ssh/config` hardcodes `hostname 100.88.29.112`, so
