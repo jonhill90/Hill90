@@ -219,10 +219,35 @@ named individually in §4.
 
 Owned by the app-arch lane. Nothing else can start until these land.
 
-1. **[SAFE] Resolve the name collisions.** Four contested names, in `container_name`,
-   Traefik router name, and hostname. This is a design decision, not a rename:
-   whether the app's data plane should sit on its own network rather than
-   `hill90_internal` is part of it.
+1. **[SAFE] Resolve the name collisions.** Four contested names, across **five
+   namespaces**. This is a design decision, not a rename: whether the app's data
+   plane should sit on its own network rather than `hill90_internal` is part of
+   it.
+
+   The namespaces a tenant must check, and they are not interchangeable:
+
+   | # | Namespace | Failure if missed |
+   |---|---|---|
+   | 1 | `container_name` | Docker refuses a duplicate — **fails safe**, stack will not start |
+   | 2 | Traefik router (and service) name | two routers with one name; Traefik picks non-deterministically and the loser is **not logged** |
+   | 3 | hostname | one router wins the host; the other is silently unreachable |
+   | 4 | **Compose service key** | Compose derives a network alias from the service key, *not* from `container_name`. Renaming only the container leaves the alias colliding, DNS returns both addresses, and resolution is non-deterministic — see §4.3 |
+   | 5 | **volume name** | **the worst one, and it fails silently in the most damaging way.** Two stacks declaring the same volume name mount the *same data directory*. Nothing errors at startup; two databases write the same files |
+
+   Namespaces 4 and 5 were both missed on the first pass by the app-arch lane and
+   found afterwards. Volume names in particular: Hill90 declares
+   `name: ${VOLUME_PREFIX:-prod}_postgres-data`, which on the VPS resolves to
+   `prod_postgres-data`. A tenant that hardcodes `prod_postgres-data`, or that
+   parameterises it *without* also namespacing it, resolves to the identical
+   string and mounts Hill90's live production database.
+
+   **Parameterising is not sufficient on its own.** `${VOLUME_PREFIX:-prod}_postgres-data`
+   in the tenant resolves to exactly what Hill90 resolves to. The tenant needs its
+   own component as well: `${VOLUME_PREFIX:-prod}_app-postgres-data`.
+
+   *Verify:* resolve both repos' compose files with the production defaults and
+   diff the resulting name sets for all five namespaces. A count is not auditable;
+   list what was checked.
 
    | Name | Container | Router | Hostname |
    |---|---|---|---|
@@ -236,7 +261,7 @@ Owned by the app-arch lane. Nothing else can start until these land.
    observability and already runs one.
 
    *Verify:* no name in the app's prod compose appears in Hill90's, checked
-   across all three namespaces.
+   across all five namespaces above — enumerated, not counted.
 
 2. **[SAFE] Fix `mcp-strip`.** The app's `docker-compose.mcp.yml` references
    `mcp-strip@file`, which Hill90 does not define. A router naming an undefined
