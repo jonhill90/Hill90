@@ -71,10 +71,17 @@ jobs:
       - name: Deploy infrastructure
         run: |
           echo "Deploying infrastructure services..."
+          # Existence check before the call: the preflight ships in this repository
+          # and is absent from the box until one deploy includes it, so calling it
+          # directly dies at exit 127 with no explanation. Message is byte-identical
+          # across all four deploy workflows and pinned by
+          # tests/scripts/preflight-checkout.bats — see the fuller note in
+          # reusable-deploy-service.yml for why this is not shared code.
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && \
              git fetch origin && \
+             { [ -f scripts/preflight-checkout.sh ] || { echo '::error::scripts/preflight-checkout.sh is missing from /opt/hill90/app on the VPS. It ships in this repository, so it exists on the box only AFTER one deploy that includes it. Fix: ssh to the VPS as deploy, run cd /opt/hill90/app && git pull, then re-run this workflow. Do not remove the guard to get past this.'; exit 1; }; } && \
              bash scripts/preflight-checkout.sh && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
