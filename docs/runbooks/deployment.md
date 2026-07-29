@@ -115,10 +115,22 @@ visible in the container immediately and takes effect at its next restart.
 A dirty tree under `docs/` is untidy. A dirty tree under `platform/edge/dynamic`
 is an undocumented live production change about to be reverted without review.
 
+> **Live as of 2026-07-29 07:45 UTC: the VPS checkout does not yet have this
+> script.** `/opt/hill90/app` is at `b50b3a1` (#563) and two commits behind, so
+> `bash scripts/preflight-checkout.sh` will exit 127 and — because the deploy
+> chains with `&&` — **the next deploy will halt rather than run unguarded.**
+> That is the safe direction, but it needs one `git pull` on the box first. The
+> preflight lives in the checkout it validates, so this is a one-time bootstrap
+> cost, not a recurring one.
+
 `scripts/preflight-checkout.sh` runs before every reset and enforces this: on a
 dirty tree it prints the full diff — the only record that will survive — labels
 each path by how live it is, and refuses. Override with
 `ALLOW_DIRTY_CHECKOUT=1` when the discard is genuinely intended.
+
+The tenant has the same hazard on `/opt/hill90-app` and no guard yet; the
+analysis, including the finding that nothing there is live-watched, is in
+[`docs/decisions/tenant-checkout-hazard.md`](../decisions/tenant-checkout-hazard.md).
 
 It also reports **drift**: how many commits the checkout is behind `origin/main`.
 On 2026-07-29 the checkout was found 12 commits behind and locally modified, so
@@ -146,6 +158,10 @@ Backups are stored at `/opt/hill90/backups/<service>/<timestamp>/` on the VPS.
 A daily cron job runs `backup-all` at 03:00 UTC. Weekly prune at 04:00 Sunday
 removes backups older than 7 days. Logs at `/opt/hill90/backups/cron.log`.
 
+`backup-all` covers `db`, `app-db`, `vault`, `infra` and `observability`. It runs
+every service even if one fails and then exits non-zero, so one absent service
+does not cost the other four their backups — but the run still goes red.
+
 Cron is configured by Ansible (`01-system-prep.yml`) during VPS bootstrap.
 To verify on VPS: `crontab -l -u deploy | grep hill90`
 
@@ -157,6 +173,7 @@ make backup                    # or: bash scripts/backup.sh backup-all
 
 # Backup a specific service
 make backup-db                 # or: bash scripts/backup.sh backup db
+bash scripts/backup.sh backup app-db   # the hill90-app tenant's database
 make backup-vault              # or: bash scripts/backup.sh backup vault
 make backup-infra              # or: bash scripts/backup.sh backup infra
 make backup-observability      # or: bash scripts/backup.sh backup observability
@@ -172,6 +189,51 @@ bash scripts/backup.sh prune 14 # Keep 14 days instead
 # Restore from backup
 make backup-restore SERVICE=db BACKUP_PATH=/opt/hill90/backups/db/20260222_120000
 ```
+
+### What changed on 2026-07-29, and why it matters
+
+Two defects were found and fixed together (#563). Both had been true for days and
+neither produced an error.
+
+**The SQL dump had silently stopped running.** `/etc/crontab` sets
+`PATH=/sbin:/bin:/usr/sbin:/usr/bin` and `sops` installs to `/usr/local/bin`, so
+under cron the decrypt was *command not found*. Its stderr went to `/dev/null`,
+`DB_USER` came back empty, the dump was skipped with a warning, the volume tar
+still ran, and the job exited 0. Three consecutive nightly backups held a tar and
+no `database.sql`. The same command worked by hand, which is why it survived.
+
+**The tenant's database had never been backed up by anything.**
+`prod_app-postgres-data` holds hill90-app's Keycloak realm and its user accounts,
+AKM knowledge, chat history and LiteLLM data. This script knew only
+`prod_postgres-data`, and hill90-app has no backup script of its own.
+
+What is now different:
+
+- `sops` is resolved by absolute path, not by `PATH` alone.
+- A dump that cannot be taken is **fatal**, not a warning. A backup that reports
+  success with no dump manufactures false confidence, which is worse than an
+  error — the operator believes they have a restore path and does not.
+- Artifacts are checked non-empty before success is reported. Two backup
+  directories on this host were completely empty and had still counted as
+  successful runs.
+- `app-db` covers the tenant: a real `pg_dumpall` plus the volume tar.
+
+**The restore is proven, not assumed.** On 2026-07-29 the tenant dump was
+restored into a throwaway Postgres container and both user accounts came back
+with their correct realm roles. That was the first restore this estate had ever
+performed. Verified artifacts from that run:
+
+| Artifact | Bytes |
+|---|---|
+| `/opt/hill90/backups/db/20260729_065934/database.sql` | 322,299 |
+| `/opt/hill90/backups/app-db/20260729_065944/app-database.sql` | 532,513 |
+| `/opt/hill90/backups/app-db/20260729_065944/app-postgres-data.tar.gz` | 17,347,196 |
+
+A tar of a live `PGDATA` is crash-consistent at best; the `pg_dumpall` is the
+artifact that restores cleanly. Both are taken and the dump is required.
+
+Not covered by any backup: object storage, agent state, and
+`/opt/hill90/agentbox-configs`, which is a host path outside every checkout.
 
 ### What Gets Backed Up
 
