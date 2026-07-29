@@ -1,7 +1,9 @@
 # What Hill90 Must Provide for a Tenant App Deployment on the VPS
 
-**Status:** assessment — no change made, nothing deployed
+**Status:** assessment, since acted on — hill90-app deployed as a tenant on
+2026-07-29 and consumes the networks described here
 **Recorded:** 2026-07-27
+**Updated:** 2026-07-29
 **Scope:** the Hill90 side only. The app-side work is tracked in
 `hill90-app` under
 [docs/decisions/running-the-app-on-hill90-infra.md](https://github.com/jonhill90/hill90-app/blob/main/docs/decisions/running-the-app-on-hill90-infra.md).

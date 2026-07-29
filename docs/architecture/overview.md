@@ -59,7 +59,7 @@ Traefik (edge network)           ┌──────────────�
 **Network Isolation:**
 - **edge network**: Traefik and the services it routes
 - **internal network**: `internal: true`, unreachable from outside the host
-- **agent_internal network**: `internal: true`, retained from the shelved application and currently unused
+- **agent_internal network**: `internal: true`, created by the edge stack and used by the hill90-app tenant (`app-api`, `app-ai`)
 - **Tailscale network**: admin-only surfaces (Traefik dashboard, Portainer, Grafana, OpenBao)
 - **IP Whitelist**: 100.64.0.0/10 (Tailscale CGNAT range) via Traefik middleware
 
