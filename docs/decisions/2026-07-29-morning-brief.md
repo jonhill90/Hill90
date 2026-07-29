@@ -1,8 +1,36 @@
 # Morning brief — 2026-07-29
 
-**State verified against the running host at 08:03 UTC.** Nothing is broken and
-nothing is degraded. The application is deployed and healthy, and for the first
-time it has a backup that has actually been restored.
+> ## Read this first: production login does not work
+>
+> **Nobody can sign in to hill90.com, and nobody has been able to since it was
+> deployed.** Confirmed 2026-07-29 09:23 UTC. This is not a regression and it
+> locks nobody out who was previously in — it has never worked.
+>
+> The `hill90-ui` client secret Keycloak minted at realm import (**32 chars**)
+> is not the one `app-ui` holds (**64 chars**). They are different values, so
+> the token exchange fails and `app-ui` logs `CallbackRouteError` →
+> `unauthorized_client` / *Invalid client or Invalid client credentials*.
+>
+> **Cause:** `platform/auth/keycloak/hill90-realm.json` declares its clients with
+> **no `secret` field**, so Keycloak generates a random one at import, while SOPS
+> carries a value that was never applied. Configuration present, plausible, and
+> inert — the same family as every other defect found this week.
+>
+> **It is deliberately not fixed.** Aligning a client secret is a credential
+> operation and it was not going to be done while you were asleep. The repair —
+> both options, a recommendation, exact commands and rollback — is prepared in
+> hill90-app's migration runbook. Read that rather than improvising.
+>
+> **Why it went unnoticed, which is the lesson.** A browser was driven to the
+> Keycloak login form and deliberately stopped there, to avoid consuming a
+> one-time password. That proved the redirect chain — `hill90.com` → `app-auth`,
+> PKCE, correct `client_id`, a rendered form — and never exercised the step that
+> fails. **Reachable is not working**, and every claim about login in these
+> documents rested on the reachable half.
+
+**State verified against the running host at 08:03 UTC.** Nothing is *degraded* —
+every container is healthy and every surface answers. But see the box above: one
+thing has never worked, and it was believed to work.
 
 **On the Keycloak migration, everything up to your decision is done and
 rehearsed.** The backup restores. The export was taken against a live
@@ -13,7 +41,7 @@ decision (§1.1).**
 
 Read §1 and stop if that is all you have time for — **except for two commands**:
 both VPS checkouts need pulling before anything will deploy, which is
-[§3](#3-do-this-first--two-checkouts-need-pulling-before-anything-deploys).
+[§4](#4-do-this-first--two-checkouts-need-pulling-before-anything-deploys).
 Everything else is either already safe or already recorded.
 
 ```
@@ -145,17 +173,34 @@ restore, and the Keycloak decision in both halves.
 
 It is held because the site is the most public surface in the estate and because
 its *merged-but-not-deployed* list will need one touch-up after you deploy
-(§4.1). Publishing after that deploy costs nothing and lands accurate.
+(§5.1). Publishing after that deploy costs nothing and lands accurate.
 
 ---
 
-## 2. What changed overnight
+## 2. What is proven, and what is not
+
+"Deployed is not the same as proven working" turned out to be more right than
+anyone intended. Both halves are worth stating plainly.
+
+**Proven, and earned:** it starts; it routes; it serves valid TLS on three
+hostnames; it reaches its identity provider and renders a login form; its
+database backs up and **restores**, with accounts and roles recovered into a
+throwaway; it detaches and reattaches cleanly, leaving the platform at exactly
+its 13-container baseline. That list took a night to earn and none of it is in
+doubt.
+
+**Not proven:** that a human can sign in. That is now known to be false, not
+merely untested — see the box at the top. And no agent has ever run end to end.
+
+## 3. What changed overnight
 
 - **All eight application stacks are deployed and healthy.**
 - **The detachment test passed.** The app was torn down to a single container and
   redeployed: Hill90 returned to exactly 13 containers with all four shared
   networks intact, the app came back to 10 healthy containers, `hill90.com`
-  answered 200, and both user accounts survived. Tenancy is proven, not asserted.
+  answered 200, and both user accounts survived in the database. Tenancy is
+  proven, not asserted. Note the limit: accounts surviving is a data claim, not a
+  sign-in claim — see the box at the top.
 - **Backups work, and the restore is proven.** Two defects were fixed: the
   nightly SQL dump had been failing silently, and the application's database had
   never been backed up at all. A dump that cannot be taken is now fatal rather
@@ -164,11 +209,11 @@ its *merged-but-not-deployed* list will need one touch-up after you deploy
   estate has performed. Mechanism and artifact sizes:
   [deployment runbook § Backups](../runbooks/deployment.md#backups).
 - **Application tests now run on every pull request** — six suites, all passing.
-- **A deploy guard was added**, which is why §3 exists.
+- **A deploy guard was added**, which is why §4 exists.
 
 ---
 
-## 3. Do this first — two checkouts need pulling before anything deploys
+## 4. Do this first — two checkouts need pulling before anything deploys
 
 **Both repositories are blocked until you run these.** Not tidiness; hard blocks,
 and they will be the first thing you hit.
@@ -206,9 +251,9 @@ ssh deploy@<vps> 'cd /opt/hill90/app && git status --short && cd /opt/hill90-app
 
 ---
 
-## 4. Safe to do
+## 5. Safe to do
 
-### 4.1 Deploy the merged-but-undeployed application changes
+### 5.1 Deploy the merged-but-undeployed application changes
 
 `/opt/hill90-app` was at `f882158` and `main` at `fb90223` at 08:17 UTC —
 **at least 15 commits merged and not deployed**, everything from #21 onward. The running containers still carry the previous configuration.
@@ -246,13 +291,13 @@ worth knowing you are taking it.
 
 ---
 
-## 5. Known-open
+## 6. Known-open
 
 Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
 - **The tenant checkout was at least 15 commits behind** with a clean tree
   (`/opt/hill90-app` at `f882158`, measured 08:17 UTC). It now *does* have a
-  dirty-tree guard (#35) — which is why it needs the pull in §3. The analysis is in
+  dirty-tree guard (#35) — which is why it needs the pull in §4. The analysis is in
   [tenant-checkout-hazard.md](tenant-checkout-hazard.md) — the tenant has the
   lost-edits hazard but **not** the live-config hazard, because nothing in it is
   bind-mounted *and* watched.
@@ -262,11 +307,13 @@ Nothing here is blocking, and nothing here is a surprise waiting to happen.
 - **Hill90 #556 and #559 are open and conflicting** and need a rebase before they
   can land. #556 restores MinIO as a platform service; #559 scrapes the tenant's
   database.
-- **No agent has been run end to end on the VPS.** Healthy containers, answered
-  routes and a working login are not an exercised application. This is the
-  largest untested surface remaining, and nothing done overnight reduces it — a
-  human logging in and calling an authenticated route is a different claim from
-  an agent running to completion.
+- **Nobody has exercised the app, and that gap has now cost something real.**
+  Healthy containers and answered routes are not an exercised application — and
+  the broken login at the top of this document is the proof. It sat undetected
+  for the whole deployment because every check stopped at the last observable
+  step before the failure. What is untested is not a formality; it is where the
+  defects are. No agent has been run end to end on the VPS, and that remains the
+  largest untested surface.
 - **`/opt/hill90/agentbox-configs` is unprotected, and empty.** It is
   bind-mounted into `api` and passed to every agent container `api` creates, but
   it sits outside every checkout and outside every backup: 0 references in

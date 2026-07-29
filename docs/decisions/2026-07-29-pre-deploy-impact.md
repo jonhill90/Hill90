@@ -134,7 +134,7 @@ no longer move the tenant's own Keycloak onto `auth.hill90.com`.
 
 | Risk | Likelihood | Signature |
 |---|---|---|
-| JWKS unreachable through the edge | low — verified 200 from both containers | login works, API calls 401 |
+| JWKS unreachable through the edge | low — verified 200 from both containers | API calls 401. **Note:** the usual tell — "login works but API calls fail" — is unavailable here, because login is separately broken (see the brief). Diagnose from `app-api` logs, not from the browser |
 | `api` or `ui` image fails to build | low — CI passes on `main` | deploy stops at the build step; old container keeps running |
 | `app-ui` restart drops sessions | expected | users re-authenticate; not an error |
 | `app-keycloak` disruption | none | it is not recreated |
