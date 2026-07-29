@@ -88,7 +88,42 @@ All Docker Compose operations use explicit project names to prevent cross-stack 
 2. **All `docker compose` calls use explicit `-p <project>`** — no implicit project names.
 3. **Stateless apps use `up -d --force-recreate --no-deps`** — no `down` step, zero-downtime replacement.
 4. **Edge deploy is manual-only** — never auto-triggered by push.
-5. **No local VPS file edits** — all changes go through git + CI.
+5. **No local VPS file edits** — all changes go through git + CI. See
+   [Hand-edits on `/opt/hill90/app` are doomed by construction](#hand-edits-on-opthill90app-are-doomed-by-construction)
+   for why this is a mechanism rather than a preference.
+
+### Hand-edits on `/opt/hill90/app` are doomed by construction
+
+Every deploy path in this repository runs `git reset --hard origin/main` on the
+VPS checkout — `deploy-infra.yml`, `reusable-deploy-service.yml`,
+`vault-init.yml` and `vault-reinitialize.yml` all do it. **Any uncommitted change
+under `/opt/hill90/app` is therefore destroyed by the next deploy**, and it is
+not recoverable: unstaged changes are never written to git's object database, so
+there is no blob, no stash and no reflog entry to restore from.
+
+Land a hand-edit in the repository the same day, or accept that it will vanish
+without a trace and without a warning.
+
+**Some of those paths are live.** `platform/edge/dynamic` is bind-mounted into
+Traefik at `/etc/traefik/dynamic` with `watch: true`, so editing a file there is
+simultaneously a **live production change** and a doomed one — Traefik reloads
+it within seconds, and the next deploy silently reverts it. Ten further paths
+(the Keycloak realm and theme, the Postgres init script, the observability
+configs, the vault policies) are bind-mounted without `watch`, so an edit is
+visible in the container immediately and takes effect at its next restart.
+
+A dirty tree under `docs/` is untidy. A dirty tree under `platform/edge/dynamic`
+is an undocumented live production change about to be reverted without review.
+
+`scripts/preflight-checkout.sh` runs before every reset and enforces this: on a
+dirty tree it prints the full diff — the only record that will survive — labels
+each path by how live it is, and refuses. Override with
+`ALLOW_DIRTY_CHECKOUT=1` when the discard is genuinely intended.
+
+It also reports **drift**: how many commits the checkout is behind `origin/main`.
+On 2026-07-29 the checkout was found 12 commits behind and locally modified, so
+production had been running configuration that differed from the repository for
+three days with no signal. That is the case the drift report exists to surface.
 
 ### Inspecting Stacks
 
