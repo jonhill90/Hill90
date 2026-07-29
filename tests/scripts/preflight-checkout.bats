@@ -101,3 +101,22 @@ setup() {
     grep -q "preflight-checkout.sh" "$wf" || { echo "missing preflight in $wf"; return 1; }
   done
 }
+
+@test "drift wording is correct when only AHEAD of origin/main" {
+  echo "local only" >> docs/readme.md
+  git add -A && git commit -qm "local-only commit"
+  run bash "$PF"
+  # Must not claim to be behind when it is not.
+  [[ "$output" != *"0 commits behind"* ]]
+  [[ "$output" == *"AHEAD"* ]]
+  [[ "$output" == *"discard them"* ]]
+}
+
+@test "drift wording is correct when only BEHIND origin/main" {
+  echo "upstream" >> docs/readme.md
+  git add -A && git commit -qm up && git push -q origin HEAD:main
+  git reset -q --hard HEAD~1 && git fetch -q origin
+  run bash "$PF"
+  [[ "$output" == *"1 commits behind"* ]]
+  [[ "$output" != *"AHEAD"* ]]
+}

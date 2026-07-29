@@ -99,13 +99,26 @@ report_drift() {
 
     echo ""
     echo "  ################################################################"
-    echo "  # DRIFT: this checkout is ${behind} commits behind origin/main"
-    [ "$ahead" -gt 0 ] && echo "  #        and ${ahead} commits ahead (unpushed local commits!)"
-    echo "  #"
-    echo "  # Production has been running config that differs from the"
-    echo "  # repository. Commits not yet deployed:"
+    if [ "$behind" -gt 0 ]; then
+        echo "  # DRIFT: this checkout is ${behind} commits behind origin/main"
+        echo "  #"
+        echo "  # Production has been running config that differs from the"
+        echo "  # repository. Commits not yet deployed:"
+    fi
+    if [ "$ahead" -gt 0 ]; then
+        [ "$behind" -gt 0 ] && echo "  #"
+        echo "  # DRIFT: this checkout is ${ahead} commits AHEAD of origin/main."
+        echo "  # Those commits exist only on this host and \`git reset --hard\`"
+        echo "  # will discard them. Push them before deploying."
+    fi
     echo "  ################################################################"
-    git --no-pager log --oneline HEAD..origin/main 2>/dev/null | sed 's/^/    /' | head -20
+    if [ "$behind" -gt 0 ]; then
+        git --no-pager log --oneline HEAD..origin/main 2>/dev/null | sed 's/^/    /' | head -20
+    fi
+    if [ "$ahead" -gt 0 ]; then
+        echo "    commits only on this host:"
+        git --no-pager log --oneline origin/main..HEAD 2>/dev/null | sed 's/^/      /' | head -20
+    fi
     echo ""
 }
 
