@@ -186,9 +186,20 @@ chicken-and-egg the guard created. One pull each resolves it permanently.
 If you deploy without pulling, both now **tell you exactly this** and name the
 fix; neither fails mysteriously any more (Hill90 #570, hill90-app #35).
 
-**Both pulls are safe.** Both working trees are **clean** (0 modifications,
-08:58 UTC), so nothing is destroyed, and no pending file in either touches a
-bind-mounted, watched directory, so nothing live-reloads.
+**Both pulls were safe as of 09:16 UTC** — both working trees clean
+(0 modifications), and no pending file in either touches a bind-mounted, watched
+directory, so nothing live-reloads.
+
+**That is a fact with a short half-life, so re-check it rather than trusting
+it.** Run `git status` in each checkout first: if either is dirty, the pull
+destroys uncommitted work, and the guard that would have caught that is exactly
+what is not installed yet. The precondition for the fix cannot be assumed by the
+fix.
+
+```bash
+ssh deploy@<vps> 'cd /opt/hill90/app && git status --short && cd /opt/hill90-app && git status --short'
+# no output from either = still safe to pull
+```
 
 **Backups are unaffected either way.** The backup fix is already on the box
 (`b50b3a1`) and the 03:00 cron runs `backup-all`, which includes `app-db`.
@@ -251,9 +262,20 @@ Nothing here is blocking, and nothing here is a surprise waiting to happen.
 - **Hill90 #556 and #559 are open and conflicting** and need a rebase before they
   can land. #556 restores MinIO as a platform service; #559 scrapes the tenant's
   database.
-- **No agent has been run end to end on the VPS.** Healthy containers and
-  answered routes are not an exercised application. This is the largest untested
-  surface remaining.
+- **No agent has been run end to end on the VPS.** Healthy containers, answered
+  routes and a working login are not an exercised application. This is the
+  largest untested surface remaining, and nothing done overnight reduces it — a
+  human logging in and calling an authenticated route is a different claim from
+  an agent running to completion.
+- **`/opt/hill90/agentbox-configs` is unprotected, and empty.** It is
+  bind-mounted into `api` and passed to every agent container `api` creates, but
+  it sits outside every checkout and outside every backup: 0 references in
+  `backup.sh`, 0 matches anywhere under `/opt/hill90/backups`, 0 tracked files in
+  the tenant repository. **Today that costs nothing** — verified 09:16 UTC, it
+  holds 0 files and has not changed since 14 June. It becomes an unrecoverable
+  gap the moment an agent writes its first config there, and nothing would
+  announce that it had. Unprotected by design, harmless now, silently
+  irreversible on first use.
 - **The application realm ships with zero users.** The two accounts that exist
   were created by hand and live only in the application's database. Rebuilding
   that database would lock everyone out — now recoverable, but only because a
@@ -262,5 +284,22 @@ Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
 ---
 
-*Prepared 2026-07-29 08:17 UTC, verified against the running host and the
-repositories at that time. Re-check anything here before acting on it.*
+## Process note, for whoever runs the next session
+
+Two things worth carrying forward.
+
+**Check what a lane is standing on before merging its base.** Merging as soon as
+things went green kept the queue moving, but twice a branch was merged and
+deleted while another lane was mid-work stacked on it. It cost only a rebase
+here; with a larger change it would have cost more.
+
+**A claim's age is part of the claim.** Every state assertion in this document
+carries the time it was measured, because several were overtaken within the hour
+— container counts, drift, whether a guard had landed. The habit is cheap and it
+caught three claims that had gone stale between being written and being read.
+
+---
+
+*Prepared 2026-07-29, last verified 09:16 UTC against the running host and the
+repositories. Re-check anything here before acting on it — several claims moved
+within an hour of being written.*
