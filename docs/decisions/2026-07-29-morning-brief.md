@@ -7,13 +7,14 @@ time it has a backup that has actually been restored.
 **One thing is blocked**, and it is a one-command fix — see below.
 
 Read the first section and stop if that is all you have time for — **except for
-one command**: Hill90 deploys are blocked until you pull the VPS checkout, and
-they fail with a bare `exit 127`. That is [§3](#3-do-this-first--hill90-deploys-are-currently-blocked).
+two commands**: both VPS checkouts need pulling before anything deploys, and the
+Hill90 one fails with a bare `exit 127`. That is
+[§3](#3-do-this-first--two-checkouts-need-pulling-before-anything-deploys).
 Everything else below is either already safe or already recorded.
 
 ```
 23 containers running · 0 unhealthy · Hill90 baseline exactly 13 · app 10
-(container counts and health, 08:03 UTC · drift counts, 08:10 UTC)
+(container counts and health, 08:03 UTC · drift counts, 08:17 UTC)
 hill90.com 200 · www.hill90.com 200 · app-auth.hill90.com 302
 traefik 401 · grafana 302 · vault 307 · storage 200 · portainer 200   (no 403 anywhere)
 ```
@@ -48,6 +49,17 @@ from working configuration, permanently. Naming it something else, or deleting
 the two fallbacks first, keeps the failure loud.
 
 This is a factor, not a recommendation. Either answer is workable.
+
+**The migration needs no downtime, and that is new.** The runbook previously told
+you to accept a login outage for the realm export. That premise was tested and is
+false: `kc.sh export` does not need *this* Keycloak stopped, it needs *an*
+exporter with database access, so a throwaway sidecar exports against the live
+database. Corrected in hill90-app #34.
+
+That removes the main reason to postpone this to a quiet evening — the export
+itself costs nothing. **The `pg_dump` is not a substitute:** only a `kc.sh export`
+artifact carries `clients[].secret`, so a database dump alone cannot reconstitute
+the client secrets.
 
 ### 1.2 Does `hill90-app` go public?
 
@@ -90,47 +102,44 @@ its *merged-but-not-deployed* list will need one touch-up after you deploy
 
 ## 2. What changed overnight
 
-- **All eight application stacks are deployed and healthy.** Previously six; `mcp`
-  and `minio` had never been deployed.
+- **All eight application stacks are deployed and healthy.**
 - **The detachment test passed.** The app was torn down to a single container and
   redeployed: Hill90 returned to exactly 13 containers with all four shared
   networks intact, the app came back to 10 healthy containers, `hill90.com`
   answered 200, and both user accounts survived. Tenancy is proven, not asserted.
-- **Backups were silently broken and are now fixed and proven.** Under cron,
-  `PATH` lacks `/usr/local/bin` where `sops` lives, so the secrets decrypt was
-  *command not found*, the SQL dump was skipped with a warning, the volume tar
-  still ran, and the job exited 0. Three consecutive nightly backups held a tar
-  and no dump. Separately, the application's database had **never** been backed
-  up by anything. Both fixed; a dump that cannot be taken is now fatal.
-- **The restore works.** The application dump was restored into a throwaway
-  container and both accounts came back with their correct realm roles. First
-  restore this estate has performed.
+- **Backups work, and the restore is proven.** Two defects were fixed: the
+  nightly SQL dump had been failing silently, and the application's database had
+  never been backed up at all. A dump that cannot be taken is now fatal rather
+  than a warning. The application dump was restored into a throwaway container
+  and both accounts came back with their correct roles — the first restore this
+  estate has performed. Mechanism and artifact sizes:
+  [deployment runbook § Backups](../runbooks/deployment.md#backups).
 - **Application tests now run on every pull request** — six suites, all passing.
-  Previously only shell tests gated a merge.
 - **A deploy guard was added** (`scripts/preflight-checkout.sh`): a dirty VPS
   checkout now prints its full diff and refuses, instead of `git reset --hard`
-  destroying it silently. This was written after exactly that happened.
-
-Current backups:
-
-```
-/opt/hill90/backups/db/20260729_065934/      database.sql        322,299 bytes
-/opt/hill90/backups/app-db/20260729_065944/  app-database.sql    532,513 bytes
-                                             app-postgres-data.tar.gz  17,347,196
-```
-
-Both SQL dumps non-empty, verified 08:03 UTC.
+  destroying it silently. This is what §3 is about.
 
 ---
 
-## 3. Do this first — Hill90 deploys are currently blocked
+## 3. Do this first — two checkouts need pulling before anything deploys
 
-**Every Hill90 deploy fails until you run one command.** This is not a warning
-about tidiness; it is a hard block, and it will be the first thing you hit.
+**Both repositories are blocked until you run these.** Not tidiness; hard blocks,
+and they will be the first thing you hit.
 
 ```bash
-ssh deploy@<vps> 'cd /opt/hill90/app && git pull'
+ssh deploy@<vps> 'cd /opt/hill90/app  && git pull'   # Hill90 — fails with a bare exit 127
+ssh deploy@<vps> 'cd /opt/hill90-app  && git pull'   # the app — fails with a clear message
 ```
+
+**They fail differently, and that matters when you are half awake.** The app's
+deploy checks for the file first and stops with
+`::error::scripts/preflight-checkout.sh is not on the VPS checkout yet`, naming
+the fix. **Hill90's four workflows do not** — they invoke the script directly, so
+they die at `exit 127` with no explanation. A port of the app's legible-error
+pattern to Hill90 was in progress at 08:17 UTC and **had not landed**; if it has
+by the time you read this, the Hill90 failure will name itself too. Check
+`.github/workflows/reusable-deploy-service.yml` for `is not on the VPS checkout`
+before assuming either way.
 
 **Why they are blocked.** All four Hill90 deploy paths now invoke a guard script
 over SSH, and the script is not on the box:
@@ -141,7 +150,8 @@ over SSH, and the script is not on the box:
 .github/workflows/vault-init.yml:117               ... && bash scripts/preflight-checkout.sh && ...
 .github/workflows/vault-reinitialize.yml:175       ... && bash scripts/preflight-checkout.sh && ...
 
-/opt/hill90/app/scripts/preflight-checkout.sh   ABSENT   (checkout 3 behind, 08:10 UTC)
+/opt/hill90/app/scripts/preflight-checkout.sh   ABSENT   (4 behind, clean, 08:17 UTC)
+/opt/hill90-app/scripts/preflight-checkout.sh   ABSENT   (15 behind, clean, 08:17 UTC)
 ```
 
 The ordering is the trap: `git fetch` runs **before** the preflight and
@@ -165,12 +175,9 @@ box (`b50b3a1`), the cron entry runs `backup-all`, and that now includes
 `app-db`. The 03:00 run produces both dumps with the fail-closed behaviour
 whether or not you pull.
 
-**The same shape may be waiting on the tenant.** As of 08:10 UTC `hill90-app` has
-no preflight script and its deploy path is unaffected — but an equivalent guard
-is being written. If it lands, `/opt/hill90-app` (13 behind, clean, at
-`f882158`) needs the same one-time pull before its next deploy, for the same
-reason. Check for `scripts/preflight-checkout.sh` in that repo before assuming
-its deploys still work.
+Both pulls are safe for the same reasons: **both working trees are clean**
+(0 modifications at 08:17 UTC), so nothing is destroyed, and no pending file in
+either touches a bind-mounted, watched directory, so nothing live-reloads.
 
 ---
 
@@ -178,9 +185,8 @@ its deploys still work.
 
 ### 4.1 Deploy the merged-but-undeployed application changes
 
-`/opt/hill90-app` was at `f882158` and `main` at `a6db125` when this was
-written — **at least 13 commits merged and not deployed**, everything from #21
-onward. The running containers still carry the previous configuration.
+`/opt/hill90-app` was at `f882158` and `main` at `fb90223` at 08:17 UTC —
+**at least 15 commits merged and not deployed**, everything from #21 onward. The running containers still carry the previous configuration.
 
 Treat every count in this document as a floor, not a total. Three PRs landed
 while it was being written, so the real gap is this or larger. Check it yourself:
@@ -194,6 +200,15 @@ gh workflow run "Manual Deploy App (Prod)" -f service=<stack> -f dry_run=true
 ```
 
 Use `dry_run=true` first; it runs every guard and stops before changing anything.
+
+**What actually changes at runtime if you do:** almost nothing user-visible. One
+environment variable disappears from `api` and `mcp`, one appears on `ui`, and
+`app-keycloak` is a byte-for-byte no-op that will not even be recreated. The one
+change with teeth is that token validation moves from an internal URL to the
+public issuer through Traefik — verified working from inside both containers, but
+it makes the edge a dependency of authentication. Per-stack detail, measured by
+diffing the rendered config against the running containers:
+[pre-deploy impact](2026-07-29-pre-deploy-impact.md).
 
 **One thing to know before deploying rather than after.** #26 moves API token
 validation from an internal URL onto the **public issuer path through Traefik**.
@@ -209,9 +224,9 @@ worth knowing you are taking it.
 
 Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
-- **The tenant checkout was at least 13 commits behind** with a clean tree
-  (`/opt/hill90-app` at `f882158`, measured 08:10 UTC). It also has no equivalent
-  of the dirty-tree guard yet. The analysis is in
+- **The tenant checkout was at least 15 commits behind** with a clean tree
+  (`/opt/hill90-app` at `f882158`, measured 08:17 UTC). It now *does* have a
+  dirty-tree guard (#35) — which is why it needs the pull in §3. The analysis is in
   [tenant-checkout-hazard.md](tenant-checkout-hazard.md) — the tenant has the
   lost-edits hazard but **not** the live-config hazard, because nothing in it is
   bind-mounted *and* watched.
@@ -220,8 +235,7 @@ Nothing here is blocking, and nothing here is a surprise waiting to happen.
   absence, not a fault. Verified: zero Traefik routers reference it.
 - **Hill90 #556 and #559 are both open and now conflicting**, having been
   overtaken by tonight's merges. #556 restores MinIO as a platform service; #559
-  scrapes the tenant's database. Both need a rebase before they can land, and
-  #556 in particular will re-open the MinIO naming question.
+  scrapes the tenant's database. Both need a rebase before they can land.
 - **No agent has been run end to end on the VPS.** Healthy containers and
   answered routes are not an exercised application. This is the largest untested
   surface remaining.
@@ -233,7 +247,5 @@ Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
 ---
 
-*Prepared 2026-07-29 08:05 UTC. Every state claim in this document was verified
-against the running host or the repositories at that time, not carried forward
-from earlier in the night. Claims age: re-check before acting on anything here
-more than a few hours old.*
+*Prepared 2026-07-29 08:17 UTC, verified against the running host and the
+repositories at that time. Re-check anything here before acting on it.*
