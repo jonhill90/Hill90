@@ -39,10 +39,10 @@ throwaway and works: all three client secrets present, password hashes intact,
 the role mapper survives. **The only thing left before step 2 is your realm
 decision (§1.1).**
 
-Read §1 and stop if that is all you have time for — **except for two commands**:
-both VPS checkouts need pulling before anything will deploy, which is
-[§4](#4-do-this-first--two-checkouts-need-pulling-before-anything-deploys).
-Everything else is either already safe or already recorded.
+Read §1 and stop if that is all you have time for — **except §4**, which is a
+four-step sequence with a real dependency: the client secret must be repaired
+before a deploy will even run. Everything else is either already safe or already
+recorded.
 
 ```
 23 containers running · 0 unhealthy · Hill90 baseline exactly 13 · app 10
@@ -173,7 +173,7 @@ restore, and the Keycloak decision in both halves.
 
 It is held because the site is the most public surface in the estate and because
 its *merged-but-not-deployed* list will need one touch-up after you deploy
-(§5.1). Publishing after that deploy costs nothing and lands accurate.
+(§4, step 3). Publishing after that deploy costs nothing and lands accurate.
 
 ---
 
@@ -213,91 +213,95 @@ merely untested — see the box at the top. And no agent has ever run end to end
 
 ---
 
-## 4. Do this first — two checkouts need pulling before anything deploys
+## 4. The morning sequence — these are ordered, not a list
 
-**Both repositories are blocked until you run these.** Not tidiness; hard blocks,
-and they will be the first thing you hit.
+**Four steps with a real dependency between them.** Doing them out of order means
+hitting a wall and working out why, which is what this document exists to
+prevent. In particular: **deploying before step 1 will fail**, deliberately.
 
-```bash
-ssh deploy@<vps> 'cd /opt/hill90/app && git pull'   # Hill90
-ssh deploy@<vps> 'cd /opt/hill90-app && git pull'   # the app
-```
+### Step 1 — repair the Keycloak client secret
 
-**Why they are blocked.** Every deploy path in both repositories now runs a
-guard script over SSH, and neither checkout has it yet. The script ships *in* the
-repository, so it only reaches the box after one deploy that includes it — a
-chicken-and-egg the guard created. One pull each resolves it permanently.
+Nothing else is worth doing first. Login has never worked (see the box at the
+top), and a deploy now **refuses to run** while the secret in the running
+Keycloak disagrees with the store — correctly, because deploying with a
+mismatched secret reproduces exactly the failure you already have.
 
-If you deploy without pulling, both now **tell you exactly this** and name the
-fix; neither fails mysteriously any more (Hill90 #570, hill90-app #35).
+Both options, a recommendation, exact commands and rollback are prepared in
+hill90-app's `docs/runbooks/one-keycloak-migration.md`. It is a credential
+operation; follow it rather than improvising.
 
-**Both pulls were safe as of 09:16 UTC** — both working trees clean
-(0 modifications), and no pending file in either touches a bind-mounted, watched
-directory, so nothing live-reloads.
-
-**That is a fact with a short half-life, so re-check it rather than trusting
-it.** Run `git status` in each checkout first: if either is dirty, the pull
-destroys uncommitted work, and the guard that would have caught that is exactly
-what is not installed yet. The precondition for the fix cannot be assumed by the
-fix.
+### Step 2 — pull both VPS checkouts
 
 ```bash
 ssh deploy@<vps> 'cd /opt/hill90/app && git status --short && cd /opt/hill90-app && git status --short'
 # no output from either = still safe to pull
+
+ssh deploy@<vps> 'cd /opt/hill90/app && git pull'
+ssh deploy@<vps> 'cd /opt/hill90-app && git pull'
 ```
+
+Every deploy path in both repositories runs a guard script that ships *in* the
+repository, so it only reaches the box after one pull — a chicken-and-egg the
+guard created. Both now say so and name the fix rather than failing obscurely.
+
+**Both pulls were safe as of 09:16 UTC** — both trees clean, and no pending file
+in either touches a bind-mounted, watched directory, so nothing live-reloads.
+**That fact has a short half-life, so run the `git status` above first.** If
+either is dirty the pull destroys uncommitted work, and the guard that would have
+caught that is precisely what is not installed yet. The precondition for the fix
+cannot be assumed by the fix.
 
 **Backups are unaffected either way.** The backup fix is already on the box
 (`b50b3a1`) and the 03:00 cron runs `backup-all`, which includes `app-db`.
 
----
+### Step 3 — deploy
 
-## 5. Safe to do
-
-### 5.1 Deploy the merged-but-undeployed application changes
-
-`/opt/hill90-app` was at `f882158` and `main` at `fb90223` at 08:17 UTC —
-**at least 15 commits merged and not deployed**, everything from #21 onward. The running containers still carry the previous configuration.
-
-Treat every count in this document as a floor, not a total. Three PRs landed
-while it was being written, so the real gap is this or larger. Check it yourself:
-
-```bash
-ssh deploy@<vps> 'cd /opt/hill90-app && git fetch -q && git rev-list --count HEAD..origin/main'
-```
+Only now, because the guard blocks it until step 1 is done.
 
 ```bash
 gh workflow run "Manual Deploy App (Prod)" -f service=<stack> -f dry_run=true
 ```
 
-Use `dry_run=true` first; it runs every guard and stops before changing anything.
+`dry_run=true` first; it runs every guard and stops before changing anything.
 
-**What actually changes at runtime if you do:** almost nothing user-visible. One
-environment variable disappears from `api` and `mcp`, one appears on `ui`, and
-`app-keycloak` is a byte-for-byte no-op that will not even be recreated. The one
-change with teeth is that token validation moves from an internal URL to the
-public issuer through Traefik — verified working from inside both containers, but
-it makes the edge a dependency of authentication. Per-stack detail, measured by
-diffing the rendered config against the running containers:
-[pre-deploy impact](2026-07-29-pre-deploy-impact.md).
+At least 15 commits are merged and undeployed — everything from #21 onward. What
+actually changes at runtime is small and is measured per stack in
+[pre-deploy impact](2026-07-29-pre-deploy-impact.md): one environment variable
+disappears from `api` and `mcp`, one appears on `ui`, and `app-keycloak` is a
+no-op that will not even be recreated. The one change with teeth moves token
+validation onto the public issuer through Traefik, which makes the edge a
+dependency of authentication.
 
-**One thing to know before deploying rather than after.** One of these commits
-moves API token validation from an internal URL onto the **public issuer path
-through Traefik**.
-It was verified reachable from inside both containers, so it works — but it makes
-the edge a dependency of authentication: if Traefik is down, authentication
-fails, which was not true before. That is a deliberate tradeoff for making
-the issuer impossible to diverge; it is recorded in the app's runbook, and it is
-worth knowing you are taking it.
+Counts move as things merge; check yourself:
+
+```bash
+ssh deploy@<vps> 'cd /opt/hill90-app && git fetch -q && git rev-list --count HEAD..origin/main'
+```
+
+### Step 4 — confirm the repair actually worked
+
+A `testuser01` account exists in the app realm with a **non-temporary** password,
+so it can be used repeatedly without consuming anyone's one-time credential. The
+password is encrypted at `hill90-app/infra/secrets/test-accounts.enc.env`,
+deliberately separate from `prod.enc.env` because a credential no container reads
+would trip the store-keys guard. It decrypts with the host age key.
+
+**The acceptance test is written but cannot be run yet.** It needs a known-good
+token to compare against, and no login has ever succeeded, so there is nothing to
+record one from. **It becomes runnable the moment step 1 lands** — and running it
+is how you find out whether the repair worked, rather than assuming it did
+because a container went healthy. That assumption is what produced the current
+situation.
 
 ---
 
-## 6. Known-open
+## 5. Known-open
 
 Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
 - **The tenant checkout was at least 15 commits behind** with a clean tree
   (`/opt/hill90-app` at `f882158`, measured 08:17 UTC). It now *does* have a
-  dirty-tree guard (#35) — which is why it needs the pull in §4. The analysis is in
+  dirty-tree guard (#35) — which is why it needs the pull in §4, step 2. The analysis is in
   [tenant-checkout-hazard.md](tenant-checkout-hazard.md) — the tenant has the
   lost-edits hazard but **not** the live-config hazard, because nothing in it is
   bind-mounted *and* watched.
