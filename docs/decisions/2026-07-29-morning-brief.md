@@ -269,8 +269,16 @@ Every deploy path in both repositories runs a guard script that ships *in* the
 repository, so it only reaches the box after one pull — a chicken-and-egg the
 guard created. Both now say so and name the fix rather than failing obscurely.
 
-**Both pulls were safe as of 09:16 UTC** — both trees clean, and no pending file
-in either touches a bind-mounted, watched directory, so nothing live-reloads.
+**Both pulls were safe as of 10:09 UTC** — both trees clean (0 modifications),
+and no pending file in either touches a bind-mounted, watched directory, so
+nothing live-reloads.
+
+**If the numbers look bigger than you expected, nothing broke.** The checkouts
+were 3 and 13 commits behind when this document was started and were 14 and 21 by
+10:09 UTC. That is merge activity overnight, not drift on the host: both working
+trees have been clean throughout, and nothing has been deployed. The counts only
+ever grow until a deploy runs, which is why the instruction is to measure them
+rather than read them here.
 **That fact has a short half-life, so run the `git status` above first.** If
 either is dirty the pull destroys uncommitted work, and the guard that would have
 caught that is precisely what is not installed yet. The precondition for the fix
@@ -289,7 +297,15 @@ gh workflow run "Manual Deploy App (Prod)" -f service=<stack> -f dry_run=true
 
 `dry_run=true` first; it runs every guard and stops before changing anything.
 
-At least 15 commits are merged and undeployed — everything from #21 onward. What
+**At least 21 commits are merged and undeployed as of 2026-07-29 10:09 UTC**, and
+that number grows with every merge — it was 13 when this document was started.
+Do not act on the figure; measure it:
+
+```bash
+ssh deploy@<vps> 'cd /opt/hill90-app && git fetch -q && git rev-list --count HEAD..origin/main'
+```
+
+What
 actually changes at runtime is small and is measured per stack in
 [pre-deploy impact](2026-07-29-pre-deploy-impact.md): one environment variable
 disappears from `api` and `mcp`, one appears on `ui`, and `app-keycloak` is a
@@ -324,9 +340,11 @@ situation.
 
 Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
-- **The tenant checkout was at least 15 commits behind** with a clean tree
-  (`/opt/hill90-app` at `f882158`, measured 08:17 UTC). It now *does* have a
-  dirty-tree guard (#35) — which is why it needs the pull in §4, step 2. The analysis is in
+- **Both checkouts are well behind and both trees are clean** — at 10:09 UTC,
+  `/opt/hill90/app` was 14 commits behind and `/opt/hill90-app` 21, both with 0
+  modifications. These counts only grow; measure rather than trust them. The
+  tenant now has a dirty-tree guard (#35), which is why it needs the pull in §4,
+  step 2. The analysis is in
   [tenant-checkout-hazard.md](tenant-checkout-hazard.md) — the tenant has the
   lost-edits hazard but **not** the live-config hazard, because nothing in it is
   bind-mounted *and* watched.
@@ -376,6 +394,8 @@ caught three claims that had gone stale between being written and being read.
 
 ---
 
-*Prepared 2026-07-29, last verified 09:16 UTC against the running host and the
-repositories. Re-check anything here before acting on it — several claims moved
-within an hour of being written.*
+*Prepared 2026-07-29, last verified 10:09 UTC against the running host and the
+repositories: 23 containers running, 0 unhealthy, Hill90 baseline exactly 13,
+both working trees clean, `hill90.com` 200. Re-check anything here before acting
+on it — several claims moved within an hour of being written, and the commit
+counts move every time something merges.*
