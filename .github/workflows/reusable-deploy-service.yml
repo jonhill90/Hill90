@@ -74,6 +74,7 @@ jobs:
             "cd /opt/hill90/app && \
              git fetch origin && \
              git diff --stat HEAD origin/main && \
+             bash scripts/preflight-checkout.sh && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
              bash scripts/deploy.sh ${{ inputs.service }} prod"
