@@ -4,18 +4,17 @@
 nothing is degraded. The application is deployed and healthy, and for the first
 time it has a backup that has actually been restored.
 
-**One thing is blocked**, and it is a two-command fix — see §3.
+**On the Keycloak migration, everything up to your decision is done and
+rehearsed.** The backup restores. The export was taken against a live
+`app-keycloak` — no downtime — and verified. The import was rehearsed into a
+throwaway and works: all three client secrets present, password hashes intact,
+the role mapper survives. **The only thing left before step 2 is your realm
+decision (§1.1).**
 
-**On the Keycloak migration you are no longer at step 0.** The backup exists and
-has been restored; the realm export exists and has been verified; the export was
-performed against a live `app-keycloak`, so the no-downtime finding is proven by
-execution rather than argument. The only thing between you and the next step is
-your realm decision (§1.1).
-
-Read the first section and stop if that is all you have time for — **except for
-two commands**: both VPS checkouts need pulling before anything deploys. That is
+Read §1 and stop if that is all you have time for — **except for two commands**:
+both VPS checkouts need pulling before anything will deploy, which is
 [§3](#3-do-this-first--two-checkouts-need-pulling-before-anything-deploys).
-Everything else below is either already safe or already recorded.
+Everything else is either already safe or already recorded.
 
 ```
 23 containers running · 0 unhealthy · Hill90 baseline exactly 13 · app 10
@@ -66,17 +65,40 @@ realm hill90 · 2 users, both carrying credentials · 3 clients carrying secrets
 5 realm roles · 2 realm_roles protocol mappers
 ```
 
-Credentials present is what makes it a **restore** rather than a re-creation;
-client secrets present are why it beats the `pg_dump`, which cannot carry them.
+Credentials present is what makes it a **restore** rather than a re-creation.
+
+It beats the `pg_dump` not because the dump lacks the secrets — the dump does
+contain them, in the `client` table — but because it is **the only artifact
+Keycloak can import**. `--import-realm` consumes a realm JSON; a database dump
+can only be restored by replacing a database, which is the destructive path
+described below.
 
 **That file contains credential material. Do not copy it into a repository**, and
 do not move it off the box without deciding where it may live. It is
 `0600 deploy:deploy` in a `0700` directory and should stay that way.
 
-**The import is untested.** Rehearsing it — importing into a throwaway, exporting
-again, and confirming the hashes and all three client secrets come back
-identical — is checklist item 4 in the app's migration runbook and is still open.
-Verified export, unverified import.
+**The import is rehearsed and works** (2026-07-29). Imported into a throwaway
+stack: all three client secrets present, password hashes intact, and the
+`realm_roles` mapper survives on `hill90-ui` pointing at `realm_roles` with no
+competing mapper.
+
+> **Do not use the `pg_dump` as the import vehicle.** It is the obvious
+> shortcut — the backup exists, it contains the realm, it looks sufficient — and
+> it is destructive. That dump is a whole-cluster restore of a *different*
+> Keycloak's database. Its `keycloak` database contains realms `master` and
+> `hill90` and **no `platform` realm**, while the platform's `keycloak` database
+> holds `master` and `platform`, and `platform` is where the `grafana`,
+> `portainer` and `hill90-vault` SSO clients live.
+>
+> It also does not fail cleanly. The dump carries `CREATE DATABASE keycloak` and
+> **no `DROP DATABASE`**, so against an existing database the create fails,
+> `psql` continues past the error by default, and the app's realm rows are then
+> copied *into the live platform database*. The likely outcome is a partially
+> merged identity store rather than a clean overwrite — worse, because it may not
+> fail loudly.
+>
+> The `kc.sh export` artifact is the only valid vehicle. It can be produced from
+> the backup if the live realm is ever unavailable.
 
 **The migration needs no downtime.** `kc.sh export` does not need *this*
 Keycloak stopped — it needs *an* exporter with database access, so a throwaway
@@ -85,8 +107,8 @@ below), not argued.
 
 That removes the main reason to postpone this to a quiet evening — the export
 itself costs nothing. **The `pg_dump` is not a substitute:** only a `kc.sh export`
-artifact carries `clients[].secret`, so a database dump alone cannot reconstitute
-the client secrets.
+artifact is importable: Keycloak's `--import-realm` takes a realm JSON, and a
+database dump can only be applied by replacing a database.
 
 ### 1.2 Does `hill90-app` go public?
 
