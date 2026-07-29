@@ -98,6 +98,17 @@ or in the existing `platform` realm — one Keycloak does not mean one realm.
 **Not started:** no migration has happened, and the platform Keycloak has no
 `hill90` realm to consolidate into. Export before delete, never the reverse.
 
+One technical input to the realm question, recorded neutrally because it is
+Jon's call and not a recommendation: the tenant hardcodes a fallback issuer of
+`https://auth.hill90.com/realms/hill90` in two places
+(`services/api/src/app.ts:105`, `services/mcp/app/main.py:17`). That realm
+returns 404 on this platform's Keycloak today, so a blank `KEYCLOAK_ISSUER`
+currently fails loudly. **If the consolidated realm is named `hill90`, that
+fallback silently becomes correct**, and from then on a blank issuer is
+indistinguishable from working configuration. Naming the realm something else,
+or removing the fallbacks, would keep the failure loud. This is a factor, not an
+argument for either option.
+
 **Postgres is still two instances** — this platform's `postgres` and the
 tenant's `app-postgres`, on separate volumes. **No decision has been recorded.**
 Consolidating data is not obviously the same move as consolidating identity:
@@ -113,8 +124,11 @@ gh workflow run deploy.yml -f service=all
 ```
 
 - Platform baseline is **13 containers, 0 unhealthy**. A tenant's containers sit
-  alongside them and are not part of that count — verify the baseline after any
-  tenant action.
+  alongside them and are not part of that count. **Verify the baseline after any
+  tenant action — a degraded baseline is the stop-everything signal.** The
+  tenancy contract has been tested in both directions: on 2026-07-29 the tenant
+  was torn down to a single container and redeployed, and this platform held at
+  exactly 13 with all shared networks intact throughout.
 - Public: `hill90.com` (the tenant's UI), `auth.hill90.com` (this platform's
   Keycloak, realm `platform`). Tailscale-only: `traefik`, `portainer`,
   `grafana`, `vault`.
