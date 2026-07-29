@@ -1,14 +1,19 @@
 # Morning brief — 2026-07-29
 
-**State verified against the running host at 08:03 UTC.** Nothing is broken.
-Nothing is waiting on you to unblock work. The application is deployed and
-healthy, and for the first time it has a backup that has actually been restored.
+**State verified against the running host at 08:03 UTC.** Nothing is broken and
+nothing is degraded. The application is deployed and healthy, and for the first
+time it has a backup that has actually been restored.
 
-Read the first section and stop if that is all you have time for. Everything
-below it is either already safe or already recorded.
+**One thing is blocked**, and it is a one-command fix — see below.
+
+Read the first section and stop if that is all you have time for — **except for
+one command**: Hill90 deploys are blocked until you pull the VPS checkout, and
+they fail with a bare `exit 127`. That is [§3](#3-do-this-first--hill90-deploys-are-currently-blocked).
+Everything else below is either already safe or already recorded.
 
 ```
 23 containers running · 0 unhealthy · Hill90 baseline exactly 13 · app 10
+(container counts and health, 08:03 UTC · drift counts, 08:10 UTC)
 hill90.com 200 · www.hill90.com 200 · app-auth.hill90.com 302
 traefik 401 · grafana 302 · vault 307 · storage 200 · portainer 200   (no 403 anywhere)
 ```
@@ -79,7 +84,7 @@ restore, and the Keycloak decision in both halves.
 
 It is held because the site is the most public surface in the estate and because
 its *merged-but-not-deployed* list will need one touch-up after you deploy
-(§3.2). Publishing after that deploy costs nothing and lands accurate.
+(§4.1). Publishing after that deploy costs nothing and lands accurate.
 
 ---
 
@@ -118,34 +123,71 @@ Both SQL dumps non-empty, verified 08:03 UTC.
 
 ---
 
-## 3. Safe to do
+## 3. Do this first — Hill90 deploys are currently blocked
 
-### 3.1 Pull the Hill90 checkout on the VPS
+**Every Hill90 deploy fails until you run one command.** This is not a warning
+about tidiness; it is a hard block, and it will be the first thing you hit.
 
 ```bash
 ssh deploy@<vps> 'cd /opt/hill90/app && git pull'
 ```
 
-**Why it is safe:** 3 commits behind, working tree **clean** (0 modifications),
-and **zero** of the pending files touch `platform/edge/dynamic` — the only
-bind-mounted directory Traefik watches. Nothing live-reloads as a result. The
-pending files are four workflows, two documents, the preflight script and its
-tests.
+**Why they are blocked.** All four Hill90 deploy paths now invoke a guard script
+over SSH, and the script is not on the box:
 
-**Why bother:** it installs `scripts/preflight-checkout.sh` where it actually
-runs. Until then the guard exists in the repository but not on the box, and the
-first deploy after it lands will halt at exit 127 rather than run unguarded —
-safe, but surprising. This is a one-time bootstrap cost.
+```
+.github/workflows/reusable-deploy-service.yml:77   bash scripts/preflight-checkout.sh && \
+.github/workflows/deploy-infra.yml:78              bash scripts/preflight-checkout.sh && \
+.github/workflows/vault-init.yml:117               ... && bash scripts/preflight-checkout.sh && ...
+.github/workflows/vault-reinitialize.yml:175       ... && bash scripts/preflight-checkout.sh && ...
 
-**Tonight's backups are not affected either way.** The backup fix is already on
-the box (`b50b3a1`), the cron entry runs `backup-all`, and that now includes
-`app-db`. The 03:00 run will produce both dumps with the fail-closed behaviour.
+/opt/hill90/app/scripts/preflight-checkout.sh   ABSENT   (checkout 3 behind, 08:10 UTC)
+```
 
-### 3.2 Deploy the merged-but-undeployed application changes
+The ordering is the trap: `git fetch` runs **before** the preflight and
+`git reset --hard` **after**. `git fetch` only updates refs, so it does not put
+the file in the working tree — the script is still missing at the moment it is
+called. The command chain is `&&`, so the deploy stops there with **exit 127 and
+no explanation**.
 
-`/opt/hill90-app` is at `f882158`; `main` is `a6db125`. **13 commits are merged
-and not deployed** — everything from #21 to #33. The running containers still
-carry the previous configuration.
+This is a chicken-and-egg the guard created: a preflight added to make deploys
+safer currently prevents deploys entirely. One manual pull resolves it
+permanently, because from then on the file is in the checkout it validates.
+
+**The pull itself is safe.** The working tree is **clean** (0 modifications), so
+nothing is destroyed, and **zero** of the pending files touch
+`platform/edge/dynamic` — the only bind-mounted directory Traefik watches — so
+nothing live-reloads. The pending files are four workflows, two documents, the
+guard script and its tests.
+
+**Tonight's backups are unaffected either way.** The backup fix is already on the
+box (`b50b3a1`), the cron entry runs `backup-all`, and that now includes
+`app-db`. The 03:00 run produces both dumps with the fail-closed behaviour
+whether or not you pull.
+
+**The same shape may be waiting on the tenant.** As of 08:10 UTC `hill90-app` has
+no preflight script and its deploy path is unaffected — but an equivalent guard
+is being written. If it lands, `/opt/hill90-app` (13 behind, clean, at
+`f882158`) needs the same one-time pull before its next deploy, for the same
+reason. Check for `scripts/preflight-checkout.sh` in that repo before assuming
+its deploys still work.
+
+---
+
+## 4. Safe to do
+
+### 4.1 Deploy the merged-but-undeployed application changes
+
+`/opt/hill90-app` was at `f882158` and `main` at `a6db125` when this was
+written — **at least 13 commits merged and not deployed**, everything from #21
+onward. The running containers still carry the previous configuration.
+
+Treat every count in this document as a floor, not a total. Three PRs landed
+while it was being written, so the real gap is this or larger. Check it yourself:
+
+```bash
+ssh deploy@<vps> 'cd /opt/hill90-app && git fetch -q && git rev-list --count HEAD..origin/main'
+```
 
 ```bash
 gh workflow run "Manual Deploy App (Prod)" -f service=<stack> -f dry_run=true
@@ -163,13 +205,13 @@ worth knowing you are taking it.
 
 ---
 
-## 4. Known-open
+## 5. Known-open
 
 Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
-- **The tenant checkout is 13 commits behind** with a clean tree
-  (`/opt/hill90-app` at `f882158`). It also has no equivalent of the dirty-tree
-  guard. The analysis is in
+- **The tenant checkout was at least 13 commits behind** with a clean tree
+  (`/opt/hill90-app` at `f882158`, measured 08:10 UTC). It also has no equivalent
+  of the dirty-tree guard yet. The analysis is in
   [tenant-checkout-hazard.md](tenant-checkout-hazard.md) — the tenant has the
   lost-edits hazard but **not** the live-config hazard, because nothing in it is
   bind-mounted *and* watched.
