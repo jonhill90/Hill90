@@ -166,26 +166,36 @@ Nothing is blocked by leaving this open.
 
 ### 1.4 Publish the documentation site refresh?
 
-**Not a yes/no any more — publish the right branch, and not before step 1.**
+**Not a yes/no any more — publish one specific branch, and not before step 1.**
 
-There are **two** staged branches in `hill90-docs`, and only one is safe:
+**Publish `docs/mintlify-login-truth`. Nothing else.**
 
-| Branch | State |
-|---|---|
-| `docs/post-deploy-refresh` | **Do not publish.** Written before the login failure was known. It tells readers the login form was reachable and gives a *"Sign in with your Keycloak credentials"* instruction that cannot be followed. |
-| `docs/mintlify-login-truth` | **The one to publish.** Same content, plus: every `ai-app` page carries the broken-login finding, the sign-in instruction is corrected, and three pages that named `auth.hill90.com` as the application's identity provider now name `app-auth.hill90.com` — the homelab's is a different realm. |
+Three branches were staged in `hill90-docs` during the night, and only the newest
+is correct. The two older ones **have been deleted** so the wrong one cannot be
+picked by name; they are recorded here so the history is not confusing:
 
-Both correct the site to eight healthy stacks, the passed detachment test, the
-proven restore, and the Keycloak decision in both halves.
+| Branch | When | State |
+|---|---|---|
+| `docs/post-deploy-refresh` | 07:53 UTC | **Deleted.** Written before the login failure was known. Said the login form was reachable and instructed *"Sign in with your Keycloak credentials"* — an instruction that cannot be followed. |
+| `docs/post-deploy-refresh-login` | 09:27 UTC | **Deleted.** Superseded intermediate. It warned about the login on the application overview page only, which was not enough: the quickstart and authentication pages still read as a working flow, and those are the two someone trying to sign in would open. |
+| **`docs/mintlify-login-truth`** | **09:52 UTC** | **This is the one.** Every `ai-app` page carries the broken-login finding, the sign-in instruction is corrected, and three pages that named `auth.hill90.com` as the application's identity provider now name `app-auth.hill90.com` — the homelab's is a different realm. |
 
-**Two things to do before it goes live**, neither large:
+Both deleted branches were verified to be strict ancestors of the surviving one
+before removal: it contains everything they did, and the only lines it drops are
+a stale timestamp and the incorrect `auth.hill90.com` references it replaces.
+Their commits remain reachable through `docs/mintlify-login-truth`.
+
+All three corrected the site to eight healthy stacks, the passed detachment test,
+the proven restore, and the Keycloak decision in both halves.
+
+**Two things before it goes live**, neither large:
 
 1. **Repair the login (§4, step 1) first, or publish knowing the site says login
-   is broken.** Either is defensible — the site would be accurate in both cases —
-   but publishing first and repairing second means the site is briefly wrong in
-   the reassuring direction, which is the worse way round.
-2. **Touch up the merged-but-not-deployed list after you deploy** (§4, step 3),
-   which is a one-line edit.
+   is broken.** Either is defensible — the site is accurate in both cases — but
+   publishing first and repairing second leaves the site briefly wrong *in the
+   reassuring direction*, which is the worse way round.
+2. **Touch up the merged-but-not-deployed list after you deploy** (§4, step 3) —
+   a one-line edit.
 
 The site is the most public surface in the estate, which is why this is the one
 place where publishing something stale costs more than waiting.
