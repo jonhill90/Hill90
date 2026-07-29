@@ -201,6 +201,15 @@ gh workflow run "Manual Deploy App (Prod)" -f service=<stack> -f dry_run=true
 
 Use `dry_run=true` first; it runs every guard and stops before changing anything.
 
+**What actually changes at runtime if you do:** almost nothing user-visible. One
+environment variable disappears from `api` and `mcp`, one appears on `ui`, and
+`app-keycloak` is a byte-for-byte no-op that will not even be recreated. The one
+change with teeth is that token validation moves from an internal URL to the
+public issuer through Traefik — verified working from inside both containers, but
+it makes the edge a dependency of authentication. Per-stack detail, measured by
+diffing the rendered config against the running containers:
+[pre-deploy impact](2026-07-29-pre-deploy-impact.md).
+
 **One thing to know before deploying rather than after.** #26 moves API token
 validation from an internal URL onto the **public issuer path through Traefik**.
 It was verified reachable from inside both containers, so it works — but it makes
