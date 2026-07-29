@@ -25,7 +25,9 @@ nothing. It is a **platform**: it hosts tenants but is not the application.
   path if ACME goes wrong.
 - [`docs/decisions/`](docs/decisions/) — why things are the way they are.
   [`app-tenancy-on-the-vps.md`](docs/decisions/app-tenancy-on-the-vps.md) defines
-  what this platform offers a tenant.
+  what this platform offers a tenant;
+  [`tenant-checkout-hazard.md`](docs/decisions/tenant-checkout-hazard.md) records
+  why the tenant needs its own checkout guard and why its risk is the smaller one.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — conventions and the deploy rules.
 - Published pages: [docs.hill90.com](https://docs.hill90.com).
 
