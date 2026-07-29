@@ -1,13 +1,19 @@
 # Deploying hill90-app to the VPS — What Would Have to Happen
 
-**Status:** plan — nothing here has been executed
+**Status:** partially executed — Phase A complete; `ui`, `db`, `auth` and `api`
+deployed 2026-07-29 from hill90-app's own pipeline
 **Recorded:** 2026-07-27
+**Updated:** 2026-07-29
 **Companion to:** [app-tenancy-on-the-vps.md](../decisions/app-tenancy-on-the-vps.md),
 which establishes what Hill90 provides. This turns that into an ordered
 procedure.
 
-Nothing in this document was run against production. The evidence below comes
-from read-only probes.
+The plan below was written from read-only probes and has since been partly
+carried out. What is now deployed and healthy: `ui`, `db`, `auth`, `api`.
+`knowledge` is crash-looping and `ai` is unhealthy — the `knowledge` fix is
+merged to hill90-app's `main` but not yet deployed. `mcp` and `minio` have never
+been deployed. Deploys run from hill90-app's GitHub Actions pipeline over SSH,
+never from a workstation.
 
 ## Bottom line
 

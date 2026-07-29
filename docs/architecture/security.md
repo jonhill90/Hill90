@@ -57,7 +57,7 @@ No service in the current stack sends email. Keycloak was the only sender;
 
 - `hill90_edge`: ingress-facing network for Traefik and the routed services.
 - `hill90_internal`: `internal: true`, unreachable from outside the host; used for private service-to-service traffic.
-- `hill90_agent_internal`: `internal: true`, created by the edge stack. Retained from the shelved application and currently unused by any running container.
+- `hill90_agent_internal`: `internal: true`, created by the edge stack. Attached by the hill90-app tenant's `app-api` and `app-ai` containers.
 - Tailscale-only routes are protected with Traefik middleware and IP allowlists in addition to the firewall. That control depends on Traefik seeing the true client address — see [Network-Layer Client Identity](#network-layer-client-identity).
 
 `docker-compose.infra.yml` is the sole owner of all three networks; the

@@ -136,7 +136,7 @@ gh workflow run deploy.yml -f service=all             # everything in order
 
 - **hill90_edge** — ingress-facing; Traefik and the services it routes
 - **hill90_internal** — `internal: true`, private service-to-service traffic
-- **hill90_agent_internal** — `internal: true`, retained from the shelved application and currently unused
+- **hill90_agent_internal** — `internal: true`, used by the hill90-app tenant (`app-api`, `app-ai`)
 
 ## Traefik Dashboard Authentication
 
