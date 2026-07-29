@@ -31,6 +31,7 @@ Commands:
 
 Services with backups:
   db             PostgreSQL SQL dump + data volume tar
+  app-db         hill90-app tenant: SQL dump + data volume tar
   vault          OpenBao secrets data (volume tar)
   infra          Traefik certificates + Portainer data (volume tar)
   observability  Grafana dashboards + Prometheus data (volume tar)
@@ -38,6 +39,62 @@ Services with backups:
 Environment variables:
   BACKUP_DIR    Override backup root (default: ${BACKUP_ROOT})
 EOF
+}
+
+# ---------------------------------------------------------------------------
+# sops resolution
+#
+# THIS IS THE INCIDENT. /etc/crontab sets PATH=/sbin:/bin:/usr/sbin:/usr/bin and
+# sops is installed to /usr/local/bin, so under cron `sops` was "command not
+# found". Its stderr went to /dev/null, DB_USER came back empty, the SQL dump
+# was skipped with a warning, the volume tar still ran, and the script exited 0.
+# Three consecutive nightly backups held a tar and no dump while cron reported
+# success. The same command worked by hand, which is why it survived.
+#
+# Resolve by PATH first, then by the known install location.
+# ---------------------------------------------------------------------------
+
+resolve_sops() {
+    if command -v sops >/dev/null 2>&1; then
+        command -v sops
+        return 0
+    fi
+    for candidate in /usr/local/bin/sops /usr/bin/sops /opt/homebrew/bin/sops; do
+        [ -x "$candidate" ] && { printf '%s' "$candidate"; return 0; }
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Artifact verification
+#
+# Two backup directories on the VPS were completely empty and still counted as
+# successful runs. An empty directory must be impossible to report as a backup.
+# ---------------------------------------------------------------------------
+
+verify_artifacts() {
+    local backup_dir="$1"
+    shift
+    local required=("$@")
+
+    [ -d "$backup_dir" ] || die "Backup directory was never created: $backup_dir"
+
+    local found
+    found=$(find "$backup_dir" -type f ! -name '.*.partial' | wc -l | tr -d ' ')
+    [ "$found" -gt 0 ] || die "Backup produced no files at all: $backup_dir"
+
+    local f
+    for f in "${required[@]}"; do
+        [ -f "$backup_dir/$f" ] || die "Expected artifact missing: $backup_dir/$f"
+        [ -s "$backup_dir/$f" ] || die "Expected artifact is empty: $backup_dir/$f"
+    done
+
+    # Nothing that survived should be zero-length.
+    while IFS= read -r f; do
+        [ -s "$f" ] || die "Backup artifact is empty: $f"
+    done < <(find "$backup_dir" -type f ! -name '.*.partial')
+
+    echo "  ✓ verified ${found} artifact(s) in $backup_dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -99,17 +156,27 @@ backup_db() {
     # Load secrets here rather than depending on the caller's ordering.
     local db_user="${DB_USER:-}"
     if [ -z "$db_user" ] && [ -f "${PROJECT_ROOT}/infra/secrets/prod.enc.env" ]; then
-        db_user=$(sops -d "${PROJECT_ROOT}/infra/secrets/prod.enc.env" 2>/dev/null \
-                  | grep '^DB_USER=' | cut -d= -f2- || true)
+        local sops_bin
+        if sops_bin="$(resolve_sops)"; then
+            db_user=$("$sops_bin" -d "${PROJECT_ROOT}/infra/secrets/prod.enc.env" 2>/dev/null \
+                      | grep '^DB_USER=' | cut -d= -f2- || true)
+        else
+            die "sops is not installed or not resolvable (PATH=$PATH).
+Under cron, PATH is /sbin:/bin:/usr/sbin:/usr/bin and sops lives in
+/usr/local/bin — this is exactly how the SQL dump silently stopped running."
+        fi
     fi
 
     # pg_isready is NOT an authentication check — it exits 0 for any role name,
     # including one that does not exist and including the empty string. Prove
     # the credentials work by running a query.
+    # These used to be warnings. A backup that produces no dump and still reports
+    # success manufactures false confidence, which is worse than an error: the
+    # operator believes they have a restore path and does not.
     if [ -z "$db_user" ]; then
-        warn "DB_USER could not be resolved — skipping SQL dump (volume tar still taken)"
+        die "DB_USER could not be resolved — refusing to report a backup with no SQL dump"
     elif ! docker exec postgres psql -U "$db_user" -tAc 'SELECT 1' >/dev/null 2>&1; then
-        warn "Cannot authenticate to PostgreSQL as '${db_user}' — skipping SQL dump (volume tar still taken)"
+        die "Cannot authenticate to PostgreSQL as '${db_user}' — refusing to report a backup with no SQL dump"
     else
         # Never leave a truncated dump behind claiming to be a backup: write to
         # a temp file, check the exit status AND that it is non-empty, and only
@@ -120,12 +187,67 @@ backup_db() {
             echo "  ✓ SQL dump saved to $backup_dir/database.sql ($(wc -c < "$backup_dir/database.sql") bytes)"
         else
             rm -f "$backup_dir/.database.sql.partial"
-            warn "pg_dumpall failed or produced an empty dump — no SQL backup was taken"
+            die "pg_dumpall failed or produced an empty dump — refusing to report success"
         fi
     fi
 
     # Volume tar (full data directory backup). Runs regardless of the dump.
     backup_volume "prod_postgres-data" "$backup_dir/postgres-data.tar.gz" || true
+
+    verify_artifacts "$backup_dir" "database.sql"
+}
+
+# ---------------------------------------------------------------------------
+# Tenant database backup — hill90-app
+#
+# prod_app-postgres-data had never been backed up by anything. This repo's
+# backup.sh only knew prod_postgres-data, and hill90-app has no backup script of
+# its own. That volume holds the app's Keycloak realm and its user accounts, AKM
+# knowledge, chat history and LiteLLM data.
+#
+# The user is read from the running container rather than from a secrets store,
+# because the app's store lives in the app's repository and is not present here.
+# A tar of a live PGDATA is crash-consistent at best; pg_dumpall is the artifact
+# that restores cleanly, so both are taken and the dump is required.
+# ---------------------------------------------------------------------------
+
+backup_app_db() {
+    local backup_dir="$1"
+    mkdir -p "$backup_dir"
+
+    local container="${APP_PG_CONTAINER:-app-postgres}"
+
+    echo "Backing up the hill90-app tenant database..."
+
+    if ! docker inspect "$container" >/dev/null 2>&1; then
+        die "Container '${container}' not found — the tenant's database cannot be backed up.
+If the tenant is deliberately not deployed, run the other services explicitly
+rather than letting this report success."
+    fi
+
+    local app_user="${APP_DB_USER:-}"
+    if [ -z "$app_user" ]; then
+        app_user=$(docker inspect "$container" \
+                   --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+                   | grep '^POSTGRES_USER=' | cut -d= -f2- || true)
+    fi
+    [ -n "$app_user" ] || die "Could not determine the tenant database user from ${container}"
+
+    docker exec "$container" psql -U "$app_user" -tAc 'SELECT 1' >/dev/null 2>&1 \
+        || die "Cannot authenticate to ${container} as '${app_user}' — refusing to report a backup with no SQL dump"
+
+    if docker exec "$container" pg_dumpall -U "$app_user" > "$backup_dir/.app-database.sql.partial" 2>/dev/null \
+       && [ -s "$backup_dir/.app-database.sql.partial" ]; then
+        mv "$backup_dir/.app-database.sql.partial" "$backup_dir/app-database.sql"
+        echo "  ✓ SQL dump saved to $backup_dir/app-database.sql ($(wc -c < "$backup_dir/app-database.sql") bytes)"
+    else
+        rm -f "$backup_dir/.app-database.sql.partial"
+        die "pg_dumpall against ${container} failed or produced an empty dump — refusing to report success"
+    fi
+
+    backup_volume "prod_app-postgres-data" "$backup_dir/app-postgres-data.tar.gz" || true
+
+    verify_artifacts "$backup_dir" "app-database.sql"
 }
 
 backup_infra() {
@@ -163,8 +285,8 @@ cmd_backup() {
 
     # Validate service before constructing any paths
     case "$service" in
-        db|vault|infra|observability) ;;
-        *) die "Unknown service for backup: $service. Use: db, vault, infra, observability" ;;
+        db|app-db|vault|infra|observability) ;;
+        *) die "Unknown service for backup: $service. Use: db, app-db, vault, infra, observability" ;;
     esac
 
     local timestamp
@@ -173,6 +295,7 @@ cmd_backup() {
 
     case "$service" in
         db)            backup_db "$backup_dir" ;;
+        app-db)        backup_app_db "$backup_dir" ;;
         vault)         backup_vault "$backup_dir" ;;
         infra)         backup_infra "$backup_dir" ;;
         observability) backup_observability "$backup_dir" ;;
@@ -188,14 +311,34 @@ cmd_backup_all() {
     echo "================================"
     echo ""
 
-    for svc in db vault infra observability; do
-        cmd_backup "$svc"
+    # Run every service even if one fails, then fail the job at the end.
+    #
+    # Aborting on the first failure would be worse than the bug being fixed: the
+    # tenant's database is legitimately absent whenever the tenant is torn down
+    # (which happened during a teardown test on 2026-07-29), and `set -e` would
+    # then skip vault, infra and observability entirely. One missing service must
+    # not cost the other four their backups — but it must still turn the run red.
+    local failed=()
+    for svc in db app-db vault infra observability; do
+        if ! ( cmd_backup "$svc" ); then
+            failed+=("$svc")
+            warn "Backup FAILED for: $svc (continuing with the remaining services)"
+        fi
         echo ""
     done
 
     echo "================================"
-    echo "Full Backup Complete!"
+    if [ ${#failed[@]} -eq 0 ]; then
+        echo "Full Backup Complete!"
+        echo "================================"
+        return 0
+    fi
+
+    echo "Full Backup INCOMPLETE"
     echo "================================"
+    die "These services produced no usable backup: ${failed[*]}
+The other services were backed up. This exits non-zero deliberately — a partial
+backup must not be reported as success."
 }
 
 cmd_restore() {
