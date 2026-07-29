@@ -4,11 +4,16 @@
 nothing is degraded. The application is deployed and healthy, and for the first
 time it has a backup that has actually been restored.
 
-**One thing is blocked**, and it is a one-command fix — see below.
+**One thing is blocked**, and it is a two-command fix — see §3.
+
+**On the Keycloak migration you are no longer at step 0.** The backup exists and
+has been restored; the realm export exists and has been verified; the export was
+performed against a live `app-keycloak`, so the no-downtime finding is proven by
+execution rather than argument. The only thing between you and the next step is
+your realm decision (§1.1).
 
 Read the first section and stop if that is all you have time for — **except for
-two commands**: both VPS checkouts need pulling before anything deploys, and the
-Hill90 one fails with a bare `exit 127`. That is
+two commands**: both VPS checkouts need pulling before anything deploys. That is
 [§3](#3-do-this-first--two-checkouts-need-pulling-before-anything-deploys).
 Everything else below is either already safe or already recorded.
 
@@ -50,11 +55,33 @@ the two fallbacks first, keeps the failure loud.
 
 This is a factor, not a recommendation. Either answer is workable.
 
-**The migration needs no downtime, and that is new.** The runbook previously told
-you to accept a login outage for the realm export. That premise was tested and is
-false: `kc.sh export` does not need *this* Keycloak stopped, it needs *an*
-exporter with database access, so a throwaway sidecar exports against the live
-database. Corrected in hill90-app #34.
+**Migration step 1 is done — the realm export exists and is verified.** Performed
+2026-07-29 08:48 UTC with `app-keycloak` left running, which proves the
+no-downtime finding by execution:
+
+```
+/opt/hill90/backups/app-realm/20260729_084747/hill90-realm.json
+83,970 bytes · -rw------- deploy:deploy · directory drwx------ deploy:deploy
+realm hill90 · 2 users, both carrying credentials · 3 clients carrying secrets
+5 realm roles · 2 realm_roles protocol mappers
+```
+
+Credentials present is what makes it a **restore** rather than a re-creation;
+client secrets present are why it beats the `pg_dump`, which cannot carry them.
+
+**That file contains credential material. Do not copy it into a repository**, and
+do not move it off the box without deciding where it may live. It is
+`0600 deploy:deploy` in a `0700` directory and should stay that way.
+
+**The import is untested.** Rehearsing it — importing into a throwaway, exporting
+again, and confirming the hashes and all three client secrets come back
+identical — is checklist item 4 in the app's migration runbook and is still open.
+Verified export, unverified import.
+
+**The migration needs no downtime.** `kc.sh export` does not need *this*
+Keycloak stopped — it needs *an* exporter with database access, so a throwaway
+sidecar exports against the live database. This was proven by doing it (see
+below), not argued.
 
 That removes the main reason to postpone this to a quiet evening — the export
 itself costs nothing. **The `pg_dump` is not a substitute:** only a `kc.sh export`
@@ -115,9 +142,7 @@ its *merged-but-not-deployed* list will need one touch-up after you deploy
   estate has performed. Mechanism and artifact sizes:
   [deployment runbook § Backups](../runbooks/deployment.md#backups).
 - **Application tests now run on every pull request** — six suites, all passing.
-- **A deploy guard was added** (`scripts/preflight-checkout.sh`): a dirty VPS
-  checkout now prints its full diff and refuses, instead of `git reset --hard`
-  destroying it silently. This is what §3 is about.
+- **A deploy guard was added**, which is why §3 exists.
 
 ---
 
@@ -127,57 +152,24 @@ its *merged-but-not-deployed* list will need one touch-up after you deploy
 and they will be the first thing you hit.
 
 ```bash
-ssh deploy@<vps> 'cd /opt/hill90/app  && git pull'   # Hill90 — fails with a bare exit 127
-ssh deploy@<vps> 'cd /opt/hill90-app  && git pull'   # the app — fails with a clear message
+ssh deploy@<vps> 'cd /opt/hill90/app && git pull'   # Hill90
+ssh deploy@<vps> 'cd /opt/hill90-app && git pull'   # the app
 ```
 
-**They fail differently, and that matters when you are half awake.** The app's
-deploy checks for the file first and stops with
-`::error::scripts/preflight-checkout.sh is not on the VPS checkout yet`, naming
-the fix. **Hill90's four workflows do not** — they invoke the script directly, so
-they die at `exit 127` with no explanation. A port of the app's legible-error
-pattern to Hill90 was in progress at 08:17 UTC and **had not landed**; if it has
-by the time you read this, the Hill90 failure will name itself too. Check
-`.github/workflows/reusable-deploy-service.yml` for `is not on the VPS checkout`
-before assuming either way.
+**Why they are blocked.** Every deploy path in both repositories now runs a
+guard script over SSH, and neither checkout has it yet. The script ships *in* the
+repository, so it only reaches the box after one deploy that includes it — a
+chicken-and-egg the guard created. One pull each resolves it permanently.
 
-**Why they are blocked.** All four Hill90 deploy paths now invoke a guard script
-over SSH, and the script is not on the box:
+If you deploy without pulling, both now **tell you exactly this** and name the
+fix; neither fails mysteriously any more (Hill90 #570, hill90-app #35).
 
-```
-.github/workflows/reusable-deploy-service.yml:77   bash scripts/preflight-checkout.sh && \
-.github/workflows/deploy-infra.yml:78              bash scripts/preflight-checkout.sh && \
-.github/workflows/vault-init.yml:117               ... && bash scripts/preflight-checkout.sh && ...
-.github/workflows/vault-reinitialize.yml:175       ... && bash scripts/preflight-checkout.sh && ...
+**Both pulls are safe.** Both working trees are **clean** (0 modifications,
+08:58 UTC), so nothing is destroyed, and no pending file in either touches a
+bind-mounted, watched directory, so nothing live-reloads.
 
-/opt/hill90/app/scripts/preflight-checkout.sh   ABSENT   (4 behind, clean, 08:17 UTC)
-/opt/hill90-app/scripts/preflight-checkout.sh   ABSENT   (15 behind, clean, 08:17 UTC)
-```
-
-The ordering is the trap: `git fetch` runs **before** the preflight and
-`git reset --hard` **after**. `git fetch` only updates refs, so it does not put
-the file in the working tree — the script is still missing at the moment it is
-called. The command chain is `&&`, so the deploy stops there with **exit 127 and
-no explanation**.
-
-This is a chicken-and-egg the guard created: a preflight added to make deploys
-safer currently prevents deploys entirely. One manual pull resolves it
-permanently, because from then on the file is in the checkout it validates.
-
-**The pull itself is safe.** The working tree is **clean** (0 modifications), so
-nothing is destroyed, and **zero** of the pending files touch
-`platform/edge/dynamic` — the only bind-mounted directory Traefik watches — so
-nothing live-reloads. The pending files are four workflows, two documents, the
-guard script and its tests.
-
-**Tonight's backups are unaffected either way.** The backup fix is already on the
-box (`b50b3a1`), the cron entry runs `backup-all`, and that now includes
-`app-db`. The 03:00 run produces both dumps with the fail-closed behaviour
-whether or not you pull.
-
-Both pulls are safe for the same reasons: **both working trees are clean**
-(0 modifications at 08:17 UTC), so nothing is destroyed, and no pending file in
-either touches a bind-mounted, watched directory, so nothing live-reloads.
+**Backups are unaffected either way.** The backup fix is already on the box
+(`b50b3a1`) and the 03:00 cron runs `backup-all`, which includes `app-db`.
 
 ---
 
@@ -210,11 +202,12 @@ it makes the edge a dependency of authentication. Per-stack detail, measured by
 diffing the rendered config against the running containers:
 [pre-deploy impact](2026-07-29-pre-deploy-impact.md).
 
-**One thing to know before deploying rather than after.** #26 moves API token
-validation from an internal URL onto the **public issuer path through Traefik**.
+**One thing to know before deploying rather than after.** One of these commits
+moves API token validation from an internal URL onto the **public issuer path
+through Traefik**.
 It was verified reachable from inside both containers, so it works — but it makes
-the edge a dependency of authentication. If Traefik is down, authentication fails
-in a way it previously would not have. That is a deliberate tradeoff for making
+the edge a dependency of authentication: if Traefik is down, authentication
+fails, which was not true before. That is a deliberate tradeoff for making
 the issuer impossible to diverge; it is recorded in the app's runbook, and it is
 worth knowing you are taking it.
 
@@ -233,9 +226,9 @@ Nothing here is blocking, and nothing here is a surprise waiting to happen.
 - **`admin.hill90.com` resolves to the tailnet address and returns nothing.** No
   router matches it and no container serves it — stale DNS pointing at an
   absence, not a fault. Verified: zero Traefik routers reference it.
-- **Hill90 #556 and #559 are both open and now conflicting**, having been
-  overtaken by tonight's merges. #556 restores MinIO as a platform service; #559
-  scrapes the tenant's database. Both need a rebase before they can land.
+- **Hill90 #556 and #559 are open and conflicting** and need a rebase before they
+  can land. #556 restores MinIO as a platform service; #559 scrapes the tenant's
+  database.
 - **No agent has been run end to end on the VPS.** Healthy containers and
   answered routes are not an exercised application. This is the largest untested
   surface remaining.
