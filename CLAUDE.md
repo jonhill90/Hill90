@@ -174,8 +174,22 @@ the migration run — but say "nothing worth preserving", not "empty".
   `hill90admin` and `testuser01` in platform realm `platform`, and the same three in
   realm `hill90` on the tenant's own Keycloak.
 - **`app-postgres` is still running and still serving.** See above.
-- **Local is half-drifted**, and is being fixed in the tenant's lane. **Local parity
-  lands before anything is retired.**
+- **Local parity — this platform's half is done; the tenant's is not.**
+  `platform-realm.json` now carries `hill90-ui` and `hill90-api`, mirroring
+  production literally, so a **local** platform Keycloak can serve a tenant the way
+  production's does. Proven by importing the realm into a real Keycloak and reading
+  the token a user would get: `resource_access.hill90-ui.roles = ['admin']`,
+  `aud` includes `hill90-api`, and no `realm_roles` claim —
+  `scripts/checks/realm-tenant-serves-test.sh`, `Verified 2026-07-30 02:41 UTC`.
+  **What remains is the tenant's side:** its local stack still points at its own
+  `app-keycloak`, so local proves the realm design and not yet the tenancy.
+  **Local parity lands before anything is retired**, because a broken local stack
+  would otherwise have nothing to fall back to.
+- **`HILL90_UI_CLIENT_SECRET` has no production value in the store yet.** It only
+  bites on a FIRST import — the live realm already has the client — so a **VPS
+  rebuild** is the case that depends on it, and it must equal the value hill90-app
+  holds. `check_env_surface.py` deliberately allows it no default: a fallback would
+  import a *known* secret for the client fronting hill90.com and say nothing.
 - **Keycloak event storage is off** — `events_enabled=false` on both `master` and
   `platform`, `Verified 2026-07-30 02:07 UTC`. That is why "has anyone actually
   logged in?" cannot be answered from the host: sessions live in Infinispan, not the
