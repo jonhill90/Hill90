@@ -337,6 +337,39 @@ print(json.dumps([
         warn "Could not add local OIDC callbacks to hill90-vault — 'local.sh vault setup-oidc' logins will fail with 'Invalid parameter: redirect_uri'"
     fi
 
+    # Same shape, third delta: hill90-ui ships production URLs too, and it is the
+    # client the TENANT's local stack authenticates with. Without this, pointing
+    # hill90-app's local UI at this Keycloak fails with
+    # "Invalid parameter: redirect_uri" — so local would prove the realm design
+    # and never the tenancy, which is the gap this delta exists to close.
+    #
+    # webOrigins matters as well as redirectUris: NextAuth's browser-side calls
+    # are rejected by CORS without it, and that failure looks like an auth
+    # problem rather than an origin problem. Production already learned that
+    # distinction the hard way on api.hill90.com.
+    local ui_local; ui_local="http://localhost:$(env_get TENANT_UI_PORT 13000)"
+    local ui_uris_json ui_origins_json
+    ui_uris_json=$(python3 -c '
+import json, sys
+print(json.dumps([
+    "https://hill90.com/api/auth/callback/keycloak",
+    sys.argv[1].rstrip("/") + "/api/auth/callback/keycloak",
+]))' "$ui_local")
+    ui_origins_json=$(python3 -c '
+import json, sys
+print(json.dumps(["https://hill90.com", sys.argv[1].rstrip("/")]))' "$ui_local")
+    local ui_cid
+    ui_cid=$(docker exec "${cpfx}keycloak" /opt/keycloak/bin/kcadm.sh get clients \
+        -r "${KC_PLATFORM_REALM:-platform}" -q clientId=hill90-ui --fields id \
+        --format csv --noquotes 2>/dev/null | tr -d '\r')
+    if [ -n "$ui_cid" ] && docker exec "${cpfx}keycloak" /opt/keycloak/bin/kcadm.sh update \
+        "clients/${ui_cid}" -r "${KC_PLATFORM_REALM:-platform}" \
+        -s "redirectUris=${ui_uris_json}" -s "webOrigins=${ui_origins_json}" >/dev/null 2>&1; then
+        success "Added local callbacks and origin to the hill90-ui client (${ui_local})"
+    else
+        warn "Could not add local callbacks to hill90-ui — pointing the tenant's local UI at this Keycloak will fail with 'Invalid parameter: redirect_uri'"
+    fi
+
     info "Starting the vault stack (openbao)..."
     compose_vault up -d || die "Vault stack failed to start"
 

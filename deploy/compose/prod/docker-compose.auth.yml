@@ -39,6 +39,16 @@ services:
       # secret is randomly generated and can never match the value setup-oidc
       # reads from SOPS, so OIDC login fails with invalid_client.
       - VAULT_OIDC_CLIENT_SECRET=${VAULT_OIDC_CLIENT_SECRET}
+      # The tenant's hill90-ui client secret, same mechanism as the vault one
+      # above. Matters only on a FIRST import: the live realm already has the
+      # client, and `start --import-realm` ignores an existing realm. This is
+      # what a VPS rebuild depends on.
+      #
+      # The client's redirect URI and web origin are the LITERAL production
+      # values in platform-realm.json. Local does not parameterise them — it
+      # appends its callback to the running client, the same delta local.sh
+      # already applies to hill90-vault.
+      - HILL90_UI_CLIENT_SECRET=${HILL90_UI_CLIENT_SECRET}
       - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_ADMIN_USERNAME}
       - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}
       - JAVA_OPTS_APPEND=-Xms256m -Xmx768m
