@@ -457,6 +457,14 @@ deploy workflows, which do not verify `infra`. Worth fixing separately.
 Nothing in the "Provided today ✗" column is a Hill90 capability gap except the
 deploy tooling. The rest are naming decisions that belong to the app.
 
+**Credentials to platform-owned objects are part of this contract.** When the
+platform owns the object — a Postgres role, an OIDC client in realm `platform` —
+this repository's store owns the credential and the tenant holds a replica. The
+reason is this contract rather than a preference: a rebuild path that depends on
+reaching into a tenant's private secret store is not satisfiable by this repository
+alone, which inverts the tenancy relationship. See
+[tenant-credential-ownership.md](tenant-credential-ownership.md).
+
 ## VPS baseline, captured during this assessment
 
 Unchanged from the app repo's Phase 0 baseline, re-verified read-only:

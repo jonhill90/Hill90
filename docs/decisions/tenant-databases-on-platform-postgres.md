@@ -142,6 +142,12 @@ secret is exactly how the app's Keycloak client secret drifted out of agreement
 with Keycloak and cost a night of diagnosis. The mitigation is a declared owner and
 an idempotent reconciliation command, not pretending one copy is enough.
 
+> **Generalised 2026-07-30.** The same question came up again for the `hill90-ui`
+> OIDC client secret and got the same answer for the same reason, so the rule is now
+> written down once instead of re-argued per credential:
+> [tenant-credential-ownership.md](tenant-credential-ownership.md). Read that before
+> deciding where a *third* tenant credential lives — MinIO is the likely next one.
+
 ## What broke that had to be fixed alongside
 
 **A least-privilege tenant cannot install extensions.** The app's migrations run
