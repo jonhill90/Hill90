@@ -174,6 +174,18 @@ the migration run — but say "nothing worth preserving", not "empty".
   `hill90admin` and `testuser01` in platform realm `platform`, and the same three in
   realm `hill90` on the tenant's own Keycloak.
 - **`app-postgres` is still running and still serving.** See above.
+- **Declaring a client in `platform-realm.json` does NOT put it in a realm that
+  already exists.** `start --import-realm` is `IGNORE_EXISTING`, so the file is read
+  only on first boot — `keycloak.sh`'s own header says so, and #584 shipped clients
+  into it with no reconcile path, which made the change inert on production and on
+  every existing local stack. Use `bash scripts/keycloak.sh tenant-clients`; it is
+  idempotent and **never rewrites an existing client's secret**, because production's
+  `hill90-ui` secret is live and correct while `HILL90_UI_CLIENT_SECRET` has no
+  production value.
+- **A local dev account needs `email`, `firstName` and `lastName`.** The realm carries
+  Keycloak's default Verify Profile action, so a user without them is diverted to
+  `required-action?execution=VERIFY_PROFILE` and the login never completes. It looks
+  like rejected credentials and is not.
 - **Local parity — this platform's half is done; the tenant's is not.**
   `platform-realm.json` now carries `hill90-ui` and `hill90-api`, mirroring
   production literally, so a **local** platform Keycloak can serve a tenant the way
@@ -181,6 +193,11 @@ the migration run — but say "nothing worth preserving", not "empty".
   the token a user would get: `resource_access.hill90-ui.roles = ['admin']`,
   `aud` includes `hill90-api`, and no `realm_roles` claim —
   `scripts/checks/realm-tenant-serves-test.sh`, `Verified 2026-07-30 02:41 UTC`.
+  A **completed authorization-code login** against the running local platform
+  Keycloak now backs that up — form, credentials, code, token exchange — with the
+  token carrying `resource_access.hill90-ui.roles = ['admin']`, `aud` including
+  `hill90-api`, no `admin` in `realm_access.roles`, and a roleless user refused:
+  `scripts/checks/tenant-login-local-test.sh`, `Verified 2026-07-30 03:17 UTC`.
   **What remains is the tenant's side:** its local stack still points at its own
   `app-keycloak`, so local proves the realm design and not yet the tenancy.
   **Local parity lands before anything is retired**, because a broken local stack
