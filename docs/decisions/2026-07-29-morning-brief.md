@@ -131,13 +131,13 @@ unring it. Your call alone.
 
 ### 1.5 Publish the documentation site refresh?
 
-**Publish `docs/mintlify-login-truth`. It is the only staged branch** — the two
-superseded ones were deleted so the wrong one cannot be picked by name.
+**Publish `docs/mintlify-rescope`. It is the only staged branch** — three
+superseded ones have been deleted so the wrong one cannot be picked by name.
 
-It corrects the site to eight healthy stacks, the passed detachment test and the
-proven restore. **It still needs the re-scope in this document applying to it**
-before it goes live: it describes the realm question as open and Postgres as
-undecided, both of which are now wrong.
+It carries everything: eight healthy stacks, the passed detachment test, the proven
+restore, **and** this document's re-scope — the governing principle, one realm in
+`platform`, Postgres decided, storage open, greenfield rather than migration, and
+the current auth position (client authentication works, sign-in unproven).
 
 The site is the most public surface in the estate, which is why this is the one
 place where publishing something stale costs more than waiting.
