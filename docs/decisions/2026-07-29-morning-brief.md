@@ -104,6 +104,22 @@ Hill90's Postgres asserts *platform-only databases* — a check written to fail 
 application databases appear there. Consolidating data means that boundary has to
 be revisited deliberately, not worked around.
 
+> **Amended 2026-07-30 — the complication is now handled, and the move is not.**
+> Hill90 gained `scripts/provision-tenant-db.sh`: a least-privilege tenant role,
+> tenant-owned databases, and `PUBLIC` revoked so a tenant cannot open `keycloak`.
+> The check now asserts **tenant isolation** and still fails on an application
+> database owned by the platform role. Two corrections to the paragraph above:
+> that check is a **local dev check**, not production enforcement, and nothing in
+> the deploy path consults it. See
+> [tenant-databases-on-platform-postgres.md](tenant-databases-on-platform-postgres.md).
+>
+> What is left is the move itself: point the app at the platform, migrate nothing
+> (this is greenfield), and only then retire `app-postgres`. One thing found while
+> proving it will bite during that work — a least-privilege tenant cannot install
+> `uuid-ossp` or `vector`, which the app's migrations create, so the platform
+> installs them. It works today only because the app's `DB_USER` is a superuser in
+> its own Postgres.
+
 ### 1.3 MinIO — OPEN, and the state is reversed
 
 This one genuinely is undecided, and it is the mirror image of the other two:

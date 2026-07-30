@@ -109,6 +109,16 @@ complication is real and is not the Keycloak steps repeated: this platform's
 health check asserts *platform-only databases*, so that boundary has to be
 revisited deliberately rather than worked around.
 
+> **That boundary was revisited on 2026-07-30, and this platform can now host a
+> tenant.** `scripts/provision-tenant-db.sh` creates a least-privilege tenant role
+> with tenant-owned databases, and the local check asserts **tenant isolation**
+> instead — an application database owned by the platform role still fails, by
+> name. See
+> [tenant-databases-on-platform-postgres.md](docs/decisions/tenant-databases-on-platform-postgres.md).
+> The capability exists; **it is not in use.** Nothing points at this Postgres and
+> `app-postgres` is untouched, so the move itself is still ahead. Note also that
+> the check was only ever a *local dev* check, never production enforcement.
+
 **This is greenfield, not a migration.** hill90-app reached the VPS for the first
 time on 2026-07-29 and its realm holds two accounts created hours earlier that
 have never been used. There is no accumulated state. Export, import, rollback and
