@@ -27,7 +27,12 @@ UI_REDIRECT="http://localhost:$(envget TENANT_UI_PORT)/api/auth/callback/keycloa
 SECRET=$(envget HILL90_UI_CLIENT_SECRET)
 ADMIN_U=$(envget KC_ADMIN_USERNAME)
 ADMIN_P=$(envget KC_ADMIN_PASSWORD)
-PW='LocalProbe!2026'
+# Generated per run, never committed. It only ever authenticates the two users this
+# script creates and deletes, so a literal would be low-risk — but invariant 7 says
+# secrets do not live in the tree, and a hardcoded one here was counted as the third
+# credential exposure of 2026-07-30. Cheaper to generate it than to argue the
+# exception. Mixed case, digit and symbol, so any password policy accepts it.
+PW="Probe-$(openssl rand -hex 16)-9!"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BOLD='\033[1m'; NC='\033[0m'
 pass=0; fail=0
