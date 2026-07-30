@@ -6,9 +6,11 @@ still runs its own `app-postgres` and still serves from it; nothing here deletes
 migrates or repoints anything. The databases now exist on the platform and are
 empty, waiting for the app to be repointed — a separate change in `hill90-app`.
 
-## On the real instance — `Verified 2026-07-30 01:57 UTC`
+## On the real instance — `Verified 2026-07-30 01:35 UTC`
 
-Provisioned against the production platform Postgres with the merged script
+Provisioned against the production platform Postgres at **01:34:42–01:34:44 UTC**
+(read from the data directory's creation times, since Postgres records no database
+creation timestamp) with the merged script
 (sha256 `e3983b4c…`, checksum-matched on the host before running), `--dry-run`
 first. Role `hill90_app`; databases `hill90_api`, `hill90_akm`, `hill90_litellm`.
 
@@ -212,6 +214,9 @@ with no tenants on it.
 
 ## See also
 
+- [app-postgres-cutover-plan.md](app-postgres-cutover-plan.md) — **the app-side
+  change set**: every connection string with file and line, the key names, the
+  order, the rollback, and a per-database verdict on what happens to the data
 - [platform-primitives.md](platform-primitives.md) — why Postgres is a platform
   service and not an application dependency
 - [app-tenancy-on-the-vps.md](app-tenancy-on-the-vps.md) — the tenancy contract
