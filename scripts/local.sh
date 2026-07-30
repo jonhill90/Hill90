@@ -337,37 +337,28 @@ print(json.dumps([
         warn "Could not add local OIDC callbacks to hill90-vault — 'local.sh vault setup-oidc' logins will fail with 'Invalid parameter: redirect_uri'"
     fi
 
-    # Same shape, third delta: hill90-ui ships production URLs too, and it is the
-    # client the TENANT's local stack authenticates with. Without this, pointing
-    # hill90-app's local UI at this Keycloak fails with
-    # "Invalid parameter: redirect_uri" — so local would prove the realm design
-    # and never the tenancy, which is the gap this delta exists to close.
+    # The tenant's clients need more than a URL delta: platform-realm.json is
+    # imported ONLY on first boot, so on any stack that existed before those
+    # clients were declared they are simply absent — this local stack included.
+    # keycloak.sh tenant-clients reconciles them idempotently, and takes the
+    # local URLs so the callback this platform must accept is the tenant's.
     #
-    # webOrigins matters as well as redirectUris: NextAuth's browser-side calls
-    # are rejected by CORS without it, and that failure looks like an auth
-    # problem rather than an origin problem. Production already learned that
-    # distinction the hard way on api.hill90.com.
+    # webOrigins matters as much as redirectUris: NextAuth's browser-side calls
+    # are rejected by CORS without it, and that failure reads as an auth problem
+    # rather than an origin one. Production already learned that distinction the
+    # hard way on api.hill90.com.
     local ui_local; ui_local="http://localhost:$(env_get TENANT_UI_PORT 13000)"
-    local ui_uris_json ui_origins_json
-    ui_uris_json=$(python3 -c '
-import json, sys
-print(json.dumps([
-    "https://hill90.com/api/auth/callback/keycloak",
-    sys.argv[1].rstrip("/") + "/api/auth/callback/keycloak",
-]))' "$ui_local")
-    ui_origins_json=$(python3 -c '
-import json, sys
-print(json.dumps(["https://hill90.com", sys.argv[1].rstrip("/")]))' "$ui_local")
-    local ui_cid
-    ui_cid=$(docker exec "${cpfx}keycloak" /opt/keycloak/bin/kcadm.sh get clients \
-        -r "${KC_PLATFORM_REALM:-platform}" -q clientId=hill90-ui --fields id \
-        --format csv --noquotes 2>/dev/null | tr -d '\r')
-    if [ -n "$ui_cid" ] && docker exec "${cpfx}keycloak" /opt/keycloak/bin/kcadm.sh update \
-        "clients/${ui_cid}" -r "${KC_PLATFORM_REALM:-platform}" \
-        -s "redirectUris=${ui_uris_json}" -s "webOrigins=${ui_origins_json}" >/dev/null 2>&1; then
-        success "Added local callbacks and origin to the hill90-ui client (${ui_local})"
+    if KC_CONTAINER="${cpfx}keycloak" \
+       KC_REALM="$(env_get KC_REALM platform)" \
+       KC_ADMIN_USERNAME="$(env_get KC_ADMIN_USERNAME admin)" \
+       KC_ADMIN_PASSWORD="$(env_get KC_ADMIN_PASSWORD admin)" \
+       HILL90_UI_CLIENT_SECRET="$(env_get HILL90_UI_CLIENT_SECRET "")" \
+       HILL90_UI_REDIRECT_URIS="https://hill90.com/api/auth/callback/keycloak,${ui_local}/api/auth/callback/keycloak" \
+       HILL90_UI_WEB_ORIGINS="https://hill90.com,${ui_local}" \
+           bash "$SCRIPT_DIR/keycloak.sh" tenant-clients >/dev/null 2>&1; then
+        success "Tenant clients reconciled on the local platform realm (callback ${ui_local})"
     else
-        warn "Could not add local callbacks to hill90-ui — pointing the tenant's local UI at this Keycloak will fail with 'Invalid parameter: redirect_uri'"
+        warn "Could not reconcile the tenant clients — pointing the tenant's local stack at this Keycloak will fail. Run: bash scripts/keycloak.sh tenant-clients"
     fi
 
     info "Starting the vault stack (openbao)..."
