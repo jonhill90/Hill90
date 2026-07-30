@@ -293,9 +293,15 @@ Owned by the app-arch lane. Nothing else can start until these land.
     chose. If it is vault, this needs an AppRole and a policy, which is a Hill90
     change.
 
-11. **[CARE] Provision the app's databases** in the app's own Postgres, not
-    Hill90's. Hill90's health check asserts platform-only databases and is
-    written to fail if app databases appear there — that boundary is deliberate.
+11. **[CARE] Provision the app's databases** in the app's own Postgres. That is
+    still what this sequence does, and it is unchanged.
+
+    *Amended 2026-07-30:* the reason given here — "Hill90's health check asserts
+    platform-only databases" — is no longer the reason. That check now asserts
+    tenant isolation and accepts a properly provisioned tenant; Hill90 gained
+    `scripts/provision-tenant-db.sh` for exactly this. Putting the app's
+    databases on the platform is a real option, and a separate decision. See
+    [../decisions/tenant-databases-on-platform-postgres.md](../decisions/tenant-databases-on-platform-postgres.md).
 
 12. **[RISK] Deploy `ui` alone, and stop.** This is the certificate experiment
     and the first live routing test in one. `ui` is the right first service: it
