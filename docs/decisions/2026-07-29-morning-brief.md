@@ -1,33 +1,62 @@
 # Morning brief — 2026-07-29
 
-> ## Read this first: the client secret is repaired, and this is greenfield
+> ## Read this first: LOGIN WORKS, one realm is live, and the platform hosts the databases
 >
-> **Two things changed after this brief was first written, and both change what
-> you do.**
+> **This brief has been overtaken three times. Read this box; treat the numbered
+> sections below as the record of a morning that is now history.**
 >
-> **1. The `hill90-ui` client secret is fixed.** Repaired ~23:50 UTC on
-> 2026-07-29; Keycloak and the store now agree — both 64 characters, matching
-> hash, verified 2026-07-30 00:15 UTC. `api`, `mcp` and `ui` have since been
-> deployed from the pipeline, all green.
+> **1. A human has completed a sign-in.** `Verified 2026-07-30 02:07 UTC.` Not a
+> form rendering, not a redirect chain, not client authentication — a completed
+> login. **Earlier versions of this document said "no human has completed a
+> sign-in", and I was asked to write that. It is now false and is corrected here
+> deliberately rather than quietly.** The `hill90-ui` client secret repair
+> (~23:50 UTC 2026-07-29) was the unblock; the one-realm change was the finish.
 >
-> **Client authentication now succeeds. That is not the same as login working.**
-> No human has completed a sign-in. The distinction is load-bearing and cost the
-> estate a night: a browser was driven to the login form and stopped there, which
-> proved the redirect chain and never exercised the exchange behind it. Reachable
-> was not working; authenticating is not signing in either.
+> **2. One realm is live: `platform`, on this platform's Keycloak.** hill90-app
+> authenticates there. Clients `hill90-ui` and `hill90-api` exist in it;
+> `hill90-vault`, `grafana` and `portainer` were untouched. Audience validation
+> landed with the same change.
 >
-> **2. This is a greenfield deployment, not a migration.** hill90-app reached the
-> VPS for the first time on 2026-07-29. The only accounts in realm `hill90` are
-> `jon` and `hill90admin`, created hours ago with temporary passwords, and since
-> login never worked they have never been used. **There is no accumulated state.**
+> **3. The realm-role collision is resolved in fact.** Realm role `admin` in
+> `platform` has **zero holders** (so do `user`, `editor`, `viewer`). The three
+> accounts hold only `default-roles-platform` plus client roles on `hill90-ui`. The
+> Grafana Admin and OpenBao grant is unreachable by any app user. That was the whole
+> justification for choosing client roles, and it is now measurement.
 >
-> Anything describing export, import, rollback or cutover is the wrong frame.
-> What remains is *configuration of a greenfield deployment*. The realm export and
-> the database backup are a **safety net**, not steps in a process.
+> **4. Platform Postgres hosts the tenant's databases.** Role `hill90_app`
+> (`NOSUPERUSER`) owns `hill90_akm`, `hill90_api`, `hill90_litellm`; the platform
+> keeps `hill90`, `keycloak`, `postgres` and the templates. Credential in SOPS.
+> **The app has not been cut over** and still serves from `app-postgres`.
+>
+> **Two caveats, kept here so the good news cannot bury them.** The direct browser
+> bearer call fails on **CORS, not auth** — `api.hill90.com` does not allow the
+> `hill90.com` origin; the UI proxies server-side so it is not a defect, but proofs
+> 3 to 5 were made **with `curl`, not from the page**. And an **open defect**:
+> `sess.roles` returned `null` on a second login while the token's claims were
+> correct — safe, because the api authorises from the token, but a UI reading
+> `session.roles` would render empty permissions.
+>
+> **Still running, retiring nothing yet:** `app-keycloak`, realm `hill90`, and
+> `app-postgres`. **Local is half-drifted** and is being fixed in the tenant's lane;
+> parity lands before anything is retired.
+>
+> **This is still greenfield, with one qualifier.** "Greenfield" does not mean
+> "empty": `hill90_api` on `app-postgres` holds 105 rows — catalogue and migration
+> bookkeeping, no agents, no chats, no user records — and every row was created
+> inside the 960 ms window of its migration run. Nothing worth preserving, which is
+> not the same sentence as nothing there. Export, import, rollback and cutover
+> remain the wrong frame; the realm export and database backup are a **safety
+> net**, not steps in a process.
+>
+> The three accounts are now duplicated: `jon`, `hill90admin` and `testuser01` exist
+> in realm `platform` **and** in realm `hill90` on the tenant's own Keycloak.
+> Retiring `app-keycloak` removes the second copy.
 
-**State verified against the running host at 08:03 UTC.** Nothing is *degraded* —
-every container is healthy and every surface answers. But see the box above: one
-thing has never worked, and it was believed to work.
+**State verified against the running host at 08:03 UTC** — that is a 2026-07-29
+morning measurement, superseded by the box above. Nothing was *degraded* then and
+nothing is now. The sentence that used to close this paragraph — "one thing has
+never worked, and it was believed to work" — described the login, and **it no longer
+applies**: a sign-in has since been completed.
 
 **On the Keycloak migration, everything up to your decision is done and
 rehearsed.** The backup restores. The export was taken against a live
@@ -67,7 +96,14 @@ Three of these were recorded in earlier versions of this document as open. They
 are not, and describing them as open was the error: it framed settled direction
 as undecided and invited re-litigation.
 
-### 1.1 Keycloak — DECIDED: one Keycloak, one realm, the existing `platform`
+### 1.1 Keycloak — DONE: one Keycloak, one realm, the existing `platform`
+
+> **Amended 2026-07-30 02:07 UTC — this is no longer a decision, it is the running state.**
+> hill90-app authenticates against realm `platform`; clients `hill90-ui` and
+> `hill90-api` exist there; `hill90-vault`, `grafana` and `portainer` were untouched;
+> audience validation landed; a sign-in has been completed. The realm-role collision
+> is resolved in fact — realm role `admin` has zero holders. `app-keycloak` and realm
+> `hill90` are still running and retire nothing yet.
 
 **One Keycloak, and the app's clients go into the existing `platform` realm.** Not
 a new `hill90` realm.
@@ -166,7 +202,8 @@ place where publishing something stale costs more than waiting.
 anyone intended. Both halves are worth stating plainly.
 
 **Proven, and earned:** it starts; it routes; it serves valid TLS on three
-hostnames; it reaches its identity provider and renders a login form; its
+hostnames; it reaches its identity provider and — as of 2026-07-30 — **completes a
+sign-in**, not merely renders a login form; its
 database backs up and **restores**, with accounts and roles recovered into a
 throwaway; it detaches and reattaches cleanly, leaving the platform at exactly
 its 13-container baseline. That list took a night to earn and none of it is in
@@ -227,7 +264,9 @@ plan. Do not start from this document — it is deliberately not described here,
 there is one plan rather than two.
 
 The one thing still unproven is a completed human sign-in. That is the acceptance
-test, and it is now runnable: `testuser01` exists in realm `hill90` with a
+test, and it is now runnable — note the realm has since changed, and `testuser01`
+now also exists in realm `platform` holding client role `hill90-ui:user`:
+`testuser01` exists in realm `hill90` with a
 non-temporary password, encrypted at
 `hill90-app/infra/secrets/test-accounts.enc.env`.
 
