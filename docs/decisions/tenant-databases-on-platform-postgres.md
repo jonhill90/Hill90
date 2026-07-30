@@ -1,9 +1,64 @@
 # Hosting a tenant's databases on the platform's Postgres
 
-**Status:** capability added 2026-07-30. **The tenant has not moved.** The AI app
-still runs its own `app-postgres`, and nothing in this change deletes, migrates or
-points anything at the platform. This adds the ability; using it is a separate
-decision and a separate change in `hill90-app`.
+**Status:** capability added 2026-07-30, and **provisioned on production the same
+day** (see "On the real instance" below). **The tenant has not moved.** The AI app
+still runs its own `app-postgres` and still serves from it; nothing here deletes,
+migrates or repoints anything. The databases now exist on the platform and are
+empty, waiting for the app to be repointed — a separate change in `hill90-app`.
+
+## On the real instance — `Verified 2026-07-30 01:57 UTC`
+
+Provisioned against the production platform Postgres with the merged script
+(sha256 `e3983b4c…`, checksum-matched on the host before running), `--dry-run`
+first. Role `hill90_app`; databases `hill90_api`, `hill90_akm`, `hill90_litellm`.
+
+```
+hill90          | owner=hill90      | public_connect=false | acl=hill90=CTc/hill90
+hill90_akm      | owner=hill90_app  | public_connect=false | acl=hill90_app=CTc/hill90_app
+hill90_api      | owner=hill90_app  | public_connect=false | acl=hill90_app=CTc/hill90_app
+hill90_litellm  | owner=hill90_app  | public_connect=false | acl=hill90_app=CTc/hill90_app
+keycloak        | owner=hill90      | public_connect=false | acl=hill90=CTc/hill90
+postgres        | owner=hill90      | public_connect=false | acl=hill90=CTc/hill90
+
+hill90      | super=true  | createdb=true  | createrole=true
+hill90_app  | super=false | createdb=false | createrole=false
+```
+
+Both halves proven over the network from a container on `hill90_internal`, not by
+`docker exec`. The tenant reached `hill90_api`, `hill90_akm` and `hill90_litellm`;
+it was refused on `hill90`, `keycloak`, `postgres` and `template1` with
+`FATAL: permission denied for database … User does not have CONNECT privilege.`
+
+**The revokes did not disturb the platform**, and the proof is live consumers
+rather than an argument: after them, `keycloak` and `postgres-exporter` were still
+connected over the network as `hill90` (`pg_stat_activity` shows `keycloak` from
+`172.19.0.12` and `hill90` from `172.19.0.11`), Keycloak still served realms
+`master, platform`, Grafana returned `200` with `"database": "ok"`, and the
+platform held at 13 containers, 0 unhealthy. The reason it is safe is that every
+consumer of this Postgres connects as `hill90`, a superuser, and superusers bypass
+ACL checks entirely.
+
+The narrowed health check was run against the real database list, and both of its
+failure branches were driven there and repaired: opening a tenant database to
+`PUBLIC` (caught), and leaving a platform database open to `PUBLIC` while a tenant
+exists (caught, then fixed by `--harden-only`). `template0` was used for the
+second probe because `datallowconn=false` makes it unconnectable regardless.
+
+### Two name collisions that block a naive repoint
+
+The app's own Postgres holds `hill90`, `hill90_akm`, `hill90_api`,
+`hill90_litellm`, `keycloak` and `postgres`. Two of those **cannot be recreated on
+the platform under the same names**:
+
+- **`keycloak`** — the app's Keycloak store. The platform's identity database has
+  that exact name. This is the volume collision of #4 in a different costume.
+  Nothing needs moving if the app stops shipping its own Keycloak, which is the
+  settled direction, but it must not be moved as-is.
+- **`hill90`** — `POSTGRES_DB` for `app-postgres`, and also the platform's own
+  database name.
+
+The provisioner refuses both by name, so the mistake fails loudly rather than
+silently mounting the app on top of platform data.
 
 **Relates to:** [platform-primitives.md](platform-primitives.md),
 [app-tenancy-on-the-vps.md](app-tenancy-on-the-vps.md)
@@ -60,15 +115,30 @@ matters more than the narrow grant, `CREATEDB` is a one-word change to
 `ROLE_ATTRS` in the provisioner, and the isolation test asserts the current
 behaviour, so flipping it will fail loudly and tell you exactly what you changed.
 
-### The tenant's password is not stored here
+### Where the tenant's password lives — amended 2026-07-30
 
-The provisioner reads it from `TENANT_DB_PASSWORD` and never writes it — not to
-disk, not to this repo's secret store, not to the terminal. The platform *sets*
-the credential; the tenant keeps its own copy in its own store.
+**The provisioner still never writes it.** It reads `TENANT_DB_PASSWORD` and
+persists nothing: not to disk, not to a store, not to the terminal.
 
-This is deliberate. Two stores holding one secret is exactly how the app's
-Keycloak client secret drifted out of agreement with Keycloak and cost a night of
-diagnosis. One owner per secret.
+**But the credential is now stored, in this platform's SOPS store, as
+`HILL90_APP_DB_PASSWORD`** (`infra/secrets/prod.enc.env`, vault path
+`secret/tenants/hill90-app/database`, registered in
+`platform/vault/secrets-schema.yaml` with `compose_refs: []` because no platform
+compose file consumes it). The tenant needs the credential in order to be
+repointed, and a credential that exists only in one operator's terminal is not
+operable.
+
+**This creates the two-copies condition the paragraph below warns about, so name
+the authority explicitly: this store is authoritative.** The platform sets the
+password; when `hill90-app` copies it into its own store, that copy is a replica.
+If they ever disagree, the repair is to re-run the provisioner with the value from
+*here* — it is idempotent and resets the password, which is the same shape as the
+Keycloak client-secret repair.
+
+The original reasoning still stands as the warning it was: two stores holding one
+secret is exactly how the app's Keycloak client secret drifted out of agreement
+with Keycloak and cost a night of diagnosis. The mitigation is a declared owner and
+an idempotent reconciliation command, not pretending one copy is enough.
 
 ## What broke that had to be fixed alongside
 
