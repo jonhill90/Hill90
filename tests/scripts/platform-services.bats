@@ -65,15 +65,53 @@ assert 'hill90-vault' in [c['clientId'] for c in r.get('clients', [])]
   [ "$status" -eq 0 ]
 }
 
-@test "the platform realm contains no application clients" {
-  # hill90-ui and hill90-api belong to the extracted application, which is one
-  # tenant among several and brings its own realm.
+@test "the platform realm's client list is exactly the deliberate allowlist" {
+  # SUPERSEDED ASSERTION, recorded rather than deleted quietly.
+  #
+  # This test used to assert the OPPOSITE: that hill90-ui and hill90-api must NOT
+  # appear here, "because the extracted application is one tenant among several
+  # and brings its own realm". That was the realm-per-consumer shape in
+  # docs/decisions/platform-primitives.md, and it was retracted — the settled
+  # decision is ONE Keycloak and ONE realm, the existing `platform`, with the
+  # tenant's clients inside it. The live realm has had both clients since
+  # 2026-07-30, so the old assertion contradicted production.
+  #
+  # The guard is kept with teeth rather than dropped: the client list is an
+  # ALLOWLIST, so a new client cannot accumulate here without someone editing this
+  # line and thinking about it. That is what the original test was really for.
+  #
+  # grafana and portainer are deliberately absent — scripts/keycloak.sh creates
+  # those at deploy time, they were never in this file.
   run python3 -c "
 import json
 r = json.load(open('platform/auth/keycloak/platform-realm.json'))
-ids = [c['clientId'] for c in r.get('clients', [])]
-bad = [i for i in ids if i in ('hill90-ui', 'hill90-api')]
-assert not bad, bad
+ids = sorted(c['clientId'] for c in r.get('clients', []))
+expected = sorted(['hill90-vault', 'hill90-ui', 'hill90-api'])
+assert ids == expected, f'unexpected client list: {ids} != {expected}'
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "the tenant's clients carry no realm-role mapper" {
+  # The reason the tenant's clients are allowed in this realm at all is that they
+  # use CLIENT roles. This realm grants Grafana Admin and OpenBao off the REALM
+  # role 'admin', so a realm-role mapper on a tenant client would hand an
+  # application admin infrastructure administration.
+  #
+  # Asserted here as well as in scripts/checks/check_realm_tenant_clients.py
+  # because this is the file that reviews the realm's separation properties.
+  run python3 -c "
+import json
+r = json.load(open('platform/auth/keycloak/platform-realm.json'))
+bad = []
+for c in r.get('clients', []):
+    if c['clientId'] not in ('hill90-ui', 'hill90-api'):
+        continue
+    for m in c.get('protocolMappers', []) or []:
+        if m.get('protocolMapper') in ('oidc-usermodel-realm-role-mapper',
+                                       'oidc-usermodel-role-mapper'):
+            bad.append((c['clientId'], m.get('name')))
+assert not bad, f'realm-role mapper on a tenant client: {bad}'
 "
   [ "$status" -eq 0 ]
 }
