@@ -69,6 +69,11 @@ SENSITIVE = {
     "KC_ADMIN_PASSWORD",
     "VAULT_OIDC_CLIENT_SECRET",
     "GRAFANA_OIDC_CLIENT_SECRET",
+    # The tenant's hill90-ui client secret, substituted into platform-realm.json
+    # at import. A fallback would be worse than a missing value: the realm would
+    # import with a KNOWN client secret for the client that fronts hill90.com,
+    # and nothing would report it. Fail closed instead.
+    "HILL90_UI_CLIENT_SECRET",
 }
 
 # Consumed by scripts rather than by compose substitution.
@@ -79,6 +84,11 @@ SCRIPT_ONLY = {
     "VOLUME_PREFIX_BARE",
     "HTTP_PORT",
     "HTTPS_PORT",
+    # Where the TENANT's local UI listens. Read by scripts/local.sh to append that
+    # callback to the running hill90-ui client, so a local platform Keycloak can
+    # serve the tenant. No compose ${VAR}: this platform does not run the tenant's
+    # UI, it only has to know the URL Keycloak must accept a redirect to.
+    "TENANT_UI_PORT",
     # Portainer stores its OAuth configuration in its own database, applied
     # through its API by scripts/portainer.sh — there is no compose ${VAR} to
     # reference, but the value still has to be documented and kept in SOPS.

@@ -25,7 +25,19 @@
       {
         "name": "admin"
       }
-    ]
+    ],
+    "client": {
+      "hill90-ui": [
+        {
+          "name": "user",
+          "description": "App user (client-scoped)"
+        },
+        {
+          "name": "admin",
+          "description": "App admin (client-scoped)"
+        }
+      ]
+    }
   },
   "smtpServer": {
     "host": "smtp.hostinger.com",
@@ -73,6 +85,54 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "hill90-ui",
+      "secret": "${HILL90_UI_CLIENT_SECRET}",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "redirectUris": [
+        "https://hill90.com/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "https://hill90.com"
+      ],
+      "defaultClientScopes": [
+        "web-origins",
+        "acr",
+        "roles",
+        "profile",
+        "email"
+      ],
+      "protocolMappers": [
+        {
+          "name": "hill90-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "hill90-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "hill90-api",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true
     }
   ]
 }
