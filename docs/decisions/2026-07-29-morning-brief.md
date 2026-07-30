@@ -1,32 +1,29 @@
 # Morning brief — 2026-07-29
 
-> ## Read this first: production login does not work
+> ## Read this first: the client secret is repaired, and this is greenfield
 >
-> **Nobody can sign in to hill90.com, and nobody has been able to since it was
-> deployed.** Confirmed 2026-07-29 09:23 UTC. This is not a regression and it
-> locks nobody out who was previously in — it has never worked.
+> **Two things changed after this brief was first written, and both change what
+> you do.**
 >
-> The `hill90-ui` client secret Keycloak minted at realm import (**32 chars**)
-> is not the one `app-ui` holds (**64 chars**). They are different values, so
-> the token exchange fails and `app-ui` logs `CallbackRouteError` →
-> `unauthorized_client` / *Invalid client or Invalid client credentials*.
+> **1. The `hill90-ui` client secret is fixed.** Repaired ~23:50 UTC on
+> 2026-07-29; Keycloak and the store now agree — both 64 characters, matching
+> hash, verified 2026-07-30 00:15 UTC. `api`, `mcp` and `ui` have since been
+> deployed from the pipeline, all green.
 >
-> **Cause:** `platform/auth/keycloak/hill90-realm.json` declares its clients with
-> **no `secret` field**, so Keycloak generates a random one at import, while SOPS
-> carries a value that was never applied. Configuration present, plausible, and
-> inert — the same family as every other defect found this week.
+> **Client authentication now succeeds. That is not the same as login working.**
+> No human has completed a sign-in. The distinction is load-bearing and cost the
+> estate a night: a browser was driven to the login form and stopped there, which
+> proved the redirect chain and never exercised the exchange behind it. Reachable
+> was not working; authenticating is not signing in either.
 >
-> **It is deliberately not fixed.** Aligning a client secret is a credential
-> operation and it was not going to be done while you were asleep. The repair —
-> both options, a recommendation, exact commands and rollback — is prepared in
-> hill90-app's migration runbook. Read that rather than improvising.
+> **2. This is a greenfield deployment, not a migration.** hill90-app reached the
+> VPS for the first time on 2026-07-29. The only accounts in realm `hill90` are
+> `jon` and `hill90admin`, created hours ago with temporary passwords, and since
+> login never worked they have never been used. **There is no accumulated state.**
 >
-> **Why it went unnoticed, which is the lesson.** A browser was driven to the
-> Keycloak login form and deliberately stopped there, to avoid consuming a
-> one-time password. That proved the redirect chain — `hill90.com` → `app-auth`,
-> PKCE, correct `client_id`, a rendered form — and never exercised the step that
-> fails. **Reachable is not working**, and every claim about login in these
-> documents rested on the reachable half.
+> Anything describing export, import, rollback or cutover is the wrong frame.
+> What remains is *configuration of a greenfield deployment*. The realm export and
+> the database backup are a **safety net**, not steps in a process.
 
 **State verified against the running host at 08:03 UTC.** Nothing is *degraded* —
 every container is healthy and every surface answers. But see the box above: one
@@ -36,10 +33,11 @@ thing has never worked, and it was believed to work.
 rehearsed.** The backup restores. The export was taken against a live
 `app-keycloak` — no downtime — and verified. The import was rehearsed into a
 throwaway and works: all three client secrets present, password hashes intact,
-the role mapper survives. **The only thing left before step 2 is your realm
-decision (§1.1).**
+the role mapper survives — kept as a **safety net**, not as a step in a process.
+See §0 for the principle the remaining decisions follow from.
 
-Read §1 and stop if that is all you have time for — **except §4**, which is a
+Read §0 and §1 and stop if that is all you have time for. §4 records what is
+already done. Earlier versions described a four-step sequence you had to run;
 four-step sequence with a real dependency: the client secret must be repaired
 before a deploy will even run. Everything else is either already safe or already
 recorded.
@@ -53,92 +51,69 @@ traefik 401 · grafana 302 · vault 307 · storage 200 · portainer 200   (no 40
 
 ---
 
-## 1. Decisions waiting on you
+## 0. The governing principle
 
-Four. None is urgent in the sense that something breaks if you leave it, but the
-first two block work that is otherwise ready.
+**The platform provides identity, data and storage. Tenants consume them.**
 
-### 1.1 Which realm does the consolidated Keycloak use?
+Every decision below follows from that one sentence, and it was in the original
+brief before this work drifted away from it. Where a question looks open, check it
+against this first — most of them answer themselves.
 
-You decided there will be **one** Keycloak and that the app stops shipping its
-own. You have not decided whether the app's clients land in a **new `hill90`
-realm on the platform Keycloak**, or in the **existing `platform` realm**.
-**One Keycloak does not mean one realm.** No migration has started, and the
-platform Keycloak has no `hill90` realm today.
+---
 
-**The concrete factor, and it points one way.** Two places in the app code fall
-back to `https://auth.hill90.com/realms/hill90` when `KEYCLOAK_ISSUER` is unset:
+## 1. Decisions — three settled, one open
+
+Three of these were recorded in earlier versions of this document as open. They
+are not, and describing them as open was the error: it framed settled direction
+as undecided and invited re-litigation.
+
+### 1.1 Keycloak — DECIDED: one Keycloak, one realm, the existing `platform`
+
+**One Keycloak, and the app's clients go into the existing `platform` realm.** Not
+a new `hill90` realm.
+
+The reasoning is an Entra analogy: you do not create a second tenant for one
+organisation. One directory, controlled with roles and groups — infra-versus-app
+is a matter of role and client assignment inside it, not a separate namespace.
+
+Earlier versions of this document said *"one Keycloak does not mean one realm"*
+and preserved it deliberately. That was wrong and has been removed everywhere. It
+framed a settled question as open.
+
+**One concrete thing to handle during the work.** Two places in the app fall back
+to `https://auth.hill90.com/realms/hill90` when `KEYCLOAK_ISSUER` is unset:
 
 ```
 services/api/src/middleware/keycloak-config.ts:15   FALLBACK_ISSUER
 services/mcp/app/main.py:17                         os.environ.get(..., default)
 ```
 
-That realm returns **404** on the platform Keycloak today, so a blank issuer
-fails loudly. **If the consolidated realm is named `hill90`, that fallback
-silently becomes correct** — and from then on a blank issuer is indistinguishable
-from working configuration, permanently. Naming it something else, or deleting
-the two fallbacks first, keeps the failure loud.
+With the target being `platform` rather than `hill90`, those fallbacks stay wrong
+and therefore stay loud, which is the safe direction. Deleting them is still
+worthwhile so a blank issuer fails immediately rather than pointing at a realm
+that does not exist.
 
-This is a factor, not a recommendation. Either answer is workable.
+### 1.2 Postgres — DECIDED: `app-postgres` goes
 
-**Migration step 1 is done — the realm export exists and is verified.** Performed
-2026-07-29 08:48 UTC with `app-keycloak` left running, which proves the
-no-downtime finding by execution:
+The app consumes the platform's Postgres. An earlier version recorded this as
+"two today, no decision recorded" on the grounds that under-claiming was safer.
+That was too conservative.
 
-```
-/opt/hill90/backups/app-realm/20260729_084747/hill90-realm.json
-83,970 bytes · -rw------- deploy:deploy · directory drwx------ deploy:deploy
-realm hill90 · 2 users, both carrying credentials · 3 clients carrying secrets
-5 realm roles · 2 realm_roles protocol mappers
-```
+**The complication, which is real and is not the Keycloak steps repeated.**
+Hill90's Postgres asserts *platform-only databases* — a check written to fail if
+application databases appear there. Consolidating data means that boundary has to
+be revisited deliberately, not worked around.
 
-Credentials present is what makes it a **restore** rather than a re-creation.
+### 1.3 MinIO — OPEN, and the state is reversed
 
-It beats the `pg_dump` not because the dump lacks the secrets — the dump does
-contain them, in the `client` table — but because it is **the only artifact
-Keycloak can import**. `--import-realm` consumes a realm JSON; a database dump
-can only be restored by replacing a database, which is the destructive path
-described below.
+This one genuinely is undecided, and it is the mirror image of the other two:
+**only `app-minio` exists. There is no platform MinIO.** So the question is not
+whether a duplicate collapses — it is whether storage **moves up into the
+platform**, which the governing principle above suggests it should.
 
-**That file contains credential material. Do not copy it into a repository**, and
-do not move it off the box without deciding where it may live. It is
-`0600 deploy:deploy` in a `0700` directory and should stay that way.
+Never addressed until now. No work has been done on it.
 
-**The import is rehearsed and works** (2026-07-29). Imported into a throwaway
-stack: all three client secrets present, password hashes intact, and the
-`realm_roles` mapper survives on `hill90-ui` pointing at `realm_roles` with no
-competing mapper.
-
-> **Do not use the `pg_dump` as the import vehicle.** It is the obvious
-> shortcut — the backup exists, it contains the realm, it looks sufficient — and
-> it is destructive. That dump is a whole-cluster restore of a *different*
-> Keycloak's database. Its `keycloak` database contains realms `master` and
-> `hill90` and **no `platform` realm**, while the platform's `keycloak` database
-> holds `master` and `platform`, and `platform` is where the `grafana`,
-> `portainer` and `hill90-vault` SSO clients live.
->
-> It also does not fail cleanly. The dump carries `CREATE DATABASE keycloak` and
-> **no `DROP DATABASE`**, so against an existing database the create fails,
-> `psql` continues past the error by default, and the app's realm rows are then
-> copied *into the live platform database*. The likely outcome is a partially
-> merged identity store rather than a clean overwrite — worse, because it may not
-> fail loudly.
->
-> The `kc.sh export` artifact is the only valid vehicle. It can be produced from
-> the backup if the live realm is ever unavailable.
-
-**The migration needs no downtime.** `kc.sh export` does not need *this*
-Keycloak stopped — it needs *an* exporter with database access, so a throwaway
-sidecar exports against the live database. This was proven by doing it (see
-below), not argued.
-
-That removes the main reason to postpone this to a quiet evening — the export
-itself costs nothing. **The `pg_dump` is not a substitute:** only a `kc.sh export`
-artifact is importable: Keycloak's `--import-realm` takes a realm JSON, and a
-database dump can only be applied by replacing a database.
-
-### 1.2 Does `hill90-app` go public?
+### 1.4 Does `hill90-app` go public?
 
 A full-history secret scan came back clean: 2328 blobs across 12 refs, 598
 commits. `infra/secrets/prod.enc.env` has exactly one blob version and was
@@ -154,48 +129,15 @@ secrets store, has no plaintext ancestor to have been rewritten away.
 Irreversible in the way that matters: once indexed, flipping it back does not
 unring it. Your call alone.
 
-### 1.3 Does Postgres follow Keycloak?
+### 1.5 Publish the documentation site refresh?
 
-**Deliberately not decided, and not the same call.** Two Postgres instances run
-today on separate volumes. Consolidating identity and consolidating data are
-different moves: Hill90's own health check asserts *platform-only databases* and
-is written to fail if application databases appear there. That boundary was
-designed on purpose.
+**Publish `docs/mintlify-login-truth`. It is the only staged branch** — the two
+superseded ones were deleted so the wrong one cannot be picked by name.
 
-Nothing is blocked by leaving this open.
-
-### 1.4 Publish the documentation site refresh?
-
-**Not a yes/no any more — publish one specific branch, and not before step 1.**
-
-**Publish `docs/mintlify-login-truth`. Nothing else.**
-
-Three branches were staged in `hill90-docs` during the night, and only the newest
-is correct. The two older ones **have been deleted** so the wrong one cannot be
-picked by name; they are recorded here so the history is not confusing:
-
-| Branch | When | State |
-|---|---|---|
-| `docs/post-deploy-refresh` | 07:53 UTC | **Deleted.** Written before the login failure was known. Said the login form was reachable and instructed *"Sign in with your Keycloak credentials"* — an instruction that cannot be followed. |
-| `docs/post-deploy-refresh-login` | 09:27 UTC | **Deleted.** Superseded intermediate. It warned about the login on the application overview page only, which was not enough: the quickstart and authentication pages still read as a working flow, and those are the two someone trying to sign in would open. |
-| **`docs/mintlify-login-truth`** | **09:52 UTC** | **This is the one.** Every `ai-app` page carries the broken-login finding, the sign-in instruction is corrected, and three pages that named `auth.hill90.com` as the application's identity provider now name `app-auth.hill90.com` — the homelab's is a different realm. |
-
-Both deleted branches were verified to be strict ancestors of the surviving one
-before removal: it contains everything they did, and the only lines it drops are
-a stale timestamp and the incorrect `auth.hill90.com` references it replaces.
-Their commits remain reachable through `docs/mintlify-login-truth`.
-
-All three corrected the site to eight healthy stacks, the passed detachment test,
-the proven restore, and the Keycloak decision in both halves.
-
-**Two things before it goes live**, neither large:
-
-1. **Repair the login (§4, step 1) first, or publish knowing the site says login
-   is broken.** Either is defensible — the site is accurate in both cases — but
-   publishing first and repairing second leaves the site briefly wrong *in the
-   reassuring direction*, which is the worse way round.
-2. **Touch up the merged-but-not-deployed list after you deploy** (§4, step 3) —
-   a one-line edit.
+It corrects the site to eight healthy stacks, the passed detachment test and the
+proven restore. **It still needs the re-scope in this document applying to it**
+before it goes live: it describes the realm question as open and Postgres as
+undecided, both of which are now wrong.
 
 The site is the most public surface in the estate, which is why this is the one
 place where publishing something stale costs more than waiting.
@@ -214,8 +156,21 @@ throwaway; it detaches and reattaches cleanly, leaving the platform at exactly
 its 13-container baseline. That list took a night to earn and none of it is in
 doubt.
 
-**Not proven:** that a human can sign in. That is now known to be false, not
-merely untested — see the box at the top. And no agent has ever run end to end.
+**Also proven, as of 2026-07-30 00:15 UTC:** the `hill90-ui` client secret in
+Keycloak and in the store agree, and **client authentication succeeds**. Verified
+by control experiment rather than by a status code, because the status code alone
+could not tell the two cases apart — both return HTTP 401:
+
+```
+correct secret -> "Client not enabled to retrieve service account"
+                  (the client authenticated; that grant is simply not permitted — benign)
+wrong secret   -> "Invalid client or Invalid client credentials"
+                  (the error that was in app-ui's log)
+```
+
+**Not proven:** that a human can sign in. Client authentication succeeding is a
+different claim, and nobody has completed a sign-in. And no agent has ever run
+end to end.
 
 ## 3. What changed overnight
 
@@ -234,26 +189,33 @@ merely untested — see the box at the top. And no agent has ever run end to end
   estate has performed. Mechanism and artifact sizes:
   [deployment runbook § Backups](../runbooks/deployment.md#backups).
 - **Application tests now run on every pull request** — six suites, all passing.
-- **A deploy guard was added**, which is why §4 exists.
+- **A deploy guard was added**, and both checkouts now carry it (§4).
 
 ---
 
-## 4. The morning sequence — these are ordered, not a list
+## 4. What is already done, and what is left
 
-**Four steps with a real dependency between them.** Doing them out of order means
-hitting a wall and working out why, which is what this document exists to
-prevent. In particular: **deploying before step 1 will fail**, deliberately.
+**Steps 1 to 3 of the sequence in earlier versions of this document are complete.**
+Nothing in this section is waiting on you.
 
-### Step 1 — repair the Keycloak client secret
+- **The client secret is repaired** (~23:50 UTC, 2026-07-29) and verified.
+- **Both VPS checkouts are pulled and current** — 0 commits behind, both trees
+  clean, and `scripts/preflight-checkout.sh` present on both, confirmed
+  2026-07-30 00:15 UTC. The bootstrap problem is closed.
+- **`api`, `mcp` and `ui` are deployed** from the pipeline, all green.
+  `KEYCLOAK_JWKS_URI` is gone from `app-api`'s environment and now derives from
+  `KEYCLOAK_ISSUER=https://app-auth.hill90.com/realms/hill90`.
 
-Nothing else is worth doing first. Login has never worked (see the box at the
-top), and a deploy now **refuses to run** while the secret in the running
-Keycloak disagrees with the store — correctly, because deploying with a
-mismatched secret reproduces exactly the failure you already have.
+**What is left is the re-scoped configuration work**, and pane 1 is producing that
+plan. Do not start from this document — it is deliberately not described here, so
+there is one plan rather than two.
 
-Both options, a recommendation, exact commands and rollback are prepared in
-hill90-app's `docs/runbooks/one-keycloak-migration.md`. It is a credential
-operation; follow it rather than improvising.
+The one thing still unproven is a completed human sign-in. That is the acceptance
+test, and it is now runnable: `testuser01` exists in realm `hill90` with a
+non-temporary password, encrypted at
+`hill90-app/infra/secrets/test-accounts.enc.env`.
+
+### Reference — the pull, now completed
 
 ### Step 2 — pull both VPS checkouts
 
@@ -289,7 +251,7 @@ cannot be assumed by the fix.
 
 ### Step 3 — deploy
 
-Only now, because the guard blocks it until step 1 is done.
+Completed — `api`, `mcp` and `ui` are deployed and green.
 
 ```bash
 gh workflow run "Manual Deploy App (Prod)" -f service=<stack> -f dry_run=true
@@ -327,12 +289,11 @@ password is encrypted at `hill90-app/infra/secrets/test-accounts.enc.env`,
 deliberately separate from `prod.enc.env` because a credential no container reads
 would trip the store-keys guard. It decrypts with the host age key.
 
-**The acceptance test is written but cannot be run yet.** It needs a known-good
-token to compare against, and no login has ever succeeded, so there is nothing to
-record one from. **It becomes runnable the moment step 1 lands** — and running it
-is how you find out whether the repair worked, rather than assuming it did
-because a container went healthy. That assumption is what produced the current
-situation.
+**The acceptance test is now runnable** — the client secret is repaired, so there
+is finally a path to a successful sign-in to record. Running it is how you learn
+whether login works, rather than inferring it from a container being healthy or
+from client authentication succeeding. Both of those have been true while login
+was broken.
 
 ---
 
@@ -340,11 +301,12 @@ situation.
 
 Nothing here is blocking, and nothing here is a surprise waiting to happen.
 
-- **Both checkouts are well behind and both trees are clean** — at 10:09 UTC,
-  `/opt/hill90/app` was 14 commits behind and `/opt/hill90-app` 21, both with 0
-  modifications. These counts only grow; measure rather than trust them. The
-  tenant now has a dirty-tree guard (#35), which is why it needs the pull in §4,
-  step 2. The analysis is in
+- **Both checkouts are current** — 0 commits behind, both trees clean, verified
+  2026-07-30 00:15 UTC. Earlier versions of this document recorded them 14 and 21
+  behind; they have since been pulled. Counts move with every merge, so measure
+  rather than trust them. The
+  tenant now has a dirty-tree guard (#35), and both checkouts have been pulled
+  (§4). The analysis is in
   [tenant-checkout-hazard.md](tenant-checkout-hazard.md) — the tenant has the
   lost-edits hazard but **not** the live-config hazard, because nothing in it is
   bind-mounted *and* watched.
