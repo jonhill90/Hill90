@@ -78,6 +78,18 @@ Platform realms ship with Hill90; application realms ship with the application.
 `keycloak` plus `hill90_api`, `hill90_akm` and `hill90_litellm`. Only the first
 is a platform concern. Application databases belong with the application.
 
+> **Amended 2026-07-30.** That rule is about the *bootstrap*, and it stands:
+> `init.sh` stays platform-only, and a database in it still means a platform
+> service owns it. It is not a rule against hosting a tenant. Azure Database for
+> PostgreSQL hosts other people's databases — that is the capability being
+> mirrored — so the platform now provisions tenant databases through a
+> control-plane operation instead, owned by a least-privilege tenant role and
+> closed to the platform's own data. See
+> [tenant-databases-on-platform-postgres.md](tenant-databases-on-platform-postgres.md).
+> "Application databases belong with the application" was the right conclusion
+> from the wrong reading of it: the app's databases belong to the *app*, not in the
+> *platform's bootstrap*, and those are different claims.
+
 **Platform-to-platform SSO is legitimate; platform-to-infrastructure is not.**
 OpenBao authenticating humans against Keycloak is exactly what the pairing is
 for, and is restored. Wiring **Grafana, Portainer or Traefik** to Keycloak is

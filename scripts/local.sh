@@ -603,22 +603,7 @@ cmd_health() {
     check_exec "Postgres accepting connections" "${cp}postgres" \
         pg_isready -U "$(env_get DB_USER hill90)" || failed=1
 
-    # Guard the reason Postgres was deleted in #495: if application databases
-    # reappear here, Postgres has drifted back into being an app dependency.
-    local appdbs
-    # An ALLOWLIST, not a hill90_* prefix match: a database called `litellm` is
-    # just as much an application database, and a denylist silently passes it.
-    appdbs=$(docker exec "${cp}postgres" psql -U "$(env_get DB_USER hill90)" -tAc \
-        "SELECT datname FROM pg_database
-          WHERE datistemplate = false
-            AND datname NOT IN ('postgres', 'keycloak', '$(env_get DB_USER hill90)')" \
-        2>/dev/null | tr -d '\r' | tr '\n' ' ')
-    if [ -n "${appdbs// /}" ]; then
-        echo "  ${RED}✗${NC} Platform-only databases — found non-platform databases: ${appdbs}"
-        failed=1
-    else
-        echo "  ${GREEN}✓${NC} Platform-only databases (only postgres, keycloak and the owner role's database)"
-    fi
+    check_tenant_db_isolation "$cp" || failed=1
 
     # The realm must actually serve OIDC discovery over the local scheme; a
     # healthy container proves nothing if sslRequired still rejects plain HTTP.
@@ -632,6 +617,90 @@ cmd_health() {
         warn "Some checks failed. 'bash scripts/local.sh logs' for detail."
         return 1
     fi
+}
+
+# Tenant isolation on the platform database.
+#
+# This replaces a check that asserted "platform-only databases": any database
+# other than postgres, keycloak and the owner's was a failure. That was the right
+# guard for the reason Postgres was deleted in #495 — application databases in
+# the platform bootstrap made Postgres look like an application dependency — but
+# it also fails on the legitimate case, which is a tenant's databases provisioned
+# by scripts/provision-tenant-db.sh. Postgres is the platform's managed database
+# service (docs/decisions/platform-primitives.md); hosting a tenant is what it is
+# for.
+#
+# So the check is narrowed, not removed. The fault it caught still fails: an
+# application database owned by the platform's own role is exactly the drift
+# #495 was about, and it is now reported with that name. What is newly allowed is
+# a database owned by an unprivileged tenant role and closed to PUBLIC.
+#
+# Note what this is and is not: a LOCAL development check. It is not enforcement,
+# and nothing in the deploy path consults it.
+check_tenant_db_isolation() {
+    local cp="$1"
+    local admin_role rows db owner owner_is_super public_connect
+    local tenant_dbs="" open_platform_dbs="" problems=0
+    admin_role="$(env_get DB_USER hill90)"
+
+    rows=$(docker exec "${cp}postgres" psql -U "$admin_role" -tAc \
+        "SELECT d.datname || '|' || pg_get_userbyid(d.datdba) || '|' ||
+                (SELECT r.rolsuper::text FROM pg_roles r WHERE r.oid = d.datdba) || '|' ||
+                has_database_privilege('public', d.datname, 'CONNECT')::text
+           FROM pg_database d ORDER BY 1" 2>/dev/null | tr -d '\r')
+
+    if [ -z "$rows" ]; then
+        echo "  ${RED}✗${NC} Tenant isolation — could not enumerate databases"
+        return 1
+    fi
+
+    while IFS='|' read -r db owner owner_is_super public_connect; do
+        [ -n "$db" ] || continue
+        case "$db" in
+            postgres|keycloak|template0|template1|"$admin_role")
+                # A platform database. It must not be reachable by PUBLIC once a
+                # tenant role exists on this server, or the tenant can open it.
+                [ "$public_connect" = "true" ] && \
+                    open_platform_dbs="${open_platform_dbs}${db} "
+                continue
+                ;;
+        esac
+
+        # Everything else is a tenant database, and has to look like one.
+        if [ "$owner" = "$admin_role" ]; then
+            echo "  ${RED}✗${NC} Tenant isolation — '${db}' is owned by the platform role '${admin_role}'. This is the #495 drift: an application database created by the platform. Provision it with scripts/provision-tenant-db.sh instead."
+            problems=1
+        elif [ "$owner_is_super" = "true" ]; then
+            echo "  ${RED}✗${NC} Tenant isolation — '${db}' is owned by '${owner}', which is a SUPERUSER. A tenant role must not be one."
+            problems=1
+        elif [ "$public_connect" = "true" ]; then
+            echo "  ${RED}✗${NC} Tenant isolation — '${db}' grants CONNECT to PUBLIC, so every other tenant on this server can open it. Re-run scripts/provision-tenant-db.sh."
+            problems=1
+        else
+            tenant_dbs="${tenant_dbs}${db}(${owner}) "
+        fi
+    done <<EOF
+$rows
+EOF
+
+    if [ -z "${tenant_dbs// /}" ] && [ "$problems" -eq 0 ]; then
+        echo "  ${GREEN}✓${NC} Tenant isolation — platform databases only (postgres, keycloak, ${admin_role}); no tenants provisioned"
+        return 0
+    fi
+
+    # Only meaningful once a tenant exists: before that, PUBLIC CONNECT on the
+    # platform's own databases has nobody to grant anything to, and reporting it
+    # would make a clean single-purpose Postgres look broken.
+    if [ -n "${tenant_dbs// /}" ] && [ -n "${open_platform_dbs// /}" ]; then
+        echo "  ${RED}✗${NC} Tenant isolation — a tenant exists, but these platform databases still grant CONNECT to PUBLIC: ${open_platform_dbs}— run 'bash scripts/provision-tenant-db.sh --harden-only'"
+        problems=1
+    fi
+
+    if [ "$problems" -eq 0 ]; then
+        echo "  ${GREEN}✓${NC} Tenant isolation — tenant databases are tenant-owned and closed to PUBLIC: ${tenant_dbs}"
+        return 0
+    fi
+    return 1
 }
 
 check_http() {
