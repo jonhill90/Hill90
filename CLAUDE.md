@@ -89,33 +89,37 @@ docs/                   runbooks, reference, architecture, decisions
   [`docs/decisions/app-tenancy-on-the-vps.md`](docs/decisions/app-tenancy-on-the-vps.md);
   widening it is a decision, not a fix.
 
-## Open decisions — do not write these as settled
+## The governing principle
 
-**One Keycloak is the decision; two are running.** Today the platform runs
-`keycloak` (realms `master`, `platform`) and the tenant runs `app-keycloak`
-(realms `master`, `hill90`) — verified 2026-07-29 05:55 UTC. **Decided:** there
-will be one Keycloak, and the app will stop shipping its own. **Not decided:**
-whether the app's clients land in a new `hill90` realm on the platform Keycloak
-or in the existing `platform` realm — one Keycloak does not mean one realm.
-**Not started:** no migration has happened, and the platform Keycloak has no
-`hill90` realm to consolidate into. Export before delete, never the reverse.
+**The platform provides identity, data and storage. Tenants consume them.**
+Every consolidation decision follows from it. Check a new question against this
+before treating it as open.
 
-One technical input to the realm question, recorded neutrally because it is
-Jon's call and not a recommendation: the tenant hardcodes a fallback issuer of
-`https://auth.hill90.com/realms/hill90` in two places
-(`services/api/src/app.ts:105`, `services/mcp/app/main.py:17`). That realm
-returns 404 on this platform's Keycloak today, so a blank `KEYCLOAK_ISSUER`
-currently fails loudly. **If the consolidated realm is named `hill90`, that
-fallback silently becomes correct**, and from then on a blank issuer is
-indistinguishable from working configuration. Naming the realm something else,
-or removing the fallbacks, would keep the failure loud. This is a factor, not an
-argument for either option.
+## Settled decisions — do not reopen these
 
-**Postgres is still two instances** — this platform's `postgres` and the
-tenant's `app-postgres`, on separate volumes. **No decision has been recorded.**
-Consolidating data is not obviously the same move as consolidating identity:
-this platform's health check asserts platform-only databases, which is a
-designed boundary.
+**Keycloak: one Keycloak, one realm, the existing `platform`.** The app's clients
+go into `platform`; there is no new `hill90` realm. The reasoning is an Entra
+analogy — you do not create a second tenant for one organisation; one directory,
+controlled with roles and groups, and infra-versus-app is role and client
+assignment inside it. An earlier version of this file said *"one Keycloak does not
+mean one realm"*; that was wrong and framed a settled question as open.
+
+**Postgres: `app-postgres` goes.** The app consumes the platform's Postgres. The
+complication is real and is not the Keycloak steps repeated: this platform's
+health check asserts *platform-only databases*, so that boundary has to be
+revisited deliberately rather than worked around.
+
+**This is greenfield, not a migration.** hill90-app reached the VPS for the first
+time on 2026-07-29 and its realm holds two accounts created hours earlier that
+have never been used. There is no accumulated state. Export, import, rollback and
+cutover are the wrong frame — the realm export and database backup are a safety
+net, not steps in a process.
+
+## Genuinely open
+
+**MinIO, and the state is reversed from the other two.** Only `app-minio` exists;
+there is **no platform MinIO**. So the question is whether storage moves *up* into
+the platform, which the governing principle suggests it should. Never addressed.
 
 ## Fast facts
 
