@@ -97,33 +97,91 @@ before treating it as open.
 
 ## Settled decisions — do not reopen these
 
-**Keycloak: one Keycloak, one realm, the existing `platform`.** The app's clients
-go into `platform`; there is no new `hill90` realm. The reasoning is an Entra
-analogy — you do not create a second tenant for one organisation; one directory,
-controlled with roles and groups, and infra-versus-app is role and client
-assignment inside it. An earlier version of this file said *"one Keycloak does not
-mean one realm"*; that was wrong and framed a settled question as open.
+**Keycloak: one Keycloak, one realm, the existing `platform` — and it is LIVE, not
+just decided.** `Verified 2026-07-30 02:07 UTC.` hill90-app authenticates against
+realm `platform`. Clients `hill90-ui` and `hill90-api` exist there; `hill90-vault`,
+`grafana` and `portainer` were untouched. **A human has completed a sign-in** — not
+a form rendering. Audience validation landed with the same change. The reasoning was
+an Entra analogy — you do not create a second tenant for one organisation; one
+directory, controlled with roles and groups. An earlier version of this file said
+*"one Keycloak does not mean one realm"*; that was wrong.
+
+**The realm-role collision is resolved in fact, and that is now evidence rather
+than design intent.** It was the whole justification for choosing client roles, so
+state it plainly: in realm `platform`, the realm role `admin` exists and **has zero
+holders**, as do `user`, `editor` and `viewer`. `jon`, `hill90admin` and
+`testuser01` hold only `default-roles-platform` as a realm role. Their app
+permissions are client roles — `jon` = `hill90-ui:admin,user`, `hill90admin` =
+`hill90-ui:admin`, `testuser01` = `hill90-ui:user`. **The Grafana Admin and OpenBao
+grant that hangs off the realm `admin` role is therefore unreachable by any app
+user.** Measured, not asserted.
+
+> **Two caveats that the good news must not bury.**
+>
+> **The direct browser bearer call fails on CORS, not on auth.** `api.hill90.com`
+> does not allow the `hill90.com` origin. The UI proxies server-side so this is not
+> a defect in the running system — but be exact about provenance: proofs 3 to 5 were
+> made **with `curl`, not from the page**.
+>
+> **Open defect: `sess.roles` returned `null`** on a second login while the token's
+> own claims were correct. Authorisation is enforced in the api from the token, so
+> nothing is unsafe, but a UI reading `session.roles` would render an
+> empty-permissions view. Possibly related: `app-ui` logs four
+> `[profile-proxy] Error: SyntaxError: Unexpected end of JSON input` failures —
+> `JSON.parse` on an empty body — `Verified 2026-07-30 02:07 UTC`. Not proven to be
+> the same fault; recorded as the leading candidate.
 
 **Postgres: `app-postgres` goes.** The app consumes the platform's Postgres. The
 complication is real and is not the Keycloak steps repeated: this platform's
 health check asserts *platform-only databases*, so that boundary has to be
 revisited deliberately rather than worked around.
 
-> **That boundary was revisited on 2026-07-30, and this platform can now host a
-> tenant.** `scripts/provision-tenant-db.sh` creates a least-privilege tenant role
-> with tenant-owned databases, and the local check asserts **tenant isolation**
-> instead — an application database owned by the platform role still fails, by
-> name. See
+> **That boundary was revisited, and this platform now HOSTS the tenant's
+> databases.** `Verified 2026-07-30 01:35 UTC.` Role `hill90_app` (`NOSUPERUSER`)
+> owns `hill90_akm`, `hill90_api` and `hill90_litellm`; `hill90`, `keycloak`,
+> `postgres` and the templates stay with the platform role. `keycloak`, `grafana`
+> and `postgres` all stayed healthy through the `REVOKE` work. The credential is in
+> SOPS as `HILL90_APP_DB_PASSWORD`. The local check now asserts **tenant
+> isolation** — an application database owned by the platform role still fails, by
+> name — and it was only ever a *local dev* check, never production enforcement.
+> See
 > [tenant-databases-on-platform-postgres.md](docs/decisions/tenant-databases-on-platform-postgres.md).
-> The capability exists; **it is not in use.** Nothing points at this Postgres and
-> `app-postgres` is untouched, so the move itself is still ahead. Note also that
-> the check was only ever a *local dev* check, never production enforcement.
+>
+> **The app has NOT been cut over.** It still reads and writes `app-postgres`. The
+> databases on this platform are empty and waiting. The change set that repoints it
+> is written and **not applied** —
+> [app-postgres-cutover-plan.md](docs/decisions/app-postgres-cutover-plan.md).
 
-**This is greenfield, not a migration.** hill90-app reached the VPS for the first
-time on 2026-07-29 and its realm holds two accounts created hours earlier that
-have never been used. There is no accumulated state. Export, import, rollback and
-cutover are the wrong frame — the realm export and database backup are a safety
-net, not steps in a process.
+**This is greenfield, not a migration — with one qualifier that matters.**
+hill90-app reached the VPS for the first time on 2026-07-29. Export, import,
+rollback and cutover are the wrong frame; the realm export and database backup are
+a safety net, not steps in a process.
+
+The qualifier: **"greenfield" does not mean "empty", and the difference was
+checked rather than assumed.** `Verified 2026-07-30 01:54 UTC` on `app-postgres`:
+`hill90_akm` holds 12 rows and `hill90_litellm` 77, all migration bookkeeping, and
+the app's own `hill90` database has no tables at all. But **`hill90_api` holds 105
+rows** — `schema_migrations` 65, `tools` 15, `skills` 9, `skill_tools` 7,
+`model_catalog` 5, `container_profiles` 3, `model_policies` 1. Catalogue and
+bookkeeping; no agents, no chats, no user records. Nothing to preserve — every row
+is created by a migration and every `created_at` falls inside the 960 ms window of
+the migration run — but say "nothing worth preserving", not "empty".
+
+## Still not done — do not let these read as finished
+
+- **`app-keycloak` and realm `hill90` are still running.** One realm is live on the
+  platform, but nothing has been retired. Accounts now exist in *both* places: `jon`,
+  `hill90admin` and `testuser01` in platform realm `platform`, and the same three in
+  realm `hill90` on the tenant's own Keycloak.
+- **`app-postgres` is still running and still serving.** See above.
+- **Local is half-drifted**, and is being fixed in the tenant's lane. **Local parity
+  lands before anything is retired.**
+- **Keycloak event storage is off** — `events_enabled=false` on both `master` and
+  `platform`, `Verified 2026-07-30 02:07 UTC`. That is why "has anyone actually
+  logged in?" cannot be answered from the host: sessions live in Infinispan, not the
+  database, and `event_entity` is empty because nothing writes to it. An empty
+  `event_entity` is **not** evidence that nobody logged in. Turning login events on
+  would make the estate's most-repeated question checkable instead of anecdotal.
 
 ## Genuinely open
 
@@ -148,6 +206,9 @@ gh workflow run deploy.yml -f service=all
 - Public: `hill90.com` (the tenant's UI), `auth.hill90.com` (this platform's
   Keycloak, realm `platform`). Tailscale-only: `traefik`, `portainer`,
   `grafana`, `vault`.
-- `app-auth.hill90.com` is the **tenant's** Keycloak, not this one.
+- `app-auth.hill90.com` is the **tenant's** Keycloak, not this one. It is **still
+  running**, but the app no longer authenticates against it: sign-in now goes to
+  `auth.hill90.com`, realm `platform`, on this platform's Keycloak. Retiring
+  `app-auth` is pending local parity, not done.
 - The deploy user on the VPS is `deploy`; the checkout is `/opt/hill90/app`.
   `/opt/hill90-app` is the tenant's, despite the similar name.
