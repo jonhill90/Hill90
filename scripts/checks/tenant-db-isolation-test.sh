@@ -33,7 +33,12 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # may collide with hill90*-* (a running stack) or with another pane's scratch
 # containers.
 NET="h90tenanttest-net"
-PG="h90tenanttest-db"
+# Named "<prefix>postgres" rather than "<prefix>db" so the real health check from
+# scripts/local.sh can be pointed at it: that function builds its container name
+# as "${cp}postgres". Reusing the actual function is the point — a second copy of
+# the classification logic here would pass while the real one rotted.
+CP="h90tenanttest-"
+PG="${CP}postgres"
 IMAGE="pgvector/pgvector:pg16"
 
 PLATFORM_ROLE="hill90"
@@ -313,6 +318,95 @@ else
     echo -e "  ${GREEN}✓${NC} refuses the platform's own role as a tenant role"
     pass_count=$((pass_count + 1))
 fi
+
+# --------------------------------------------------------------------------
+# The health check itself, against the real tenant database names.
+#
+# Everything above proves the BOUNDARY. This proves the CHECK that is supposed to
+# notice when the boundary breaks — which is a different thing, and the one that
+# fails silently. A check that stopped looking still prints a green tick.
+#
+# It runs the actual check_tenant_db_isolation from scripts/local.sh, not a copy,
+# in a subshell so local.sh's own `set -euo pipefail` cannot alter this script's
+# error handling.
+# --------------------------------------------------------------------------
+
+echo ""
+echo -e "${BOLD}The health check notices when the boundary breaks${NC}"
+
+LOCAL_SH_NOMAIN="$(mktemp -t local-nomain.XXXXXX)"
+# Strip the trailing `main "$@"` so sourcing defines the functions without
+# dispatching a command.
+sed '$d' "$PROJECT_ROOT/scripts/local.sh" > "$LOCAL_SH_NOMAIN"
+trap 'rm -f "$LOCAL_SH_NOMAIN"; cleanup' EXIT
+
+# run_check -> prints the check's output, returns its exit status
+run_check() {
+    bash -c "CONTAINER_PREFIX='$CP'; source '$LOCAL_SH_NOMAIN' >/dev/null 2>&1; check_tenant_db_isolation '$CP'" 2>&1
+}
+
+admin_sql() { docker exec "$PG" psql -U "$PLATFORM_ROLE" -q -c "$1" >/dev/null 2>&1; }
+
+# expect_check STATUS LABEL EXPECTED_SUBSTRING
+expect_check() {
+    local want="$1" label="$2" expect="$3" out status
+    out=$(run_check) && status=0 || status=1
+    if [ "$status" != "$want" ]; then
+        echo -e "  ${RED}✗${NC} ${label} — check exited ${status}, wanted ${want}"
+        echo "$out" | sed 's/^/        /'
+        fail_count=$((fail_count + 1))
+        return
+    fi
+    if ! echo "$out" | grep -qF "$expect"; then
+        echo -e "  ${RED}✗${NC} ${label} — exit ${status} was right but the message was not"
+        echo "        expected to contain: ${expect}"
+        echo "$out" | sed 's/^/        got: /'
+        fail_count=$((fail_count + 1))
+        return
+    fi
+    echo -e "  ${GREEN}✓${NC} ${label}"
+    pass_count=$((pass_count + 1))
+}
+
+# The healthy state must pass, and must NAME the databases it accepted. A check
+# that prints a bare tick cannot be distinguished from one that found nothing.
+expect_check 0 "passes on the real tenant database list, and names them" \
+    "hill90_akm(hill90_app) hill90_api(hill90_app) hill90_litellm(hill90_app)"
+
+# Failure 1: the #495 drift — an application database owned by the platform role.
+admin_sql "CREATE DATABASE drift_probe"
+expect_check 1 "fails on an application database owned by the platform role" \
+    "is owned by the platform role"
+admin_sql "DROP DATABASE drift_probe"
+
+# Failure 2: a tenant database opened to PUBLIC, so any other tenant can open it.
+admin_sql "GRANT CONNECT ON DATABASE hill90_akm TO PUBLIC"
+expect_check 1 "fails when a tenant database grants CONNECT to PUBLIC" \
+    "grants CONNECT to PUBLIC"
+admin_sql "REVOKE CONNECT ON DATABASE hill90_akm FROM PUBLIC"
+
+# Failure 3: a platform database left open to PUBLIC while a tenant exists. This
+# is the one a FUTURE platform database would trip, since Postgres grants
+# CONNECT to PUBLIC on every new database by default.
+admin_sql "GRANT CONNECT ON DATABASE keycloak TO PUBLIC"
+expect_check 1 "fails when a platform database still grants CONNECT to PUBLIC" \
+    "still grant CONNECT to PUBLIC"
+admin_sql "REVOKE CONNECT ON DATABASE keycloak FROM PUBLIC"
+
+# Failure 4: a tenant database owned by a superuser. Ownership alone is not
+# enough — the owner must be unprivileged.
+admin_sql "CREATE ROLE super_tenant LOGIN SUPERUSER PASSWORD 'irrelevant-for-this-check'"
+admin_sql "CREATE DATABASE super_probe OWNER super_tenant"
+admin_sql "REVOKE ALL ON DATABASE super_probe FROM PUBLIC"
+expect_check 1 "fails on a tenant database owned by a SUPERUSER" \
+    "which is a SUPERUSER"
+admin_sql "DROP DATABASE super_probe"
+admin_sql "DROP ROLE super_tenant"
+
+# And back to green, so a failure above cannot be mistaken for permanent damage
+# to the fixture.
+expect_check 0 "returns to passing once every probe is reverted" \
+    "hill90_akm(hill90_app) hill90_api(hill90_app) hill90_litellm(hill90_app)"
 
 # --------------------------------------------------------------------------
 
