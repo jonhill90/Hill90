@@ -41,6 +41,18 @@ CP="h90tenanttest-"
 PG="${CP}postgres"
 IMAGE="pgvector/pgvector:pg16"
 
+# ---------------------------------------------------------------------------
+# Phase timing. Added after a pytest run took 340s against a 66s median and PASSED,
+# with nothing in the output saying which part was slow. Whole seconds via
+# `date +%s`, which works on the bash 3.2 macOS ships; every phase here is
+# seconds-scale and the readiness phase also reports attempts used, which is finer
+# than a clock. No cap was changed and no retry was added: if a cap turns out to be
+# too tight, that should be learned from this output, not pre-empted.
+# ---------------------------------------------------------------------------
+IMG_STATE="unknown"; T_PULL=0; T_NET=0; T_START=0; T_READY=0; T_ASSERT=0
+READY_TRIES=0; READY_CAP_TRIES=90; READY_CAP_SLEEP=1
+now() { date +%s; }
+
 PLATFORM_ROLE="hill90"
 PLATFORM_PASSWORD="platform-pw-not-a-secret"
 TENANT_ROLE="hill90_app"
@@ -145,7 +157,27 @@ echo -e "${BOLD}Tenant database isolation on platform Postgres${NC}"
 echo ""
 
 cleanup
+
+# PHASE: image. Pulled explicitly so a cold pull is not folded into the start time.
+# On a fresh CI runner the pull is most of the wall clock; on a warm host it is zero.
+# Those two runs must read differently — the difference IS the measurement.
+if docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    IMG_STATE="cached"
+    echo "  image: cached locally (no pull)"
+else
+    IMG_STATE="pulled"
+    echo "  image: not present locally — pulling ${IMAGE}"
+    _t0=$(now); docker pull -q "$IMAGE" >/dev/null 2>&1; T_PULL=$(( $(now) - _t0 ))
+    echo "  image: pulled in ${T_PULL}s"
+fi
+
+# PHASE: network + start. Kept separate because the remove-then-create window on a
+# fixed network name is a known hazard: `docker rm -f` returns when removal is
+# INITIATED, so the endpoint can still be attached when `network create` runs.
+_t0=$(now)
 docker network create "$NET" >/dev/null
+T_NET=$(( $(now) - _t0 ))
+_t0=$(now)
 docker run -d --name "$PG" --network "$NET" \
     -e POSTGRES_USER="$PLATFORM_ROLE" \
     -e POSTGRES_PASSWORD="$PLATFORM_PASSWORD" \
@@ -159,11 +191,19 @@ echo "  waiting for the throwaway Postgres to accept connections..."
 # a socket-based pg_isready goes green *during* init and then the server
 # disappears underneath the test. Only TCP proves the real server is up.
 pg_ready() { docker exec "$PG" pg_isready -h 127.0.0.1 -U "$PLATFORM_ROLE" >/dev/null 2>&1; }
-for _ in $(seq 1 90); do
+T_START=$(( $(now) - _t0 ))
+# PHASE: ready. Cap UNCHANGED at 90 attempts x 1s. Attempts used is reported so a run
+# that nearly exhausted the budget is visible even when it passes.
+_t0=$(now)
+for _ in $(seq 1 "$READY_CAP_TRIES"); do
+    READY_TRIES=$((READY_TRIES + 1))
     pg_ready && break
-    sleep 1
+    sleep "$READY_CAP_SLEEP"
 done
-pg_ready || fatal "throwaway Postgres never became ready: $(docker logs "$PG" 2>&1 | tail -20)"
+T_READY=$(( $(now) - _t0 ))
+pg_ready || fatal "throwaway Postgres never became ready after ${T_READY}s (${READY_TRIES}/${READY_CAP_TRIES} attempts, cap $((READY_CAP_TRIES * READY_CAP_SLEEP))s): $(docker logs "$PG" 2>&1 | tail -20)"
+echo "  ready: after ${T_READY}s (${READY_TRIES}/${READY_CAP_TRIES} attempts, cap $((READY_CAP_TRIES * READY_CAP_SLEEP))s)"
+_t_assert0=$(now)
 
 # Sanity-check the fixture itself: the platform bootstrap must NOT have created
 # the tenant databases. If it did, this test would be proving the wrong thing.
@@ -409,6 +449,21 @@ expect_check 0 "returns to passing once every probe is reverted" \
     "hill90_akm(hill90_app) hill90_api(hill90_app) hill90_litellm(hill90_app)"
 
 # --------------------------------------------------------------------------
+
+T_ASSERT=$(( $(now) - _t_assert0 ))
+
+echo ""
+echo -e "${BOLD}Phase timing${NC}  (so a slow run says WHICH part was slow)"
+if [ "$IMG_STATE" = "cached" ]; then
+    echo "  image   cached, no pull       (a first run on this host pulls and will differ)"
+else
+    echo "  image   pulled in ${T_PULL}s        (cold; a cached run will report 0s here)"
+fi
+echo "  network ${T_NET}s"
+echo "  start   ${T_START}s"
+echo "  ready   ${T_READY}s  (${READY_TRIES}/${READY_CAP_TRIES} attempts of a $((READY_CAP_TRIES * READY_CAP_SLEEP))s cap)"
+echo "  asserts ${T_ASSERT}s  (${pass_count} assertions; most spawn a throwaway psql container)"
+echo "  total   $(( T_PULL + T_NET + T_START + T_READY + T_ASSERT ))s accounted for"
 
 echo ""
 if [ "$fail_count" -eq 0 ]; then

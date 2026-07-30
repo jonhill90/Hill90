@@ -24,12 +24,32 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KC="h90realmtest-kc"
 IMG="quay.io/keycloak/keycloak:26.4.0"
-ADMIN=admin
+ADMIN="admin"
 # Disposable, for a container that is destroyed at the end of this script.
 ADMIN_PW=throwaway-not-a-real-credential
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; BOLD='\033[1m'; NC='\033[0m'
 pass=0; fail=0
+
+# ---------------------------------------------------------------------------
+# Phase timing.
+#
+# Added because a run of the pytest suite once took 340s against a 66s median and
+# PASSED, and nothing in the output said which part was slow. Timing per phase makes
+# the next outlier attributable instead of a mystery.
+#
+# The pull is timed SEPARATELY and deliberately. Left inside `docker run -d`, a cold
+# image pull is indistinguishable from a slow server boot — and on a fresh CI runner
+# the pull is most of the wall clock. So a cold run and a warm run must read
+# differently here; that difference is the measurement, not noise to smooth away.
+#
+# Whole seconds via `date +%s`: portable to the bash 3.2 that ships with macOS,
+# where EPOCHREALTIME does not exist. Every phase here is seconds-scale, and the
+# readiness phase additionally reports attempts used, which is finer than a clock.
+# ---------------------------------------------------------------------------
+IMG_STATE="unknown"; T_PULL=0; T_START=0; T_READY=0; T_ASSERT=0; READY_TRIES=0
+READY_CAP_TRIES=60; READY_CAP_SLEEP=2
+now() { date +%s; }
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; pass=$((pass+1)); }
 bad()  { echo -e "  ${RED}✗${NC} $1"; fail=$((fail+1)); }
 
@@ -38,6 +58,20 @@ trap cleanup EXIT
 cleanup
 
 echo -e "${BOLD}Importing platform-realm.json into a real Keycloak${NC}"
+
+# PHASE: image. Pull explicitly so its cost is visible rather than folded into start.
+if docker image inspect "$IMG" >/dev/null 2>&1; then
+    IMG_STATE="cached"
+    echo "  image: cached locally (no pull)"
+else
+    IMG_STATE="pulled"
+    echo "  image: not present locally — pulling ${IMG}"
+    _t0=$(now); docker pull -q "$IMG" >/dev/null 2>&1; T_PULL=$(( $(now) - _t0 ))
+    echo "  image: pulled in ${T_PULL}s"
+fi
+
+# PHASE: start.
+_t0=$(now)
 docker run -d --name "$KC" -p 18099:8080 \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="$ADMIN" \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD="$ADMIN_PW" \
@@ -61,13 +95,27 @@ echo "  waiting for Keycloak..."
 ready() { docker exec "$KC" /opt/keycloak/bin/kcadm.sh config credentials \
             --server http://127.0.0.1:8080 --realm master \
             --user "$ADMIN" --password "$ADMIN_PW" >/dev/null 2>&1; }
-for _ in $(seq 1 60); do ready && break; sleep 2; done
+T_START=$(( $(now) - _t0 ))
+echo "  start: container running after ${T_START}s"
+
+# PHASE: ready. The cap is UNCHANGED at 60 attempts x 2s = 120s. Attempts used is
+# reported so headroom is a measured number rather than an estimate — and so a run
+# that nearly exhausted the budget is visible even though it passed.
+_t0=$(now)
+for _ in $(seq 1 "$READY_CAP_TRIES"); do
+  READY_TRIES=$((READY_TRIES + 1))
+  ready && break
+  sleep "$READY_CAP_SLEEP"
+done
+T_READY=$(( $(now) - _t0 ))
 if ! ready; then
-  echo -e "${RED}Keycloak never came up. Import log:${NC}"
+  echo -e "${RED}Keycloak never came up after ${T_READY}s (${READY_TRIES}/${READY_CAP_TRIES} attempts, cap $((READY_CAP_TRIES * READY_CAP_SLEEP))s). Import log:${NC}"
   docker logs "$KC" 2>&1 | grep -iE "error|warn|import|realm" | tail -25
   exit 2
 fi
+echo "  ready: after ${T_READY}s (${READY_TRIES}/${READY_CAP_TRIES} attempts, cap $((READY_CAP_TRIES * READY_CAP_SLEEP))s)"
 ok "realm 'platform' imported; kcadm authenticated"
+_t_assert0=$(now)
 
 # The same delta local.sh applies, so HTTP discovery is reachable here too.
 docker exec "$KC" /opt/keycloak/bin/kcadm.sh update realms/platform -s sslRequired=NONE >/dev/null 2>&1
@@ -204,6 +252,20 @@ echo "$WO2" | grep -q "localhost:13000" \
   && ok "local web origin present (CORS for NextAuth)" || bad "local web origin missing: $WO2"
 echo "$WO2" | grep -q "https://hill90.com" \
   && ok "production web origin KEPT" || bad "production web origin was clobbered: $WO2"
+
+T_ASSERT=$(( $(now) - _t_assert0 ))
+
+echo ""
+echo -e "${BOLD}Phase timing${NC}  (so a slow run says WHICH part was slow)"
+if [ "$IMG_STATE" = "cached" ]; then
+  echo "  image   cached, no pull       (a first run on this host pulls ~500MB and will differ)"
+else
+  echo "  image   pulled in ${T_PULL}s        (cold; a cached run will report 0s here)"
+fi
+echo "  start   ${T_START}s"
+echo "  ready   ${T_READY}s  (${READY_TRIES}/${READY_CAP_TRIES} attempts of a $((READY_CAP_TRIES * READY_CAP_SLEEP))s cap)"
+echo "  asserts ${T_ASSERT}s  (${pass} assertions, each one or more docker exec calls)"
+echo "  total   $(( T_PULL + T_START + T_READY + T_ASSERT ))s accounted for"
 
 echo ""
 if [ "$fail" -eq 0 ]; then
