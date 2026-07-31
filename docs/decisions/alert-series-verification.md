@@ -298,6 +298,60 @@ rule — so the failures are recorded rather than quietly fixed.
 | decay watcher | `connection refused` — read as Prometheus down | It resolved the Prometheus container IP **once at startup**. A deploy moved the container and the cached address went stale. Prometheus was healthy throughout. |
 | a shell `du` over `/var/lib/docker/*/` | the directory is empty | The glob expanded as the unprivileged user against a root-only directory, so it matched nothing. `sudo sh -c` returned 26 GiB. |
 | a `sed` display filter | one broken selector reported **twice** | Overlapping `sed` ranges printed the summary block twice. The checker itself reported one. Cosmetic, and still worth catching before repeating the number. |
+| Alertmanager `/api/v2/alerts` | `0 alerts` — read as **"nothing has ever fired"** | That endpoint reports **currently active** alerts only, and Alertmanager had restarted 2½ minutes earlier. It answers "what is firing now", never "what has fired". The real history was elsewhere. |
+| `strings` on Alertmanager's `nflog` | no matches — read as **"the notification log is empty"** | **`strings` is not installed on that host.** The command produced nothing because it did not exist, not because the log did. The file was 123 bytes and non-empty. |
+
+## The rule this evidences
+
+Six instances in one day is no longer a run of bad luck. Stated as a rule:
+
+> **An instrument that cannot see the thing is not evidence that the thing is
+> absent.** Before reporting "none", "empty" or "never", establish that the check
+> would have shown you one if it were there.
+
+Every failure above is that single mistake wearing a different coat: a 400 read as
+"no series", an unexpanded glob read as "empty directory", a missing binary read
+as "empty file", a current-state endpoint read as "no history". In each case the
+instrument was blind, and blindness and absence produce identical output.
+
+The cheap defence is a **positive control** — run the check against a case whose
+answer you already know:
+
+- `check_alert_series.py` earns trust by independently rediscovering
+  `LokiIngestionErrors`, a defect established by other means first.
+- `strings` needed nothing more than `command -v strings`.
+- `/api/v2/alerts` needed one glance at the container's uptime.
+
+A check that has never been shown to catch anything is not a check yet.
+
+## Where the durable record actually lives
+
+Worth knowing before debugging this path, because the obvious places are the
+wrong ones.
+
+**Alertmanager's own counters reset on restart**, and it restarts on every
+observability deploy — several times on a working day. `alertmanager_notifications_total`
+read `0` while the estate had demonstrably sent mail.
+
+**Prometheus's retained history of those counters survived it.**
+`max_over_time(alertmanager_notifications_total{integration="email"}[7d])`
+returned `2` when the live counter read `0`, and that is how the delivery was
+established at all. The 7-day TSDB is the record; the component's own gauge is a
+snapshot since its last restart.
+
+The same applies to alert history. Alertmanager tells you what is firing **now**;
+Prometheus's `ALERTS` series tells you what fired **and when**, across restarts of
+both. For "has this ever fired", ask Prometheus:
+
+```promql
+count_over_time(ALERTS[7d])
+max by (alertname,alertstate) (last_over_time(timestamp(ALERTS)[7d:1m]))
+```
+
+Alertmanager does persist its notification log and silences to the
+`alertmanager-data` volume via `--storage.path`, so those survive — but the nflog
+is protobuf, not something to read under time pressure. Prometheus is the
+practical answer.
 
 Two patterns account for all five, and both are worth naming because they recur:
 
