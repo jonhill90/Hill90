@@ -526,6 +526,7 @@ cmd_teardown() {
     local stack="$1"
     local env="${2:-prod}"
     local compose_file project_name
+    local secrets_file="infra/secrets/${env}.enc.env"
 
     case "$stack" in
         infra)
@@ -569,7 +570,24 @@ cmd_teardown() {
     # Orphan removal is deliberately not used here — it is banned repo-wide
     # because it will happily delete containers belonging to another stack that
     # shares a project name. See tests/scripts/deploy.bats.
-    docker compose -p "$project_name" -f "$compose_file" down
+    #
+    # Wrapped in `sops exec-env` for the same reason cmd_verify was in #597 and
+    # the completion banner was in #595: Compose interpolates the compose file
+    # for EVERY subcommand, `down` included, and cmd_teardown loads no secrets
+    # of its own. docker-compose.minio.yml declares ${MINIO_ROOT_USER:?...}, so
+    # `deploy.sh teardown minio` failed outright with "required variable
+    # MINIO_ROOT_USER is missing a value" — after the pre-teardown backup had
+    # run and after printing "Volumes: KEPT", which reads like the teardown
+    # happened.
+    #
+    # `set -e` inside the quoted string is load-bearing: `sops exec-env` runs it
+    # in a new shell that does not inherit deploy.sh's, and exec-env returns 0
+    # regardless of what the command did. Without it a failed `down` would be
+    # reported as a successful teardown. Same trap as _deploy_infra_with_sops.
+    sops exec-env "$secrets_file" '
+        set -e
+        docker compose -p "'"$project_name"'" -f '"$compose_file"' down
+    '
 
     echo ""
     success "${stack} torn down. Rebuild with: bash scripts/deploy.sh ${stack} ${env}"
