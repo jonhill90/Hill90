@@ -245,6 +245,36 @@ else
 fi
 
 echo ""
+echo "6. 'deploy.sh teardown minio' must be able to interpolate the compose file"
+
+# Fourth instance of the class. cmd_teardown loads no secrets, and Compose
+# interpolates for `down` exactly as it does for `up`, so tearing down MinIO
+# failed with "required variable MINIO_ROOT_USER is missing a value" — after the
+# pre-teardown backup had run and after printing "Volumes: KEPT", which reads
+# like it had worked.
+teardown_block=$(sed -n '/^cmd_teardown()/,/^}/p' "$PROJECT_ROOT/scripts/deploy.sh" \
+    | grep -v '^[[:space:]]*#')
+
+if printf '%s' "$teardown_block" | grep -q 'docker compose .*down'; then
+    ok "premise holds: teardown still runs 'docker compose down'"
+else
+    bad "no 'docker compose down' in cmd_teardown; revisit this test"
+fi
+if printf '%s' "$teardown_block" | grep -q 'sops exec-env'; then
+    ok "the down runs inside the secret environment"
+else
+    bad "'docker compose down' runs with no secrets — teardown of minio will fail"
+fi
+# `sops exec-env` runs a fresh shell that does not inherit `set -e`, and returns
+# 0 regardless. Without `set -e` inside the string a failed teardown reports
+# success — the same trap _deploy_infra_with_sops documents.
+if printf '%s' "$teardown_block" | grep -q 'set -e'; then
+    ok "'set -e' inside the exec-env string, so a failed down cannot report success"
+else
+    bad "no 'set -e' inside the exec-env string — a failed teardown would exit 0"
+fi
+
+echo ""
 echo "==============================="
 echo "passed: ${pass}  failed: ${fail}"
 [ "$fail" -eq 0 ] || exit 1

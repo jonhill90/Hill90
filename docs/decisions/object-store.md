@@ -50,6 +50,12 @@ accepts a Keycloak token and returns temporary S3 credentials carrying the
 policy named in the token's claim. That was verified end to end — a Keycloak user
 with realm role `admin` obtained credentials and wrote an object.
 
+> **That verification was local, and it does not hold in production today.** No user
+> in the production realm `platform` holds `admin`, `editor` or `viewer`, so no
+> token can name a policy and every federated exchange would be rejected with *no
+> policy found*. Details and evidence in the cutover record below — read that before
+> telling anyone the S3/STS path works here.
+
 **This is not SSO and must not be described as SSO.** It closes the MinIO part of
 issue #530 only in the sense that the identity provider is genuinely wired in;
 nobody gets a login button.
@@ -127,14 +133,14 @@ happen the way they were planned, and that is worth being able to read back.
 |---|---|---|
 | `app-api`'s object storage | **Moved** to platform `minio` via `tenant-hill90-app` | permanent |
 | Platform `minio` | **Live**, console router enabled on `storage.hill90.com` | permanent |
-| `app-minio` container | **Retired — stopped, not removed** (`exited 0`, 01:43 UTC) | review **on or after 2026-08-01 01:43 UTC** |
+| `app-minio` container | **Retired — stopped, not removed** (`exited 0`, 01:40:43 UTC) | review **on or after 2026-08-01 01:41 UTC** |
 | Volume `prod_app-minio-data` | **Kept**, 168K, untouched | review with the container |
 | `app-minio`'s Traefik labels | **Still on the stopped container** — a restart re-collides | until the container goes |
 | Keycloak console SSO | **Does not exist**, and cannot on this build | permanent |
 | Federated S3/STS | Policies restored; **no user holds a mapped role** | open, see below |
 
-**Do not remove `app-minio` or its volume before 2026-08-01 01:43 UTC.** The rule is
-one full day unused. It has been stopped since 01:43 UTC on 2026-07-31, and `app-api`
+**Do not remove `app-minio` or its volume before 2026-08-01 01:41 UTC.** The rule is
+one full day unused. It has been stopped since 01:40:43 UTC on 2026-07-31, and `app-api`
 has been serving from the platform store since 01:38 UTC. When the day is up, removing
 the container is what also removes its stale `storage.hill90.com` labels — see the
 hazard note below.
@@ -145,17 +151,52 @@ hazard note below.
 |---|---|---|
 | 0 | Platform MinIO up, buckets mirrored, tenant credential minted | **DONE** |
 | 0b | `traefik.enable` parameterised so the dark state survives a deploy | **DONE — #594, and it did not work; see step 3** |
-| 1 | Deploy `app-api` so it consumes the platform MinIO, prove a real object | **DONE 2026-07-31 01:40 UTC** |
-| 2 | Stop `app-minio` (container and volume both retained) | **DONE 2026-07-31 01:43 UTC** |
+| 1 | Deploy `app-api` so it consumes the platform MinIO, prove a real object | **DONE 01:40 UTC; RE-PROVEN 02:15 UTC after app-api was replaced** |
+| 2 | Stop `app-minio` (container and volume both retained) | **DONE 2026-07-31 01:40:43 UTC** |
 | 3 | Enable the `minio-console` router on `storage.hill90.com` | **DONE — but by an accidental merge-deploy, not by step 3** |
 | 4 | Verify console over Tailscale + whether Keycloak OIDC login works | **DONE 2026-07-31 02:20 UTC — console up, OIDC login does NOT work** |
 | 5 | Fix the `minio.sh` readiness race and the exit-1-after-success | **DONE — #595, proven on a cold MinIO 01:59 UTC** |
-| 6 | Fix `verify minio`, exposed by #595 | **Fix written, not merged** |
+| 6 | Fix `verify minio`, exposed by #595 | **DONE — #597** |
+| 7 | Audit `deploy.sh` for other secrets-out-of-scope sites | **DONE — one more found and fixed; two left open** |
+
+## Re-verified 2026-07-31 02:15 UTC, after `app-api` was replaced underneath this work
+
+An unrelated security deploy from another lane recreated `app-api` at **02:10:05 UTC**.
+It picked up `main`'s compose, so it came back with `MINIO_ENDPOINT=http://minio:9000` —
+the cutover configuration — but it is a **different container** from the one step 1 was
+proven against. A container holding the right endpoint variable is configuration, not
+traffic, so the proof was re-run rather than inherited.
+
+Same method: a script executed **inside** the new `app-api`, importing `app-api`'s own
+compiled S3 client and its own deployed environment.
+
+```
+endpoint = http://minio:9000
+PUT ok -> user-avatars/cutover-proof/step1-reproof.txt
+GET ok, roundtrip match = true | bytes = 40
+LIST user-avatars count = 2
+     cutover-proof/step1-reproof.txt 40B
+     cutover-proof/step1.txt 40B
+NEGATIVE ok: CreateBucket refused -> AccessDenied
+```
+
+Counts on both sides. `app-minio` is stopped, so rather than starting it — which would
+recreate the router collision — its volume was read directly on disk:
+
+| Bucket | platform `minio` (live, `mc`) | `app-minio` (volume on disk) |
+|---|---|---|
+| `agent-avatars` | 0 | 0 |
+| `chat-attachments` | 0 | 0 |
+| `user-avatars` | **2** | **0** |
+
+Both proof objects are on the platform store; `app-minio` has received nothing. Its three
+bucket directories are still present in `prod_app-minio-data` — retired, not emptied.
 
 ## Live state right now
 
 - `minio` running healthy, volume `prod_minio-data`, **`traefik.enable=true`**.
-  `user-avatars` holds **1** object (the step-1 proof); the other two buckets are empty.
+  `user-avatars` holds **2** objects (both cutover proofs); the other two buckets are
+  empty.
 - `app-minio` **stopped** (`exited 0`), volume `prod_app-minio-data` retained, 168K
   intact. Nothing was removed.
 - `app-api` healthy, reading and writing the platform MinIO with the scoped
@@ -631,7 +672,7 @@ If it instead exits 1 with an interpolation error, 5b did not take.
 The cutover itself is finished. Three things remain, none of them blocking:
 
 ```bash
-# 1. ON OR AFTER 2026-08-01 01:43 UTC — one full day unused — remove app-minio.
+# 1. ON OR AFTER 2026-08-01 01:41 UTC — one full day unused — remove app-minio.
 #    Removing the container is also what removes its stale storage.hill90.com
 #    labels, which are the last live hazard. Check first that nothing regressed:
 docker logs app-api --since 24h | grep -i 'minio\|s3' | head
@@ -649,6 +690,84 @@ docker rm app-minio                    # container only, deliberately
 ```
 
 Baseline by name after every step: 13 present, 0 unhealthy, `hill90.com` 200.
+
+## The pattern: code paths that need secrets, running where the secrets are not
+
+`Audited 2026-07-31 02:20 UTC.` Three bugs in three days were the same shape, so
+`deploy.sh` was audited for the rest rather than waiting for a fourth to bite.
+
+The shape: **service secrets exist only inside a `sops exec-env` child process or a
+`vault_load_secrets` subshell.** Anything outside those — a bare `ssh ... deploy.sh
+verify`, a line after the subshell closes, a function that never loads secrets at all —
+sees them as empty. Bash does not complain about an empty variable, so the failure
+surfaces somewhere unrelated and usually blames something else.
+
+Docker Compose makes it sharper: **it interpolates the compose file for every
+subcommand**, including `ps` and `down`, not just `up`. And
+`docker-compose.minio.yml` is the only prod compose file using the required form
+`${VAR:?...}`, which is why MinIO is where this keeps surfacing — everywhere else the
+same mistake interpolates to empty and says nothing.
+
+| # | Site | Status |
+|---|---|---|
+| 1 | Completion banner `docker compose ps` (`cmd_service`) | **Fixed #595** |
+| 2 | `cmd_verify` minio check interpolating `${MINIO_ROOT_USER}` | **Fixed #597** |
+| 3 | `cmd_teardown` `docker compose down` | **Fixed here** |
+| 4 | `${DB_USER:-hill90}` in `cmd_verify` and `cmd_service` | Latent — see below |
+| 5 | `.htpasswd` written with no empty-check (`cmd_infra`) | Latent, different family |
+
+### 3. `deploy.sh teardown minio` could not run at all
+
+`cmd_teardown` loads no secrets. Proven read-only — `config` exercises the identical
+interpolation stage that `down` must pass, and running `down --dry-run` against a live
+production stack was deliberately not done:
+
+```
+$ docker compose -p hill90-prod-platform -f docker-compose.minio.yml config
+rc=1   required variable MINIO_ROOT_USER
+
+$ sops exec-env infra/secrets/prod.enc.env "docker compose ... config"
+rc=0   errors=0
+```
+
+Worse than it looks: it fails **after** `backup.sh` has run and after printing
+`Volumes: KEPT — data survives`, so the operator sees a backup, sees a reassuring
+message, and gets a failure that reads like it happened during teardown rather than
+instead of it.
+
+Fixed by wrapping the `down` in `sops exec-env`, with `set -e` inside the string —
+without it `exec-env` returns 0 whatever the command did, and a failed teardown would
+report success. That trap is already documented on `_deploy_infra_with_sops`; it is the
+same one.
+
+### 4. `${DB_USER:-hill90}` — works today for a reason that is not guaranteed
+
+`cmd_verify`'s db check and `cmd_service`'s auth precondition both run outside the
+secret environment, so `DB_USER` is empty and the literal fallback `hill90` is what is
+actually used. It passes:
+
+```
+$ bash scripts/deploy.sh verify db
+✓ db is healthy
+$ docker inspect postgres --format '...' | grep POSTGRES_USER
+POSTGRES_USER=hill90
+```
+
+It works only because the hardcoded fallback happens to equal the real `POSTGRES_USER`.
+Change `DB_USER` in the store without editing this literal and the check queries a role
+that does not exist — and the auth precondition would refuse to deploy Keycloak with a
+message blaming Postgres. **Not fixed**: the correct fix is either to load the secret or
+to drop the fallback so the mismatch is loud, and that is a decision about the db path,
+not a storage change.
+
+### 5. The `.htpasswd` write has no empty guard
+
+`cmd_infra` writes `echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > .htpasswd`. Both
+copies are correctly **inside** the secret scope, so this is not the scope bug — but
+neither checks the value is non-empty, and an empty one writes `admin:` over the live
+dashboard credential. `keycloak.sh` guards exactly this case
+(*"Refusing to write an empty client secret"*); `deploy.sh` does not. **Not fixed** —
+edge deploys are a different blast radius and deserve their own change.
 
 ## Checks that lie, collected
 
