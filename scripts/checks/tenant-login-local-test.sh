@@ -57,6 +57,8 @@ mkuser() {
   kc create users -r $REALM -s "username=$u" -s enabled=true -s emailVerified=true \
      -s "email=${u}@localtest.me" -s "firstName=${u}" -s "lastName=Probe" >/dev/null 2>&1
   local id; id=$(kc get users -r $REALM -q "username=$u" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | head -1)
+  # argv-ok: $PW is a throwaway generated for a throwaway user that this
+  # script deletes; it is never a real account credential.
   kc set-password -r $REALM --userid "$id" --new-password "$PW" >/dev/null 2>&1
   echo "$id"
 }

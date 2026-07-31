@@ -77,6 +77,12 @@ jobs:
       - name: Assert no destructive volume commands
         run: bash scripts/checks/check_destructive_commands.sh
 
+      # A credential in argv is readable by any local user via `ps` — the shell
+      # analogue of a token in a query string. Greps for the dangerous forms;
+      # genuine throwaways carry an explicit `# argv-ok:` marker.
+      - name: Assert no credentials passed in argv
+        run: bash scripts/checks/check_argv_secrets.sh
+
       # The five admin routers resolve on public DNS and are protected by exactly one
       # middleware. This asserts that middleware still resolves, that its type key
       # matches the pinned Traefik major version (ipWhiteList in v2 became
