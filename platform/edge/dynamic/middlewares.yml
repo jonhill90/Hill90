@@ -47,7 +47,21 @@ http:
     #
     # Do not re-add 172.18.0.1/32 without first re-checking the SNAT rule --
     # if it returns, tailnet traffic breaks and adding the CIDR back reopens v6.
-    # NOTE: ipWhiteList is Traefik v2. If upgrading to v3, use ipAllowList.
+    # ##########################################################################
+    # ipWhiteList IS TRAEFIK v2. IN v3 IT IS ipAllowList. THE RENAME IS NOT
+    # OPTIONAL AND ITS OMISSION IS SILENT.
+    #
+    # This middleware is the ONLY thing protecting traefik, portainer, grafana,
+    # vault and storage.hill90.com — all of which resolve on public DNS. Bump the
+    # image to v3 without renaming this key and v3 does not recognise the
+    # definition: those five routers keep loading and keep serving, with no
+    # allowlist, and nothing logs an error. That is the entire failure mode.
+    #
+    # This is no longer only a comment. scripts/checks/check_edge_middlewares.py
+    # reads the pinned Traefik major version from deploy/compose/prod and FAILS CI
+    # when the type key here does not match it. Do not delete that check to get a
+    # version bump through — rename the key.
+    # ##########################################################################
     #
     # This list must contain ONLY the Tailscale CGNAT range. It previously also
     # carried the Docker bridge gateway, "172.18.0.1/32", added because proxied

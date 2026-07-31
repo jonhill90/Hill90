@@ -77,6 +77,14 @@ jobs:
       - name: Assert no destructive volume commands
         run: bash scripts/checks/check_destructive_commands.sh
 
+      # The five admin routers resolve on public DNS and are protected by exactly one
+      # middleware. This asserts that middleware still resolves, that its type key
+      # matches the pinned Traefik major version (ipWhiteList in v2 became
+      # ipAllowList in v3 — a bump without the rename loses the allowlist silently),
+      # and that no IP allowlist sits behind an authenticator.
+      - name: Assert the edge middleware contract
+        run: python3 scripts/checks/check_edge_middlewares.py
+
       # Guards the 2026-07-31 incident: minio.sh provisioned policies before
       # MinIO was serving, then blamed the credentials. Stubs docker, so it needs
       # no running stack.
