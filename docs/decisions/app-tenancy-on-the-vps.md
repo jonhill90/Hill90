@@ -452,7 +452,21 @@ deploy workflows, which do not verify `infra`. Worth fixing separately.
 | Container name `minio`, router `minio-console`, host `storage` free | ✗ once PR #556 merges | naming decision, app lane |
 | Tenant deploy tooling | ✗ | build in `hill90-app`; optionally add a preflight here |
 | Tenant secrets store | ✗ (app has none) | app lane |
-| Observability of tenant containers | partial — `cadvisor` scrapes all containers; no app-specific Prometheus job | not a blocker |
+| Observability of tenant containers | **none** — see the correction below | not a blocker; scope decided in [tenant-monitoring-coverage.md](tenant-monitoring-coverage.md) |
+
+> **Correction, `Verified 2026-07-31 10:50 UTC`.** That row used to read *"partial —
+> `cadvisor` scrapes all containers; no app-specific Prometheus job"*. **The stated basis
+> is false.** cAdvisor on this host emits 45 cgroup and systemd series and **zero Docker
+> containers**: `count(container_memory_usage_bytes{name!=""})` is 0, and the only ids
+> mentioning Docker are `docker.service`, `docker.socket` and `containerd.service` — the
+> daemons, not the containers. Prometheus scrapes **no** `app-*` target either. So the
+> partial coverage this table recorded has never existed, and the honest entry is none.
+>
+> What does cover the tenant is outside-in: blackbox probes of `hill90.com` and, since
+> 2026-07-31, `api.hill90.com/health`. Those are edge checks of public hostnames this
+> platform routes, not observation of tenant internals — the boundary argument, and the
+> decision NOT to scrape tenant containers, are in
+> [tenant-monitoring-coverage.md](tenant-monitoring-coverage.md).
 
 Nothing in the "Provided today ✗" column is a Hill90 capability gap except the
 deploy tooling. The rest are naming decisions that belong to the app.
