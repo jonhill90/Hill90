@@ -8,3 +8,5 @@
 # Format:  <metric-name-or-full-selector>    # why it can legitimately be absent
 
 tempo_distributor_ingester_append_failures_total  # Lazily created: Tempo exposes this counter only after the first append failure. Verified 2026-07-31 — after the 09:45 restart /metrics carried tempo_distributor_ingester_appends_total (248 successes) and no failures line at all, while before the restart the series existed with value 30. Absence means "no failures since start", which is the healthy state.
+
+loki_request_duration_seconds_count{route="loki_api_v1_push", status_code!~"2.."}  # Lazily created per status code. THIS IS NOT THE LokiIngestionErrors BUG: status_code is a real label on this metric, carrying observed values 200, 204, 503 and "success" across routes, and a 503 has genuinely been recorded on route="ready". The ingest route has only ever returned 204 on this deployment, so the non-2xx series has not been created yet; it appears the moment a push is rejected. Contrast the rule this replaced, whose `status` label does not exist on its metric under any condition. Verified 2026-07-31.

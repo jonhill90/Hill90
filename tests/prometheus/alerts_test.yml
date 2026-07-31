@@ -16,11 +16,16 @@
 # emits, the test still passes, because the test hands the rule exactly the
 # labels it asked for.
 #
-# That is not hypothetical — see LokiIngestionErrors at the bottom, which has a
-# passing test here and CANNOT FIRE in production. Two rules shipped in this
-# repo had that defect and both looked like coverage for months.
+# That is not hypothetical, and the proof is that a rule used to be tested here.
+# LokiIngestionErrors matched {status="error"} on a metric carrying no `status`
+# label, and it had a PASSING TEST IN THIS FILE while being incapable of firing
+# in production — because the test invented the label the rule asked for. It was
+# removed once the live check caught what this suite structurally could not.
 #
-# The complementary check is scripts/checks/check_alert_series.sh, which asks the
+# Every rule below is subject to the same blind spot. Do not read a green run as
+# evidence that an alert works.
+#
+# The complementary check is scripts/checks/check_alert_series.py, which asks the
 # live Prometheus whether each selector matches anything. Neither test is
 # sufficient alone: this one proves the logic, that one proves the data.
 # ---------------------------------------------------------------------------
@@ -423,37 +428,88 @@ tests:
         exp_alerts: []
 
   # --- loki -----------------------------------------------------------------
+  # --- loki -----------------------------------------------------------------
 
-  - name: LokiIngestionErrors — DEMONSTRATION THAT A GREEN TEST PROVES NOTHING
-    # This test passes. The rule CANNOT FIRE IN PRODUCTION.
-    #
-    # It matches loki_distributor_lines_received_total{status="error"}. On the
-    # live Loki that metric carries aggregated_metric, instance, job and tenant —
-    # there is no `status` label at all. And `status` where it does exist in
-    # Loki's metrics takes discarded|matched|notfound|success, so "error" is not a
-    # value it ever holds either. Verified 2026-07-31, see
-    # docs/decisions/alert-series-verification.md.
-    #
-    # The test passes because the line below INVENTS the label. That is the
-    # limitation of every unit test in this file, stated once, concretely, in the
-    # one place where it is provably true. Do not delete this test without
-    # deleting the rule — it is the honest record of why the suite alone is not
-    # enough.
+  - name: LokiIngestionStalled fires when ingestion goes flat
+    # A counter that stops advancing. rate() over it is 0, which is the whole
+    # signal: Loki is up, answering, and receiving nothing.
     interval: 1m
     input_series:
-      - series: 'loki_distributor_lines_received_total{status="error", instance="loki:3100", job="loki"}'
-        values: '0+5x15'
+      - series: 'loki_distributor_lines_received_total{instance="loki:3100", job="loki", tenant="fake", aggregated_metric="false"}'
+        values: '5000x60'
     alert_rule_test:
-      - eval_time: 12m
-        alertname: LokiIngestionErrors
+      - eval_time: 20m
+        alertname: LokiIngestionStalled
+        exp_alerts: []          # `for: 30m` not yet satisfied
+      - eval_time: 50m
+        alertname: LokiIngestionStalled
         exp_alerts:
           - exp_labels:
               severity: warning
-              status: error
               instance: loki:3100
               job: loki
+              tenant: fake
+              aggregated_metric: "false"
             exp_annotations:
-              summary: "Loki ingestion errors detected"
-              description: "Loki is rejecting log lines at 0.08333333333333333 errors/sec on loki:3100. Logs are being LOST while this fires."
-              action: "`docker logs --tail 50 loki`. Rate-limit and per-stream-limit rejections are configuration; disk-full is not — check `df -h /` too."
+              summary: "Loki has received no log lines for 45 minutes"
+              description: "Loki on loki:3100 is up and accepting connections but has ingested nothing for the last 15 minutes, and has been in that state for 30 minutes. Normal on this host is around 9 to 12 lines/sec and has never been lower. Logs from every container are being lost for as long as this continues, and nothing else will tell you."
+              action: "Check the shipper before Loki: `docker ps --filter name=promtail` and `docker logs --tail 50 promtail`. Promtail is NOT a Prometheus scrape target, so this alert is the only signal that it has stopped. If promtail is healthy, `docker logs --tail 50 loki` and confirm the push endpoint with `docker exec loki wget -qO- http://localhost:3100/ready`."
               runbook: docs/runbooks/observability.md
+
+  - name: LokiIngestionStalled stays silent at the rate this host actually runs at
+    # ~10 lines/sec, inside the 9-12 range measured on the live deployment. The
+    # 7-day floor was 8.96 lines/sec, so this is the realistic quiet case.
+    interval: 1m
+    input_series:
+      - series: 'loki_distributor_lines_received_total{instance="loki:3100", job="loki", tenant="fake", aggregated_metric="false"}'
+        values: '0+600x60'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: LokiIngestionStalled
+        exp_alerts: []
+
+  - name: LokiPushRejected fires on 429 and names the status code
+    # Rate-limited pushes. The old rule tried to express this condition and
+    # selected a label that does not exist; this selects status_code, which does.
+    interval: 1m
+    input_series:
+      - series: 'loki_request_duration_seconds_count{instance="loki:3100", job="loki", method="POST", route="loki_api_v1_push", status_code="429", ws="false"}'
+        values: '0+30x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: LokiPushRejected
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              status_code: "429"
+            exp_annotations:
+              summary: "Loki is rejecting log pushes with HTTP 429"
+              description: "Loki is returning 429 to 0.5 pushes/sec on the ingest endpoint. Log lines are being LOST while this fires. 429 means a rate or per-stream limit; 5xx means Loki could not accept the write."
+              action: "`docker logs --tail 50 loki` for the rejection reason. A 429 is configuration — limits_config in platform/observability/loki/loki.yml — and raising a limit is a deliberate choice, not a reflex. A 5xx is not configuration: check disk with `df -h /`, since a full disk presents this way. Do not restart Loki to clear it; that loses the WAL and the reason."
+              runbook: docs/runbooks/observability.md
+
+  - name: LokiPushRejected ignores successful pushes
+    # THE REGRESSION TEST FOR THE STATUS-CODE MATCHER. 204 is what a healthy push
+    # returns and is the ONLY code this endpoint has ever produced here. If the
+    # !~"2.." matcher is broken or dropped, this test starts firing on healthy
+    # traffic — which is the loudest possible failure and the right one.
+    interval: 1m
+    input_series:
+      - series: 'loki_request_duration_seconds_count{instance="loki:3100", job="loki", method="POST", route="loki_api_v1_push", status_code="204", ws="false"}'
+        values: '0+30x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: LokiPushRejected
+        exp_alerts: []
+
+  - name: LokiPushRejected ignores non-ingest routes
+    # A 503 on route="ready" is real and has been observed on this deployment.
+    # It is a readiness blip, not lost logs, and must not page.
+    interval: 1m
+    input_series:
+      - series: 'loki_request_duration_seconds_count{instance="loki:3100", job="loki", method="GET", route="ready", status_code="503", ws="false"}'
+        values: '0+30x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: LokiPushRejected
+        exp_alerts: []
