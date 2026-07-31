@@ -111,3 +111,75 @@ The first issuance should be watched rather than assumed. Procedure in
 The stale `_acme-challenge.storage` TXT record in the zone is a fossil from when
 MinIO last existed; it survives because `dns-manager`'s `/cleanup` has never
 successfully deleted a record. Retiring it is #538's business, not this change's.
+
+---
+
+# CUTOVER STATE — read this first if you are picking this up
+
+`Last updated 2026-07-31 ~01:30 UTC.` Written deliberately so a context exhaustion or a
+handover cannot leave storage half cut over with nobody knowing which half.
+
+## Where it actually is
+
+| # | Step | Status |
+|---|---|---|
+| 0 | Platform MinIO up, buckets mirrored, tenant credential minted | **DONE** |
+| 0b | `traefik.enable` parameterised so the dark state survives a deploy | **DONE — this PR** |
+| 1 | Deploy `app-api` so it consumes the platform MinIO, prove a real object | **NOT DONE** |
+| 2 | Stop `app-minio` (container and volume both retained) | **NOT DONE** |
+| 3 | Enable the `minio-console` router on `storage.hill90.com` | **NOT DONE** |
+| 4 | Verify console over Tailscale + whether Keycloak OIDC login works | **NOT DONE** |
+
+## Live state right now
+
+- `minio` running healthy, volume `prod_minio-data`, **`traefik.enable=false`**, three
+  buckets (`agent-avatars`, `chat-attachments`, `user-avatars`), **0 objects**.
+- `app-minio` running, volume `prod_app-minio-data` intact, still the app's live data
+  path, still the only enabled router for `storage.hill90.com`.
+- Platform baseline 13/13 by name, 0 unhealthy, `hill90.com` 200.
+- Tenant credential `tenant-hill90-app` exists on the platform MinIO, scoped to the three
+  buckets. Present in **both** stores: Hill90's (authoritative) and hill90-app's (replica,
+  merged as hill90-app#66).
+- `app-api` on `main` already names the platform MinIO — **but that has not shipped**;
+  the app's deploy is `workflow_dispatch` only.
+
+## The trap that already fired once
+
+Merging any change to `deploy/compose/prod/docker-compose.minio.yml` **redeploys minio**
+(`deploy.yml` triggers on those paths — invariant 1). On 2026-07-31 that silently
+re-enabled the router while `app-minio` still claimed the same Host rule, giving two
+routers one rule with no provider constraints to disambiguate. It was restored by hand.
+
+That is why the label is now `${MINIO_TRAEFIK_ENABLE:-true}`. **During the remaining
+cutover, deploy minio with `MINIO_TRAEFIK_ENABLE=false`** until step 2 is done.
+
+Note both backends are MinIO, so `storage.hill90.com` returns 200 either way — an
+ambiguous route does not announce itself. If it points at the platform store before the
+app has cut over, an operator sees an **empty** bucket list and may conclude data was
+lost. It was not; the data path is still `app-minio`.
+
+## To continue
+
+```bash
+# 1. deploy app-api (pipeline only; dry run first)
+gh workflow run "Manual Deploy App (Prod)" -f service=api -f dry_run=true
+gh workflow run "Manual Deploy App (Prod)" -f service=api
+
+# prove it, do not infer from config: write through the APP's own path, then read the
+# object back from the platform MinIO and compare counts on both sides. They were both
+# 0, so a 0 -> 1 landing in the right bucket is the proof.
+
+# 2. stop app-minio — STOP only. Do not rm, do not touch prod_app-minio-data.
+docker stop app-minio
+
+# 3. only now let the router go live
+bash scripts/deploy.sh minio prod      # MINIO_TRAEFIK_ENABLE unset -> true
+
+# 4. verify over Tailscale, and say plainly whether Keycloak OIDC login WORKS.
+#    The `minio` client in realm platform has never been exercised by a human.
+#    MinIO's AGPL build has no console SSO since May 2025 — the console offers
+#    root-credential form login only, and OIDC gates the S3/STS path. Report what
+#    is actually true rather than "console up".
+```
+
+Baseline by name after every step: 13 present, 0 unhealthy, `hill90.com` 200.
