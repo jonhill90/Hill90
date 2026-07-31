@@ -113,23 +113,10 @@ paged about. The warning window is real and currently unwatched.
 **The cheap fix is unusually cheap, because the data is already there.**
 Prometheus already scrapes Traefik (`job_name: traefik`) and already holds
 `traefik_tls_certs_not_after` — **11 series, one per certificate**, verified by
-querying it. An expiry alert is a handful of lines in `alerts.yml` against a
-metric that is already collected:
+querying it.
 
-```yaml
-- alert: CertificateExpiringSoon
-  expr: (traefik_tls_certs_not_after - time()) / 86400 < 21
-  for: 1h
-```
-
-Twenty-one days sits deliberately *inside* the 30-day renewal window: it fires
-only once renewal has been failing for about nine days, so a single transient
-failure does not page anyone, while a stuck renewal does.
-
-**An alert rule without a notification path only moves the problem**, so the
-Alertmanager gap should be settled in the same change or the rule will be as
-unwatched as the logs. That is a decision about notification channels, not a
-lane's to take.
+The rules, their thresholds and the reasoning behind the numbers are specified
+below under [Proposed: the alert that would notice](#proposed-the-alert-that-would-notice).
 
 ## Current health, from evidence
 
@@ -145,25 +132,197 @@ lane's to take.
   is good evidence the August renewal will work — not proof, which only Aug 13
   provides.
 
-## If a renewal does fail
+## Proposed: the alert that would notice
+
+`Specified 2026-07-31. Nothing was enabled — see Scope at the end.`
+
+### The metric needs nothing turned on
+
+The first question is whether Traefik's certificate metric requires an option to
+be enabled, and therefore a restart of the edge. **It does not.** Verified at the
+source, not inferred from the config:
+
+```
+$ docker exec traefik wget -qO- http://localhost:8082/metrics | grep -c '^traefik_tls_certs_not_after'
+11
+
+traefik_tls_certs_not_after{cn="ai.hill90.com",sans="ai.hill90.com",serial="…"} 1.793076175e+09
+```
+
+Eleven series — one per certificate — already exposed and already scraped by the
+existing `traefik` job. **No configuration change, no restart, nothing for anyone
+to sequence.** The edge is the one component whose failure takes everything with
+it, so the fact that this needs no change to it is the main reason to prefer it.
+
+### Metric, not endpoint — and what that costs
+
+| | Metric (`traefik_tls_certs_not_after`) | Probing the served certificate |
+|---|---|---|
+| Cost today | **zero** — collected already | a new component (`blackbox_exporter`); no prober exists |
+| Covers tailnet-only hosts | yes, all 11 | only from inside the tailnet |
+| Tests what a user receives | **no** — what Traefik believes it holds | **yes** |
+| Restart of the edge | none | none, but a new container to deploy |
+
+**Choose the metric.** It is free, immediate, covers every certificate including
+the six that are unreachable from outside the tailnet, and touches nothing on the
+edge.
+
+**Be honest about the gap it leaves.** The metric reports what Traefik *holds*.
+If Traefik ever served the wrong certificate — the built-in self-signed default,
+because an ACME entry was lost — the expiry metric would not show a bad value. It
+would show **nothing at all**, because the series would disappear. Confirmed by
+counting: 11 ACME certificates in the stores, 11 series, and no series for the
+default certificate.
+
+That is a different failure from the one being alerted on, and it is why a
+served-certificate probe is worth adding **later** — not as the first thing,
+because it costs a new component to catch a rarer fault. The companion rule below
+covers the cheap half of it.
+
+### The threshold, argued against the actual window
+
+Let's Encrypt issues for **90 days**. Traefik renews below **30 days** remaining
+and retries every **24 hours**. So in a healthy estate a certificate never drops
+far below 30 days — and every day below 30 is **one more failed attempt**.
+
+That turns the threshold into a straightforward question: how many consecutive
+failures before it is worth waking someone, and how much runway do they need?
+
+| Threshold | Failures before firing | Runway left | Verdict |
+|---|---|---|---|
+| 29 days | 1 | 29 days | **No.** Fires on any single slow renewal — a Let's Encrypt hiccup, one Cloudflare API timeout. Alerts that cry wolf get filtered, and then the real one is filtered too |
+| **21 days** | **9** | **21 days** | **Warning.** Nine consecutive daily failures is not a blip. Three weeks is comfortably enough to mint a token, update SOPS and deploy |
+| **10 days** | **20** | **10 days** | **Critical.** Twenty days of failure means the first alert was missed. Still fixable, no longer comfortable |
+| 7 days | 23 | 7 days | **No.** Fixing a revoked DNS token means Cloudflare dashboard, a SOPS edit and an edge deploy. Seven days that begin on a Friday of a long weekend is thin |
+
+```yaml
+# platform/observability/prometheus/alerts.yml — NOT yet applied
+- alert: CertificateExpiringSoon
+  expr: (traefik_tls_certs_not_after - time()) / 86400 < 21
+  for: 1h
+  labels:
+    severity: warning
+  annotations:
+    summary: "{{ $labels.cn }} expires in {{ $value | printf \"%.0f\" }} days"
+    description: >-
+      Renewal has been failing for roughly nine days. Traefik renews below 30
+      days and retries every 24h, so every day under 30 is another failed
+      attempt. Runbook: docs/runbooks/certificate-renewal.md
+
+- alert: CertificateExpiringCritical
+  expr: (traefik_tls_certs_not_after - time()) / 86400 < 10
+  for: 1h
+  labels:
+    severity: critical
+  annotations:
+    summary: "{{ $labels.cn }} expires in {{ $value | printf \"%.0f\" }} days"
+```
+
+`for: 1h` is not about the certificate — the value moves once a day. It guards
+against a single failed scrape producing a spurious evaluation.
+
+### Companion: a certificate that vanished rather than aged
+
+Cheap, and covers the failure the expiry rule structurally cannot see.
+
+```yaml
+- alert: CertificateCountDropped
+  expr: |
+    count(traefik_tls_certs_not_after)
+      < count(traefik_tls_certs_not_after offset 1h)
+  for: 2h
+  labels:
+    severity: warning
+```
+
+Self-adjusting, so adding or retiring a host does not need the rule edited. The
+`for: 2h` matters: a Traefik restart makes every series vanish briefly, and
+`ServiceDown` already covers Traefik being down — this must not double-report it.
+
+**Delivery is the open half.** A rule with no receiver changes nothing; that is
+the subject of the alerting audit, and the certificate rule should land with
+whichever delivery path is chosen there rather than ahead of it.
+
+## When the alert fires: what to do at 3am
+
+The alert names one certificate and a number of days. Work in this order — it is
+arranged so the cheapest discriminator comes first.
+
+**1. How much time is actually left, and is it one certificate or several?**
 
 ```bash
-# What Traefik thinks, in its own words:
-docker logs traefik --since 48h 2>&1 | grep -iE 'acme|certificate|challenge' | tail -30
-
-# Days remaining, per certificate, from the metric that already exists:
 docker exec prometheus wget -qO- \
   'http://localhost:9090/api/v1/query?query=(traefik_tls_certs_not_after-time())/86400'
+```
 
-# Is the Cloudflare credential still there at all? (name only — never echo it)
+**This is the important branch.** If **several DNS-01 hosts** — `traefik`,
+`portainer`, `grafana`, `vault`, `litellm`, `storage` — are all falling together,
+go straight to step 3: they share one credential and one store, and a single
+certificate failing alone is a different problem from all six failing at once.
+
+**2. What does Traefik say it tried?**
+
+```bash
+docker logs traefik --since 48h 2>&1 | grep -iE 'acme|certificate|challenge' | tail -40
+```
+
+Grep for `challenge` as well as `certificate`: a revoked Cloudflare token fails
+as a **DNS challenge error**, not as a certificate error, so grepping only for
+the latter finds nothing and looks like silence.
+
+**3. Is the Cloudflare credential still there and still valid?**
+
+```bash
+# Presence only. Never echo the value.
 docker inspect traefik --format '{{range .Config.Env}}{{println .}}{{end}}' \
   | grep -c '^CF_DNS_API_TOKEN='
 ```
 
-A DNS-01 failure after a token revocation shows as a Cloudflare API error on the
-challenge, not as a certificate error — so grep for `challenge` as well as
-`certificate`.
+Present but rejected looks like a `403`/`9109` from the Cloudflare API in the
+logs above. Absent means the deploy that should have injected it did not.
 
-**Do not edit the ACME configuration to "fix" a renewal.** A mistake there means
-reissuing certificates for a live site, against rate limits, under time pressure.
-Diagnose first; the 30-day window is there to be used.
+**4. Fix the cause, then let the normal cycle run.**
+
+If the token is the problem: mint a replacement in Cloudflare scoped to the
+`hill90.com` zone with **Zone:Read + DNS:Edit**, store it in SOPS, and redeploy
+the edge. Traefik retries on its own within 24 hours — with 21 days of runway
+there is no need to force anything.
+
+**Restarting Traefik forces an immediate attempt, and is a deliberate act**, not
+a debugging reflex: it drops in-flight connections on the one component every
+service is behind. If you have days of runway, wait for the cycle.
+
+### What not to do
+
+- **Do not delete `acme-dns.json`** to "start clean". It holds the ACME account
+  key and all six DNS-01 certificates; deleting it forces re-registration and
+  re-issuance straight into Let's Encrypt's rate limits — including **5 duplicate
+  certificates per week** — at the moment you can least afford to be blocked.
+- **Do not edit the ACME configuration under time pressure.** A mistake there
+  means reissuing for a live site, against those same limits.
+- **Do not switch `caServer` to staging to "test".** Staging certificates are
+  untrusted by browsers, and the repo guards against that mix-up because it is
+  easy to leave behind.
+
+### Diagnostics that are safe to run
+
+```bash
+# Which resolver owns the failing host, and what Traefik currently holds:
+docker exec traefik wget -qO- http://localhost:8082/metrics | grep '^traefik_tls_certs_not_after'
+
+# Is the DNS-01 provider reachable at all (challenge records live in Cloudflare):
+dig +short _acme-challenge.<host>.hill90.com TXT
+```
+
+## Scope of this proposal
+
+**Nothing was enabled, deployed or restarted.** The metric was read from the
+running Traefik and Prometheus read-only; the alert rules above are written out
+to be pasted into `platform/observability/prometheus/alerts.yml`, not added to
+it, because adding them applies them on the next deploy.
+
+The delivery half — where a firing alert actually goes — is the subject of
+[../decisions/alerting-audit.md](../decisions/alerting-audit.md), which ranks the
+certificate alert as the first thing worth having. These rules should land
+**with** whichever receiver is chosen there. A rule with no receiver is the same
+silence in a different file.
