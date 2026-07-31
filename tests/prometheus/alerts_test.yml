@@ -1,0 +1,326 @@
+# Unit tests for platform/observability/prometheus/alerts.yml.
+#
+# Run:  promtool test rules tests/prometheus/alerts_test.yml
+# CI:   .github/workflows/ci.yml, job `prometheus-rules`
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS SUITE CAN AND CANNOT PROVE. Read before trusting a green run.
+#
+# It CAN prove: the expression computes what you meant, the threshold is on the
+# right side, `for:` holds firing off for the right duration, aggregation
+# produces a matchable vector, and the annotation templates render to real text
+# rather than to blanks.
+#
+# It CANNOT prove the series exist in production. Every input_series below is
+# INVENTED BY THE TEST AUTHOR. If a rule matches on a label production never
+# emits, the test still passes, because the test hands the rule exactly the
+# labels it asked for.
+#
+# That is not hypothetical — see LokiIngestionErrors at the bottom, which has a
+# passing test here and CANNOT FIRE in production. Two rules shipped in this
+# repo had that defect and both looked like coverage for months.
+#
+# The complementary check is scripts/checks/check_alert_series.sh, which asks the
+# live Prometheus whether each selector matches anything. Neither test is
+# sufficient alone: this one proves the logic, that one proves the data.
+# ---------------------------------------------------------------------------
+
+rule_files:
+  - ../../platform/observability/prometheus/alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # --- availability ---------------------------------------------------------
+
+  - name: PublicSiteDown fires 2m after the public probe stops returning 200
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-public", instance="https://hill90.com/"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PublicSiteDown
+        exp_alerts: []          # `for: 2m` not yet satisfied
+      - eval_time: 3m
+        alertname: PublicSiteDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: blackbox-public
+              instance: https://hill90.com/
+            exp_annotations:
+              summary: "hill90.com is not answering from the internet"
+              description: "The blackbox probe of https://hill90.com/ has not received HTTP 200 for over 2 minutes. This is the tenant's UI — the public product — so users are seeing this too."
+              action: "Check the edge before the app: `docker ps --filter name=traefik` and `docker logs --tail 50 traefik`. If Traefik is healthy, the tenant's app-ui is the next suspect — it is NOT a Prometheus scrape target, so this probe is the only signal. Confirm from outside with `curl -sI https://hill90.com`."
+              runbook: docs/runbooks/troubleshooting.md
+
+  - name: PublicSiteDown stays silent while the probe succeeds
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-public", instance="https://hill90.com/"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PublicSiteDown
+        exp_alerts: []
+
+  - name: PublicSiteDown does not fire on a blip shorter than `for`
+    # A deploy replacing app-ui takes seconds. One failed probe must not page.
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-public", instance="https://hill90.com/"}'
+        values: '1 1 0 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: PublicSiteDown
+        exp_alerts: []
+
+  - name: VaultSealedOrUnreachable fires 5m after the health probe stops
+    interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-vault", instance="http://openbao:8200/v1/sys/health"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: VaultSealedOrUnreachable
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: VaultSealedOrUnreachable
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: blackbox-vault
+              instance: http://openbao:8200/v1/sys/health
+            exp_annotations:
+              summary: "OpenBao is sealed, uninitialised or unreachable"
+              description: "The unauthenticated health probe of http://openbao:8200/v1/sys/health has not returned HTTP 200 for over 5 minutes. 503 means SEALED, 501 means uninitialised. A sealed vault breaks nothing user-facing, which is exactly why this would otherwise go unnoticed until the next deploy — or until a recovery."
+              action: "Run `docker exec openbao bao status`. If it reports `Sealed true`, unseal with `bash scripts/vault.sh unseal`. If this followed a reboot, the systemd unit hill90-vault-unseal did not do its job — check `systemctl status hill90-vault-unseal` before unsealing by hand, or the same thing happens after the next reboot."
+              runbook: docs/runbooks/vault-unseal.md
+
+  # --- service-health -------------------------------------------------------
+
+  - name: ServiceDown fires after 5m and names the job in its annotations
+    # The annotation assertions are the point as much as the firing: the rule
+    # this replaced annotated {{ $labels.name }}, a label cAdvisor never emits,
+    # so it rendered "Container " and told the reader nothing.
+    interval: 1m
+    input_series:
+      - series: 'up{job="loki", instance="loki:3100"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ServiceDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ServiceDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: loki
+              instance: loki:3100
+            exp_annotations:
+              summary: "Scrape target loki is down"
+              description: "Scrape target loki:3100 (job loki) has been down for more than 5 minutes on the platform host."
+              action: "`docker ps -a --filter name=loki` then `docker logs --tail 50 loki`. If the container is healthy but the target is down, the metrics endpoint or the internal network is the fault, not the service."
+              runbook: docs/runbooks/observability.md
+
+  - name: ServiceDown stays silent while the target is up
+    interval: 1m
+    input_series:
+      - series: 'up{job="loki", instance="loki:3100"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ServiceDown
+        exp_alerts: []
+
+  # --- resource-usage -------------------------------------------------------
+
+  - name: HostMemoryHigh fires on real pressure, measured without page cache
+    # 5 GiB available of 50 GiB total => 90% unavailable, just over threshold.
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{instance="node-exporter:9100", job="node-exporter"}'
+        values: '4000000000x10'
+      - series: 'node_memory_MemTotal_bytes{instance="node-exporter:9100", job="node-exporter"}'
+        values: '50000000000x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HostMemoryHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: node-exporter:9100
+              job: node-exporter
+            exp_annotations:
+              summary: "Host memory above 90% on the platform VPS"
+              description: "92% of RAM on node-exporter:9100 is unavailable — that is real pressure, with page cache already discounted, not merely memory in use. This is HOST memory, not a single container: cAdvisor exposes no per-container series on this host."
+              action: "`free -h` on the host to confirm, then `docker stats --no-stream` to find the consumer. Nothing here identifies the container automatically; that needs cAdvisor fixed first. Note `docker stats` will not agree with this alert exactly — it reports usage including cache, which is the thing this rule deliberately stopped measuring."
+              runbook: docs/runbooks/observability.md
+
+  - name: HostMemoryHigh is silent at the pressure this host actually runs at
+    # The regression this rule was changed for. These are the real 2026-07-31
+    # figures: 11.5 GiB available of 16.76 GiB => 31% unavailable. The previous
+    # cgroup-based expression read 0.70 on the very same host, because it counted
+    # 8.6 GiB of reclaimable page cache. Anything that makes this test fire again
+    # has reintroduced that bug.
+    interval: 1m
+    input_series:
+      - series: 'node_memory_MemAvailable_bytes{instance="node-exporter:9100", job="node-exporter"}'
+        values: '11514765312x10'
+      - series: 'node_memory_MemTotal_bytes{instance="node-exporter:9100", job="node-exporter"}'
+        values: '16761118720x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: HostMemoryHigh
+        exp_alerts: []
+
+  - name: DiskSpaceRunningLow fires below 15% free
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", instance="node-exporter:9100", job="node-exporter", device="/dev/sda4", fstype="xfs"}'
+        values: '10x15'
+      - series: 'node_filesystem_size_bytes{mountpoint="/", instance="node-exporter:9100", job="node-exporter", device="/dev/sda4", fstype="xfs"}'
+        values: '100x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: DiskSpaceRunningLow
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              mountpoint: /
+              instance: node-exporter:9100
+              job: node-exporter
+              device: /dev/sda4
+              fstype: xfs
+            exp_annotations:
+              summary: "Disk space below 15% on node-exporter:9100"
+              description: "Root filesystem on node-exporter:9100 has 10% free space remaining."
+              action: "`df -h /` on the host. The usual consumers are /opt/hill90/backups (prune with `bash scripts/backup.sh prune 7`) and Docker images (`docker image prune`). prometheus-data is capped at 20GB and is not usually the cause."
+              runbook: docs/runbooks/troubleshooting.md
+
+  - name: DiskSpaceRunningLow is silent with headroom
+    interval: 1m
+    input_series:
+      - series: 'node_filesystem_avail_bytes{mountpoint="/", instance="node-exporter:9100", job="node-exporter"}'
+        values: '50x15'
+      - series: 'node_filesystem_size_bytes{mountpoint="/", instance="node-exporter:9100", job="node-exporter"}'
+        values: '100x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: DiskSpaceRunningLow
+        exp_alerts: []
+
+  # --- postgres -------------------------------------------------------------
+
+  - name: PostgresConnectionsHigh aggregates across mismatched label sets
+    # THE REGRESSION TEST FOR A RULE THAT COULD NEVER FIRE.
+    #
+    # pg_stat_activity_count carries datname and state; pg_settings_max_connections
+    # carries neither. Dividing them directly yields an empty vector, because
+    # one-to-one matching needs identical label sets. The `sum by (instance)` /
+    # `max by (instance)` form is what makes this fire at all.
+    #
+    # The input below deliberately keeps those label sets DIFFERENT. Simplify it
+    # to matching labels and the test passes against a broken rule.
+    interval: 1m
+    input_series:
+      - series: 'pg_stat_activity_count{instance="postgres-exporter:9187", job="postgres-exporter", server="postgres:5432", datname="hill90", state="active"}'
+        values: '50x10'
+      - series: 'pg_stat_activity_count{instance="postgres-exporter:9187", job="postgres-exporter", server="postgres:5432", datname="keycloak", state="idle"}'
+        values: '35x10'
+      - series: 'pg_settings_max_connections{instance="postgres-exporter:9187", job="postgres-exporter", server="postgres:5432"}'
+        values: '100x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PostgresConnectionsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: postgres-exporter:9187
+            exp_annotations:
+              summary: "PostgreSQL connections above 80% capacity"
+              description: "Active connections are 85% of max_connections on postgres-exporter:9187."
+              action: "`docker exec postgres psql -U hill90 -c \"SELECT datname, state, count(*) FROM pg_stat_activity GROUP BY 1,2 ORDER BY 3 DESC;\"` to find which database and which state is holding them. Idle-in-transaction is the usual culprit, not genuine load."
+              runbook: docs/runbooks/troubleshooting.md
+
+  - name: PostgresConnectionsHigh is silent at normal connection counts
+    interval: 1m
+    input_series:
+      - series: 'pg_stat_activity_count{instance="postgres-exporter:9187", job="postgres-exporter", datname="hill90", state="idle"}'
+        values: '6x10'
+      - series: 'pg_settings_max_connections{instance="postgres-exporter:9187", job="postgres-exporter"}'
+        values: '100x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: PostgresConnectionsHigh
+        exp_alerts: []
+
+  # --- tempo ----------------------------------------------------------------
+
+  - name: TempoIngestionErrors fires on a rising append-failure counter
+    interval: 1m
+    input_series:
+      - series: 'tempo_distributor_ingester_append_failures_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
+        values: '0+2x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: TempoIngestionErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: tempo:3200
+              job: tempo
+              ingester: 127.0.0.1:9095
+            exp_annotations:
+              summary: "Tempo ingestion errors detected"
+              description: "Tempo is failing to append traces at 0.03333333333333333/sec on tempo:3200. Traces are being LOST while this fires."
+              action: "`docker logs --tail 50 tempo`. This fired for ~1.3 cumulative hours in the week to 2026-07-31 with nobody watching, so treat a first delivery as possibly long-standing rather than new."
+              runbook: docs/runbooks/observability.md
+
+  - name: TempoIngestionErrors is silent on a flat counter
+    interval: 1m
+    input_series:
+      - series: 'tempo_distributor_ingester_append_failures_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
+        values: '30x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: TempoIngestionErrors
+        exp_alerts: []
+
+  # --- loki -----------------------------------------------------------------
+
+  - name: LokiIngestionErrors — DEMONSTRATION THAT A GREEN TEST PROVES NOTHING
+    # This test passes. The rule CANNOT FIRE IN PRODUCTION.
+    #
+    # It matches loki_distributor_lines_received_total{status="error"}. On the
+    # live Loki that metric carries aggregated_metric, instance, job and tenant —
+    # there is no `status` label at all. And `status` where it does exist in
+    # Loki's metrics takes discarded|matched|notfound|success, so "error" is not a
+    # value it ever holds either. Verified 2026-07-31, see
+    # docs/decisions/alert-series-verification.md.
+    #
+    # The test passes because the line below INVENTS the label. That is the
+    # limitation of every unit test in this file, stated once, concretely, in the
+    # one place where it is provably true. Do not delete this test without
+    # deleting the rule — it is the honest record of why the suite alone is not
+    # enough.
+    interval: 1m
+    input_series:
+      - series: 'loki_distributor_lines_received_total{status="error", instance="loki:3100", job="loki"}'
+        values: '0+5x15'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: LokiIngestionErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              status: error
+              instance: loki:3100
+              job: loki
+            exp_annotations:
+              summary: "Loki ingestion errors detected"
+              description: "Loki is rejecting log lines at 0.08333333333333333 errors/sec on loki:3100. Logs are being LOST while this fires."
+              action: "`docker logs --tail 50 loki`. Rate-limit and per-stream-limit rejections are configuration; disk-full is not — check `df -h /` too."
+              runbook: docs/runbooks/observability.md
