@@ -371,6 +371,7 @@ cmd_secrets() {
 cmd_compose() {
     local env="${1:-prod}"
     local compose_dir="deploy/compose/${env}"
+    local secrets_file="infra/secrets/${env}.enc.env"
 
     echo "================================"
     echo "Docker Compose Validation"
@@ -412,13 +413,33 @@ cmd_compose() {
         local basename
         basename=$(basename "$f")
         echo -n "  $basename... "
-        if docker compose -f "$f" config > /dev/null 2>&1; then
+        # Three outcomes, not two. This validator loads no secrets, and Compose
+        # refuses to interpolate `${VAR:?...}` without a value — so
+        # docker-compose.minio.yml was reported "✗ Invalid" for being perfectly
+        # valid, with a suggested command that fails the same way. Never report
+        # "invalid" for something that could not be checked.
+        local err
+        err=$(mktemp)
+        if docker compose -f "$f" config > /dev/null 2>"$err"; then
             echo "✓"
+        elif grep -q "required variable" "$err"; then
+            # Retry with the store, so this actually validates wherever the age
+            # key is present (the VPS, a maintainer's machine) instead of
+            # permanently skipping the one file most worth checking.
+            if [ -f "$secrets_file" ] && [ -f "${SOPS_AGE_KEY_FILE:-$PROJECT_ROOT/infra/secrets/keys/age-prod.key}" ] \
+               && sops exec-env "$secrets_file" "docker compose -f '$f' config" >/dev/null 2>&1; then
+                echo "✓ (needed secrets)"
+            else
+                echo "⚠ needs secrets — NOT validated"
+                echo "    $(grep -o 'required variable [A-Z_]*' "$err" | head -1) is declared \${VAR:?...}."
+                echo "    Not a fault in the file. To check it: sops exec-env $secrets_file \"docker compose -f $f config\""
+            fi
         else
             echo "✗ Invalid"
             all_valid=false
             echo "    Run: docker compose -f $f config"
         fi
+        rm -f "$err"
     done
 
     if [ "$found_any" = false ]; then

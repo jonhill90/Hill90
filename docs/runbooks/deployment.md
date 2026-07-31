@@ -355,6 +355,67 @@ If a volume name change causes data loss:
      tar xzf /backup/<volume-name>.tar.gz -C /dest
    ```
 
+## Secrets and the shells that do not have them
+
+**The rule: any `deploy.sh` code path that reads a compose file or a secret must run
+inside the secret environment.**
+
+Four bugs in one week were this single mistake in four places. It is worth stating as a
+rule because each instance looked like a different problem, and three of them blamed
+something that was working correctly.
+
+### Why it keeps happening
+
+Service secrets exist only inside a `sops exec-env` child process or a
+`vault_load_secrets` subshell. Anything else sees them as empty:
+
+- a bare `ssh ... deploy.sh verify <svc>` — the workflow invokes verify with no wrapper
+- any line **after** the subshell closes, including the completion banner
+- a function that never loads secrets at all, such as `cmd_teardown`
+- a guard that runs **before** the load, such as the auth pre-deploy database check
+
+Bash does not object to an empty variable. So the failure appears somewhere unrelated,
+and the error message names the wrong cause.
+
+### Compose interpolates for EVERY subcommand
+
+Not just `up`. `ps`, `config` and **`down`** all interpolate the compose file first.
+That is what made `deploy.sh teardown minio` impossible: it fails **after** the
+pre-teardown backup has run and **after** printing `Volumes: KEPT — data survives`,
+which reads like success.
+
+`docker-compose.minio.yml` is currently the only prod compose file using the required
+form `${VAR:?...}`. That is why MinIO is where this keeps surfacing — everywhere else
+the identical mistake interpolates to empty and says nothing at all. **Do not treat the
+other stacks as safe; treat them as not yet noisy.**
+
+### What to do instead
+
+| Need | Do |
+|---|---|
+| Run compose (`up`/`down`/`config`) | Wrap in `sops exec-env`, with `set -e` **inside** the string |
+| Print container status | `docker ps --filter label=com.docker.compose.project=<project>` — no interpolation, no secret |
+| One value, outside a secret scope | `secret_value VAR [env]` from `_common.sh` |
+| A value that cannot be resolved | State the assumption with `warn`, or `die`. **Never** silently substitute a literal |
+| Write a credential to a file | Check it is non-empty first. An empty write is a lockout that looks like a success |
+
+`sops exec-env` runs a **new shell that does not inherit `set -e`, and returns 0
+regardless of what the command did.** Always put `set -e` inside the quoted string, or a
+failed deploy reports success.
+
+### Reporting rule
+
+A check that could not run must never report failure of the thing it was checking.
+`validate.sh compose` reported `docker-compose.minio.yml ✗ Invalid` for a perfectly
+valid file — and suggested a command that failed the same way. It now distinguishes
+validated, validated-with-secrets, and `⚠ needs secrets — NOT validated`.
+
+### Known remaining instances
+
+None in `deploy.sh` as of 2026-07-31. The audit that found them is recorded in
+[object-store.md](../decisions/object-store.md); `scripts/checks/minio-readiness-test.sh`
+asserts the fixed shape so they cannot silently return.
+
 ## Failure Modes
 
 - Missing or invalid secrets: `sops`/runtime env errors at deploy time.
