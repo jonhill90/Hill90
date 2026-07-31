@@ -263,11 +263,15 @@ EOF
 
 @test "backup-all continues past a failing service and still exits non-zero" {
   setup_stubs
-  # Tenant container absent — the state during any teardown of the app.
+  # The tenant container is PRESENT but its dump fails. This used to induce the
+  # failure by making `inspect app-postgres` exit 1, but app-postgres was retired on
+  # 2026-07-30 and an absent container is now a legitimate no-op — that stub would
+  # test nothing. A present-but-undumpable container is still a real failure, so the
+  # property under test here (keep going, then exit non-zero) is unchanged.
   cat > "$STUB_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
-  *inspect\ app-postgres*) exit 1 ;;                 # tenant not deployed
+  *exec\ app-postgres*pg_dumpall*) exit 1 ;;         # tenant dump fails
   *pg_dumpall*|*pg_dump*)  echo "-- dump"; echo "CREATE ROLE hill90;"; exit 0 ;;
   *psql*SELECT\ 1*)        echo "1"; exit 0 ;;
   *)                       exit 0 ;;
@@ -284,4 +288,56 @@ EOF
   dump="$(find "$BATS_TEST_TMPDIR/backups" -name 'database.sql' | head -1)"
   [ -n "$dump" ]
   [ -s "$dump" ]
+}
+
+# ---------------------------------------------------------------------------
+# app-postgres was RETIRED on 2026-07-30. The tenant's databases now live on the
+# platform Postgres, so the `db` target's pg_dumpall already contains hill90_akm,
+# hill90_api and hill90_litellm. What `app-db` must NOT do is die because a
+# container it no longer needs is absent: `backup all` would report FAILED every
+# night for data that is in fact backed up, and a backup job that cries wolf is
+# how a real failure gets ignored.
+#
+# The retained volume is the part that is genuinely app-db's own, and only while
+# it exists. So: absent container plus absent volume is a no-op that says why;
+# absent container plus present volume still tars it.
+# ---------------------------------------------------------------------------
+
+@test "backup app-db does not fail merely because the retired container is gone" {
+  setup_stubs
+  cat > "$STUB_BIN/docker" <<'EOF'
+#!/usr/bin/env bash
+# Quote nothing in these patterns. A `case` pattern is matched literally, so
+# *"inspect app-postgres"* looks for the quote characters themselves, never
+# matches, and the container silently appears PRESENT — which is how the first
+# version of this test passed against a deliberately neutered guard.
+case "$*" in
+  *inspect\ app-postgres*) exit 1 ;;   # retired: container absent
+  *volume\ ls*)            exit 0 ;;   # and its volume already reviewed away
+  *)                       exit 0 ;;
+esac
+EOF
+  chmod +x "$STUB_BIN/docker"
+  run env PATH="$STUB_BIN:/usr/bin:/bin" \
+      BACKUP_DIR="$BATS_TEST_TMPDIR/backups" \
+      bash scripts/backup.sh backup app-db
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"retired"* ]]
+}
+
+@test "backup app-db still fails when the container IS present but undumpable" {
+  setup_stubs
+  cat > "$STUB_BIN/docker" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *pg_dumpall*|*pg_dump*) exit 1 ;;
+  *psql*SELECT\ 1*)       echo "1"; exit 0 ;;
+  *)                      exit 0 ;;
+esac
+EOF
+  chmod +x "$STUB_BIN/docker"
+  run env PATH="$STUB_BIN:/usr/bin:/bin" \
+      BACKUP_DIR="$BATS_TEST_TMPDIR/backups" APP_DB_USER=hill90 \
+      bash scripts/backup.sh backup app-db
+  [ "$status" -ne 0 ]
 }
