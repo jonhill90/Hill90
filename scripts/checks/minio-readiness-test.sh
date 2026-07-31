@@ -216,6 +216,35 @@ else
 fi
 
 echo ""
+echo "5. 'deploy.sh verify minio' must not need secrets it cannot have"
+
+# The workflow runs verify as a bare `ssh ... bash scripts/deploy.sh verify
+# minio` — no `sops exec-env`, so nothing exports MINIO_ROOT_USER. A check that
+# interpolates it builds "http://:@127.0.0.1:9000", MinIO answers Access Denied,
+# and all 30 attempts fail against a healthy server. Third instance of one
+# class: a code path needing secrets, running where the secrets are not.
+verify_block=$(sed -n '/^cmd_verify()/,/^}/p' "$PROJECT_ROOT/scripts/deploy.sh" \
+    | grep -v '^[[:space:]]*#')
+
+if printf '%s' "$verify_block" | grep -q 'minio)'; then
+    ok "premise holds: cmd_verify still has a minio branch"
+else
+    bad "no minio branch in cmd_verify; revisit this test"
+fi
+
+minio_check=$(printf '%s' "$verify_block" | grep 'minio)')
+if printf '%s' "$minio_check" | grep -q 'MINIO_ROOT_USER\|MINIO_ROOT_PASSWORD'; then
+    bad "the minio check interpolates root credentials that are empty here"
+else
+    ok "the minio check does not interpolate credentials it cannot see"
+fi
+if printf '%s' "$minio_check" | grep -q 'minio.sh'; then
+    ok "it delegates to minio.sh, which resolves credentials from SOPS"
+else
+    bad "nothing resolves the credentials for the minio readiness check"
+fi
+
+echo ""
 echo "==============================="
 echo "passed: ${pass}  failed: ${fail}"
 [ "$fail" -eq 0 ] || exit 1
