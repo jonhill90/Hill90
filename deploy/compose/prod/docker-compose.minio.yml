@@ -86,7 +86,16 @@ services:
       retries: 3
       start_period: 20s
     labels:
-      - "traefik.enable=true"
+      # PARAMETERISED DELIBERATELY. Merging any change to this file redeploys minio
+      # (deploy.yml triggers on deploy/compose/prod/*.yml — invariant 1), which on
+      # 2026-07-31 silently re-enabled this router while app-minio still claimed
+      # Host(`storage.hill90.com`). Two routers, one rule, and production Traefik sets
+      # no provider constraints: whichever it saw last wins, with no staging state to
+      # catch it. A dark router that depends on nobody merging is not a state.
+      #
+      # Set MINIO_TRAEFIK_ENABLE=false to hold it dark across deploys during a
+      # cutover. Default is true, which is the intended end state.
+      - "traefik.enable=${MINIO_TRAEFIK_ENABLE:-true}"
       # The console. Tailscale-only, like every other admin surface.
       #
       # CERTIFICATE: this host has never issued under the current ACME path —
