@@ -95,6 +95,33 @@ load_secrets() {
     rm -f "$temp_file"
 }
 
+# Resolve ONE value: the environment first, then the encrypted store.
+#
+# Deliberately narrower than load_secrets. Several code paths need a single
+# non-sensitive value — a role name, a container user — while running outside
+# any secret environment: `deploy.sh verify db` is invoked as a bare
+# `ssh ... deploy.sh verify db`, and cmd_service's auth precondition runs before
+# secrets are loaded. Pulling the entire store into those processes to read one
+# username would be the wrong trade.
+#
+# Prints nothing and returns 1 when the value cannot be resolved, so callers can
+# decide between dying and stating an assumption out loud. What they must NOT do
+# is silently substitute a literal — see docs/runbooks/deployment.md, "Secrets
+# and the shells that do not have them".
+secret_value() {
+    local var="$1" env="${2:-prod}" value="${!1:-}"
+    if [ -n "$value" ]; then printf '%s' "$value"; return 0; fi
+
+    local file="$PROJECT_ROOT/infra/secrets/${env}.enc.env"
+    [ -f "$file" ] || return 1
+    [ -f "${SOPS_AGE_KEY_FILE:-$PROJECT_ROOT/infra/secrets/keys/age-${env}.key}" ] || return 1
+    export SOPS_AGE_KEY_FILE="${SOPS_AGE_KEY_FILE:-$PROJECT_ROOT/infra/secrets/keys/age-${env}.key}"
+
+    value=$(sops -d "$file" 2>/dev/null | sed -n "s/^${var}=//p" | head -1)
+    [ -n "$value" ] || return 1
+    printf '%s' "$value"
+}
+
 # ---------------------------------------------------------------------------
 # Vault (OpenBao) helpers — vault-first secret loading for deploy
 # ---------------------------------------------------------------------------

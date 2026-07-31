@@ -713,8 +713,20 @@ same mistake interpolates to empty and says nothing.
 | 1 | Completion banner `docker compose ps` (`cmd_service`) | **Fixed #595** |
 | 2 | `cmd_verify` minio check interpolating `${MINIO_ROOT_USER}` | **Fixed #597** |
 | 3 | `cmd_teardown` `docker compose down` | **Fixed here** |
-| 4 | `${DB_USER:-hill90}` in `cmd_verify` and `cmd_service` | Latent — see below |
-| 5 | `.htpasswd` written with no empty-check (`cmd_infra`) | Latent, different family |
+| 4 | `${DB_USER:-hill90}` in `cmd_verify` and `cmd_service` | **Fixed — sweep** |
+| 5 | `.htpasswd` written with no empty-check (`cmd_infra`) | **Fixed — sweep** |
+| 6 | `cmd_infra`'s completion `docker compose ps` | **Fixed — sweep**; #595 fixed only the `cmd_service` copy |
+| 7 | `validate.sh compose` reporting a valid file as `✗ Invalid` | **Fixed — sweep** |
+
+The sweep was done by property, not memory: enumerate every `docker compose` invocation
+and every credential-shaped interpolation across `scripts/`, then check which run bare.
+That is how 6 and 7 turned up — neither was on anyone's list. The rule now lives in
+[the deployment runbook](../runbooks/deployment.md#secrets-and-the-shells-that-do-not-have-them)
+rather than being re-derived each time.
+
+Two sites were checked and are **not** instances: `local.sh` passes `--env-file`, which
+supplies values by a different and correct mechanism, and the `docker compose` mention in
+`preflight-edge.sh` is inside an error message, not an invocation.
 
 ### 3. `deploy.sh teardown minio` could not run at all
 
