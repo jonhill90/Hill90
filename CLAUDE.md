@@ -40,7 +40,7 @@ nothing. It is a **platform**: it hosts tenants but is not the application.
 deploy/compose/prod/    the platform stacks — infra, db, auth, vault, observability
 platform/edge/          Traefik static template + dynamic middlewares
 platform/auth/          Keycloak realm and theme
-platform/observability/ Prometheus, Loki, Tempo, Grafana, exporters
+platform/observability/ Prometheus, Alertmanager, blackbox, Loki, Tempo, Grafana, exporters
 infra/secrets/          SOPS-encrypted stores; age private keys are gitignored
 scripts/                deploy.sh, backup.sh, _common.sh, checks/
 ansible/                VPS bootstrap
@@ -247,6 +247,21 @@ bash scripts/deploy.sh verify <service> prod
 gh workflow run deploy.yml -f service=all
 ```
 
+- **Alerts reach a human, as of 2026-07-31.** 16 rules, 8 groups, delivered by
+  Alertmanager over email to `ACME_EMAIL` via the SMTP account the estate already
+  had. Delivery is proven end to end, not assumed. Before that date there was **no
+  receiver at all** and every rule was inert — `ServiceDown` fired for ≥48 hours in
+  the week to 2026-07-26 and reached nobody. Start at
+  [`docs/decisions/alerting-audit.md`](docs/decisions/alerting-audit.md).
+- **Two traps that have each cost a session. Do not re-derive them.**
+  **cAdvisor emits zero Docker container series on this host** — 45 cgroup and
+  systemd series, `count(container_memory_usage_bytes{name!=""})` is 0 — so any
+  plan starting "cAdvisor already scrapes the containers" is starting from a false
+  premise. And **a rule can be `health=ok` and still be unable to fire**, if it
+  matches a label production never emits; two shipped that way. `promtool test` cannot
+  catch it because the test author supplies the labels — run
+  `python3 scripts/checks/check_alert_series.py` **on the VPS**, which asks the live
+  Prometheus.
 - Platform baseline is **16 containers by name, 0 unhealthy** —
   `Verified 2026-07-31 09:58 UTC`, after #617 deployed `alertmanager` and
   `blackbox-exporter`. With the tenant's 7 that is **23 running in total**.
