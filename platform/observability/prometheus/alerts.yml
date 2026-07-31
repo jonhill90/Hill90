@@ -90,23 +90,42 @@ groups:
       # while removing the false claim. Restoring genuine per-container alerting
       # requires fixing cAdvisor first, which is a follow-up in
       # docs/decisions/alerting-audit.md — do not simply rename this back.
+      # ...and MOVED OFF cAdvisor, because the cgroup figure counts page cache.
+      #
+      # container_memory_usage_bytes includes reclaimable page cache. Measured on
+      # this host 2026-07-31: the cgroup ratio read 0.7035 while actual memory
+      # pressure was 0.3095, with 8.6 GB of that gap being cache the kernel frees
+      # on demand. Peak over the full 7-day retention was 0.8122 cgroup against
+      # 0.3815 true — so it has NOT yet fired, but it tracks roughly double the
+      # real number and sits 0.09 below the threshold on a value that file I/O
+      # moves quickly. The nightly backup reads several GB at 03:00.
+      #
+      # node_memory_MemAvailable_bytes is the kernel's own estimate of what can be
+      # allocated without swapping, cache already discounted. It is what "memory
+      # is running out" means, and it does not depend on cAdvisor — which on this
+      # host is the component least able to be trusted (see
+      # docs/decisions/alert-series-verification.md).
+      #
+      # Direction of the old error is worth keeping: usage >= working set always,
+      # so the cgroup form could only ever fire EARLY, never miss real pressure.
       - alert: HostMemoryHigh
-        expr: |
-          (container_memory_usage_bytes{id="/"} / container_spec_memory_limit_bytes{id="/"}) > 0.9
-          and container_spec_memory_limit_bytes{id="/"} > 0
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "Host memory above 90% on the platform VPS"
           description: >-
-            The host root cgroup is using {{ $value | humanizePercentage }} of total
-            RAM. This is HOST memory, not a single container — cAdvisor exposes no
-            per-container series on this host.
+            {{ $value | humanizePercentage }} of RAM on {{ $labels.instance }} is
+            unavailable — that is real pressure, with page cache already discounted,
+            not merely memory in use. This is HOST memory, not a single container:
+            cAdvisor exposes no per-container series on this host.
           action: >-
-            `docker stats --no-stream` to find the consumer, and `free -h` on the
-            host. Nothing here identifies the container automatically; that needs
-            cAdvisor fixed first.
+            `free -h` on the host to confirm, then `docker stats --no-stream` to find
+            the consumer. Nothing here identifies the container automatically; that
+            needs cAdvisor fixed first. Note `docker stats` will not agree with this
+            alert exactly — it reports usage including cache, which is the thing this
+            rule deliberately stopped measuring.
           runbook: docs/runbooks/observability.md
 
       - alert: DiskSpaceRunningLow
