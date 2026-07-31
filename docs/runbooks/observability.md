@@ -115,31 +115,42 @@ All dashboards are file-provisioned from `platform/observability/grafana/provisi
 
 ## Alert Rules
 
-> ## ⚠ These rules notify nobody. There is no Alertmanager and no receiver.
+> ## Alerts are delivered by email as of 2026-07-31 — this section used to say nobody received them.
 >
-> `Verified 2026-07-31 08:44 UTC`: `/api/v1/alertmanagers` returns
-> `{"activeAlertmanagers":[],"droppedAlertmanagers":[]}`, there is no Alertmanager
-> container, Grafana has **0** alert rules, and the host has no MTA and no `MAILTO`.
-> An alert firing here changes a state inside Prometheus and nothing else.
+> Alertmanager now runs on the platform and Prometheus is wired to it. The receiver is
+> **email to the address in `ACME_EMAIL`**, via `smtp.hostinger.com:587` as
+> `noreply@hill90.com` — the same server Keycloak already uses, with `SMTP_PASSWORD` from
+> the encrypted store. No new account was created.
 >
-> This is not theoretical: **`ServiceDown` fired for at least 48 hours** across
-> `keycloak`, `minio` and `postgres-exporter`, ending 2026-07-26 06:42 UTC, and reached
-> nobody. Read [alerting-audit.md](../decisions/alerting-audit.md) before relying on
-> anything in this table.
+> **Delivery was proven end to end, not assumed**: a real probe failure fired
+> `PublicSiteDown`, Prometheus sent it to Alertmanager, and Alertmanager delivered it via
+> Hostinger — `alertmanager_notifications_total{integration="email"}` 1,
+> `failed_total` 0. Two defects were found only by doing that, and neither was caught by
+> `amtool check-config`: a 0600 config is unreadable by Alertmanager's `nobody` user, and
+> the template function `default` does not exist in Alertmanager (use `or`).
+>
+> Reaching the UI: it is **not public and has no Traefik labels** — production Traefik sets
+> no provider constraints, so a `Host` rule would put a silence-anything UI on the
+> internet. Use `ssh vps -L 9093:localhost:9093`.
+>
+> Full history and the gaps still open: [alerting-audit.md](../decisions/alerting-audit.md).
 
-Baseline alerts in `platform/observability/prometheus/alerts.yml`. All six load with
-`health=ok`; the "Ever fired" column is measured over the 7-day retention window.
+Alerts live in `platform/observability/prometheus/alerts.yml`. Every rule carries
+`summary`, `description` and **`action`** annotations; `action` is rendered into the email
+as "Do this first" and is not optional — add it to any new rule.
 
-| Alert | Condition | Severity | Ever fired? |
-|-------|-----------|----------|-------------|
-| ServiceDown | Any scrape target down > 5m | critical | **Yes** — ≥48 h, 3 targets |
-| HighMemoryUsage | **Host root cgroup** memory > 90% — *not containers, see below* | warning | Never |
-| DiskSpaceRunningLow | Root filesystem < 15% free | warning | Never |
-| PostgresConnectionsHigh | Active connections > 80% of max | warning | Never |
-| LokiIngestionErrors | Ingestion error rate > 0 | warning | Never |
-| TempoIngestionErrors | Ingestion failure rate > 0 | warning | **Yes** — ~1.3 h |
+| Alert | Condition | Severity | Notes |
+|-------|-----------|----------|-------|
+| **PublicSiteDown** | blackbox probe of `https://hill90.com/` not 200 for 2m | critical | **New.** The only signal for the product being down — the tenant's containers are not scrape targets |
+| **VaultSealedOrUnreachable** | blackbox probe of OpenBao `/v1/sys/health` not 200 for 5m | critical | **New.** 503 means SEALED. Needs no token |
+| ServiceDown | Any scrape target down > 5m | critical | Fired ≥48 h to 2026-07-26 with no receiver |
+| HostMemoryHigh | **Host root cgroup** memory > 90% | warning | **Renamed from HighMemoryUsage** — it never watched containers, see below |
+| DiskSpaceRunningLow | Root filesystem < 15% free | warning | Never fired; `/` is 87.6% free |
+| PostgresConnectionsHigh | Active connections > 80% of max | warning | Never fired |
+| LokiIngestionErrors | Ingestion error rate > 0 | warning | Never fired |
+| TempoIngestionErrors | Ingestion failure rate > 0 | warning | Fired ~1.3 h with no receiver |
 
-> **`HighMemoryUsage` does not watch containers, despite its name and its annotation.**
+> **`HostMemoryHigh` was called `HighMemoryUsage` and did not watch containers.**
 > cAdvisor exposes 45 cgroup series and **zero Docker containers** —
 > `count(container_memory_usage_bytes{name!=""})` is 0, and the only series with a memory
 > limit is `id="/"`, whose limit is total host RAM. The rule therefore evaluates over the

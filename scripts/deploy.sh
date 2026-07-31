@@ -285,7 +285,8 @@ cmd_service() {
     local service="$1"
     local env="${2:-prod}"
 
-    local compose_file banner containers summary stack stateful
+    local compose_file banner containers summary stack stateful pre_up_hook
+    pre_up_hook=""
     case "$service" in
         db)
             compose_file="deploy/compose/${env}/docker-compose.db.yml"
@@ -331,10 +332,15 @@ cmd_service() {
             ;;
         observability)
             compose_file="deploy/compose/${env}/docker-compose.observability.yml"
-            containers="prometheus loki tempo grafana promtail node-exporter cadvisor"
+            containers="prometheus loki tempo grafana promtail node-exporter cadvisor alertmanager blackbox-exporter"
             banner="Observability Stack Deployment"
             stack="observability"
             stateful=true
+            # Renders /opt/hill90/secrets/alertmanager.yml from the encrypted
+            # store. MUST run before compose up: the file is bind-mounted, so
+            # without it Docker creates a DIRECTORY at that path and Alertmanager
+            # fails to start with a confusing config error.
+            pre_up_hook="render-alertmanager-config.sh"
             summary="Services deployed:
   - grafana (dashboards at grafana.hill90.com, Tailscale-only)
   - prometheus (metrics at :9090)
@@ -342,7 +348,9 @@ cmd_service() {
   - tempo (traces at :3200)
   - promtail (log collector)
   - node-exporter (host metrics)
-  - cadvisor (container metrics)"
+  - cadvisor (container metrics)
+  - alertmanager (:9093, NOT public — no Traefik labels by design)
+  - blackbox-exporter (:9115, probes hill90.com and OpenBao health)"
             ;;
     esac
 
@@ -421,6 +429,16 @@ cmd_service() {
         local mode="$1"  # "stateful" or "stateless"
         if [ "$mode" = "stateful" ]; then
             sops exec-env "$secrets_file" '
+                set -e
+                if [ -n "'"$pre_up_hook"'" ]; then
+                    # ALERT_EMAIL_TO falls back to ACME_EMAIL: both are addresses
+                    # already configured in the store, and ACME_EMAIL is already
+                    # where certificate-expiry notices go. The fallback is to
+                    # another explicit value, never to a hardcoded guess — the
+                    # render script still refuses if both are empty.
+                    export ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-$ACME_EMAIL}"
+                    bash "'"$SCRIPT_DIR"'/'"$pre_up_hook"'"
+                fi
                 echo "Stopping existing '"$service"' containers..."
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' down || true
                 for container in '"$containers"'; do
@@ -451,6 +469,11 @@ cmd_service() {
         # transiently, fall through to SOPS.
         (
             vault_load_secrets "$service" "$secrets_file"
+
+            if [ -n "$pre_up_hook" ]; then
+                export ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-${ACME_EMAIL:-}}"
+                bash "$SCRIPT_DIR/$pre_up_hook"
+            fi
 
             if [ "$deploy_mode" = "stateful" ]; then
                 echo "Stopping existing $service containers..."

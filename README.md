@@ -191,13 +191,16 @@ make logs-traefik           # follow a service
 Grafana at https://grafana.hill90.com carries dashboards for Traefik, cAdvisor,
 node-exporter and Loki logs.
 
-**Prometheus alert rules exist but nothing delivers them.** This sentence used to say
-alerts "cover service availability, memory and disk", which overstated it twice: there is
-**no Alertmanager and no receiver of any kind**, so every rule is inert, and the memory
-rule watches the host root cgroup rather than containers. `ServiceDown` has genuinely
-fired in production — for ≥48 hours, ending 2026-07-26 — and reached nobody.
-`Verified 2026-07-31 08:44 UTC`; the full map, the ranked gaps and the cheapest fix are in
-[docs/decisions/alerting-audit.md](docs/decisions/alerting-audit.md).
+Alertmanager delivers alerts by **email**, to the address in `ACME_EMAIL`, through the
+SMTP account this estate already had. Eight rules; the two that matter most are
+`PublicSiteDown` (hill90.com not answering) and `VaultSealedOrUnreachable`. Every
+notification names the service, the host, and what to do first.
+
+Delivery was **proven end to end** on 2026-07-31 — a real probe failure, a real email —
+rather than assumed; that exercise found two defects a config check does not catch. Before
+that date there was no receiver at all and every rule was inert, including one that fired
+for 48 hours and reached nobody. The audit, the ranked gaps still open, and the evidence
+are in [docs/decisions/alerting-audit.md](docs/decisions/alerting-audit.md).
 
 Runbook: [Observability](docs/runbooks/observability.md).
 

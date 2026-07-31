@@ -1,0 +1,44 @@
+# Blackbox exporter modules.
+#
+# WHY THIS EXISTS AT ALL — the cheaper options were checked first and do not work:
+#
+#   - Traefik does not export backend health here. `traefik_service_server_up` has
+#     ZERO series (verified 2026-07-31); Traefik only emits it for services with a
+#     configured health check, and the tenant's routers define none.
+#   - The tenant's seven containers are not Prometheus scrape targets, so
+#     `ServiceDown` structurally cannot fire for hill90.com — the actual product.
+#   - Request-rate metrics exist but "no requests recently" is not an availability
+#     signal on a low-traffic homelab site.
+#
+# So an HTTP probe is the only honest way to answer "is the site answering".
+
+modules:
+  # Public site. Follows redirects, requires a 2xx.
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+      # ip4 is not cosmetic: the probe runs from a container on hill90_edge and
+      # reaches hill90.com by public DNS, so it exercises the real edge path.
+
+  # OpenBao seal state, WITHOUT a token.
+  #
+  # /v1/sys/health encodes the state in the STATUS CODE: 200 initialized+unsealed
+  # and active, 503 sealed, 501 not initialized. So a plain 200-or-nothing probe
+  # answers "is the vault usable" without any credential, and without enabling
+  # unauthenticated metrics on the listener — which would have meant editing
+  # config.hcl and restarting OpenBao, and a restarted OpenBao comes back SEALED.
+  # Using the health endpoint avoids taking that risk to build a sealed-vault
+  # detector.
+  vault_health:
+    prober: http
+    timeout: 10s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      valid_status_codes: [200]
+      follow_redirects: false
+      preferred_ip_protocol: ip4

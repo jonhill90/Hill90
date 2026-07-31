@@ -1,4 +1,61 @@
+# Every rule here MUST carry summary, description and action annotations.
+# `action` is not decoration: it is rendered into the notification body as
+# "Do this first". An alert that says FIRING and nothing else trains the one
+# person who receives it to ignore the sender — see
+# docs/decisions/alerting-audit.md.
+
 groups:
+  # ---------------------------------------------------------------------------
+  # The two gaps ranked highest in the alerting audit. Both are failures that
+  # would otherwise go unnoticed for days, and neither had ANY signal before.
+  # ---------------------------------------------------------------------------
+  - name: availability
+    rules:
+      - alert: PublicSiteDown
+        # probe_success is 0 when the HTTP probe did not get a 200. 2m rather
+        # than 5m: this is the product being unreachable from the internet, and
+        # a deploy that replaces app-ui takes seconds, not minutes.
+        expr: probe_success{job="blackbox-public"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "hill90.com is not answering from the internet"
+          description: >-
+            The blackbox probe of {{ $labels.instance }} has not received HTTP 200
+            for over 2 minutes. This is the tenant's UI — the public product — so
+            users are seeing this too.
+          action: >-
+            Check the edge before the app: `docker ps --filter name=traefik` and
+            `docker logs --tail 50 traefik`. If Traefik is healthy, the tenant's
+            app-ui is the next suspect — it is NOT a Prometheus scrape target, so
+            this probe is the only signal. Confirm from outside with
+            `curl -sI https://hill90.com`.
+          runbook: docs/runbooks/troubleshooting.md
+
+      - alert: VaultSealedOrUnreachable
+        # /v1/sys/health returns 503 when sealed and 501 when uninitialised, so a
+        # 200-or-nothing probe covers sealed, down and uninitialised alike without
+        # depending on which code came back.
+        expr: probe_success{job="blackbox-vault"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenBao is sealed, uninitialised or unreachable"
+          description: >-
+            The unauthenticated health probe of {{ $labels.instance }} has not returned
+            HTTP 200 for over 5 minutes. 503 means SEALED, 501 means uninitialised.
+            A sealed vault breaks nothing user-facing, which is exactly why this
+            would otherwise go unnoticed until the next deploy — or until a recovery.
+          action: >-
+            Run `docker exec openbao bao status`. If it reports `Sealed true`, unseal
+            with `bash scripts/vault.sh unseal`. If this followed a reboot, the
+            systemd unit hill90-vault-unseal did not do its job — check
+            `systemctl status hill90-vault-unseal` before unsealing by hand, or the
+            same thing happens after the next reboot.
+          runbook: docs/runbooks/vault-unseal.md
+
   - name: service-health
     rules:
       - alert: ServiceDown
@@ -7,21 +64,50 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "{{ $labels.job }} is down"
-          description: "Scrape target {{ $labels.instance }} (job {{ $labels.job }}) has been down for more than 5 minutes."
+          summary: "Scrape target {{ $labels.job }} is down"
+          description: >-
+            Scrape target {{ $labels.instance }} (job {{ $labels.job }}) has been
+            down for more than 5 minutes on the platform host.
+          action: >-
+            `docker ps -a --filter name={{ $labels.job }}` then
+            `docker logs --tail 50 {{ $labels.job }}`. If the container is healthy
+            but the target is down, the metrics endpoint or the internal network is
+            the fault, not the service.
+          runbook: docs/runbooks/observability.md
 
   - name: resource-usage
     rules:
-      - alert: HighMemoryUsage
+      # RENAMED FROM HighMemoryUsage, because that name was a lie.
+      #
+      # It claimed to watch containers and annotated "Container {{ $labels.name }}".
+      # cAdvisor on this host exposes 45 cgroup series and ZERO Docker containers:
+      # count(container_memory_usage_bytes{name!=""}) is 0, and the only series
+      # carrying a memory limit is id="/", whose limit is total host RAM. So the
+      # rule only ever evaluated the host root cgroup, and $labels.name rendered
+      # empty. Verified 2026-07-31.
+      #
+      # Renaming rather than deleting keeps the (real, useful) host-memory signal
+      # while removing the false claim. Restoring genuine per-container alerting
+      # requires fixing cAdvisor first, which is a follow-up in
+      # docs/decisions/alerting-audit.md — do not simply rename this back.
+      - alert: HostMemoryHigh
         expr: |
-          (container_memory_usage_bytes / container_spec_memory_limit_bytes) > 0.9
-          and container_spec_memory_limit_bytes > 0
+          (container_memory_usage_bytes{id="/"} / container_spec_memory_limit_bytes{id="/"}) > 0.9
+          and container_spec_memory_limit_bytes{id="/"} > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Container {{ $labels.name }} memory > 90%"
-          description: "Container {{ $labels.name }} is using {{ $value | humanizePercentage }} of its memory limit."
+          summary: "Host memory above 90% on the platform VPS"
+          description: >-
+            The host root cgroup is using {{ $value | humanizePercentage }} of total
+            RAM. This is HOST memory, not a single container — cAdvisor exposes no
+            per-container series on this host.
+          action: >-
+            `docker stats --no-stream` to find the consumer, and `free -h` on the
+            host. Nothing here identifies the container automatically; that needs
+            cAdvisor fixed first.
+          runbook: docs/runbooks/observability.md
 
       - alert: DiskSpaceRunningLow
         expr: |
@@ -31,7 +117,15 @@ groups:
           severity: warning
         annotations:
           summary: "Disk space below 15% on {{ $labels.instance }}"
-          description: "Root filesystem on {{ $labels.instance }} has {{ $value | humanizePercentage }} free space remaining."
+          description: >-
+            Root filesystem on {{ $labels.instance }} has {{ $value | humanizePercentage }}
+            free space remaining.
+          action: >-
+            `df -h /` on the host. The usual consumers are
+            /opt/hill90/backups (prune with `bash scripts/backup.sh prune 7`) and
+            Docker images (`docker image prune`). prometheus-data is capped at 20GB
+            and is not usually the cause.
+          runbook: docs/runbooks/troubleshooting.md
 
   - name: postgres
     rules:
@@ -49,7 +143,15 @@ groups:
           severity: warning
         annotations:
           summary: "PostgreSQL connections above 80% capacity"
-          description: "Active connections ({{ $value | humanizePercentage }} of max) on {{ $labels.instance }}."
+          description: >-
+            Active connections are {{ $value | humanizePercentage }} of max_connections
+            on {{ $labels.instance }}.
+          action: >-
+            `docker exec postgres psql -U hill90 -c "SELECT datname, state, count(*)
+            FROM pg_stat_activity GROUP BY 1,2 ORDER BY 3 DESC;"` to find which
+            database and which state is holding them. Idle-in-transaction is the
+            usual culprit, not genuine load.
+          runbook: docs/runbooks/troubleshooting.md
 
   - name: loki
     rules:
@@ -60,7 +162,13 @@ groups:
           severity: warning
         annotations:
           summary: "Loki ingestion errors detected"
-          description: "Loki is reporting ingestion errors at {{ $value }} errors/sec on {{ $labels.instance }}."
+          description: >-
+            Loki is rejecting log lines at {{ $value }} errors/sec on {{ $labels.instance }}.
+            Logs are being LOST while this fires.
+          action: >-
+            `docker logs --tail 50 loki`. Rate-limit and per-stream-limit rejections
+            are configuration; disk-full is not — check `df -h /` too.
+          runbook: docs/runbooks/observability.md
 
   - name: tempo
     rules:
@@ -71,4 +179,11 @@ groups:
           severity: warning
         annotations:
           summary: "Tempo ingestion errors detected"
-          description: "Tempo is reporting ingestion failures at {{ $value }}/sec on {{ $labels.instance }}."
+          description: >-
+            Tempo is failing to append traces at {{ $value }}/sec on {{ $labels.instance }}.
+            Traces are being LOST while this fires.
+          action: >-
+            `docker logs --tail 50 tempo`. This fired for ~1.3 cumulative hours in the
+            week to 2026-07-31 with nobody watching, so treat a first delivery as
+            possibly long-standing rather than new.
+          runbook: docs/runbooks/observability.md
