@@ -135,6 +135,82 @@ tests:
         alertname: ServiceDown
         exp_alerts: []
 
+  - name: ContainerRestartLoop fires on five restarts in ten minutes and names the container
+    # Each change of process_start_time_seconds is one process start.
+    interval: 1m
+    input_series:
+      - series: 'process_start_time_seconds{job="loki", instance="loki:3100"}'
+        values: '1000 1001 1002 1003 1004 1005x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: ContainerRestartLoop
+        exp_alerts: []          # condition true from 5m; `for: 2m` not yet met
+      - eval_time: 8m
+        alertname: ContainerRestartLoop
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: loki
+              instance: loki:3100
+            exp_annotations:
+              summary: "loki is in a restart loop"
+              description: "loki (loki:3100) has restarted 5 times in the last 10 minutes and is still restarting. A single restart after an OOM would not reach this threshold; a crash loop does. Note that `up == 0` will NOT be firing — the container is coming back each time, which is why this rule exists separately."
+              action: "`docker ps -a --filter name=loki` and read the exit code first: 137 is OOM-killed, so check `mem_limit` for that service in deploy/compose/prod/. Then `docker logs --tail 100 loki` for what it says just before dying — in a loop the useful line is at the END of each cycle, not the start. If it is a dependency it cannot reach, fix that rather than raising the restart limit."
+              runbook: docs/runbooks/observability.md
+
+  - name: ContainerRestartLoop stays silent through ordinary deploy churn
+    # THE THRESHOLD REGRESSION TEST. Three changes in a 10m window is the MAXIMUM
+    # legitimate churn observed across the full 7-day retention (traefik; every
+    # other job peaked at 2). If someone lowers the threshold to > 2, this test
+    # fails — which is the point. A deploy must never page anyone.
+    interval: 1m
+    input_series:
+      - series: 'process_start_time_seconds{job="traefik", instance="traefik:8082"}'
+        values: '1000 1001 1002 1003x12'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: ContainerRestartLoop
+        exp_alerts: []
+      - eval_time: 14m
+        alertname: ContainerRestartLoop
+        exp_alerts: []
+
+  - name: ContainerRestartLoop stays silent for one restart that then holds
+    # "A container that restarts once after an OOM and stays up is not an
+    # incident." This encodes exactly that.
+    interval: 1m
+    input_series:
+      - series: 'process_start_time_seconds{job="keycloak", instance="keycloak:9000"}'
+        values: '1000 1000 1001x14'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ContainerRestartLoop
+        exp_alerts: []
+
+  - name: ContainerRestartLoop covers MinIO through its own start-time metric
+    # MinIO does not expose process_start_time_seconds. It publishes the same
+    # thing as minio_node_process_starttime_seconds, which is why the expression
+    # is an `or` rather than one selector. Without this arm, the one platform
+    # service holding tenant object data would be uncovered.
+    interval: 1m
+    input_series:
+      - series: 'minio_node_process_starttime_seconds{job="minio", instance="minio:9000", server="127.0.0.1:9000"}'
+        values: '1000 1001 1002 1003 1004 1005x10'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: ContainerRestartLoop
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job: minio
+              instance: minio:9000
+              server: 127.0.0.1:9000
+            exp_annotations:
+              summary: "minio is in a restart loop"
+              description: "minio (minio:9000) has restarted 5 times in the last 10 minutes and is still restarting. A single restart after an OOM would not reach this threshold; a crash loop does. Note that `up == 0` will NOT be firing — the container is coming back each time, which is why this rule exists separately."
+              action: "`docker ps -a --filter name=minio` and read the exit code first: 137 is OOM-killed, so check `mem_limit` for that service in deploy/compose/prod/. Then `docker logs --tail 100 minio` for what it says just before dying — in a loop the useful line is at the END of each cycle, not the start. If it is a dependency it cannot reach, fix that rather than raising the restart limit."
+              runbook: docs/runbooks/observability.md
+
   # --- resource-usage -------------------------------------------------------
 
   - name: HostMemoryHigh fires on real pressure, measured without page cache

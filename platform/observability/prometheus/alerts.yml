@@ -75,6 +75,67 @@ groups:
             the fault, not the service.
           runbook: docs/runbooks/observability.md
 
+      # Complements ServiceDown rather than duplicating it. ServiceDown catches a
+      # container that goes down AND STAYS down for 5m. A container that dies and
+      # is restarted every 30s is never down long enough to trip it, so a crash
+      # loop is invisible to `up == 0`.
+      #
+      # THE SIGNAL IS NOT cADVISOR. The obvious source would be
+      # container_start_time_seconds, and it is a dead end on this host: cAdvisor
+      # exposes 35 series, ZERO of them Docker containers, and no `name` label at
+      # all — {__name__=~"container_.*", name!=""} returns nothing. Verified again
+      # 2026-07-31; the cause is Docker's containerd snapshotter, recorded in
+      # docs/decisions/alert-series-verification.md. Do not "fix" this rule by
+      # pointing it at cAdvisor.
+      #
+      # What does carry it is process_start_time_seconds, exposed by each service's
+      # own /metrics, plus minio_node_process_starttime_seconds for MinIO, which
+      # publishes the same thing under its own name. Both change exactly once per
+      # process start, so changes() over a window counts restarts.
+      #
+      # THRESHOLD, from measurement rather than intuition. Legitimate deploy churn
+      # peaks at THREE changes in a 10m window across the full 7-day retention
+      # (traefik; everything else peaks at 2). `> 4` sits above that with margin,
+      # and evaluating it over the whole retained week returns zero series — it
+      # would not have fired once on real activity. It also matches the working
+      # definition: one restart after an OOM is not an incident, five in ten
+      # minutes is.
+      #
+      # `for: 2m` asks "is it STILL restarting", which is the distinction between a
+      # loop and a bad afternoon.
+      #
+      # COVERAGE IS 12 OF 16 PLATFORM CONTAINERS, and the gap is honest:
+      # openbao, portainer, postgres and promtail expose no metrics endpoint and
+      # are not scrape targets, so no signal exists for them at any threshold.
+      # Note also that postgres-exporter restarting is NOT postgres restarting.
+      #
+      # TENANT CONTAINERS ARE DELIBERATELY NOT COVERED. app-* are scraped by
+      # nothing, so extending this is blocked on a scrape target existing before it
+      # is blocked on the tenancy question — see docs/decisions/alerting-audit.md.
+      - alert: ContainerRestartLoop
+        expr: |
+          (changes(process_start_time_seconds[10m])
+            or changes(minio_node_process_starttime_seconds[10m])) > 4
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} is in a restart loop"
+          description: >-
+            {{ $labels.job }} ({{ $labels.instance }}) has restarted {{ $value }}
+            times in the last 10 minutes and is still restarting. A single restart
+            after an OOM would not reach this threshold; a crash loop does. Note
+            that `up == 0` will NOT be firing — the container is coming back each
+            time, which is why this rule exists separately.
+          action: >-
+            `docker ps -a --filter name={{ $labels.job }}` and read the exit code
+            first: 137 is OOM-killed, so check `mem_limit` for that service in
+            deploy/compose/prod/. Then `docker logs --tail 100 {{ $labels.job }}`
+            for what it says just before dying — in a loop the useful line is at the
+            END of each cycle, not the start. If it is a dependency it cannot reach,
+            fix that rather than raising the restart limit.
+          runbook: docs/runbooks/observability.md
+
   - name: resource-usage
     rules:
       # RENAMED FROM HighMemoryUsage, because that name was a lie.
