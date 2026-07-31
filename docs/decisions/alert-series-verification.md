@@ -282,3 +282,35 @@ docker exec prometheus wget -qO- \
 
 For any rule, query the **selector without its threshold** first. That is the
 whole method, and it is the difference between "not firing" and "cannot fire".
+
+## The checks that lied while doing this work
+
+The rules in this document were not the only things reporting health they did not
+have. Every check below was **mine**, written during this audit, and each was
+caught by running it against a case whose answer was already known rather than by
+trusting a clean result. That habit is the deliverable — more than any individual
+rule — so the failures are recorded rather than quietly fixed.
+
+| Check | What it reported | What was true |
+|---|---|---|
+| `check_alert_series.py`, first draft | `PublicSiteDown` and `DiskSpaceRunningLow` "cannot fire" | It stripped string literals, turning `{job="blackbox-public"}` into `{job= }`, which Prometheus rejects with **HTTP 400**. The rules were fine. |
+| same, same draft | `sum` and `max` are missing metrics | Removing `by (instance)` leaves `sum  (metric)`, and it tested only the *next* character for `(`. Both are PromQL, not metrics. |
+| decay watcher | `connection refused` — read as Prometheus down | It resolved the Prometheus container IP **once at startup**. A deploy moved the container and the cached address went stale. Prometheus was healthy throughout. |
+| a shell `du` over `/var/lib/docker/*/` | the directory is empty | The glob expanded as the unprivileged user against a root-only directory, so it matched nothing. `sudo sh -c` returned 26 GiB. |
+| a `sed` display filter | one broken selector reported **twice** | Overlapping `sed` ranges printed the summary block twice. The checker itself reported one. Cosmetic, and still worth catching before repeating the number. |
+
+Two patterns account for all five, and both are worth naming because they recur:
+
+1. **An empty or error result was treated as an answer.** A 400, an unexpanded
+   glob and a stale address all produce "nothing", and "nothing" reads as a
+   finding. It never is on its own.
+2. **A value was captured once and reused after the world moved.** The cached
+   Prometheus IP is the clean example: correct when taken, wrong two minutes
+   later. `docker exec` avoids it entirely, which is why the commands published in
+   the runbooks use that form rather than an address.
+
+The corollary for anyone extending this work: **before believing a check that
+reports a problem, run it against a case you already know the answer to.**
+`check_alert_series.py` earns its keep by independently rediscovering
+`LokiIngestionErrors` — a defect established by other means first. A check that
+has never been shown to catch anything is not evidence.
