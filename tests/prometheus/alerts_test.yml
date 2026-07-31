@@ -513,3 +513,40 @@ tests:
       - eval_time: 12m
         alertname: LokiPushRejected
         exp_alerts: []
+
+  # --- delivery test facility -----------------------------------------------
+
+  - name: TEST_IGNORE_DeliveryPathCheck fires as soon as the test file exists
+    # No `for:`, deliberately — the point of this rule is to measure the pipeline,
+    # so it must not add a holding period of its own.
+    interval: 1m
+    input_series:
+      - series: 'hill90_e2e_delivery_test{instance="node-exporter:9100", job="node-exporter"}'
+        values: '1x5'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: TEST_IGNORE_DeliveryPathCheck
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              instance: node-exporter:9100
+              job: node-exporter
+            exp_annotations:
+              summary: "TEST ALERT — IGNORE. Nothing is wrong. Deliberate delivery check."
+              description: "THIS IS A TEST. It is not an incident, no service is affected, and no action is needed. Someone is deliberately proving that alerts reach a human, by creating a file on the VPS purely to make this rule fire. It clears when that file is deleted, and you should receive a RESOLVED mail shortly afterwards — that resolve is half of what the test proves."
+              action: "None. If this arrived unannounced, it is still not an incident: the file /opt/hill90/metrics/textfile_collector/e2e-delivery-test.prom exists on the VPS and deleting it clears this alert immediately. Nothing else is affected by it."
+              runbook: docs/decisions/alert-series-verification.md
+
+  - name: TEST_IGNORE_DeliveryPathCheck cannot fire on its own
+    # THE REGRESSION TEST THAT MATTERS FOR A TEST FACILITY LIVING IN PRODUCTION.
+    # A value of 0 must not fire, so a stale file left behind with the metric
+    # zeroed does not page anyone. Absence is covered by there being no series at
+    # all, which no expression can match.
+    interval: 1m
+    input_series:
+      - series: 'hill90_e2e_delivery_test{instance="node-exporter:9100", job="node-exporter"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: TEST_IGNORE_DeliveryPathCheck
+        exp_alerts: []
