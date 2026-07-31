@@ -150,6 +150,17 @@ make deploy-observability   # or: bash scripts/deploy.sh observability prod
 
 ### Step 5: Health Verification
 
+**A container reporting `unhealthy` partway through a rebuild is usually not a
+failure.** A rebuilt host starts every service against empty volumes, and
+several do one-time first-boot work before they can answer a probe at all —
+Keycloak imports the realm and migrates its schema, OpenBao initialises, Tempo
+builds its local blocks. Their healthchecks budget for it (`keycloak`
+`start_period: 90s`, `tempo` `180s`, `openbao` `60s`), so the window in which
+they legitimately look dead is minutes, not seconds.
+
+Intervening during that window is the actual risk. Let `make health` be the
+judge rather than `docker ps` read early.
+
 Verify all services are healthy:
 
 ```bash
@@ -329,6 +340,27 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 
 **Total rebuild time:** ~8-13 minutes (3-5 min + 3-5 min + 2-3 min)
 
+**What that figure does not include.** It covers the platform steps above and
+nothing else. The **tenant application is a separate repository with a
+manually-dispatched deploy** and is not part of a rebuild; its first deploy onto
+a rebuilt host is the slow one, because every database is empty and services
+migrate before they serve. `litellm` alone has been measured taking minutes in
+that state.
+
+Those measurements live in the tenant repo:
+[hill90-app — Cold start: which healthchecks survive an empty database](https://github.com/jonhill90/hill90-app/blob/main/docs/runbooks/cold-start-budgets.md).
+
+**They are not platform numbers.** They were taken on an Apple Silicon laptop
+against the tenant stack, not on the VPS, and this hardware is different. Read
+them for the *shape* of the problem — first boot is minutes, later boots are
+seconds, and the gap is what makes an optimistic timeout look fine until a
+rebuild — not as an ETA for this host.
+
+**Not measured on the VPS:** cold-start time for any platform service after a
+real rebuild. The figures above are estimates carried from earlier rebuilds; the
+next rebuild is the chance to replace them with observed numbers, and it is
+worth capturing them while it runs.
+
 ---
 
 ## Security Considerations
@@ -351,3 +383,6 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 - [Bootstrap Runbook](bootstrap.md)
 - [Contributing Guide](../../CONTRIBUTING.md)
 - [Health Check Script](../../scripts/ops.sh)
+- [hill90-app — cold-start budgets](https://github.com/jonhill90/hill90-app/blob/main/docs/runbooks/cold-start-budgets.md)
+  — measured start-up times for the tenant stack, and why an optimistic
+  `start_period` only fails on a rebuild. Tenant measurements, not platform ones.
