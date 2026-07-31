@@ -92,6 +92,8 @@ echo "  waiting for Keycloak..."
 # the host returns 403 "HTTPS required" until it is relaxed — scripts/local.sh
 # does exactly that on the running realm. Both of those bit this verification
 # before the realm itself was ever in question.
+# argv-ok: ADMIN_PW is the literal throwaway on line 29, in a container this
+# script creates and destroys. No real credential exists in this process tree.
 ready() { docker exec "$KC" /opt/keycloak/bin/kcadm.sh config credentials \
             --server http://127.0.0.1:8080 --realm master \
             --user "$ADMIN" --password "$ADMIN_PW" >/dev/null 2>&1; }
@@ -126,6 +128,7 @@ else
 fi
 
 kc() { docker exec "$KC" /opt/keycloak/bin/kcadm.sh "$@" 2>&1; }
+# argv-ok: same throwaway credential and throwaway container as above.
 kc config credentials --server http://localhost:8080 --realm master \
    --user "$ADMIN" --password "$ADMIN_PW" >/dev/null 2>&1 \
    || { echo "kcadm login failed"; exit 2; }

@@ -66,7 +66,18 @@ bao_exec_env() {
     if [ -z "$token" ]; then
         die "BAO_TOKEN is required. Export it before running this command."
     fi
-    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" "$CONTAINER_NAME" bao "$@"
+    # The token travels in the ENVIRONMENT, not argv.
+    #
+    # `docker exec -e "BAO_TOKEN=${token}"` puts the value in the docker CLI's
+    # command line, where any local user can read it with `ps`. Demonstrated
+    # rather than assumed: a probe with a dummy value showed
+    # `docker exec -e PSPROBE=<value> ...` in `ps -Ao args`.
+    #
+    # `-e NAME` with no value tells docker to pass the variable through from its
+    # own environment, so the value never becomes an argument. scripts/keycloak.sh
+    # already did this and documented why; this helper did not.
+    BAO_TOKEN="$token" docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN \
+        "$CONTAINER_NAME" bao "$@"
 }
 
 require_running() {
@@ -193,12 +204,16 @@ cmd_revoke_root() {
     fi
 
     echo "Revoking root token..."
-    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" \
+    # `-e BAO_TOKEN` passes the variable through from this shell rather than
+    # putting the value in argv, so it must be SET here — a bare pass-through of
+    # an unset variable sends nothing and the command fails in a way that looks
+    # like a permissions problem.
+    BAO_TOKEN="$token" docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN \
         "$CONTAINER_NAME" bao token revoke -self >/dev/null 2>&1 || true
 
     # Verify independently. `token revoke -self` prints "Revoked token (if it
     # existed)" and exits 0 regardless, so its exit code proves nothing.
-    if ! docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" \
+    if ! BAO_TOKEN="$token" docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN \
             "$CONTAINER_NAME" bao token lookup >/dev/null 2>&1; then
         success "✓ Root token revoked and confirmed dead"
     else
@@ -425,7 +440,8 @@ print(json.dumps({
     ],
 }))' "$vault_url")
     local token="${BAO_TOKEN:-}"
-    echo "$role_json" | docker exec -i -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=${token}" "$CONTAINER_NAME" \
+    echo "$role_json" | BAO_TOKEN="$token" docker exec -i \
+        -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN "$CONTAINER_NAME" \
         bao write auth/oidc/role/admin-sso -
 
     echo ""

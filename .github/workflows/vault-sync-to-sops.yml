@@ -108,24 +108,34 @@ jobs:
           echo "hash=$BEFORE_HASH" >> $GITHUB_OUTPUT
 
       - name: Renew sync token
+        env:
+          SYNC_TOKEN: ${{ steps.sync-token.outputs.token }}
         run: |
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          # The token goes over STDIN, never into a command line.
+          #
+          # Interpolating it into the ssh command string put it in argv of the
+          # remote shell AND of `docker exec` on the VPS, where `ps -Ao args`
+          # shows it to any local user. It is masked in the Actions log, which is
+          # what made this easy to miss: the leak is on the host, not here.
+          printf '%s' "$SYNC_TOKEN" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            "docker exec \
-              -e BAO_ADDR=http://127.0.0.1:8200 \
-              -e BAO_TOKEN='${{ steps.sync-token.outputs.token }}' \
-              openbao bao token renew" || {
+            'read -r BAO_TOKEN; export BAO_TOKEN; \
+             docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN \
+               openbao bao token renew' || {
             echo "::error::Token renewal failed — token may be expired or revoked. Re-run 'vault.sh setup-sync-token'."
             exit 1
           }
 
       - name: Run sync on VPS
+        env:
+          SYNC_TOKEN: ${{ steps.sync-token.outputs.token }}
         run: |
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          # Same reasoning as the renew step: stdin, not argv.
+          printf '%s' "$SYNC_TOKEN" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            "export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
-             export BAO_TOKEN='${{ steps.sync-token.outputs.token }}' && \
-             cd /opt/hill90/app && bash scripts/vault.sh sync-to-sops"
+            'read -r BAO_TOKEN; export BAO_TOKEN; \
+             export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt; \
+             cd /opt/hill90/app && bash scripts/vault.sh sync-to-sops'
 
       - name: Hash SOPS after sync
         id: after
