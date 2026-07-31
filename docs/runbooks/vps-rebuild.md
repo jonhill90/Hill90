@@ -14,7 +14,10 @@ The VPS rebuild is fully automated and requires **zero manual intervention**. Th
 ## Prerequisites
 
 - **Local machine:** Repository cloned, all tools installed
-- **Age key:** `infra/secrets/keys/age-prod.key` in repository
+- **Age key:** `infra/secrets/keys/age-prod.key` — at that path in your **working copy**,
+  not in the repository. It is gitignored and in no backup, so a fresh clone does not
+  bring it and neither does a restore. Get it from your password manager first; see
+  [`disaster-recovery.md`](disaster-recovery.md#step-0)
 - **SSH key:** `~/.ssh/remote.hill90.com` configured
 - **Secrets:** `infra/secrets/prod.enc.env` with VPS credentials
 
