@@ -76,7 +76,15 @@ services:
       - "traefik.http.routers.traefik.entrypoints=${ADMIN_ENTRYPOINT:-websecure}"
       - "traefik.http.routers.traefik.tls.certresolver=${ADMIN_CERT_RESOLVER:-letsencrypt-dns}"
       - "traefik.http.routers.traefik.service=api@internal"
-      - "traefik.http.routers.traefik.middlewares=${TRAEFIK_MIDDLEWARES:-auth@file,tailscale-only@file}"
+      # ORDER IS LOAD-BEARING: the allowlist comes FIRST, the authenticator second.
+      # Chains run left to right. Ordered `auth,tailscale-only` this router answered
+      # 401 with `WWW-Authenticate: Basic realm="traefik"` to the public internet
+      # (observed off-tailnet 2026-07-31) — a credential prompt and a guessing oracle
+      # handed to anyone, before the allowlist refused them. Every other admin router
+      # answered 403. Same protection for a legitimate tailnet user either way;
+      # strictly less disclosed to everyone else. Enforced by
+      # scripts/checks/check_edge_middlewares.py.
+      - "traefik.http.routers.traefik.middlewares=${TRAEFIK_MIDDLEWARES:-tailscale-only@file,auth@file}"
 
   # Portainer Container Management (Tailscale-only access)
   portainer:
