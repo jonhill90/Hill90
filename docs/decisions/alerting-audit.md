@@ -2,9 +2,18 @@
 
 `Verified 2026-07-31 08:44 UTC`, read-only against production.
 
-## The answer in one line
+> ## STATUS: the receiver was built. Read this as the audit that motivated it.
+>
+> Everything below describes the estate **before 2026-07-31 09:17 UTC**. Alertmanager now
+> exists, Prometheus is wired to it, and email delivery is proven end to end. Two of the
+> six ranked gaps — the public site and the sealed vault — are closed with new
+> `PublicSiteDown` and `VaultSealedOrUnreachable` rules. **The remaining four are still
+> open and are listed under "Follow-ups" at the end.** The diagnosis below is preserved
+> deliberately: the reason each gap ranked where it did has not changed.
 
-**Nothing would tell us. There is no notification path out of this estate at all.**
+## The answer in one line (as of the audit)
+
+**Nothing would tell us. There was no notification path out of this estate at all.**
 
 Six Prometheus alert rules exist and evaluate correctly. Prometheus has **zero
 Alertmanagers configured** — `/api/v1/alertmanagers` returns
@@ -201,3 +210,30 @@ ranked list either needs a signal built first or has a fuse long enough to wait.
   legitimately absent. This does not change the finding: the alert fired and reached nobody.
 - Nothing here was changed on the host. No alerting component was deployed, configured or
   tested end to end, because no delivery path exists to test.
+
+
+## Follow-ups — what this audit found and the first alerting change did NOT close
+
+Ranked as before. Two of six are closed; these four are not.
+
+1. **The nightly backup failing** (was #3). Still exits non-zero into a log file nobody
+   reads. No MTA, no `MAILTO`, no freshness metric — node-exporter still runs without
+   `--collector.textfile.directory`. **Cheapest fix:** have the backup cron write a
+   `.prom` file with a completion timestamp and add a staleness rule. That is now worth
+   doing, because a receiver exists to deliver it to.
+2. **Certificate renewal failing silently** (was #4). The signal already exists —
+   `traefik_tls_certs_not_after`, 11 certificates, soonest 42.8 days as of 2026-07-31.
+   **This is now a three-line rule with a working receiver behind it** and is the obvious
+   next change. It was left out of the first one only to keep that change to the two gaps
+   with no signal at all.
+3. **A container in a restart loop** (was #5). Still no signal: cAdvisor exposes no Docker
+   containers on this host, which also makes `HostMemoryHigh` host-wide rather than
+   per-container. Root-causing cAdvisor is the prerequisite.
+4. **Nothing watches the watcher.** Alertmanager runs on the host it monitors, so it cannot
+   report that host's death, and neither can Prometheus. The dead-man's-switch proposal —
+   a ping from the backup cron to an external service that alerts when the ping stops —
+   is unchanged and would close this and item 1 together.
+
+Also unresolved from the audit body: **the tenant's seven containers are still not scrape
+targets.** `PublicSiteDown` probes the public URL, which is the outcome that matters, but
+it cannot say which component failed.
