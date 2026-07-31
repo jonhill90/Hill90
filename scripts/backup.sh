@@ -219,10 +219,29 @@ backup_app_db() {
 
     echo "Backing up the hill90-app tenant database..."
 
+    # app-postgres was retired on 2026-07-30 and the tenant's databases moved to the
+    # platform Postgres, so the `db` target's pg_dumpall already contains hill90_akm,
+    # hill90_api and hill90_litellm. Dying here would make `backup all` report FAILED
+    # every night for data that IS backed up — and a backup job that cries wolf is how
+    # a real failure gets ignored.
+    #
+    # This is deliberately not the same as "the tenant is not deployed": that case is
+    # still a failure when the container is expected. The retirement is identified by
+    # the container being absent AND its databases being covered elsewhere, which is
+    # exactly the post-cutover state.
     if ! docker inspect "$container" >/dev/null 2>&1; then
-        die "Container '${container}' not found — the tenant's database cannot be backed up.
-If the tenant is deliberately not deployed, run the other services explicitly
-rather than letting this report success."
+        echo "  • '${container}' is retired (2026-07-30) — its databases moved to the"
+        echo "    platform Postgres and are covered by the 'db' target's pg_dumpall."
+
+        # The retained volume is the only artifact still uniquely app-db's, and only
+        # for as long as it exists. Tar it while it is there; say so when it is not.
+        if docker volume ls --format '{{.Name}}' 2>/dev/null | grep -qx "prod_app-postgres-data"; then
+            echo "    The retained volume prod_app-postgres-data still exists — archiving it."
+            backup_volume "prod_app-postgres-data" "$backup_dir/app-postgres-data.tar.gz" || true
+        else
+            echo "    The retained volume is gone too; nothing left for this target to do."
+        fi
+        return 0
     fi
 
     local app_user="${APP_DB_USER:-}"
