@@ -469,7 +469,27 @@ cmd_service() {
     echo "================================"
     echo "${banner} Complete!"
     echo "================================"
-    docker compose -p "$project_name" -f "$compose_file" ps
+    # Deliberately `docker ps` by project label, NOT `docker compose ps`.
+    #
+    # The service secrets exist only inside the `sops exec-env` child process or
+    # the vault_load_secrets subshell above — both have exited by the time this
+    # line runs, so MINIO_ROOT_USER is no longer in the environment. Compose
+    # interpolates the compose file for EVERY subcommand including `ps`, and
+    # docker-compose.minio.yml declares ${MINIO_ROOT_USER:?...}, so on
+    # 2026-07-31 this status print failed with "required variable
+    # MINIO_ROOT_USER is missing a value" and, under `set -e`, exited the script
+    # 1 — after the deploy itself had fully succeeded and printed "Complete!".
+    #
+    # That is the worst kind of failure: it teaches everyone that a red minio
+    # deploy is normal, so the next genuine failure gets waved through.
+    #
+    # Re-entering the secret environment just to print container status would be
+    # a decrypt for a cosmetic line. Reading the compose project label needs no
+    # interpolation and no secret at all, so the whole class of bug goes away —
+    # including for any compose file that adopts `:?` later.
+    docker ps -a \
+        --filter "label=com.docker.compose.project=${project_name}" \
+        --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
     echo ""
     echo "$summary"
