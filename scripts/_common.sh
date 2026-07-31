@@ -166,7 +166,11 @@ vault_login() {
 vault_read_kv() {
     local token="$1"
     local path="$2"
-    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e "BAO_TOKEN=$token" openbao \
+    # Token via the ENVIRONMENT, not argv — `-e NAME` with no value passes it
+    # through, where `-e NAME=value` would put the token in the docker CLI's
+    # command line for any local user to read with `ps`. Same reasoning as
+    # scripts/keycloak.sh's kc_login and scripts/vault.sh's bao_exec_env.
+    BAO_TOKEN="$token" docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN openbao \
         bao kv get -format=json "$path" 2>/dev/null | \
         python3 -c "
 import sys, json, shlex
