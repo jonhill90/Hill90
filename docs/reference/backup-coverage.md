@@ -37,6 +37,21 @@ Every one of those tars is **crash-consistent at best** — see
 [the caveat in `backup_volume`](../../scripts/backup.sh). `db` is the only target with a
 second artifact that restores cleanly, which makes it the least exposed, not the most.
 
+**Whether that is worth fixing was worked out per volume, and mostly it is not** —
+[`backup-consistency-options.md`](../decisions/backup-consistency-options.md). Summarised,
+because the sizes above mislead about what is actually at stake:
+
+| Volume | What it protects that git + SOPS cannot rebuild | Fix it? |
+|---|---|---|
+| `prod_postgres-data` | Everything in Postgres | Already fixed — `pg_dumpall` |
+| `prod_app-postgres-data` | The retired tenant database | Not needed — **no container references this volume**, so with no writer the tar is a clean copy, not a crash-consistent one |
+| `prod_minio-data` | **Object data — the only such state here** | Not at 112 KB. Revisit when it grows |
+| `openbao-data` | Nothing — DR re-seeds from SOPS | **No fix exists**: snapshots need Raft, this is `file` storage |
+| `prod_traefik-certs` | Only ACME rate-limit headroom | No — stopping Traefik downs the whole edge |
+| `prod_portainer-data` | 1 MB of UI state | No — free to do, nothing to protect |
+| `grafana-data` | **One OAuth user row** (measured) | No — dashboards and datasources come from provisioning |
+| `prometheus-data` | 7 days of metrics | No — the snapshot API would also enable series deletion |
+
 ## Not covered — and what each gap costs
 
 | Volume | Owner | Size | Consequence if the host is lost |

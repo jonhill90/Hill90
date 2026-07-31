@@ -137,6 +137,28 @@ verify_artifacts() {
 # Restoring from one of these is a legitimate DR action; treat it as replaying a
 # crashed host, and verify the service after restart rather than assuming the
 # restore was clean. See docs/reference/backup-coverage.md.
+#
+# BUT DO NOT READ THAT LIST AS A WORK QUEUE. It ranks CONSISTENCY EXPOSURE, which
+# is not the same as VALUE AT RISK, and the two point in opposite directions here.
+# Whether each one is worth fixing was worked out separately and mostly the answer
+# is no — docs/decisions/backup-consistency-options.md has it per volume:
+#
+#   grafana-data     Heads that list, and protects almost nothing. Measured
+#                    2026-07-31: a Grafana started on an EMPTY volume reproduces all
+#                    6 dashboards and all 3 datasources from provisioning files in
+#                    this repo. The whole delta against live is ONE OAuth user row.
+#   openbao-data     No fix exists — snapshots require Raft and this runs `file`
+#                    storage. Stopping it for the tar returns a SEALED vault every
+#                    night, which is a worse risk than the one being removed. DR
+#                    re-seeds from SOPS anyway, so this tar is a convenience.
+#   prometheus-data  A snapshot API exists but needs --web.enable-admin-api, which
+#                    also turns on series deletion. 7-day retention data. Not worth
+#                    a new destructive surface.
+#   prod_minio-data  The ONLY entry here holding state that git and SOPS cannot
+#                    rebuild. 112 KB today. This is the one to revisit when it grows.
+#
+# So: this caveat exists so a restore is interpreted correctly, not so someone
+# builds quiescing machinery for volumes that rebuild themselves from the repo.
 backup_volume() {
     local volume="$1"
     local dest_file="$2"
