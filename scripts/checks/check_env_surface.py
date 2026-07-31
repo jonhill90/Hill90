@@ -92,6 +92,10 @@ SCRIPT_ONLY = {
     # serve the tenant. No compose ${VAR}: this platform does not run the tenant's
     # UI, it only has to know the URL Keycloak must accept a redirect to.
     "TENANT_UI_PORT",
+    # Whether minio's Traefik router is live. Not a secret and not consumed by any
+    # script — it is read by compose at deploy time to hold the router dark during a
+    # cutover. Defaults to true, the intended end state.
+    "MINIO_TRAEFIK_ENABLE",
     # Portainer stores its OAuth configuration in its own database, applied
     # through its API by scripts/portainer.sh — there is no compose ${VAR} to
     # reference, but the value still has to be documented and kept in SOPS.
