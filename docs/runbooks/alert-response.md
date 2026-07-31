@@ -116,12 +116,16 @@ needed. Free space somewhere else first.
 
 ---
 
-## Site down — `ServiceDown`, or a report from a human
+## Site down — `PublicSiteDown`, `ServiceDown`, or a report from a human
 
-**Read the alert carefully first.** `ServiceDown` means a *scrape target* stopped
-answering Prometheus. That is not the same as the public site being down, and the
-reverse is also true: **nothing currently probes `hill90.com` from outside**, so
-the site can be unreachable to visitors while every alert stays quiet.
+**Read which alert it is first, because they mean different things.**
+
+- **`PublicSiteDown`** is the real one: a blackbox probe of `https://hill90.com/`
+  did not get a 200 for two minutes. Users are seeing it too.
+- **`ServiceDown`** means a *scrape target* stopped answering Prometheus. That is
+  an exporter or an internal endpoint, and the public site may be perfectly fine.
+- **`TenantApiDown`** is `api.hill90.com`. `hill90.com` can return 200 while it is
+  broken, so `PublicSiteDown` will not cover it.
 
 1. **Is it actually down, and for whom?** From outside, then from the host. If the
    host says 200 and the outside says otherwise, it is DNS or the network, not the
@@ -147,21 +151,39 @@ to read.
 
 ---
 
-## What is not wired up yet
+## Alerts do reach you, and this is how fast
+
+`Verified 2026-07-31 11:54 UTC by an end-to-end test, not by reading config.`
+
+Alertmanager is deployed and the whole chain was measured with a deliberate test
+alert: **19.6 seconds** from the condition existing to the mail being accepted by
+the relay — scrape 2.5s, rule evaluation 7.5s, Prometheus to Alertmanager
+immediate, then `group_wait` 10s. For `PublicSiteDown`, add its deliberate
+`for: 2m`, so **expect to hear about the site being down in roughly two and a
+half minutes.**
+
+**The all-clear is much slower, and that is normal.** `group_interval` is 5m and
+governs every notification after the first, so a RESOLVED mail arrives up to five
+minutes after the problem ends — measured at 297s. **An alert that has stopped
+being true but has not sent its resolve yet is not a stuck alert.** Wait for the
+group flush before going looking for a fault in Alertmanager.
+
+## What is still not wired up
 
 Honest, because an index that implies coverage it does not have is worse than
-none:
+none. This list is much shorter than it was this morning:
 
-- **No delivery path exists.** Prometheus evaluates its rules and Alertmanager is
-  not deployed, so nothing above reaches a human automatically yet. Until it does,
-  `bash scripts/ops.sh health` on the VPS is the way these are noticed.
-- **The backup and certificate rules are specified, not applied** — see
-  [../decisions/backup-failure-signal.md](../decisions/backup-failure-signal.md)
-  and [certificate-renewal.md](certificate-renewal.md).
-- **Vault sealed and site down have no signal at all.** The response steps above
-  are still correct; they just have to be triggered by a person or by
-  `ops.sh health` rather than by an alert.
+- **Nothing watches the watcher.** If Prometheus stops evaluating or Alertmanager
+  dies, every alert above goes silent, and silence is what a healthy night looks
+  like. Closing this needs an external dead-man's-switch service, which is a
+  decision rather than a change — see
+  [../decisions/dead-mans-switch.md](../decisions/dead-mans-switch.md).
+- **The tenant's containers are not scraped.** `app-*` are covered only by the
+  edge probes of `hill90.com` and `api.hill90.com`. A tenant container in a crash
+  loop that keeps answering HTTP will not page anyone.
+- **No per-container resource metrics exist at all.** cAdvisor reports zero
+  containers on this host — see
+  [../decisions/alert-series-verification.md](../decisions/alert-series-verification.md).
 
-Every claim in that list was checked against Prometheus rather than inferred —
-including which of the *existing* rules match no series at all — in
-[../decisions/alert-series-verification.md](../decisions/alert-series-verification.md).
+Everything in this file was checked against the running system rather than
+inferred from configuration.
