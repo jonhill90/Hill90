@@ -542,3 +542,63 @@ groups:
             have a series. If the file is there but the metric is not, the collector
             directory flag or the /rootfs mount is the fault, not the backup.
           runbook: docs/runbooks/deployment.md#scheduled-backups
+
+  # ---------------------------------------------------------------------------
+  # A deliberately inert facility for proving the notification chain end to end.
+  #
+  # WHY IT EXISTS. Every step of the path had been proven individually and the
+  # JOIN had not. Measured 2026-07-31: Prometheus had evaluated rules and produced
+  # ALERTS, and Alertmanager had delivered email — but
+  # prometheus_notifications_sent_total was 0, and its maximum across the whole
+  # 7-day retention was also 0. Not one notification had ever travelled from
+  # Prometheus to Alertmanager. The two emails on record came from alerts injected
+  # straight into Alertmanager's API, which bypasses precisely the link in doubt.
+  #
+  # A delivery test that starts at Alertmanager cannot prove the link. This rule
+  # starts at Prometheus, so it can.
+  #
+  # HOW TO RUN IT. The condition is a file, so no deploy is needed to fire or
+  # clear it — only this rule needed deploying, once:
+  #
+  #   printf 'hill90_e2e_delivery_test 1\n' > \
+  #     /opt/hill90/metrics/textfile_collector/e2e-delivery-test.prom     # fires
+  #   rm /opt/hill90/metrics/textfile_collector/e2e-delivery-test.prom    # resolves
+  #
+  # Write atomically in anything scripted (write .tmp, then mv): node-exporter
+  # reads the directory on every scrape and a half-written file flips
+  # node_textfile_scrape_error to 1, which is itself alertable.
+  #
+  # WARN A HUMAN FIRST. This sends real mail to a real person.
+  #
+  # severity is critical ON PURPOSE, so the test traverses the same Alertmanager
+  # route as PublicSiteDown (group_wait 10s) rather than a slower one. It is the
+  # site-down path being measured, not a generic one.
+  #
+  # There is no `for:`, so the measurement isolates the pipeline — scrape,
+  # evaluation, notify, group_wait, SMTP — from a rule's deliberate holding
+  # period. For the site-down figure, add PublicSiteDown's `for: 2m` to whatever
+  # this measures.
+  #
+  # It cannot fire on its own: the series does not exist unless somebody creates
+  # that file. Declared in scripts/checks/alert-series-allowlist.txt on that basis.
+  # ---------------------------------------------------------------------------
+  - name: delivery-test
+    rules:
+      - alert: TEST_IGNORE_DeliveryPathCheck
+        expr: hill90_e2e_delivery_test > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEST ALERT — IGNORE. Nothing is wrong. Deliberate delivery check."
+          description: >-
+            THIS IS A TEST. It is not an incident, no service is affected, and no
+            action is needed. Someone is deliberately proving that alerts reach a
+            human, by creating a file on the VPS purely to make this rule fire. It
+            clears when that file is deleted, and you should receive a RESOLVED mail
+            shortly afterwards — that resolve is half of what the test proves.
+          action: >-
+            None. If this arrived unannounced, it is still not an incident: the file
+            /opt/hill90/metrics/textfile_collector/e2e-delivery-test.prom exists on
+            the VPS and deleting it clears this alert immediately. Nothing else is
+            affected by it.
+          runbook: docs/decisions/alert-series-verification.md
