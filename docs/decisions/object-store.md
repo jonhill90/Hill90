@@ -114,48 +114,90 @@ successfully deleted a record. Retiring it is #538's business, not this change's
 
 ---
 
-# CUTOVER STATE — read this first if you are picking this up
+# CUTOVER — CLOSED 2026-07-31 02:20 UTC
 
-`Last updated 2026-07-31 ~01:30 UTC.` Written deliberately so a context exhaustion or a
-handover cannot leave storage half cut over with nobody knowing which half.
+`Verified 2026-07-31 02:20 UTC.` Storage consolidation is complete: the app's object
+store moved up into the platform, and the app's own MinIO is retired but not yet
+destroyed. The step-by-step evidence is kept below because two of the steps did not
+happen the way they were planned, and that is worth being able to read back.
 
-## Where it actually is
+## What moved, what is retired, what is kept
+
+| Thing | State | Until |
+|---|---|---|
+| `app-api`'s object storage | **Moved** to platform `minio` via `tenant-hill90-app` | permanent |
+| Platform `minio` | **Live**, console router enabled on `storage.hill90.com` | permanent |
+| `app-minio` container | **Retired — stopped, not removed** (`exited 0`, 01:43 UTC) | review **on or after 2026-08-01 01:43 UTC** |
+| Volume `prod_app-minio-data` | **Kept**, 168K, untouched | review with the container |
+| `app-minio`'s Traefik labels | **Still on the stopped container** — a restart re-collides | until the container goes |
+| Keycloak console SSO | **Does not exist**, and cannot on this build | permanent |
+| Federated S3/STS | Policies restored; **no user holds a mapped role** | open, see below |
+
+**Do not remove `app-minio` or its volume before 2026-08-01 01:43 UTC.** The rule is
+one full day unused. It has been stopped since 01:43 UTC on 2026-07-31, and `app-api`
+has been serving from the platform store since 01:38 UTC. When the day is up, removing
+the container is what also removes its stale `storage.hill90.com` labels — see the
+hazard note below.
+
+## Where it actually ended up
 
 | # | Step | Status |
 |---|---|---|
 | 0 | Platform MinIO up, buckets mirrored, tenant credential minted | **DONE** |
-| 0b | `traefik.enable` parameterised so the dark state survives a deploy | **DONE — this PR** |
+| 0b | `traefik.enable` parameterised so the dark state survives a deploy | **DONE — #594, and it did not work; see step 3** |
 | 1 | Deploy `app-api` so it consumes the platform MinIO, prove a real object | **DONE 2026-07-31 01:40 UTC** |
 | 2 | Stop `app-minio` (container and volume both retained) | **DONE 2026-07-31 01:43 UTC** |
-| 3 | Enable the `minio-console` router on `storage.hill90.com` | **IN EFFECT — but not by step 3; see below** |
-| 4 | Verify console over Tailscale + whether Keycloak OIDC login works | **DONE 2026-07-31 02:05 UTC — console up, OIDC login does NOT work** |
-| 5 | Fix the `minio.sh` readiness race and the exit-1-after-success | **DONE — policies re-applied; fix awaits merge** |
+| 3 | Enable the `minio-console` router on `storage.hill90.com` | **DONE — but by an accidental merge-deploy, not by step 3** |
+| 4 | Verify console over Tailscale + whether Keycloak OIDC login works | **DONE 2026-07-31 02:20 UTC — console up, OIDC login does NOT work** |
+| 5 | Fix the `minio.sh` readiness race and the exit-1-after-success | **DONE — #595, proven on a cold MinIO 01:59 UTC** |
+| 6 | Fix `verify minio`, exposed by #595 | **Fix written, not merged** |
 
 ## Live state right now
 
-`Updated 2026-07-31 01:48 UTC.` The four cutover steps are complete. What follows
-replaces the pre-cutover description that stood here.
-
-- `minio` running healthy, volume `prod_minio-data`, **`traefik.enable=true`** — the
-  console router on `storage.hill90.com` is live and is the only claimant.
+- `minio` running healthy, volume `prod_minio-data`, **`traefik.enable=true`**.
   `user-avatars` holds **1** object (the step-1 proof); the other two buckets are empty.
-- `app-minio` **stopped** (`exited 0`), volume `prod_app-minio-data` retained with its
-  168K intact. Nothing was removed. It is no longer the app's data path.
+- `app-minio` **stopped** (`exited 0`), volume `prod_app-minio-data` retained, 168K
+  intact. Nothing was removed.
 - `app-api` healthy, reading and writing the platform MinIO with the scoped
   `tenant-hill90-app` credential.
-- Platform baseline 13/13 by name, 0 unhealthy, `hill90.com` 200,
-  `storage.hill90.com` 200 — checked after every step.
-- MinIO policies: `admin`, `editor`, `viewer` present again, alongside the builtins and
-  `tenant-hill90-app`. Federated S3/STS has its policy names back.
-- **Still open, outside this lane:** `deploy.sh`'s `verify infra` check runs
-  `docker exec traefik wget -qO- http://localhost:8080/api/overview`, and Traefik's API
-  is not on `:8080` — the same wrong endpoint as the runbook command below. That check
-  cannot currently pass. Not touched here; it needs its own change.
-- Tenant credential `tenant-hill90-app` exists on the platform MinIO, scoped to the three
-  buckets. Present in **both** stores: Hill90's (authoritative) and hill90-app's (replica,
-  merged as hill90-app#66).
-- `app-api` on `main` already names the platform MinIO — **but that has not shipped**;
-  the app's deploy is `workflow_dispatch` only.
+- MinIO policies: `admin`, `editor`, `viewer`, `tenant-hill90-app` plus the five
+  builtins — nine in total.
+- `storage.hill90.com` resolves to **100.88.29.112**, a Tailscale address, where
+  `hill90.com` resolves to the public `76.13.26.69`. The console is reachable over the
+  tailnet and the public DNS name does not point at the public edge.
+- Platform baseline 13/13 by name, 0 unhealthy, `hill90.com` 200 — checked after every
+  step.
+
+## The one live hazard left
+
+`app-minio` is stopped but its container still carries
+``traefik.http.routers...rule=Host(`storage.hill90.com`)`` and `traefik.enable=true`.
+Traefik's docker provider only builds routers for **running** containers, so there is
+exactly one claimant today — confirmed against the API, not inferred:
+
+```
+$ curl -s -u admin:*** https://traefik.hill90.com/api/http/routers   # 200, 3649 bytes
+routers matching storage.hill90.com:
+  "middlewares":["security-headers@file","tailscale-only@file"],
+  "service":"minio-console","rule":"Host(`storage.hill90.com`)"
+```
+
+Only `minio-console@docker`. But **`docker start app-minio` would immediately recreate
+the two-router collision**, and because both backends are MinIO the host would keep
+answering 200 while silently serving from whichever router won. If anyone starts that
+container to inspect the old data, stop it again before walking away.
+
+## Still open, outside this lane
+
+- **No Keycloak user holds a mapped realm role**, so the federated S3/STS path cannot
+  resolve a policy for anybody. Detail in step 4. This is a role-assignment decision,
+  not a bug to quietly fix.
+- `deploy.sh`'s `verify infra` check runs
+  `docker exec traefik wget -qO- http://localhost:8080/api/overview`. Traefik's API is
+  not on `:8080` — it is `api@internal` behind `traefik.hill90.com`. That check cannot
+  pass. Same wrong endpoint as the old runbook command. Untouched here.
+- MinIO community edition looks like it is in maintenance; Garage and SeaweedFS are the
+  named alternatives. Recorded above, still not decided.
 
 ## Step 1 — what was actually run, and what it proves
 
@@ -304,23 +346,79 @@ gives it no way to be.
 Do not report this as "console up". The console is reachable and trusted; SSO to it does
 not exist.
 
-The `tailscale-only@file` middleware is what keeps this off the public internet. That is
-asserted from the container's labels, **not** measured from an off-tailnet client — say
-so rather than claiming the host is confirmed private.
+Re-measured at 02:20 UTC after the #595 merge-deploy recreated the container: identical.
+The console has no OIDC entry point at all — `/api/v1/login/oauth2/auth` → **404**,
+`/api/v1/login/detail` → **404**. (`/oauth_callback` returns 200, but so does every
+path: it is the SPA shell, not a handler.)
 
-### The identity side is fully wired. The console simply cannot use it
+### Reachability is over Tailscale, and that part is measured
 
-Checked in realm `platform` with `keycloak.sh status`, because "the client has never been
-exercised" is not the same as "the client is missing":
+`storage.hill90.com` resolves to **100.88.29.112** — a Tailscale CGNAT address — while
+`hill90.com` resolves to the public **76.13.26.69**. The successful request went to
+100.88.29.112. So the console is served over the tailnet and the public name does not
+point at the public edge, which is a stronger statement than "the middleware is
+configured". The `tailscale-only@file` middleware is applied on top; that part is read
+from Traefik's API, not tested from an off-tailnet client.
 
-- Client `minio` — **exists, enabled**, redirect URIs `https://storage.hill90.com/oauth_callback`
-  and `https://storage.hill90.com/*`.
-- Realm roles `admin`, `editor`, `viewer` — all present.
-- MinIO policies of the same names — present again after the repair below.
+### Keycloak would authenticate. The console has nowhere to send you
 
-So nothing on the Keycloak side is broken or missing. There is no console login button
-because this MinIO build does not have one, and no amount of realm configuration adds it.
-The remaining federated path is `AssumeRoleWithWebIdentity` (S3/STS), which is not SSO.
+"The client has never been exercised" is not the same as "the client is broken", so the
+client was exercised as far as it can be without a human password:
+
+```
+GET https://auth.hill90.com/realms/platform/protocol/openid-connect/auth
+      ?client_id=minio&response_type=code&scope=openid
+      &redirect_uri=https%3A%2F%2Fstorage.hill90.com%2Foauth_callback
+-> HTTP 200,  <title>Sign in to Hill90 Platform</title>,  "Sign in to your account"
+```
+
+Keycloak serves a real login page for the `minio` client. The identity provider side
+works. The client is enabled, `standardFlowEnabled: true`, with both redirect URIs, and
+its `realm-roles` mapper emits `claim.name: minio_policy` — exactly the claim
+`MINIO_IDENTITY_OPENID_CLAIM_NAME` tells MinIO to read.
+
+**So the failure is entirely on the MinIO side, and it is a missing feature rather than
+a misconfiguration.** Nothing in the realm can add a login button to a build that ships
+without one.
+
+### The finding that would otherwise have surfaced next month: nobody holds a role
+
+The policies are back, but a token still could not name one, because **no user in realm
+`platform` holds any mapped realm role**:
+
+```
+users in realm platform, with their realm roles:
+  hill90admin: default-roles-platform
+  jon:         default-roles-platform
+  testuser01:  default-roles-platform
+groups: (none)
+```
+
+The realm roles `admin`, `editor` and `viewer` all exist; nobody is assigned any of
+them. So `minio_policy` would arrive carrying only `default-roles-platform`, which is
+not a MinIO policy, and `AssumeRoleWithWebIdentity` would be rejected with *no policy
+found* — the same symptom as the missing-policies defect, from an entirely different
+cause. Repairing the policies did not make the federated path usable, and reporting
+"policies restored, S3/STS fixed" would have been wrong.
+
+**Deliberately not fixed here.** Granting a realm role is handing out `s3:*` plus
+`admin:*` on the platform object store; that is Jon's decision, not a repair to slip
+into a storage PR. It is also why the end-to-end exchange in the runbook could not be
+demonstrated: to mint a token at all you would need `directAccessGrantsEnabled` on the
+`minio` client, which is **false** by design in `keycloak.sh` — the only supported path
+is a browser sign-in, and there is no user whose token would resolve.
+
+What *is* proven, rather than inferred: the policy documents are correct and complete.
+
+```
+$ mc admin policy info admin
+{"PolicyName":"admin","Policy":{"Version":"2012-10-17","Statement":[
+  {"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},
+  {"Effect":"Allow","Action":["admin:*"]}]}}
+```
+
+Note the two separate statements — MinIO rejects `s3:*` inside a statement containing
+any `admin:` action, so this shape is load-bearing.
 
 ### Defect found while verifying: the `admin`/`editor`/`viewer` policies were gone
 
@@ -436,6 +534,82 @@ only because MinIO had been serving for half an hour — there was no race left 
 The repair fixes the *state*; the regression test is what evidences the *fix*. The fix
 itself is exercised in production on the next deploy.
 
+### 5c. Both fixes proven in production on a genuinely cold MinIO
+
+`#595 merged; push deploy run 30597770315, 2026-07-31 01:59 UTC.` This is the real
+test — the container was destroyed and recreated, so the race was live:
+
+```
+01:59:31.83  Container minio Started
+01:59:31.84  Provisioning MinIO policies...
+01:59:32.17  Waiting up to 90s for MinIO to start serving...
+01:59:35.29  MinIO answered after 3s.
+01:59:35.52  = admin
+01:59:35.63  = editor
+01:59:35.74  = viewer
+01:59:35.74  Policies provisioned.
+01:59:35.74  Object Store Deployment Complete!
+01:59:35.79  NAMES               STATUS                            PORTS
+             minio               Up 4 seconds (health: starting)   9000/tcp
+             postgres            Up 53 minutes (healthy)           5432/tcp
+             ...
+```
+
+Read what that shows. The container needed **3 seconds** to start serving, and the old
+code asked at 0.3s — which is exactly why it failed and why it failed with an
+authentication error. **5a is proven, not merely unobserved.**
+
+And 5b is proven the same way: the line that used to abort the script is the
+`NAMES / STATUS / PORTS` listing at 01:59:35.79. It ran, it printed, and no
+`required variable MINIO_ROOT_USER is missing a value` followed it. The evidence is
+positive — the previously-failing statement executed and produced output — not merely an
+absent error message.
+
+### 5d. Fixing 5b exposed a third instance of the same class: `verify minio`
+
+The deploy step now exits 0, so the workflow reached its **next** step for the first
+time — and that one failed, 30 attempts against a MinIO that was healthy throughout:
+
+```
+Run: ssh ... "cd /opt/hill90/app && bash scripts/deploy.sh verify minio"
+Verifying readiness: minio (prod)
+  Waiting for minio... (1/30) ... (30/30)
+✗ minio failed readiness check after 30 attempts
+running (health: healthy)          <- the diagnostic block's own verdict
+```
+
+Same root cause, third location. `cmd_verify`'s check interpolated
+`${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}`, but the workflow invokes it as a **bare**
+`ssh ... bash scripts/deploy.sh verify minio` with no `sops exec-env` wrapper. Confirmed
+on the host rather than reasoned about:
+
+```
+$ [ -z "${MINIO_ROOT_USER:-}" ] && echo EMPTY
+EMPTY
+$ docker exec -e MC_HOST_local="http://:@127.0.0.1:9000" minio mc admin info local
+mc: <ERROR> Unable to get service info. Access Denied.
+```
+
+It built `http://:@127.0.0.1:9000` and MinIO correctly refused an anonymous caller.
+
+**This was not introduced by #595 — it was uncovered by it.** The deploy step used to
+exit 1 before verify ever ran, so the check had presumably never once passed. It was
+also flagged and set aside in the previous session's report as "a separate concern";
+that was a miss, and the cost was one red deploy.
+
+Fixed by delegating to `minio.sh status`, which resolves the credentials itself
+(environment, else SOPS) and, since #595, waits for readiness. The inner wait is capped
+at 5s because `cmd_verify`'s own 30-attempt loop is already the retry mechanism —
+nesting a 90s wait inside it would turn a failure into a ten-minute silence. Verified
+against the live host:
+
+```
+$ MINIO_READY_TIMEOUT=5 MINIO_READY_INTERVAL=1 bash scripts/minio.sh status; echo $?
+0                                          <- the new check
+$ timeout 15 docker exec -e MC_HOST_local="http://${MINIO_ROOT_USER}:..." ...; echo $?
+1                                          <- the old check, same moment, same MinIO
+```
+
 ### Merging this triggers a MinIO deploy — deliberately, but know it before you merge
 
 `scripts/minio.sh` is on `deploy.yml`'s push path filter for the `minio` service. So
@@ -452,28 +626,47 @@ should be confirmed rather than assumed:
 
 If it instead exits 1 with an interpolation error, 5b did not take.
 
-## To continue
+## What is left
+
+The cutover itself is finished. Three things remain, none of them blocking:
 
 ```bash
-# 1. deploy app-api (pipeline only; dry run first)
-gh workflow run "Manual Deploy App (Prod)" -f service=api -f dry_run=true
-gh workflow run "Manual Deploy App (Prod)" -f service=api
+# 1. ON OR AFTER 2026-08-01 01:43 UTC — one full day unused — remove app-minio.
+#    Removing the container is also what removes its stale storage.hill90.com
+#    labels, which are the last live hazard. Check first that nothing regressed:
+docker logs app-api --since 24h | grep -i 'minio\|s3' | head
+docker rm app-minio                    # container only, deliberately
+#    The VOLUME is a separate, later decision. prod_app-minio-data holds 168K and
+#    the buckets were empty; back it up before it goes, per the guardrail that a
+#    routine operation must never be able to destroy data.
 
-# prove it, do not infer from config: write through the APP's own path, then read the
-# object back from the platform MinIO and compare counts on both sides. They were both
-# 0, so a 0 -> 1 landing in the right bucket is the proof.
+# 2. Decide whether anyone should hold realm role admin/editor/viewer. Until
+#    someone does, federated S3/STS resolves no policy for any human. This is a
+#    privilege grant, not a repair — see step 4.
 
-# 2. stop app-minio — STOP only. Do not rm, do not touch prod_app-minio-data.
-docker stop app-minio
-
-# 3. only now let the router go live
-bash scripts/deploy.sh minio prod      # MINIO_TRAEFIK_ENABLE unset -> true
-
-# 4. verify over Tailscale, and say plainly whether Keycloak OIDC login WORKS.
-#    The `minio` client in realm platform has never been exercised by a human.
-#    MinIO's AGPL build has no console SSO since May 2025 — the console offers
-#    root-credential form login only, and OIDC gates the S3/STS path. Report what
-#    is actually true rather than "console up".
+# 3. Merge the `verify minio` fix (step 5d). Until then the MinIO deploy job goes
+#    red at its last step even when the deploy itself succeeded.
 ```
 
 Baseline by name after every step: 13 present, 0 unhealthy, `hill90.com` 200.
+
+## Checks that lie, collected
+
+Every one of these returned a confident, wrong answer during this work. They are
+recorded together because the failure mode is identical each time — a check that cannot
+distinguish "no" from "could not ask".
+
+| Check | What it looks like | What it is |
+|---|---|---|
+| `docker exec traefik wget -qO- localhost:8080/api/http/routers \| grep host` | "no router claims this host" | connection refused, piped into grep. The API is `api@internal` behind `traefik.hill90.com` |
+| `mc ls -r alias/bucket \| wc -l` with a wrong alias | "0 objects" | alias does not exist; the error went to stderr and was not counted |
+| `head -c 40 file \| grep -q 'ENC\['` | "the file is plaintext" | the file was zero bytes. Absence of an encryption marker is not presence of a secret |
+| `grep 'docker compose.*ps' deploy.sh` | "the bug is still there" | it matched the comment explaining the fix |
+
+The working version of the first one, for the runbook:
+
+```bash
+# From a tailnet client, through the real API, with the dashboard credential in a
+# mode-600 curl config file rather than on the command line.
+curl -s -K "$cfg" https://traefik.hill90.com/api/http/routers | tr '{' '\n' | grep storage
+```

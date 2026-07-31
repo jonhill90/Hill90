@@ -56,10 +56,28 @@ cmd_verify() {
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
-        # `mc ready` is unauthenticated AND has no timeout: against an
-        # unreachable MinIO it retries forever, so the retry loop below would
-        # never run. `mc admin info` proves the credentials too.
-        minio)         check_cmd='timeout 15 docker exec -e MC_HOST_local="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@127.0.0.1:9000" minio mc admin info local'; diag_container="minio" ;;
+        # Delegated to minio.sh, which resolves MINIO_ROOT_USER/PASSWORD itself
+        # (environment first, then SOPS).
+        #
+        # This used to interpolate ${MINIO_ROOT_USER} directly. cmd_verify is
+        # invoked by the workflow as a BARE `ssh ... bash scripts/deploy.sh
+        # verify minio` with no `sops exec-env` wrapper, so those variables are
+        # empty here — the check built "http://:@127.0.0.1:9000", MinIO answered
+        # "Access Denied", and all 30 attempts failed against a perfectly
+        # healthy server. Same root cause as the completion-banner bug fixed in
+        # #595: a code path that needs secrets, running where the secrets are
+        # not.
+        #
+        # It stayed invisible until #595 because the deploy step used to exit 1
+        # before verify ever ran. Fixing that bug is what exposed this one.
+        #
+        # `minio.sh status` still proves the credentials rather than just
+        # liveness — the original reason for preferring `mc admin info` over the
+        # unauthenticated `mc ready` — and since #595 it waits for readiness
+        # instead of asking once. The wait is kept short because THIS loop is
+        # already the retry mechanism; a 90s inner wait inside a 30-attempt
+        # outer loop would multiply into a very long silent failure.
+        minio)         check_cmd='MINIO_READY_TIMEOUT=5 MINIO_READY_INTERVAL=1 bash "$SCRIPT_DIR/minio.sh" status'; diag_container="minio" ;;
         infra)         check_cmd='docker exec traefik wget -qO- http://localhost:8080/api/overview'; diag_container="traefik" ;;
         *)             echo "Unknown service: $service"; exit 1 ;;
     esac
