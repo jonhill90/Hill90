@@ -59,6 +59,33 @@ Three separate reasons nothing can see it:
 So the estate's most careful failure handling terminates in a log file nobody
 reads. That is why the app-db regression was caught by someone happening to look.
 
+> ## IMPLEMENTED — `2026-07-31 09:57 UTC`
+>
+> `backup.sh` emits the textfile at the end of `backup-all`, node-exporter reads it,
+> and the three rules are live. Thresholds are exactly as specified below.
+>
+> **One deliberate deviation: the directory.** The spec named
+> `/var/lib/node_exporter/textfile_collector`. That path does not exist on this host
+> and `/var/lib` is root-owned, so it would need `sudo` in a script that has never
+> needed root, or an Ansible run before the first backup could emit anything. The
+> implementation uses **`/opt/hill90/metrics/textfile_collector`** — owned by
+> `deploy`, alongside `backups/` and `secrets/`, and equally untouched by
+> `systemd-tmpfiles-clean`, which was the spec's stated reason for rejecting `/tmp`.
+> No new mount was needed either, as intended: node-exporter reaches it through the
+> existing `/rootfs`.
+>
+> **The central claim was proven, not assumed.** With a 30-hour-old textfile,
+> `BackupNotSucceeding` fired and `BackupNotSucceedingCritical` correctly did not.
+> The file was then deleted to simulate a job that never ran at all: the staleness
+> rule went **silent — 0 series**, exactly as this document predicts, and
+> `BackupSignalMissing` fired and delivered. That is the whole design in one
+> observation.
+>
+> One implementation note not in the spec: on a PARTIAL failure the emitter carries
+> the previous `last_success` forward rather than clearing it. Clearing would make
+> the metric absent and the staleness rule silent — manufacturing the very condition
+> `BackupSignalMissing` exists to catch.
+
 ## The signal: a textfile the job writes, node-exporter serves
 
 **The textfile collector is already enabled** — verified rather than assumed:

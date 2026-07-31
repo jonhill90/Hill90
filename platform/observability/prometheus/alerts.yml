@@ -206,3 +206,176 @@ groups:
             week to 2026-07-31 with nobody watching, so treat a first delivery as
             possibly long-standing rather than new.
           runbook: docs/runbooks/observability.md
+
+  # ---------------------------------------------------------------------------
+  # Certificates. Specified in docs/runbooks/certificate-renewal.md (#615); the
+  # thresholds below are that document's, not new numbers.
+  #
+  # SERIES VERIFIED ON THE LIVE PROMETHEUS before these were written, per the
+  # method in docs/decisions/alert-series-verification.md (#619):
+  #   traefik_tls_certs_not_after   11 series
+  #   label set                     cn, instance, job, sans, serial
+  #   cn present on ALL series      yes  (the annotations interpolate it)
+  #   (value - time())/86400        42.7 .. 87.8 days — real numbers, not an
+  #                                 empty vector, so the comparison can match
+  # The metric needs nothing enabled and is already scraped by the traefik job.
+  # ---------------------------------------------------------------------------
+  - name: certificates
+    rules:
+      # Let's Encrypt issues for 90 days; Traefik renews below 30 and retries
+      # every 24h. So every day under 30 is one more FAILED attempt, and the
+      # threshold is really "how many consecutive failures before waking
+      # someone". 21 days = nine failures, with three weeks of runway left.
+      - alert: CertificateExpiringSoon
+        expr: (traefik_tls_certs_not_after - time()) / 86400 < 21
+        # Not about the certificate — the value moves once a day. This guards
+        # against a single failed scrape producing a spurious evaluation.
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.cn }} expires in {{ $value | printf \"%.0f\" }} days"
+          description: >-
+            Certificate renewal for {{ $labels.cn }} has been failing for roughly nine
+            days. Traefik renews below 30 days remaining and retries every 24 hours, so
+            every day under 30 is another failed attempt — this is a persistent fault,
+            not a slow night.
+          action: >-
+            FIRST check whether it is one certificate or several: `docker exec prometheus
+            wget -qO- 'http://localhost:9090/api/v1/query?query=(traefik_tls_certs_not_after-time())/86400'`.
+            If several DNS-01 hosts are falling together they share one Cloudflare
+            credential and one store — go straight to the token. Then
+            `docker logs traefik --since 48h | grep -iE 'acme|certificate|challenge'`;
+            grep `challenge` too, because a revoked token fails as a DNS challenge error
+            and looks like silence otherwise. Do NOT delete acme-dns.json.
+          runbook: docs/runbooks/certificate-renewal.md
+
+      - alert: CertificateExpiringCritical
+        expr: (traefik_tls_certs_not_after - time()) / 86400 < 10
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.cn }} expires in {{ $value | printf \"%.0f\" }} days"
+          description: >-
+            Roughly twenty consecutive renewal failures for {{ $labels.cn }}. The warning
+            at 21 days was missed. Still fixable, no longer comfortable — and fixing a
+            revoked DNS token means the Cloudflare dashboard, a SOPS edit and an edge
+            deploy.
+          action: >-
+            Same sequence as CertificateExpiringSoon, but do not wait for the 24h retry
+            cycle after fixing the cause. Restarting Traefik forces an immediate attempt
+            and is a deliberate act — it drops in-flight connections on the component
+            every service sits behind.
+          runbook: docs/runbooks/certificate-renewal.md
+
+      # Covers the failure the expiry rules structurally cannot see: a
+      # certificate that VANISHED rather than aged. Self-adjusting, so adding or
+      # retiring a host needs no edit here.
+      #
+      # for: 2h is load-bearing. A Traefik restart makes every series disappear
+      # briefly, and ServiceDown already reports Traefik being down — this must
+      # not double-report it. Verified that `offset 1h` has data (count 11 both
+      # now and an hour ago), so the comparison evaluates rather than silently
+      # returning an empty vector.
+      - alert: CertificateCountDropped
+        expr: |
+          count(traefik_tls_certs_not_after)
+            < count(traefik_tls_certs_not_after offset 1h)
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Traefik is serving fewer certificates than it was an hour ago"
+          description: >-
+            The number of certificates Traefik holds has dropped and stayed down for two
+            hours. An expiry alert cannot see this: a certificate that disappears has no
+            series left to be near expiry. Traefik being down is a different alert.
+          action: >-
+            `docker exec traefik wget -qO- http://localhost:8082/metrics | grep -c
+            '^traefik_tls_certs_not_after'` and compare with the router list. A host
+            removed on purpose explains it; otherwise suspect the ACME store. Do NOT
+            delete acme-dns.json — it holds the account key and every DNS-01
+            certificate, and re-issuance runs straight into rate limits.
+          runbook: docs/runbooks/certificate-renewal.md
+
+  # ---------------------------------------------------------------------------
+  # Backups. Specified in docs/decisions/backup-failure-signal.md (#616).
+  #
+  # THE DESIGN IS "ALERT ON THE ABSENCE OF SUCCESS", not the presence of
+  # failure — because a job that never runs at all emits no failure. That is why
+  # the trigger is a staleness comparison against last_success, and why
+  # BackupSignalMissing exists underneath it.
+  #
+  # SERIES NOTE: hill90_backup_last_success_timestamp_seconds does not exist
+  # until backup.sh has completed one full backup-all run. Until then
+  # BackupSignalMissing is the rule that covers the gap — deliberately, and see
+  # the runbook for the post-deploy seeding step.
+  # ---------------------------------------------------------------------------
+  - name: backups
+    rules:
+      # Job runs 03:00 UTC daily and takes about a minute, so a healthy gap is
+      # 24h plus seconds. 26h = one missed night with two hours of slack, and it
+      # fires around 05:00 rather than in the small hours.
+      - alert: BackupNotSucceeding
+        expr: (time() - hill90_backup_last_success_timestamp_seconds) / 3600 > 26
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No fully successful backup for {{ $value | printf \"%.0f\" }} hours"
+          description: >-
+            Backups run nightly at 03:00 UTC from the deploy crontab on the VPS and write
+            to /opt/hill90/backups/<target>/<timestamp>/. This means the last run either
+            did not happen or did not fully succeed. Note that backup-all deliberately
+            exits non-zero on a PARTIAL failure, so some targets may still have backed up.
+          action: >-
+            `tail -40 /opt/hill90/backups/cron.log` for the last run, then
+            `hill90_backup_target_success` in Prometheus to see WHICH target failed
+            without reading the whole log. `crontab -l -u deploy | grep hill90` confirms
+            the job is still scheduled at all.
+          runbook: docs/runbooks/deployment.md#scheduled-backups
+
+      - alert: BackupNotSucceedingCritical
+        expr: (time() - hill90_backup_last_success_timestamp_seconds) / 3600 > 50
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No fully successful backup for {{ $value | printf \"%.0f\" }} hours — two nights"
+          description: >-
+            Two consecutive nights without a complete backup. The warning was missed and
+            the backup set is genuinely ageing. Restores come from these artifacts and
+            nothing else does.
+          action: >-
+            As BackupNotSucceeding, and run one by hand once the cause is fixed:
+            `cd /opt/hill90/app && SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt
+            bash scripts/backup.sh backup-all`. Do not wait for the next 03:00.
+          runbook: docs/runbooks/deployment.md#scheduled-backups
+
+      # The watcher-watching case. If the textfile is deleted or was never
+      # written, `time() - <absent>` yields NO RESULT and BackupNotSucceeding can
+      # never fire — a staleness alert is silent about a metric that does not
+      # exist. This is the rule that notices the alarm was removed.
+      #
+      # It will overlap with ServiceDown when node-exporter is the cause. That
+      # duplication is accepted deliberately.
+      - alert: BackupSignalMissing
+        expr: absent(hill90_backup_last_success_timestamp_seconds)
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The backup success metric has disappeared entirely"
+          description: >-
+            hill90_backup_last_success_timestamp_seconds is absent, so the staleness
+            alerts above cannot fire at all. Either the textfile was removed, node-exporter
+            lost its textfile directory, or backup.sh has never completed a full run since
+            the metric was introduced.
+          action: >-
+            Check the file exists and is fresh: `ls -l
+            /opt/hill90/metrics/textfile_collector/hill90_backup.prom`. Then confirm
+            node-exporter is reading that directory — `node_textfile_mtime_seconds` should
+            have a series. If the file is there but the metric is not, the collector
+            directory flag or the /rootfs mount is the fault, not the backup.
+          runbook: docs/runbooks/deployment.md#scheduled-backups
