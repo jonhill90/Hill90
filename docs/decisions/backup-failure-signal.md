@@ -1,8 +1,12 @@
 # Making a failed backup visible
 
-**Status: specified, not built.** No signal exists today. This is the design and
-the reasoning behind it; delivery belongs with the Alertmanager work in
-[alerting-audit.md](alerting-audit.md).
+**Status: BUILT and applied, 2026-07-31.** This page is the design and the
+reasoning; it is kept because the reasoning is the valuable part, but it no longer
+describes a future state. `hill90_backup_last_success_timestamp_seconds` is being
+emitted and `BackupNotSucceeding`, `BackupNotSucceedingCritical` and
+`BackupSignalMissing` are live in
+`platform/observability/prometheus/alerts.yml`. Read the sections below as *why it
+is shaped this way*, not as *what remains to do*.
 
 `Established 2026-07-31, read-only against production.`
 
