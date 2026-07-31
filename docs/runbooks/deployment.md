@@ -232,16 +232,38 @@ performed. Verified artifacts from that run:
 A tar of a live `PGDATA` is crash-consistent at best; the `pg_dumpall` is the
 artifact that restores cleanly. Both are taken and the dump is required.
 
+**And that caveat is not about `PGDATA`.** It is true of every tar this script
+takes — `backup_volume` mounts a *running* container's volume `-v vol:/data:ro`
+and tars it, with no stop, no pause and no filesystem freeze. The `:ro` protects
+the data from the tar, not the tar from the data. So `grafana-data` (SQLite),
+`openbao-data` (file storage), `prometheus-data` (TSDB WAL) and `prod_minio-data`
+all carry that risk, and they carry *more* of it than the databases do, because
+the databases are the only targets with a second, consistent artifact behind the
+tar. Restoring one of these is replaying a crashed host: verify the service after
+restarting it rather than assuming the restore was clean.
+
 Not covered by any backup: object storage, agent state, and
 `/opt/hill90/agentbox-configs`, which is a host path outside every checkout.
 
 ### What Gets Backed Up
 
+Eight named volumes across six targets. This table used to list three of them,
+which read as a complete inventory and was not.
+
 | Service | Backup Method | Files |
 |---------|--------------|-------|
+| db | SQL dump **+** volume tar | `database.sql`, `postgres-data.tar.gz` |
+| app-db | Volume tar (dump path retired with `app-postgres`) | `app-postgres-data.tar.gz` |
+| minio | Volume tar | `minio-data.tar.gz` |
 | vault | Volume tar | `openbao-data.tar.gz` |
 | infra | Volume tar | `traefik-certs.tar.gz`, `portainer-data.tar.gz` |
 | observability | Volume tar | `grafana-data.tar.gz`, `prometheus-data.tar.gz` |
+
+For what is **not** in that set, and what each gap actually costs, see
+[`docs/reference/backup-coverage.md`](../reference/backup-coverage.md). The short
+list of uncovered state is `loki-data`, `tempo-data`, the tenant's
+`prod_app-akm-*` volumes, the retained `prod_app-minio-data`, and everything under
+`/opt/hill90/secrets/` — which is a host path, so no backup target can reach it.
 
 ### Restore Procedure
 

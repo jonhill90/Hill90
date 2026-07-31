@@ -102,7 +102,41 @@ verify_artifacts() {
 # Volume backup helpers
 # ---------------------------------------------------------------------------
 
-# Backup a named Docker volume to a tar.gz file
+# Backup a named Docker volume to a tar.gz file.
+#
+# EVERY TAR THIS FUNCTION PRODUCES IS CRASH-CONSISTENT AT BEST, NOT CONSISTENT.
+#
+# The container that owns the volume keeps running. There is no stop, no pause,
+# no `fsfreeze`, no application-level quiesce — `:ro` protects the DATA from the
+# tar, not the tar from the data. What comes out is the byte state of a live
+# filesystem sampled over the seconds the tar takes, which is the same thing a
+# restore-from-power-cut has to cope with.
+#
+# This caveat used to be written only against PGDATA, in backup_app_db. That
+# framing was wrong: `db` is the one target with a second, genuinely consistent
+# artifact (the pg_dumpall), so it is the LEAST exposed. The tars with no dump
+# behind them carry the whole risk:
+#
+#   grafana-data     SQLite in rollback-journal mode. A tar taken mid-transaction
+#                    can capture a torn grafana.db, or a db without its journal.
+#   openbao-data     OpenBao file storage under an active writer. There is no
+#                    dump equivalent; see docs/decisions/vault-vs-sops.md for the
+#                    raft-snapshot alternative that would fix this properly.
+#   prometheus-data  TSDB head block and WAL, written continuously.
+#   prod_minio-data  Object data plus xl.meta sidecars, which must agree.
+#   prod_traefik-certs / prod_portainer-data  small and rarely written, so low
+#                    exposure — low, not zero.
+#
+# The 2026-07-31 observability restore is the evidence for stating this rather
+# than assuming it. The scheduled 03:00 tar restored cleanly — and the reason is
+# visible in the tar itself: grafana.db's recorded mtime is 02:52, eight minutes
+# before the tar ran, and no journal file was present. That run got lucky rather
+# than being safe. A tar started during a Grafana write has nothing in this code
+# path to make it come back.
+#
+# Restoring from one of these is a legitimate DR action; treat it as replaying a
+# crashed host, and verify the service after restart rather than assuming the
+# restore was clean. See docs/reference/backup-coverage.md.
 backup_volume() {
     local volume="$1"
     local dest_file="$2"
@@ -229,7 +263,9 @@ Under cron, PATH is /sbin:/bin:/usr/sbin:/usr/bin and sops lives in
 # The user is read from the running container rather than from a secrets store,
 # because the app's store lives in the app's repository and is not present here.
 # A tar of a live PGDATA is crash-consistent at best; pg_dumpall is the artifact
-# that restores cleanly, so both are taken and the dump is required.
+# that restores cleanly, so both are taken and the dump is required. That is a
+# property of every tar this script takes, not of PGDATA — see backup_volume.
+# The database targets are the only ones that also get a consistent artifact.
 # ---------------------------------------------------------------------------
 
 backup_app_db() {

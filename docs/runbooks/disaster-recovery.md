@@ -7,10 +7,55 @@ Full platform recovery procedure from total VPS/infrastructure loss.
 Before starting recovery, ensure you have:
 
 - [ ] Local clone of the Hill90 git repository (up to date with `main`)
-- [ ] SOPS encrypted secrets file: `infra/secrets/prod.enc.env`
-- [ ] Age private key: `infra/secrets/keys/age-prod.key`
+- [ ] SOPS encrypted secrets file: `infra/secrets/prod.enc.env` — **this is committed**,
+      so the clone brings it
+- [ ] Age private key: `infra/secrets/keys/age-prod.key` — **this is NOT committed and is
+      in no backup.** See Step 0; get it before anything else
 - [ ] Hostinger API access (for VPS creation)
 - [ ] Tailscale account access (for network re-join)
+
+<a id="step-0"></a>
+## Step 0 — Get the age key. Nothing else works first.
+
+**Do this before touching a host.** Every step below that reads a secret depends on it,
+and it is the one input that no backup, snapshot or tar can give you.
+
+The recovery chain is:
+
+```
+age private key  →  decrypts infra/secrets/prod.enc.env  →  yields OPENBAO_UNSEAL_KEY
+                 →  unseals the restored openbao-data volume  →  vault is usable
+```
+
+Read it right-to-left to see the failure: **the vault tar is inert without the age key.**
+You can restore `openbao-data.tar.gz` perfectly and still have nothing, because the volume
+is ciphertext and the unseal key that opens it is itself inside a SOPS file you cannot
+decrypt.
+
+**Where the key is, and is not.** `Verified 2026-07-31 08:12 UTC.`
+
+| Location | Present? | Survives total VPS loss? |
+|---|---|---|
+| Password manager | The intended durable copy, per [`docs/reference/secrets.md`](../reference/secrets.md). **Inferred from that document, not verified here** — nothing on a host can confirm it, which is the point | **Yes** — the only copy the DR scenario can rely on |
+| Operator workstation, `infra/secrets/keys/age-prod.key` | Yes, gitignored | Only if the workstation is intact. It is not part of the recovery guarantee |
+| VPS, `/opt/hill90/secrets/keys/keys.txt` (`0600 deploy:deploy`) | Yes | **No** — this is the host you just lost |
+| Git | **No**, and must stay that way — only `age-prod.pub` is tracked | n/a |
+| Any backup tar | **No.** `backup_volume` tars Docker volumes; `/opt/hill90/secrets/` is a host path, so no target reaches it | n/a |
+
+That last row is a deliberate design property, not an oversight: a backup containing the
+key that decrypts the estate is a backup that cannot be stored anywhere safely. The cost
+of that choice is this step, and it is why it is written here rather than assumed.
+
+**The unseal key is not the single point of failure — the age key is.** `OPENBAO_UNSEAL_KEY`
+is present in the committed `infra/secrets/prod.enc.env` (confirmed 2026-07-31 by reading
+the key *name* from the encrypted file, whose dotenv format keeps names in plaintext and
+values as ciphertext; the value was not decrypted or printed). So losing the on-host
+`openbao-unseal.key` costs nothing. Losing the age key costs everything downstream of it.
+
+If you reach this runbook at 3am with a dead VPS: **open your password manager first.**
+
+Coverage for every other volume, and what each uncovered one costs, is in
+[`docs/reference/backup-coverage.md`](../reference/backup-coverage.md).
 
 ## Restore verification — last proven 2026-07-31
 
@@ -63,7 +108,45 @@ afterwards, the platform held 13 containers by name plus MinIO with 0 unhealthy,
 possible way to discover that.
 
 **Not verified by this exercise:** that role passwords work after a restore — they are no
-longer in the dump, by design, see step 9 — and Grafana, which is not in this dump at all.
+longer in the dump, by design, see step 9. Grafana is not in this dump at all, and is
+covered by the separate exercise below.
+
+## Volume-tar restore verification — observability, 2026-07-31
+
+The Postgres exercise above proves a **dump** restores. It says nothing about the volume
+tars, which are the only artifact behind five of the six backup targets. So that was
+exercised too.
+
+**The artefact restored was again the SCHEDULED one:**
+
+```
+/opt/hill90/backups/observability/20260731_030038/grafana-data.tar.gz
+13,160,853 bytes   written 2026-07-31 03:00 UTC
+```
+
+**Where:** a throwaway Docker volume, not `grafana-data`. The live volumes were never
+written to. The throwaway was removed afterwards and its absence confirmed by listing.
+
+**Result:** `grafana.db` came back at 1,880,064 bytes. The platform baseline held
+afterwards at 13 containers by name plus `minio`, **0 unhealthy** — re-confirmed
+`Verified 2026-07-31 08:12 UTC`, with the tenant's 7 containers alongside for 21 total.
+
+> **This run got lucky rather than being safe, and the tar itself shows it.**
+> `grafana.db`'s recorded mtime inside the archive is **02:52** — eight minutes before the
+> 03:00 tar — and no `grafana.db-journal` was present. Grafana writes SQLite in
+> rollback-journal mode, so a tar that starts *during* a write transaction can capture a
+> torn database, or a database without the journal that would repair it. Nothing in
+> `backup_volume` prevents that; the container is not stopped, paused or frozen. The clean
+> restore is evidence that the artifact was intact **that night**, not evidence that the
+> mechanism is safe.
+
+**What this exercise does not prove:** that Grafana *starts* against the restored volume
+and renders its dashboards — the restore was verified at the file level, in a throwaway,
+without pointing a Grafana at it. And it says nothing about `openbao-data`,
+`prometheus-data` or `prod_minio-data`, whose exposure to the same problem is larger
+because they are written continuously. OpenBao has a proper fix available — a raft
+snapshot, taken from the running server — costed in
+[`vault-vs-sops.md`](../decisions/vault-vs-sops.md).
 
 ## Recovery Steps
 
