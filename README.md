@@ -189,8 +189,15 @@ make logs-traefik           # follow a service
 ```
 
 Grafana at https://grafana.hill90.com carries dashboards for Traefik, cAdvisor,
-node-exporter and Loki logs. Prometheus alerts cover service availability, memory
-and disk.
+node-exporter and Loki logs.
+
+**Prometheus alert rules exist but nothing delivers them.** This sentence used to say
+alerts "cover service availability, memory and disk", which overstated it twice: there is
+**no Alertmanager and no receiver of any kind**, so every rule is inert, and the memory
+rule watches the host root cgroup rather than containers. `ServiceDown` has genuinely
+fired in production — for ≥48 hours, ending 2026-07-26 — and reached nobody.
+`Verified 2026-07-31 08:44 UTC`; the full map, the ranked gaps and the cheapest fix are in
+[docs/decisions/alerting-audit.md](docs/decisions/alerting-audit.md).
 
 Runbook: [Observability](docs/runbooks/observability.md).
 
