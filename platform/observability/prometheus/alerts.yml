@@ -560,15 +560,50 @@ groups:
   # HOW TO RUN IT. The condition is a file, so no deploy is needed to fire or
   # clear it — only this rule needed deploying, once:
   #
+  #   mkdir -p /opt/hill90/metrics/textfile_collector
   #   printf 'hill90_e2e_delivery_test 1\n' > \
   #     /opt/hill90/metrics/textfile_collector/e2e-delivery-test.prom     # fires
   #   rm /opt/hill90/metrics/textfile_collector/e2e-delivery-test.prom    # resolves
+  #
+  # The mkdir is not decoration. That directory is created by backup.sh's
+  # `mkdir -p` on its first run, NOT by a deploy — so on a rebuilt host, before
+  # the first nightly backup, it does not exist and the bare redirect fails with
+  # "No such file or directory". Verified 2026-07-31.
   #
   # Write atomically in anything scripted (write .tmp, then mv): node-exporter
   # reads the directory on every scrape and a half-written file flips
   # node_textfile_scrape_error to 1, which is itself alertable.
   #
   # WARN A HUMAN FIRST. This sends real mail to a real person.
+  #
+  # ---------------------------------------------------------------------------
+  # WHY THIS CANNOT PAGE ANYONE UNPROMPTED — checked, not assumed, 2026-07-31.
+  #
+  # It lives permanently in the rule set at severity critical, so "safe because
+  # everyone remembers" is not good enough. Every path to the series was closed:
+  #
+  #   1. The only producer of hill90_e2e_delivery_test is node-exporter's textfile
+  #      collector reading /opt/hill90/metrics/textfile_collector. Nothing else on
+  #      the host or in this repo emits that name.
+  #   2. The only writer to that directory is backup.sh, and its filename is a
+  #      fixed METRICS_FILE="hill90_backup.prom". It cannot write the test file.
+  #   3. No recording rules exist — every rule in this file is an alert — so
+  #      nothing can synthesise the series from other metrics.
+  #   4. No crontab entry and no systemd timer writes to that directory.
+  #   5. It is NOT in any backup. BACKUP_ROOT is /opt/hill90/backups, a sibling,
+  #      and backup_observability tars named Docker volumes only. So no restore
+  #      can reintroduce a stale test file — the one non-obvious path, since a
+  #      backup taken mid-test would otherwise carry the trigger.
+  #   6. A value of 0 does not fire, and a unit test pins that. A leftover file
+  #      with the metric zeroed is inert rather than a trap.
+  #
+  # AND IT STILL WORKS AFTER A DEPLOY. The flag and the /rootfs mount are both in
+  # deploy/compose/prod/docker-compose.observability.yml, so they survive
+  # container replacement. Demonstrated rather than argued: hill90_backup.prom was
+  # written 10:32, node-exporter was replaced at 11:47, and the metric was still
+  # being served afterwards with node_textfile_scrape_error=0. The end-to-end test
+  # itself then ran at 11:54 — after that replacement — and delivered.
+  # ---------------------------------------------------------------------------
   #
   # severity is critical ON PURPOSE, so the test traverses the same Alertmanager
   # route as PublicSiteDown (group_wait 10s) rather than a slower one. It is the
