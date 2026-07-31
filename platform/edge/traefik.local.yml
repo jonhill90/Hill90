@@ -91,6 +91,23 @@ providers:
     # Every local compose project must be listed. Dropping one silently 404s that
     # stack's hostnames with no error anywhere — which is why the branch that added
     # `hill90-local-storage` left a conflict warning here. Both clauses kept.
+    #
+    # CHANGING THIS LINE REQUIRES A TRAEFIK RESTART, NOT A RELOAD.
+    #
+    # `providers.docker.constraints` is STATIC configuration. Traefik watches the
+    # Docker socket and the file provider for *dynamic* configuration — routers,
+    # services, middlewares — and picks those up live. It does not re-read this file.
+    # So editing this line and reloading leaves the OLD constraint in force, and
+    # that is the failure mode worth naming: **there is no error.** No warning in
+    # `docker logs traefik`, no rejected config, no failed health check. The clause
+    # you just added simply is not there, the stack you added it for still 404s, and
+    # the file on disk says it should work — which sends you looking at labels,
+    # networks and DNS instead of at the process that never read your change.
+    #
+    #   docker restart hill90dev-traefik      # local
+    #
+    # Salvaged from a branch that was closed for unrelated reasons (Hill90 #559);
+    # the note was the only part of it still true.
     constraints: "Label(`com.docker.compose.project`,`hill90-local-edge`) || Label(`com.docker.compose.project`,`hill90-local-observability`) || Label(`com.docker.compose.project`,`hill90-local-identity`) || Label(`com.docker.compose.project`,`hill90-local-platform`) || Label(`com.docker.compose.project`,`hill90-local-db`) || Label(`com.docker.compose.project`,`hill90-local-storage`) || Label(`com.docker.compose.project`,`hill90-local`)"
 
   file:
