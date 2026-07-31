@@ -35,8 +35,16 @@ it was refused on `hill90`, `keycloak`, `postgres` and `template1` with
 rather than an argument: after them, `keycloak` and `postgres-exporter` were still
 connected over the network as `hill90` (`pg_stat_activity` shows `keycloak` from
 `172.19.0.12` and `hill90` from `172.19.0.11`), Keycloak still served realms
-`master, platform`, Grafana returned `200` with `"database": "ok"`, and the
-platform held at 13 containers, 0 unhealthy. The reason it is safe is that every
+`master, platform`, and the platform held at 13 containers, 0 unhealthy.
+
+**Correction, 2026-07-31:** this paragraph also cited Grafana returning `200` with
+`"database": "ok"` as evidence the revokes were safe. It is not evidence, and citing it
+overstated the case. **Grafana does not use this Postgres** — it keeps its state in
+SQLite inside the `grafana-data` volume, verified 2026-07-31 (no `grafana` database
+exists on the instance; `/var/lib/grafana/grafana.db` is ~1.8 MB). Its health endpoint
+was reporting on its own SQLite file and would have said `ok` whatever the ACLs did. The
+remaining evidence — live `keycloak` and `postgres-exporter` connections, served realms,
+and the container baseline — stands on its own. The reason it is safe is that every
 consumer of this Postgres connects as `hill90`, a superuser, and superusers bypass
 ACL checks entirely.
 

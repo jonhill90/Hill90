@@ -142,8 +142,13 @@ revisited deliberately rather than worked around.
 > **That boundary was revisited, and this platform now HOSTS the tenant's
 > databases.** `Verified 2026-07-30 01:35 UTC.` Role `hill90_app` (`NOSUPERUSER`)
 > owns `hill90_akm`, `hill90_api` and `hill90_litellm`; `hill90`, `keycloak`,
-> `postgres` and the templates stay with the platform role. `keycloak`, `grafana`
-> and `postgres` all stayed healthy through the `REVOKE` work. The credential is in
+> `postgres` and the templates stay with the platform role. **That is the complete list
+> of databases on this instance — there is no `grafana` database.** The `keycloak`,
+> `grafana` and `postgres` **containers** all stayed healthy through the `REVOKE` work;
+> naming them straight after a list of databases has already caused `grafana` to be read
+> as one. Grafana keeps its state in SQLite in the `grafana-data` volume, so a Postgres
+> restore does not bring Grafana back — see
+> [disaster-recovery.md](docs/runbooks/disaster-recovery.md). The credential is in
 > SOPS as `HILL90_APP_DB_PASSWORD`. The local check now asserts **tenant
 > isolation** — an application database owned by the platform role still fails, by
 > name — and it was only ever a *local dev* check, never production enforcement.

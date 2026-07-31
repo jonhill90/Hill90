@@ -182,10 +182,30 @@ Under cron, PATH is /sbin:/bin:/usr/sbin:/usr/bin and sops lives in
         # Never leave a truncated dump behind claiming to be a backup: write to
         # a temp file, check the exit status AND that it is non-empty, and only
         # then move it into place.
-        if docker exec postgres pg_dumpall -U "$db_user" > "$backup_dir/.database.sql.partial" 2>/dev/null \
+        #
+        # TWO PROTECTIONS HERE, and they buy different things.
+        #
+        # --no-role-passwords: without it, pg_dumpall writes every role's SCRAM
+        # verifier into the dump as plaintext SQL. That is worse than most credential
+        # exposures because the artefact PERSISTS and gets copied — to a prune-retained
+        # directory, to whatever offsite copy exists, into any tarball of /opt/hill90.
+        # A password leaked into a log ages out; one leaked into a backup set is there
+        # until every copy is destroyed. THE TRADE: a restore no longer recreates role
+        # passwords, so they must be supplied separately from the encrypted store. That
+        # consequence is documented where the restore procedure lives — see
+        # docs/runbooks/disaster-recovery.md. Restoring without it succeeds and then
+        # nothing can authenticate, which reads as a broken restore rather than a
+        # missing step.
+        #
+        # umask 077: the dump was previously written 0644 — readable by every local
+        # user on the host. Same class of mistake as a secret in argv, which is visible
+        # to anyone who can run ps; this one is visible to anyone who can run cat, and
+        # for as long as the file exists.
+        if ( umask 077; docker exec postgres pg_dumpall -U "$db_user" --no-role-passwords > "$backup_dir/.database.sql.partial" 2>/dev/null ) \
            && [ -s "$backup_dir/.database.sql.partial" ]; then
             mv "$backup_dir/.database.sql.partial" "$backup_dir/database.sql"
-            echo "  ✓ SQL dump saved to $backup_dir/database.sql ($(wc -c < "$backup_dir/database.sql") bytes)"
+            chmod 600 "$backup_dir/database.sql"
+            echo "  ✓ SQL dump saved to $backup_dir/database.sql ($(wc -c < "$backup_dir/database.sql") bytes, mode 600)"
         else
             rm -f "$backup_dir/.database.sql.partial"
             die "pg_dumpall failed or produced an empty dump — refusing to report success"
@@ -256,10 +276,14 @@ backup_app_db() {
     docker exec "$container" psql -U "$app_user" -tAc 'SELECT 1' >/dev/null 2>&1 \
         || die "Cannot authenticate to ${container} as '${app_user}' — refusing to report a backup with no SQL dump"
 
-    if docker exec "$container" pg_dumpall -U "$app_user" > "$backup_dir/.app-database.sql.partial" 2>/dev/null \
+    # Same two protections as backup_db above, for the same reasons — see the comment
+    # there. This path is currently unreachable (app-postgres is retired), but leaving
+    # it weaker would reintroduce the exposure the moment a tenant database returns.
+    if ( umask 077; docker exec "$container" pg_dumpall -U "$app_user" --no-role-passwords > "$backup_dir/.app-database.sql.partial" 2>/dev/null ) \
        && [ -s "$backup_dir/.app-database.sql.partial" ]; then
         mv "$backup_dir/.app-database.sql.partial" "$backup_dir/app-database.sql"
-        echo "  ✓ SQL dump saved to $backup_dir/app-database.sql ($(wc -c < "$backup_dir/app-database.sql") bytes)"
+        chmod 600 "$backup_dir/app-database.sql"
+        echo "  ✓ SQL dump saved to $backup_dir/app-database.sql ($(wc -c < "$backup_dir/app-database.sql") bytes, mode 600)"
     else
         rm -f "$backup_dir/.app-database.sql.partial"
         die "pg_dumpall against ${container} failed or produced an empty dump — refusing to report success"
