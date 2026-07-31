@@ -161,3 +161,7 @@ none:
 - **Vault sealed and site down have no signal at all.** The response steps above
   are still correct; they just have to be triggered by a person or by
   `ops.sh health` rather than by an alert.
+
+Every claim in that list was checked against Prometheus rather than inferred —
+including which of the *existing* rules match no series at all — in
+[../decisions/alert-series-verification.md](../decisions/alert-series-verification.md).
