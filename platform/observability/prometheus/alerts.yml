@@ -260,19 +260,96 @@ groups:
 
   - name: loki
     rules:
-      - alert: LokiIngestionErrors
-        expr: rate(loki_distributor_lines_received_total{status="error"}[5m]) > 0
+      # REPLACES LokiIngestionErrors, WHICH COULD NEVER FIRE. Do not restore it
+      # from an old example. It was:
+      #
+      #     rate(loki_distributor_lines_received_total{status="error"}[5m]) > 0
+      #
+      # and it was wrong twice over, verified against the live deployment:
+      #
+      #   1. loki_distributor_lines_received_total carries aggregated_metric,
+      #      instance, job and tenant. There is NO `status` label on it at all.
+      #   2. Even if there were, `error` is not a value Loki uses. The `status`
+      #      label exists elsewhere in Loki's metrics — on compaction, retention
+      #      and tsdb operation counters — and every occurrence on this
+      #      deployment reads status="success". Nothing emits status="error".
+      #
+      # It evaluated cleanly, reported health=ok, and matched nothing for months.
+      # That is indistinguishable from health, which is why it was worse than no
+      # rule. See docs/decisions/alert-series-verification.md.
+      #
+      # NOT USED, deliberately: loki_ingester_wal_discarded_samples_total. It is
+      # the only discard counter currently emitting (2037 samples), and its label
+      # is reason="duplicate" — the WAL rejecting a re-sent entry, which is
+      # promtail retrying and Loki de-duplicating correctly. Alerting on it would
+      # page for normal behaviour.
+      #
+      # Also absent: loki_discarded_samples_total does not appear in /metrics at
+      # all on this deployment, and Loki has no
+      # loki_distributor_ingester_append_failures_total.
+
+      # Logs stopped arriving at all. The failure that loses everything, quietly.
+      # The series is present today (11.9 lines/s), and its floor across the full
+      # 7-day retention is 8.96 lines/s — it has never approached zero, so `== 0`
+      # carries no false-positive risk. 15m rate plus `for: 30m` means roughly
+      # three quarters of an hour of silence before this pages, which is right for
+      # "you have lost observability" rather than "the estate is down".
+      #
+      # If Loki itself is down the series goes stale and this does NOT fire —
+      # ServiceDown covers that case. This one catches Loki healthy and receiving
+      # nothing, which is the case nothing else sees.
+      - alert: LokiIngestionStalled
+        expr: rate(loki_distributor_lines_received_total[15m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Loki has received no log lines for 45 minutes"
+          description: >-
+            Loki on {{ $labels.instance }} is up and accepting connections but has
+            ingested nothing for the last 15 minutes, and has been in that state for
+            30 minutes. Normal on this host is around 9 to 12 lines/sec and has never
+            been lower. Logs from every container are being lost for as long as this
+            continues, and nothing else will tell you.
+          action: >-
+            Check the shipper before Loki: `docker ps --filter name=promtail` and
+            `docker logs --tail 50 promtail`. Promtail is NOT a Prometheus scrape
+            target, so this alert is the only signal that it has stopped. If promtail
+            is healthy, `docker logs --tail 50 loki` and confirm the push endpoint
+            with `docker exec loki wget -qO- http://localhost:3100/ready`.
+          runbook: docs/runbooks/observability.md
+
+      # Logs actively rejected, as opposed to absent. 429 is rate-limiting or a
+      # per-stream limit; 5xx is Loki failing to accept. Either way lines are lost.
+      #
+      # THE SELECTOR MATCHES NOTHING TODAY, AND THAT IS NOT THE OLD BUG.
+      # status_code is a REAL label on this metric, carrying observed values
+      # 200, 204, 503 and "success" across routes — a 503 has genuinely been
+      # recorded on route="ready". The push route has only ever returned 204, so
+      # the non-2xx series has not been created yet; it appears the moment a push
+      # is rejected. Contrast the old rule, whose `status` label does not exist on
+      # its metric under any condition. Declared in
+      # scripts/checks/alert-series-allowlist.txt with that reasoning.
+      - alert: LokiPushRejected
+        expr: |
+          sum by (status_code) (
+            rate(loki_request_duration_seconds_count{route="loki_api_v1_push", status_code!~"2.."}[5m])
+          ) > 0
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Loki ingestion errors detected"
+          summary: "Loki is rejecting log pushes with HTTP {{ $labels.status_code }}"
           description: >-
-            Loki is rejecting log lines at {{ $value }} errors/sec on {{ $labels.instance }}.
-            Logs are being LOST while this fires.
+            Loki is returning {{ $labels.status_code }} to {{ $value }} pushes/sec on
+            the ingest endpoint. Log lines are being LOST while this fires. 429 means
+            a rate or per-stream limit; 5xx means Loki could not accept the write.
           action: >-
-            `docker logs --tail 50 loki`. Rate-limit and per-stream-limit rejections
-            are configuration; disk-full is not — check `df -h /` too.
+            `docker logs --tail 50 loki` for the rejection reason. A 429 is
+            configuration — limits_config in platform/observability/loki/loki.yml —
+            and raising a limit is a deliberate choice, not a reflex. A 5xx is not
+            configuration: check disk with `df -h /`, since a full disk presents this
+            way. Do not restart Loki to clear it; that loses the WAL and the reason.
           runbook: docs/runbooks/observability.md
 
   - name: tempo

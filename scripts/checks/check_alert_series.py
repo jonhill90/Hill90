@@ -177,7 +177,10 @@ def main():
         print("health. Either correct the selector, delete the rule, or add it")
         print(f"to {ALLOWLIST.name} with a reason.")
         return 1
-    print("every selector matches at least one live series")
+    # Deliberately not "every selector matches". Some are declared absent, and a
+    # summary line that hides that is the same kind of small lie this whole check
+    # exists to catch.
+    print("every selector matches a live series, or is declared absent with a reason")
     return 0
 
 
