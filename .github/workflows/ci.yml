@@ -77,6 +77,12 @@ jobs:
       - name: Assert no destructive volume commands
         run: bash scripts/checks/check_destructive_commands.sh
 
+      # Guards the 2026-07-31 incident: minio.sh provisioned policies before
+      # MinIO was serving, then blamed the credentials. Stubs docker, so it needs
+      # no running stack.
+      - name: MinIO readiness regression test
+        run: bash scripts/checks/minio-readiness-test.sh
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

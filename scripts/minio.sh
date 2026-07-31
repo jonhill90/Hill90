@@ -31,6 +31,13 @@ source "$SCRIPT_DIR/_common.sh"
 MINIO_CONTAINER="${MINIO_CONTAINER:-minio}"
 SECRETS_FILE="${MINIO_SECRETS_FILE:-${PROJECT_ROOT}/infra/secrets/prod.enc.env}"
 
+# How long to wait for a freshly started MinIO to begin serving, and how often
+# to ask. The cap is bounded on purpose: this runs inside a deploy holding the
+# deploy-prod concurrency group, so it must fail legibly rather than hang.
+MINIO_READY_TIMEOUT="${MINIO_READY_TIMEOUT:-90}"
+MINIO_READY_INTERVAL="${MINIO_READY_INTERVAL:-3}"
+MINIO_READY_PROBE_TIMEOUT="${MINIO_READY_PROBE_TIMEOUT:-15}"
+
 usage() {
     cat <<EOF
 MinIO CLI — provision policies for Keycloak-federated identities
@@ -83,14 +90,56 @@ mc_setup() {
     #      MinIO. Inside a deploy that means the job blocks until the CI
     #      six-hour default while holding the deploy-prod concurrency group.
     # `timeout` bounds it either way.
-    local out rc=0
-    out=$(MC_HOST_local="$MC_ALIAS_ENV" timeout 30 docker exec -e MC_HOST_local \
-            "$MINIO_CONTAINER" mc admin info local 2>&1) || rc=$?
-    if [ "$rc" -eq 124 ]; then
-        die "MinIO did not answer within 30s — it is running but not serving. Check: docker logs ${MINIO_CONTAINER}"
-    elif [ "$rc" -ne 0 ]; then
-        die "Cannot authenticate to MinIO as '${user}'. Are MINIO_ROOT_USER/MINIO_ROOT_PASSWORD correct for this data volume? (${out})"
-    fi
+    #
+    # WAIT FOR IT, rather than asking once.
+    #
+    # deploy.sh calls `minio.sh apply` immediately after `docker compose up -d`.
+    # On 2026-07-31 the single-shot check below ran 0.3s after the container
+    # started, hit a socket that was not accepting yet, and died with
+    # "Cannot authenticate ... are the credentials correct?" — pointing the
+    # operator at the one thing that was not wrong. The policies were never
+    # created and the federated S3/STS path stayed broken until someone read
+    # `mc admin policy ls` by hand.
+    #
+    # The cause is that nothing waited for readiness. A blind retry is NOT the
+    # fix: the container comes up at the same speed every time, so a fixed
+    # number of immediate retries loses the same race just as reliably. Poll
+    # until the server actually answers, with a bounded cap.
+    #
+    # Connectivity failures are retried. An AUTHENTICATION failure is terminal
+    # and fails immediately, because a wrong root password does not become right
+    # by waiting — that distinction is what makes the error message trustworthy
+    # again. Anything unrecognised is treated as RETRYABLE and reported verbatim
+    # if the cap is hit; guessing "terminal" on an unfamiliar string is exactly
+    # how the original misdiagnosis happened.
+    local out rc=0 waited=0 announced=false
+    while :; do
+        rc=0
+        out=$(MC_HOST_local="$MC_ALIAS_ENV" timeout "$MINIO_READY_PROBE_TIMEOUT" \
+                docker exec -e MC_HOST_local \
+                "$MINIO_CONTAINER" mc admin info local 2>&1) || rc=$?
+        [ "$rc" -eq 0 ] && break
+
+        # Terminal: MinIO answered and rejected these credentials.
+        if printf '%s' "$out" | grep -qiE \
+            'Access Denied|InvalidAccessKeyId|SignatureDoesNotMatch|Access Key Id you provided does not exist|signature we calculated does not match'; then
+            die "Cannot authenticate to MinIO as '${user}'. MinIO answered and rejected the credentials, so this is not a readiness problem — are MINIO_ROOT_USER/MINIO_ROOT_PASSWORD correct for this data volume? (${out})"
+        fi
+
+        if [ "$waited" -ge "$MINIO_READY_TIMEOUT" ]; then
+            die "MinIO did not answer within ${MINIO_READY_TIMEOUT}s of waiting — it is running but not serving. Last error: ${out}. Check: docker logs ${MINIO_CONTAINER}"
+        fi
+
+        if [ "$announced" = false ]; then
+            info "Waiting up to ${MINIO_READY_TIMEOUT}s for MinIO to start serving..."
+            announced=true
+        fi
+        sleep "$MINIO_READY_INTERVAL"
+        waited=$((waited + MINIO_READY_INTERVAL))
+    done
+
+    [ "$announced" = true ] && info "MinIO answered after ${waited}s."
+    return 0
 }
 
 mc() { MC_HOST_local="$MC_ALIAS_ENV" docker exec -e MC_HOST_local -i "$MINIO_CONTAINER" mc "$@"; }
