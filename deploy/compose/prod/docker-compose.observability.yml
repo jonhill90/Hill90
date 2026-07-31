@@ -255,6 +255,18 @@ services:
       - "--path.sysfs=/host/sys"
       - "--path.rootfs=/rootfs"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      # The emitting half of the backup alert (#616). The textfile COLLECTOR was
+      # already enabled — node_scrape_collector_success{collector="textfile"} is
+      # 1 — but with no directory set it read nothing, so the metric never
+      # existed. This is the one flag that was missing.
+      #
+      # Path is under the EXISTING /rootfs mount, so no new mount is needed:
+      # backup.sh writes /opt/hill90/metrics/textfile_collector on the host,
+      # which appears here as /rootfs/opt/hill90/metrics/textfile_collector.
+      # Changing this flag restarts node-exporter, which serves no traffic and
+      # sits in no request path — the cost is a gap in metrics measured in
+      # seconds.
+      - "--collector.textfile.directory=/rootfs/opt/hill90/metrics/textfile_collector"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9100/metrics"]
       interval: 30s
