@@ -7,8 +7,10 @@ restricting administration to a private network.
 
 - Public internet access is limited to the HTTP/HTTPS entrypoints handled by
   Traefik. Only ports 80 and 443 are open on the host firewall.
-- Every administrative surface — the Traefik dashboard, Portainer, Grafana and
-  the OpenBao UI — is reachable only through Tailscale.
+- Every administrative surface — the Traefik dashboard, Portainer, Grafana, the
+  OpenBao UI and the object-store console — is reachable only through Tailscale.
+  Enumerated and verified 2026-07-31; see [Edge Audit](#edge-audit--verified-2026-07-31)
+  for the evidence and for the surfaces that are deliberately public.
 - SSH access is restricted to the Tailscale CIDR (`100.64.0.0/10`) via firewall
   rules.
 
@@ -162,19 +164,133 @@ docker logs traefik --since 3m | grep "nope-$MARK"
 # pass: "ClientHost":"<the client's own tailnet address>"
 ```
 
-**`traefik.hill90.com` is not a valid probe for the allowlist.** Its router is
-`auth@file,tailscale-only@file`, and middlewares run in order, so basic auth
-answers `401` before the allowlist is ever evaluated. A `401` there says nothing
-about whether the request would have been admitted.
+**`traefik.hill90.com` used not to be a valid probe for the allowlist. It is now.**
+Corrected 2026-07-31.
 
-Probe `grafana`, `portainer` or `vault` instead — their routers carry
-`tailscale-only@file` alone, so `403` means the allowlist rejected the request
-and any other status means it admitted it.
+Its router was ordered `auth@file,tailscale-only@file`. Middlewares run left to
+right, so basic auth answered `401` before the allowlist was evaluated, and a `401`
+there said nothing about whether the request would have been admitted. That is what
+the previous version of this paragraph described — and it described a defect as
+though it were the design.
+
+The defect was not only that the probe was useless. Off-network requests were being
+handed a `WWW-Authenticate: Basic realm="traefik"` challenge — a credential prompt
+and a guessing oracle — by a surface whose whole point is to be unreachable off the
+tailnet. Every other administrative router refused outright.
+
+The order is now `tailscale-only@file,auth@file`, so the allowlist decides first and
+`traefik.hill90.com` behaves like the rest. A legitimate tailnet user is unaffected:
+they pass the allowlist and meet basic auth exactly as before.
+
+This is enforced rather than remembered. `scripts/checks/check_edge_middlewares.py`
+fails CI if an IP allowlist is ever ordered behind an authenticator again, if a
+router references a middleware that is not defined, or if a middleware's type key
+does not match the pinned Traefik major version — the `ipWhiteList` → `ipAllowList`
+rename in v3 being the case that would otherwise remove the allowlist silently.
+
+Any of `traefik`, `grafana`, `portainer`, `vault` or `storage` is now a valid probe:
+`403` means the allowlist rejected the request, and any other status means it
+admitted it.
+
+## Edge Audit — verified 2026-07-31
+
+A full enumeration of what Traefik actually routes, and what protects each router,
+established by behaviour rather than by reading labels. **Everything in this section is
+a dated observation.** Router lists and container counts age; a dated claim that has
+aged is honest, an undated one is simply wrong later.
+
+### What protects the administrative surfaces, and how it was proven
+
+The control is one middleware: `tailscale-only`, an IP allowlist whose source range is
+the Tailscale CGNAT range and nothing else. It is referenced by every administrative
+router. That it is *referenced* is not the same as it *working*, so it was tested from
+three source classes against the same hostname on 2026-07-31:
+
+| Source class | Result | `WWW-Authenticate` |
+|---|---|---|
+| the host's own tailnet address (inside the CGNAT range) | `401` — allowlist admitted it, basic auth challenged | present |
+| IPv4 loopback | `403` — refused | none |
+| IPv6 loopback | `403` — refused | none |
+
+Corroborated from Traefik's own access log rather than inferred: the `401` was logged
+with `ClientHost` equal to the tailnet address, and the refusals were logged with the
+Docker bridge gateway as `ClientHost`. So the allowlist admits addresses inside the
+CGNAT range and refuses everything else, including the two source classes most likely
+to be assumed trusted.
+
+**How the off-network case was established, and why it is sound.** No genuinely
+external host was used. The refusing sources were loopback and the Docker bridge
+gateway — both local to the VPS. That is sufficient here, and the reasoning is worth
+keeping because it will be re-litigated:
+
+- The middleware is a **source-IP set membership test**. It has exactly two branches:
+  the address is inside the range, or it is not. Every address outside the range
+  exercises the same branch, so loopback and the bridge gateway test the identical code
+  path an arbitrary internet address would.
+- Both directions were exercised. A one-sided test — only refusals — could not
+  distinguish a working allowlist from a router that refuses everything. The `401` from
+  a tailnet address is what makes the `403`s meaningful.
+- The addresses were **observed in the log**, not assumed from where the command was
+  typed. An earlier attempt at this measurement resolved the hostname to loopback
+  without noticing, and would have recorded a loopback result as a tailnet one.
+
+What this does **not** establish is anything about routing or reachability from a
+specific external network — that was not tested and is not claimed.
+
+### Routers loaded — 2026-07-31
+
+Five administrative routers, all carrying the allowlist and all refusing off-network
+requests as verified above: the Traefik dashboard, Portainer, Grafana, the OpenBao UI
+and the object-store console. One further tenant router, the LiteLLM admin surface,
+also carries it.
+
+Three routers are public by design: the application UI at the apex, Keycloak, and the
+application API. Their protection is authentication in the service, not network scoping.
+
+The Traefik dashboard router was the only chain with two middlewares and so the only one
+where ordering could be wrong; it was, and was fixed on this date.
+
+### `exposedByDefault: false` — a correction worth keeping
+
+Production Traefik sets **no provider constraints**, which is deliberate and is recorded
+as an invariant. It is often described as meaning any container on the socket is "one
+label away" from being public. **That is not accurate, and the difference matters.**
+
+`exposedByDefault: false` is set, so a container needs *two* deliberate things — an
+explicit `traefik.enable=true` **and** a router rule. Neither appears by accident.
+
+Measured 2026-07-31: **11 running containers have neither.** The exposure surface is
+therefore real but bounded, and it is bounded by an explicit opt-in rather than by luck.
+
+### Open, not defects
+
+**The API surface has no rate limiting, while the UI does.** The application UI carries
+the shared rate-limit middleware; the application API carries no middleware at all. This
+is not an exposure — the API is intended to be public and authenticates its callers —
+but the asymmetry looks unintended rather than decided, since the API is the more
+attackable of the two.
+
+A proposal is open to attach the same shared rate-limit middleware to the API, on the
+grounds that the identical limit is already proven in production on the UI and so is the
+lowest-risk value available. It is **not** implemented, and it is not Hill90's change to
+make: the platform owns the middleware definition, the tenant owns the reference, so it
+belongs in the tenant's compose file. Awaiting a decision.
+
+**The MCP path is internet-facing and protected in the service, not at the edge.** The
+tenant's MCP gateway is routed publicly under a path prefix with only a path-strip
+middleware — no allowlist, no edge authentication. Probed 2026-07-31: its health
+endpoint answers unauthenticated, which is intended for a health probe, and no other
+path under that prefix was reachable anonymously.
+
+The caveat is the point: **the protection lives in the service.** No edge middleware
+would stop a future route added under that prefix from being public the moment it ships.
+Anything mounted there is public unless the service itself refuses it.
 
 ## TLS And Certificate Controls
 
 - Public services use Let's Encrypt HTTP-01.
-- Tailscale-only services use Let's Encrypt DNS-01 via lego's built-in Cloudflare provider inside Traefik — they have no public A record, so HTTP-01 cannot validate them.
+- Tailscale-only services use Let's Encrypt DNS-01 via lego's built-in Cloudflare provider inside Traefik, because HTTP-01 cannot validate them.
+  - **Correction, 2026-07-31: the reason is that they are unreachable, not that they are unpublished.** This line previously said they "have no public A record". They do. Each of the Tailscale-only hostnames resolves on public resolvers to the host's private tailnet address, so that anyone on the tailnet can resolve them without extra client configuration. The addresses returned are unroutable from the internet, which is why HTTP-01 still cannot reach them — but the names and their answers are public. The same error was carried in the published documentation and corrected there on the same date. Anyone reasoning about exposure should start from *unreachable*, not *unpublished*.
 - ACME state is persisted in mounted Traefik storage for renewal continuity.
 - Security headers are applied by a shared Traefik middleware.
 
