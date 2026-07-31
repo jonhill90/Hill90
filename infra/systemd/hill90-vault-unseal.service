@@ -3,13 +3,65 @@ Description=Hill90 OpenBao Auto-Unseal
 After=docker.service
 Requires=docker.service
 
+# The rate limit lives here, not in [Service], and it is what stops a genuinely
+# broken vault from retrying forever. The window is deliberately wider than three
+# full attempts (3 x ~330s = ~17min < 30min), so it is the burst limit that
+# trips, not the window rolling over and resetting the count.
+StartLimitIntervalSec=1800
+StartLimitBurst=3
+
 [Service]
 Type=oneshot
 User=deploy
 Group=deploy
 ExecStart=/opt/hill90/app/scripts/vault.sh auto-unseal
+
+# Assert the END STATE, because ExecStart's exit code does not.
+#
+# `vault.sh auto-unseal` returns 0 when the container never appears — correct on
+# a fresh VPS, where OpenBao is not deployed and a failed unit would be noise. At
+# boot on a live host that is exactly the failure that matters, and it would exit
+# 0 with OpenBao still sealed and nothing marking it. assert-unsealed separates
+# "not deployed" (0) from "deployed and still sealed" (1), so the unit ends in
+# `failed` instead of a quiet success. Restart= below only ever fires because of
+# this line.
+ExecStartPost=/opt/hill90/app/scripts/vault.sh assert-unsealed
+
 Environment=SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt
-TimeoutStartSec=180
+
+# DELIBERATELY LARGER THAN THE SCRIPT'S OWN BUDGET. Do not "tidy" these to match.
+#
+# vault.sh auto-unseal waits up to VAULT_AUTO_UNSEAL_TIMEOUT (120s) for the
+# container, then up to 60s more for the API: 180s worst case. This was
+# TimeoutStartSec=180 — exactly equal — so a boot where OpenBao was merely slow
+# got the script killed inside its own documented wait, at the moment it was
+# about to succeed, and Type=oneshot with no Restart meant nothing retried.
+#
+# The two numbers must NOT agree. systemd's timeout is a backstop for a script
+# that has hung; it is not the script's deadline. The headroom means the script
+# always reaches its own failure path, which prints a diagnostic naming what it
+# was waiting for, instead of dying by signal with nothing said.
+#
+# If VAULT_AUTO_UNSEAL_TIMEOUT is ever raised, raise this above it too.
+TimeoutStartSec=300
+
+# A slow boot deserves a retry; a misconfigured vault deserves to stop and be
+# seen. Both fall out of these two settings plus StartLimit* above:
+#
+#   slow boot       ExecStart usually wins on attempt 1. If not, 30s is long
+#                   enough for the rest of the stack to settle, and short enough
+#                   that recovery is not itself an outage.
+#   broken config   a missing unseal key fails in about a second, so three
+#                   attempts are spent in ~90s and the unit is `failed` and
+#                   visible almost immediately.
+#   hung dependency attempts take the full 300s; the third ends at ~17min and
+#                   the unit stays `failed`. It does not spin.
+#
+# Restart=on-failure, NOT always: systemd rejects `always` for Type=oneshot, and
+# it would also restart after the success that is meant to be terminal.
+Restart=on-failure
+RestartSec=30
+
 RemainAfterExit=yes
 
 [Install]

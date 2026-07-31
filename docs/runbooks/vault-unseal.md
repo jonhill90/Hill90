@@ -197,6 +197,72 @@ sudo systemctl daemon-reload
 sudo systemctl enable hill90-vault-unseal
 ```
 
+## After a reboot — the checklist
+
+**As of 2026-07-31 the boot path has never actually run.** The unit became active on
+2026-07-26; the host last booted on 2026-07-21, five days earlier. It is enabled and its
+key file is in place, but "enabled" is not "exercised" — the same distinction as
+*reachable is not working*.
+
+So the first reboot is a test. Run this straight after one, in this order:
+
+```bash
+# 1. Platform baseline, BY NAME. A count alone hides which one is missing.
+for n in cadvisor grafana keycloak loki node-exporter openbao portainer postgres \
+         postgres-exporter prometheus promtail tempo traefik; do
+  docker ps --format '{{.Names}}' | grep -qx "$n" || echo "MISSING: $n"
+done
+docker ps --filter health=unhealthy -q | wc -l          # expect 0
+
+# 2. The unit itself. `is-active` is the answer; the journal says why.
+systemctl is-active hill90-vault-unseal                 # expect: active
+journalctl -u hill90-vault-unseal -b --no-pager         # expect a successful unseal
+
+# 3. The end state, not the unit's opinion of it.
+docker exec openbao bao status | grep -E '^(Initialized|Sealed)'   # Sealed: false
+
+# 4. The retirement held. A reboot must not resurrect a retired service.
+docker inspect app-minio --format '{{.State.Status}}'   # expect: exited
+docker ps -a --format '{{.Names}}' | grep -cE '^(app-postgres|app-keycloak)$'   # expect: 0
+
+# 5. Exactly ONE router claims the storage host.
+#    This is the check nobody thinks to include, and the one that catches a
+#    retirement undone by a reboot: app-minio still carries its Traefik labels,
+#    so if it came back there would be two routers on one rule — and because
+#    both backends are MinIO, the host would answer 200 either way.
+for c in $(docker ps -q); do
+  docker inspect "$c" --format '{{.Name}} {{index .Config.Labels "traefik.enable"}}' \
+  | grep -q true && docker inspect "$c" \
+      --format '{{range $k,$v := .Config.Labels}}{{$v}}{{println}}{{end}}' \
+  | grep -q 'storage.hill90.com' && docker inspect "$c" --format '  claimant: {{.Name}}'
+done                                                    # expect exactly one: /minio
+
+curl -s -o /dev/null -w '%{http_code}\n' https://hill90.com/            # expect 200
+curl -s -o /dev/null -w '%{http_code}\n' https://storage.hill90.com/    # expect 200
+```
+
+If step 2 says `failed`, that is the design working — see below — and step 3 will tell
+you whether it is sealed or something stranger.
+
+### What the unit does now when it goes wrong
+
+`Restart=on-failure` with `RestartSec=30`, bounded by `StartLimitBurst=3` inside a
+30-minute window. So:
+
+| Situation | What happens |
+|---|---|
+| Slow boot | Usually succeeds first attempt; otherwise retries after 30s |
+| Missing unseal key | Fails in about a second, three attempts, `failed` within ~90s |
+| Hung dependency | Attempts take the full 300s; `failed` at ~17min. It does not spin |
+
+It ends in `failed` and **stays** there rather than looping quietly. That is deliberate:
+a retry that hides a persistent failure trades a visible outage for an invisible one.
+
+`ExecStartPost=vault.sh assert-unsealed` is what makes that possible. `auto-unseal`
+returns 0 when the container never appears — correct on a fresh VPS, wrong at boot on a
+live host, where it would exit 0 with OpenBao still sealed. The assertion separates
+"not deployed" (0) from "deployed and still sealed" (1).
+
 ## See Also
 
 - [Secrets Architecture](../architecture/secrets-model.md) — vault architecture overview
