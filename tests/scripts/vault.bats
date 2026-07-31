@@ -380,6 +380,83 @@
   [ "$status" -eq 0 ]
 }
 
+# ---------------------------------------------------------------------------
+# Boot path: the unit must survive a slow OpenBao, and must be loud when it does
+# not. Guards the state found on 2026-07-31, when TimeoutStartSec was exactly
+# equal to the script's own worst case and nothing retried.
+# ---------------------------------------------------------------------------
+
+@test "systemd TimeoutStartSec exceeds the script's own worst-case wait" {
+  # THE regression this file exists to prevent. vault.sh waits up to
+  # VAULT_AUTO_UNSEAL_TIMEOUT for the container plus 60s for the API. If
+  # systemd's timeout only equals that, a merely-slow boot kills the script
+  # inside its documented wait — which is what used to happen. The two numbers
+  # must not be "tidied" into agreement.
+  local unit="infra/systemd/hill90-vault-unseal.service"
+  local systemd_timeout script_budget api_wait=60
+  systemd_timeout=$(grep -oE '^TimeoutStartSec=[0-9]+' "$unit" | cut -d= -f2)
+  # sed, not `cut -d-`: the variable name has no hyphen, so `:-120` splits into
+  # two fields and -f3 is empty. That mistake made this very test fail closed.
+  script_budget=$(grep -oE 'VAULT_AUTO_UNSEAL_TIMEOUT:-[0-9]+' scripts/vault.sh | head -1 | sed -E 's/.*:-([0-9]+)/\1/')
+
+  [ -n "$systemd_timeout" ]
+  [ -n "$script_budget" ]
+  [ "$systemd_timeout" -gt "$(( script_budget + api_wait ))" ] \
+    || { echo "TimeoutStartSec=${systemd_timeout} does not exceed ${script_budget}+${api_wait}"; return 1; }
+}
+
+@test "systemd retries a failed unseal, but a bounded number of times" {
+  local unit="infra/systemd/hill90-vault-unseal.service"
+  grep -qE '^Restart=on-failure' "$unit" || { echo "no Restart=on-failure"; return 1; }
+  grep -qE '^RestartSec=[0-9]+' "$unit"  || { echo "no RestartSec"; return 1; }
+  # Unbounded retry would trade a visible outage for an invisible loop.
+  grep -qE '^StartLimitBurst=[0-9]+' "$unit" || { echo "no StartLimitBurst — retries are unbounded"; return 1; }
+}
+
+@test "the retry window is wider than the attempts it must contain" {
+  # If StartLimitIntervalSec is shorter than burst x (timeout + RestartSec), the
+  # window rolls over before the burst limit trips and the unit retries forever.
+  local unit="infra/systemd/hill90-vault-unseal.service"
+  local window burst timeout restsec
+  window=$(grep -oE '^StartLimitIntervalSec=[0-9]+' "$unit" | cut -d= -f2)
+  burst=$(grep -oE '^StartLimitBurst=[0-9]+' "$unit" | cut -d= -f2)
+  timeout=$(grep -oE '^TimeoutStartSec=[0-9]+' "$unit" | cut -d= -f2)
+  restsec=$(grep -oE '^RestartSec=[0-9]+' "$unit" | cut -d= -f2)
+  [ "$window" -gt "$(( burst * (timeout + restsec) ))" ] \
+    || { echo "window ${window}s <= ${burst} x (${timeout}+${restsec})s — the burst limit may never trip"; return 1; }
+}
+
+@test "systemd asserts the end state, not just the exit code" {
+  # auto-unseal returns 0 when the container never appears. At boot that is the
+  # failure that matters, so something must check whether OpenBao is ACTUALLY
+  # unsealed afterwards.
+  run grep "ExecStartPost=.*/vault.sh assert-unsealed" infra/systemd/hill90-vault-unseal.service
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh exposes assert-unsealed and documents it" {
+  run bash scripts/vault.sh help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"assert-unsealed"* ]]
+  grep -q 'assert-unsealed)' scripts/vault.sh
+}
+
+@test "assert-unsealed exits 0 when the container is absent" {
+  run env VAULT_CONTAINER=definitely-not-a-container-h90 bash scripts/vault.sh assert-unsealed
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"not deployed"* ]]
+}
+
+@test "assert-unsealed fails loudly when seal state cannot be determined" {
+  # A container that exists but has no working `bao` must NOT be read as healthy.
+  if ! docker container inspect "${BATS_PROBE_CONTAINER:-traefik}" >/dev/null 2>&1; then
+    skip "no spare container to probe with"
+  fi
+  run env VAULT_CONTAINER="${BATS_PROBE_CONTAINER:-traefik}" bash scripts/vault.sh assert-unsealed
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"Treating as failed rather than assuming healthy"* ]]
+}
+
 @test "auto-unseal exits 0 when no container (graceful skip)" {
   # Set a very short timeout and use a non-existent container name
   # to verify the graceful skip path (exits 0, not an error)
