@@ -253,6 +253,12 @@ gh workflow run deploy.yml -f service=all
   receiver at all** and every rule was inert — `ServiceDown` fired for ≥48 hours in
   the week to 2026-07-26 and reached nobody. Start at
   [`docs/decisions/alerting-audit.md`](docs/decisions/alerting-audit.md).
+- **Before reporting "none", "empty" or "never", check the instrument first.** An
+  instrument that cannot see the thing looks exactly like the thing being absent —
+  six times on 2026-07-31, including a missing `strings` binary read as an empty
+  log and a green `amtool check-config` on a config that could not deliver. The
+  practice, the six cases and the positive-control defence:
+  [`CONTRIBUTING.md`](CONTRIBUTING.md#verify-the-instrument-before-you-believe-the-verdict).
 - **Two traps that have each cost a session. Do not re-derive them.**
   **cAdvisor emits zero Docker container series on this host** — 45 cgroup and
   systemd series, `count(container_memory_usage_bytes{name!=""})` is 0 — so any
