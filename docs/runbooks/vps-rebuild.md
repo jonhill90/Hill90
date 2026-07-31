@@ -161,8 +161,9 @@ builds its local blocks. Their healthchecks budget for it (`keycloak`
 `start_period: 90s`, `tempo` `180s`, `openbao` `60s`), so the window in which
 they legitimately look dead is minutes, not seconds.
 
-Intervening during that window is the actual risk. Let `make health` be the
-judge rather than `docker ps` read early.
+Intervening during that window is the actual risk. Let
+`bash scripts/ops.sh health` be the judge rather than `docker ps` read early
+(`ops.sh`, not `make` — `make` is not installed on the VPS).
 
 Verify all services are healthy:
 
