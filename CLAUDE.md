@@ -23,6 +23,9 @@ nothing. It is a **platform**: it hosts tenants but is not the application.
 - [`docs/architecture/`](docs/architecture/) — how the pieces fit, plus
   [`certificates.md`](docs/architecture/certificates.md), which is the recovery
   path if ACME goes wrong.
+- [`docs/decisions/2026-07-31-handoff.md`](docs/decisions/2026-07-31-handoff.md) — **start
+  here if you are cold.** Where the estate stands, what is verified versus not checked, the
+  negative results, and the open decisions.
 - [`docs/decisions/`](docs/decisions/) — why things are the way they are.
   [`app-tenancy-on-the-vps.md`](docs/decisions/app-tenancy-on-the-vps.md) defines
   what this platform offers a tenant;
@@ -169,11 +172,13 @@ the migration run — but say "nothing worth preserving", not "empty".
 
 ## Still not done — do not let these read as finished
 
-- **`app-keycloak` and realm `hill90` are still running.** One realm is live on the
-  platform, but nothing has been retired. Accounts now exist in *both* places: `jon`,
-  `hill90admin` and `testuser01` in platform realm `platform`, and the same three in
-  realm `hill90` on the tenant's own Keycloak.
-- **`app-postgres` is still running and still serving.** See above.
+- **Both are now retired — this section previously said they were not.** `app-keycloak`
+  went on 2026-07-30 and `app-postgres` on 2026-07-31. Realm `hill90` is gone from the
+  live directory, which now holds `master, platform` only. Their data was kept: a realm
+  export with users, a per-table-verified dump of all five databases, and the volume
+  `prod_app-postgres-data`. See
+  [2026-07-31-handoff.md](docs/decisions/2026-07-31-handoff.md) for what remains of each
+  and where. `Verified 2026-07-31 06:21 UTC`.
 - **Declaring a client in `platform-realm.json` does NOT put it in a realm that
   already exists.** `start --import-realm` is `IGNORE_EXISTING`, so the file is read
   only on first boot — `keycloak.sh`'s own header says so, and #584 shipped clients
@@ -207,18 +212,27 @@ the migration run — but say "nothing worth preserving", not "empty".
   rebuild** is the case that depends on it, and it must equal the value hill90-app
   holds. `check_env_surface.py` deliberately allows it no default: a fallback would
   import a *known* secret for the client fronting hill90.com and say nothing.
-- **Keycloak event storage is off** — `events_enabled=false` on both `master` and
-  `platform`, `Verified 2026-07-30 02:07 UTC`. That is why "has anyone actually
-  logged in?" cannot be answered from the host: sessions live in Infinispan, not the
-  database, and `event_entity` is empty because nothing writes to it. An empty
-  `event_entity` is **not** evidence that nobody logged in. Turning login events on
-  would make the estate's most-repeated question checkable instead of anecdotal.
+- **Keycloak event storage is now ON** — `events_enabled=true` on both `master` and
+  `platform`, `Verified 2026-07-31 06:21 UTC`, reversing the gap this entry used to
+  record. "Has anyone actually logged in?" is answerable from the database **for logins
+  from here on**. It says nothing about earlier ones: an empty `event_entity` for a past
+  date is still **not** evidence that nobody logged in, because nothing was writing to it
+  then.
 
 ## Genuinely open
 
-**MinIO, and the state is reversed from the other two.** Only `app-minio` exists;
-there is **no platform MinIO**. So the question is whether storage moves *up* into
-the platform, which the governing principle suggests it should. Never addressed.
+**MinIO is settled and shipped — this entry used to say it was never addressed.** A
+platform MinIO runs (`Verified 2026-07-31 06:21 UTC`, healthy) and the tenant was cut over
+to it; storage moved *up*, as the governing principle indicated. `app-minio` was stopped
+2026-07-31 01:40:43 UTC and is **not yet removed**: its retention window expires
+**2026-08-01 01:41 UTC**, and deleting `prod_app-minio-data` is a separate, irreversible
+decision.
+
+**What is genuinely open now is Jon's, not a lane's** — repository visibility for
+hill90-app with the history-rewrite costs, whether the tenant's local stack moves onto the
+platform services, and a reboot to validate the vault auto-unseal path. All of them are
+stated with their evidence in
+[2026-07-31-handoff.md](docs/decisions/2026-07-31-handoff.md).
 
 ## Fast facts
 
