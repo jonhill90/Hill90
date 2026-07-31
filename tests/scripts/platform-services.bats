@@ -350,10 +350,15 @@ assert '\"SSO\": True' not in src
   done
 }
 
-@test "the runbook states plainly that MinIO SSO is deferred" {
-  # MinIO is in issue #530 but is not deployed in this repository. Saying so is
-  # the requirement; quietly skipping it is not acceptable.
-  run grep -iE "MinIO is not deployed|deferred, not done" docs/runbooks/sso-fallback.md
+@test "the runbook states plainly that MinIO has no SSO" {
+  # This started life asserting MinIO was DEFERRED. MinIO is now deployed, so
+  # the claim to guard changed: it must say plainly that there is no SSO login,
+  # because MinIO removed the console from the AGPL build in May 2025. The
+  # failure mode is someone reading "OIDC configured" as "SSO works".
+  # ONE exact phrase, no alternation. An earlier version offered several
+  # acceptable spellings, so deleting the disclaimer still passed via a
+  # different clause — the same tautology this suite has been bitten by before.
+  run grep -F "MinIO has no SSO login." docs/runbooks/sso-fallback.md
   [ "$status" -eq 0 ]
 }
 
@@ -467,5 +472,120 @@ c = m[0][\"config\"].get(\"claim.name\")
 assert c == \"realm_roles\", c
 "
   '
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Object store (MinIO) — restored as a platform service
+#
+# The load-bearing claim is a NEGATIVE one: this is not SSO. MinIO removed the
+# console from the AGPL build in May 2025, so the console is root-credential
+# only. These guard against that being quietly overstated later.
+# ---------------------------------------------------------------------------
+
+@test "MinIO is pinned to a specific release, not a floating tag" {
+  # A floating tag would silently change the console behaviour the docs describe.
+  run grep -E 'image: minio/minio:RELEASE\.[0-9]' deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+  run grep -E 'image: minio/minio:(latest|edge)' deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -ne 0 ]
+}
+
+@test "MinIO is not pinned to a pre-console-removal release" {
+  # Pinning RELEASE.2025-04-22 or earlier would restore the SSO button at the
+  # cost of freezing an internet-facing service on an unpatched build. That was
+  # considered and rejected; this stops it being done by accident.
+  # Asserting a MINIMUM, not blacklisting four months of 2025: the first
+  # version of this test used RELEASE\.2025-0[1-4] and happily passed a 2024
+  # pin, which is even older and even more unpatched.
+  run python3 -c "
+import re
+src = open('deploy/compose/prod/docker-compose.minio.yml').read()
+m = re.search(r'image: minio/minio:RELEASE\.(\d{4})-(\d{2})', src)
+assert m, 'no pinned RELEASE tag found'
+year, month = int(m.group(1)), int(m.group(2))
+# The console was removed in May 2025; anything earlier keeps the SSO button
+# only by freezing on an unpatched build.
+assert (year, month) >= (2025, 5), (year, month)
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "the S3 API is not routed externally" {
+  # Only the console gets a router. Publishing the API would mean a hostname
+  # with no DNS record and a second certificate that has never issued.
+  # Assert on the SHAPE, not on one router name: the first version banned the
+  # literal string 'minio-api', so a router called anything else pointing at
+  # port 9000 sailed through.
+  run python3 -c "
+import re
+body = [l for l in open('deploy/compose/prod/docker-compose.minio.yml') if not re.match(r'\s*#', l)]
+src = ''.join(body)
+routers = set(re.findall(r'traefik\.http\.routers\.([A-Za-z0-9_-]+)\.', src))
+assert routers == {'minio-console'}, routers
+ports = set(re.findall(r'loadbalancer\.server\.port=(\d+)', src))
+assert ports == {'9001'}, ports
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "MinIO's certificate resolver is inherited, not hardcoded" {
+  # storage.hill90.com has never issued under the current ACME path (#538), and
+  # DNS-01 is mid-migration to Cloudflare (#535). Hardcoding a resolver here
+  # would pin the wrong provider.
+  run grep -F 'ADMIN_CERT_RESOLVER' deploy/compose/prod/docker-compose.minio.yml
+  [ "$status" -eq 0 ]
+  run python3 -c "
+import re
+body = [l for l in open('deploy/compose/prod/docker-compose.minio.yml') if not re.match(r'\s*#', l)]
+for l in body:
+    if 'certresolver=' in l:
+        assert 'ADMIN_CERT_RESOLVER' in l, l
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "the docs do not claim MinIO has SSO" {
+  # The single most likely thing to be overstated.
+  # One exact phrase per file, no alternation — three acceptable spellings meant
+  # deleting two of them still passed on the third.
+  run grep -F "This is not SSO and must not be described as SSO." docs/decisions/object-store.md
+  [ "$status" -eq 0 ]
+  run grep -F "The console has no SSO button" docs/runbooks/object-store.md
+  [ "$status" -eq 0 ]
+}
+
+@test "the MinIO admin policy separates s3 and admin actions" {
+  # MinIO rejects a statement mixing them with
+  # "unsupported admin action 's3:*'", which fails policy creation outright.
+  run python3 -c "
+import json, re, subprocess
+src = open('scripts/minio.sh').read()
+m = re.search(r\"admin\)\s+echo '([^']+)'\", src)
+assert m, 'admin policy not found'
+doc = json.loads(m.group(1))
+stmts = doc['Statement']
+for s in stmts:
+    acts = s['Action']
+    assert not (any(a.startswith('s3:') for a in acts) and any(a.startswith('admin:') for a in acts)), acts
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "MinIO policies are provisioned on deploy, not just documented" {
+  # Without them every federated login is rejected with "no policy found".
+  # Comment lines excluded: prefixing the call with # left this passing.
+  run python3 -c "
+import re
+body = [l for l in open('scripts/deploy.sh') if not re.match(r'\s*#', l)]
+assert any('minio.sh\" apply' in l for l in body), 'minio.sh apply is not invoked'
+"
+  [ "$status" -eq 0 ]
+}
+
+@test "the object store decision record flags the maintenance question" {
+  # MinIO community's latest release is ~10 months old; the alternatives belong
+  # in their own decision, but the question must be on the record.
+  run grep -iE "Garage|SeaweedFS" docs/decisions/object-store.md
   [ "$status" -eq 0 ]
 }

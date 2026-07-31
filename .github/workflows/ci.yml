@@ -29,6 +29,15 @@ jobs:
         run: bats tests/scripts/
 
       - name: Validate compose files
+        # Credentials that must never fall back to a default use ${VAR:?...},
+        # so `config` refuses to render without them. That guard is deliberate:
+        # an empty MinIO root password silently starts the server on
+        # minioadmin/minioadmin with only a WARN. Supply throwaway values here —
+        # this step validates STRUCTURE, not secrets.
+        env:
+          MINIO_ROOT_USER: placeholder
+          MINIO_ROOT_PASSWORD: placeholder
+          MINIO_OIDC_CLIENT_SECRET: placeholder
         run: |
           for f in deploy/compose/prod/docker-compose*.yml; do
             echo "Validating $f..."

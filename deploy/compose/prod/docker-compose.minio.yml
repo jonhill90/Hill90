@@ -1,0 +1,113 @@
+version: '3.9'
+
+# MinIO object store (platform service)
+# Deploy with: bash scripts/deploy.sh minio prod
+#
+# MinIO is a PLATFORM PRIMITIVE — the open-source counterpart to an Azure
+# Storage Account. See docs/decisions/platform-primitives.md. It is restored
+# here for the same reason Keycloak and Postgres were in #531: the primitive is
+# meant to exist so consumers can arrive.
+#
+# THERE IS NO CONSUMER TODAY. Loki is configured with filesystem storage, Tempo
+# with a local backend, and backup.sh has no S3 target. Nothing in this
+# repository reads or writes an object store. That is deliberate and recorded
+# rather than hidden.
+#
+# IDENTITY — read this before assuming SSO works:
+#   MinIO removed the management console from the AGPL community build in May
+#   2025. Verified by running each release against a real Keycloak: on
+#   RELEASE.2025-04-22 the console reports loginStrategy "redirect" with a
+#   working Keycloak button; from RELEASE.2025-05-24 onward it reports "form"
+#   with redirectRules null, no matter how OIDC is configured.
+#
+#   So the console login below is ROOT CREDENTIALS ONLY. What OIDC does still
+#   give us is the S3/STS path: AssumeRoleWithWebIdentity accepts Keycloak
+#   tokens, so Keycloak identities can obtain S3 credentials programmatically.
+#   That is genuinely useful and it is NOT "SSO into MinIO".
+#
+#   Pinning the April release to keep the login button was considered and
+#   rejected: a fifteen-month-old unpatched build on an internet-facing box is a
+#   bad trade for a button.
+
+networks:
+  edge:
+    external: true
+    name: ${NETWORK_PREFIX:-hill90}_edge
+  internal:
+    external: true
+    name: ${NETWORK_PREFIX:-hill90}_internal
+
+volumes:
+  minio-data:
+    name: ${VOLUME_PREFIX:-prod}_minio-data
+
+services:
+  minio:
+    # Current release. `latest` was RELEASE.2025-09-07 when this was written and
+    # the community edition has not shipped since — see the note in
+    # docs/decisions/object-store.md about that.
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: ${CONTAINER_PREFIX:-}minio
+    restart: unless-stopped
+    mem_limit: 512m
+    command: server /data --console-address ":9001"
+    networks:
+      - edge
+      - internal
+    volumes:
+      - minio-data:/data
+    environment:
+      # The :? form, not a bare substitution: with an empty value MinIO starts
+      # happily on minioadmin/minioadmin and only WARNS. Every container on the
+      # internal network can reach the S3 API, so a silent fallback to default
+      # credentials is a real exposure. Fail the deploy instead.
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set}
+      # Prometheus scrapes /minio/v2/metrics/cluster on the internal network.
+      - MINIO_PROMETHEUS_AUTH_TYPE=public
+      # --- Keycloak OIDC (S3/STS only — see the header) --------------------
+      # Env var names taken from `mc admin config set identity_openid --env` on
+      # this exact image, not from documentation: the community docs URL now
+      # redirects to AIStor's and MinIO has renamed these settings before.
+      - MINIO_IDENTITY_OPENID_CONFIG_URL=${KC_PUBLIC_URL:-https://auth.hill90.com}/realms/${KC_REALM:-platform}/.well-known/openid-configuration
+      - MINIO_IDENTITY_OPENID_CLIENT_ID=minio
+      - MINIO_IDENTITY_OPENID_CLIENT_SECRET=${MINIO_OIDC_CLIENT_SECRET:?MINIO_OIDC_CLIENT_SECRET must be set}
+      - MINIO_IDENTITY_OPENID_DISPLAY_NAME=Keycloak
+      - MINIO_IDENTITY_OPENID_SCOPES=openid,profile,email
+      # MinIO reads the policy to grant from this claim. keycloak.sh adds a
+      # mapper that emits it; a token without it gets no access rather than
+      # broad access.
+      - MINIO_IDENTITY_OPENID_CLAIM_NAME=${MINIO_OIDC_CLAIM_NAME:-minio_policy}
+      - MINIO_IDENTITY_OPENID_REDIRECT_URI=${MINIO_PUBLIC_URL:-https://storage.hill90.com}/oauth_callback
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      # The console. Tailscale-only, like every other admin surface.
+      #
+      # CERTIFICATE: this host has never issued under the current ACME path —
+      # see issue #538. The resolver is NOT hardcoded; it inherits
+      # ADMIN_CERT_RESOLVER so that whichever DNS-01 provider is live applies.
+      # That matters because ACME DNS-01 is mid-migration from the Hostinger
+      # webhook to Cloudflare (#535): deploying this while the httpreq provider
+      # is still live would fail validation against a zone Hostinger no longer
+      # serves, and Traefik would present its default certificate. Order this
+      # deploy AFTER #535 and watch the first issuance — see
+      # docs/runbooks/object-store.md.
+      - "traefik.http.routers.minio-console.rule=Host(`${MINIO_HOST:-storage}.${BASE_DOMAIN:-hill90.com}`)"
+      - "traefik.http.routers.minio-console.entrypoints=${ADMIN_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.minio-console.tls.certresolver=${ADMIN_CERT_RESOLVER:-letsencrypt-dns}"
+      - "traefik.http.routers.minio-console.middlewares=${ADMIN_MIDDLEWARES:-tailscale-only@file}"
+      - "traefik.http.routers.minio-console.service=minio-console"
+      - "traefik.http.services.minio-console.loadbalancer.server.port=9001"
+      #
+      # The S3 API (:9000) is deliberately NOT routed. It stays on the internal
+      # network, reachable as http://minio:9000 by containers that need it.
+      # Publishing it would mean inventing a second hostname with no DNS record
+      # and a second certificate that has never issued — cost with no consumer
+      # to justify it. When something external needs S3, that is a deliberate
+      # addition: a DNS record, a router, and a watched first issuance.
