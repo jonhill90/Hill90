@@ -143,6 +143,7 @@ as "Do this first" and is not optional — add it to any new rule.
 |-------|-----------|----------|-------|
 | **PublicSiteDown** | blackbox probe of `https://hill90.com/` not 200 for 2m | critical | **New.** The only signal for the product being down — the tenant's containers are not scrape targets |
 | **VaultSealedOrUnreachable** | blackbox probe of OpenBao `/v1/sys/health` not 200 for 5m | critical | **New.** 503 means SEALED. Needs no token |
+| **TenantApiDown** | blackbox probe of `api.hill90.com/health` not 200 for 2m | critical | **New.** `PublicSiteDown` does **not** cover this — `hill90.com/api/health` reports `service: ui` and does not proxy to the API, so the site can answer 200 while `app-api` is dead. Scope argument in [tenant-monitoring-coverage.md](../decisions/tenant-monitoring-coverage.md) |
 | ServiceDown | Any scrape target down > 5m | critical | Fired ≥48 h to 2026-07-26 with no receiver |
 | HostMemoryHigh | **Host root cgroup** memory > 90% | warning | **Renamed from HighMemoryUsage** — it never watched containers, see below |
 | DiskSpaceRunningLow | Root filesystem < 15% free | warning | Never fired; `/` is 87.6% free |
