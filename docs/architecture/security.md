@@ -29,6 +29,11 @@ restricting administration to a private network.
   - **Not yet applied to the running host.** The fix ships in the playbook;
     until `make config-vps` runs, `sshd -T` still reports
     `passwordauthentication yes`. Exposure is bounded — see below.
+  - Applying it restarts `sshd` on a host reachable only over the tailnet, so the
+    measured diff, the break-glass paths and the two-terminal verification are
+    written up in [ssh-hardening-drop-in.md](../runbooks/ssh-hardening-drop-in.md).
+    **Documented hardening not in force is not the same as an exposed host** —
+    that page keeps both halves together.
 - **OpenBao vault is the runtime source of truth for secrets.** SOPS + age serves as bootstrap and disaster-recovery backup. Deploy is vault-first with SOPS fallback, so a sealed or absent vault degrades to the encrypted file rather than failing.
 - Each stack authenticates to vault via AppRole and reads only its assigned KV paths.
 - Vault auto-unseals on boot via a systemd oneshot service; the unseal key is stored on the host at `/opt/hill90/secrets/openbao-unseal.key` with 0600 permissions.
