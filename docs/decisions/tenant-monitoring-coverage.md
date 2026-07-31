@@ -125,9 +125,17 @@ reasonable middle position if the boundary reading is judged too generous.
 ## What is still not covered, after this change
 
 - **The tenant's internal containers** — `app-ai`, `app-knowledge`, `app-docker-proxy`.
-  Nothing observes them. `app-docker-proxy` is the one worth noting: it fronts the Docker
-  socket for the agent sandbox, so its failure is a security-relevant availability event
-  and it is invisible.
+  Nothing observes them.
+
+  > **Correction, 2026-07-31.** This entry called `app-docker-proxy`'s failure "a
+  > security-relevant availability event". **That overstated it.** `app-api` holds no raw
+  > Docker socket, so losing the proxy leaves it no path to the daemon at all: the absence
+  > **fails closed** and is an operational event, not a security one. What is genuinely
+  > security-relevant is the control's *configuration* — ACL drift, and the fact that the
+  > proxy filters by API path and not by container ownership — none of which is an
+  > availability event or catchable by a probe. Full reasoning, and why covering it
+  > properly is Jon's decision rather than a lane's, in
+  > [docker-proxy-monitoring.md](docker-proxy-monitoring.md).
 - **`litellm` and `ai/mcp`**, for the reasons above.
 - **Which tenant component failed.** Both probes say "broken from outside", not why.
 - **Tenant container restart loops.** The same cAdvisor absence that breaks per-container
