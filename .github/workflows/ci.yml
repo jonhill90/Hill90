@@ -47,6 +47,24 @@ jobs:
       - name: Validate Traefik config
         run: bash scripts/validate.sh traefik
 
+      # Pinned to the deployed Prometheus version, because promtool's rule
+      # semantics are what production will apply — testing against a different
+      # version tests a different engine.
+      - name: Validate and unit-test Prometheus alert rules
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w \
+            --entrypoint promtool prom/prometheus:v3.3.1 \
+            check rules platform/observability/prometheus/alerts.yml
+          docker run --rm -v "$PWD:/w" -w /w \
+            --entrypoint promtool prom/prometheus:v3.3.1 \
+            test rules tests/prometheus/alerts_test.yml
+          echo
+          echo "NOTE: a green run here does NOT prove these rules can fire."
+          echo "The unit tests supply their own input series, so a rule matching"
+          echo "a label production never emits still passes. That is checked"
+          echo "against the live Prometheus by:"
+          echo "  python3 scripts/checks/check_alert_series.py   (run on the VPS)"
+
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
 
