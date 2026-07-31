@@ -275,6 +275,50 @@ else
 fi
 
 echo ""
+echo "7. the rest of the sweep: no secrets-out-of-scope sites left"
+
+deploy_src=$(grep -v '^[[:space:]]*#' "$PROJECT_ROOT/scripts/deploy.sh")
+
+# Completion banners. #595 fixed the cmd_service copy and missed the cmd_infra
+# one, so assert on the property rather than on a remembered line.
+# The subcommand, anchored. An unanchored `.*ps` also matches `--no-deps`, which
+# is a false positive of exactly the kind this file exists to catch.
+if printf '%s' "$deploy_src" | grep -qE 'docker compose .* ps([[:space:]]|$)'; then
+    bad "a 'docker compose ps' survives in deploy.sh — it will interpolate without secrets"
+else
+    ok "no 'docker compose ps' anywhere in deploy.sh"
+fi
+
+# The silent literal. Interpolating ${DB_USER:-hill90} works only while that
+# literal happens to equal the real POSTGRES_USER.
+if printf '%s' "$deploy_src" | grep -q 'DB_USER:-'; then
+    bad "a silent \${DB_USER:-...} fallback survives — resolve it or say so out loud"
+else
+    ok "no silent \${DB_USER:-...} fallback"
+fi
+if printf '%s' "$deploy_src" | grep -q 'secret_value DB_USER'; then
+    ok "DB_USER is resolved from the store"
+else
+    bad "nothing resolves DB_USER from the store"
+fi
+
+# An empty credential written to a file is a lockout that reports success.
+htpasswd_writes=$(printf '%s' "$deploy_src" | grep -c 'htpasswd' || true)
+htpasswd_guards=$(printf '%s' "$deploy_src" | grep -c 'Refusing to write an empty .htpasswd' || true)
+if [ "$htpasswd_guards" -ge 2 ]; then
+    ok "both .htpasswd writes refuse an empty hash (${htpasswd_writes} htpasswd lines, ${htpasswd_guards} guards)"
+else
+    bad "only ${htpasswd_guards} empty-hash guard(s) for the .htpasswd writes"
+fi
+
+# A check that could not run must not report the thing it checked as broken.
+if grep -q 'NOT validated' "$PROJECT_ROOT/scripts/validate.sh"; then
+    ok "validate.sh separates 'could not check' from 'invalid'"
+else
+    bad "validate.sh still reports unvalidatable compose files as Invalid"
+fi
+
+echo ""
 echo "==============================="
 echo "passed: ${pass}  failed: ${fail}"
 [ "$fail" -eq 0 ] || exit 1

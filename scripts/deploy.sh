@@ -48,11 +48,31 @@ cmd_verify() {
     local check_cmd
     local diag_container  # primary container name for diagnostics
 
+    # Resolved BEFORE the retry loop, not inside it: the loop runs up to 30
+    # times and this reads the encrypted store.
+    #
+    # It used to be `${DB_USER:-hill90}` interpolated inline. cmd_verify runs as
+    # a bare `ssh ... deploy.sh verify db` with no secret environment, so DB_USER
+    # was always empty and the literal fallback was always what ran. It passes
+    # today only because that literal happens to equal the real POSTGRES_USER —
+    # change DB_USER in the store without editing this file and the check would
+    # query a role that does not exist, while looking like a Postgres fault.
+    local db_user=""
+    if [ "$service" = "db" ] || [ "$service" = "auth" ]; then
+        db_user=$(secret_value DB_USER "$env" 2>/dev/null || true)
+        if [ -z "$db_user" ]; then
+            # Still proceed — a readiness check that refuses to run is worse than
+            # one making a stated assumption — but say the assumption out loud.
+            warn "DB_USER could not be resolved from the store; assuming 'hill90'. If the store disagrees, this check is querying the wrong role."
+            db_user="hill90"
+        fi
+    fi
+
     case "$service" in
         # pg_isready exits 0 regardless of whether the role exists, so it would
         # pass on a Postgres whose credentials are entirely broken and leave
         # Keycloak to crash-loop instead. Run a real query as the real user.
-        db)            check_cmd='docker exec postgres psql -U "${DB_USER:-hill90}" -tAc "SELECT 1"'; diag_container="postgres" ;;
+        db)            check_cmd="docker exec postgres psql -U \"${db_user}\" -tAc 'SELECT 1'"; diag_container="postgres" ;;
         auth)          check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" keycloak 2>/dev/null)" = "healthy" ]'; diag_container="keycloak" ;;
         vault)         check_cmd='[ "$(docker inspect --format="{{if .State.Health}}{{.State.Health.Status}}{{end}}" openbao 2>/dev/null)" = "healthy" ]'; diag_container="openbao" ;;
         observability) check_cmd='docker exec prometheus wget -qO- http://localhost:9090/-/healthy'; diag_container="prometheus" ;;
@@ -161,6 +181,14 @@ cmd_infra() {
 
             echo "Generating Traefik basic auth credentials..."
             mkdir -p platform/edge/dynamic
+            # An empty hash writes the line "admin:" over the live dashboard
+            # credential — a lockout that looks like a successful deploy.
+            # keycloak.sh refuses the same shape ("Refusing to write an empty
+            # client secret"); this had no such guard.
+            [ -n "${TRAEFIK_ADMIN_PASSWORD_HASH}" ] || {
+                echo "Refusing to write an empty .htpasswd: TRAEFIK_ADMIN_PASSWORD_HASH resolved empty. Check the key exists in the secrets store." >&2
+                exit 1
+            }
             echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
@@ -182,6 +210,10 @@ cmd_infra() {
 
             echo "Generating Traefik basic auth credentials..."
             mkdir -p platform/edge/dynamic
+            # Same guard as the SOPS path: an empty hash locks the dashboard
+            # while the deploy reports success.
+            [ -n "${TRAEFIK_ADMIN_PASSWORD_HASH:-}" ] \
+                || die "Refusing to write an empty .htpasswd: TRAEFIK_ADMIN_PASSWORD_HASH resolved empty from OpenBao. Check the key exists, or force the SOPS path."
             echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
@@ -227,7 +259,16 @@ cmd_infra() {
     echo "================================"
     echo "Edge Stack Deployment Complete!"
     echo "================================"
-    docker compose -p "hill90-${env}-edge" -f "$compose_file" ps
+    # By project label, not `docker compose ps` — #595 fixed this exact bug in
+    # cmd_service and missed this second copy. The secrets live only inside the
+    # sops/vault scopes above, both closed by now, and Compose interpolates for
+    # `ps` as much as for `up`. docker-compose.infra.yml uses no `${VAR:?...}`
+    # today so it would only warn, but that is luck, not design: the day this
+    # file gains one required variable, the edge deploy starts exiting 1 after
+    # printing "Complete!".
+    docker ps -a \
+        --filter "label=com.docker.compose.project=hill90-${env}-edge" \
+        --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
     echo ""
     echo "Services deployed:"
@@ -322,9 +363,21 @@ cmd_service() {
 
     # Keycloak stores its realms in Postgres, so refuse rather than start into a
     # crash loop if the database is not up.
+    #
+    # This guard runs BEFORE secrets are loaded (that happens further down), so
+    # ${DB_USER} is empty here and the old inline `${DB_USER:-hill90}` fallback
+    # was always what ran. A guard that refuses a deploy must not be built on an
+    # unstated assumption: if the role name were ever changed in the store, this
+    # would block every auth deploy with a message blaming Postgres.
     if [ "$service" = "auth" ]; then
-        if ! docker exec postgres psql -U "${DB_USER:-hill90}" -tAc 'SELECT 1' >/dev/null 2>&1; then
-            die "Cannot deploy auth: cannot query postgres as '${DB_USER:-hill90}'. Deploy it first: bash scripts/deploy.sh db ${env}"
+        local guard_user
+        guard_user=$(secret_value DB_USER "$env" 2>/dev/null || true)
+        if [ -z "$guard_user" ]; then
+            warn "DB_USER could not be resolved from the store; assuming 'hill90' for the pre-deploy database check."
+            guard_user="hill90"
+        fi
+        if ! docker exec postgres psql -U "$guard_user" -tAc 'SELECT 1' >/dev/null 2>&1; then
+            die "Cannot deploy auth: cannot query postgres as '${guard_user}'. Deploy it first: bash scripts/deploy.sh db ${env}"
         fi
     fi
 
