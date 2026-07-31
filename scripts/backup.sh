@@ -389,6 +389,89 @@ backup_vault() {
 }
 
 # ---------------------------------------------------------------------------
+# Prometheus textfile metrics — the emitting half of the backup alert
+#
+# THE DESIGN IS "ALERT ON THE ABSENCE OF SUCCESS", NOT THE PRESENCE OF FAILURE.
+# See docs/decisions/backup-failure-signal.md. The distinction is the whole
+# point: a job that fails can emit a failure, but a job that NEVER RUNS emits
+# nothing at all, and this estate has already had three consecutive nightly
+# backups fail while cron reported success. So the alert watches the age of the
+# last SUCCESS, which goes stale on its own whether the job failed, crashed, or
+# was never scheduled.
+#
+# last_success is the trigger; everything else is annotation so that whoever is
+# woken knows WHICH target broke without reading a 28,000-byte log.
+#
+# DIRECTORY — a deliberate deviation from the spec, which named
+# /var/lib/node_exporter/textfile_collector. That path does not exist on this
+# host and /var/lib is root-owned, so creating it would need sudo in a script
+# that has never needed root, or an Ansible run before the first backup could
+# emit anything. /opt/hill90 is owned by `deploy`, already holds backups/ and
+# secrets/, and — the reason the spec gave for rejecting /tmp — is not touched
+# by systemd-tmpfiles-clean. The compose flag points node-exporter here through
+# its existing /rootfs mount, so no new mount is needed either, as the spec
+# intended.
+# ---------------------------------------------------------------------------
+
+METRICS_DIR="${BACKUP_METRICS_DIR:-/opt/hill90/metrics/textfile_collector}"
+METRICS_FILE="hill90_backup.prom"
+
+write_backup_metrics() {
+    local run_ts="$1"       # epoch seconds when the run started
+    local duration="$2"     # wall-clock seconds
+    local all_ok="$3"       # "true" if every target produced a usable backup
+    shift 3
+    local results=("$@")    # "target:0|1" pairs
+
+    mkdir -p "$METRICS_DIR" 2>/dev/null || {
+        warn "Could not create $METRICS_DIR — backup metrics not written. The backup itself is unaffected."
+        return 0
+    }
+
+    local tmp="${METRICS_DIR}/.${METRICS_FILE}.tmp"
+    local dest="${METRICS_DIR}/${METRICS_FILE}"
+
+    # last_success is CARRIED FORWARD on a failed run rather than cleared. That
+    # is what makes the alert measure staleness: clearing it would make the
+    # metric absent and the staleness rule silent, which is the failure mode
+    # BackupSignalMissing exists to catch and should not be caused by us.
+    local last_success=""
+    if [ "$all_ok" = "true" ]; then
+        last_success="$run_ts"
+    elif [ -f "$dest" ]; then
+        last_success=$(grep '^hill90_backup_last_success_timestamp_seconds ' "$dest" 2>/dev/null | awk '{print $2}' || true)
+    fi
+
+    {
+        echo "# HELP hill90_backup_last_success_timestamp_seconds Unix time of the last fully successful backup-all"
+        echo "# TYPE hill90_backup_last_success_timestamp_seconds gauge"
+        [ -n "$last_success" ] && echo "hill90_backup_last_success_timestamp_seconds ${last_success}"
+        echo "# HELP hill90_backup_last_run_timestamp_seconds Unix time of the last attempt, successful or not"
+        echo "# TYPE hill90_backup_last_run_timestamp_seconds gauge"
+        echo "hill90_backup_last_run_timestamp_seconds ${run_ts}"
+        echo "# HELP hill90_backup_target_success 1 if this target produced a usable backup on the last run"
+        echo "# TYPE hill90_backup_target_success gauge"
+        local pair target ok
+        for pair in "${results[@]}"; do
+            target="${pair%%:*}"
+            ok="${pair##*:}"
+            echo "hill90_backup_target_success{target=\"${target}\"} ${ok}"
+        done
+        echo "# HELP hill90_backup_duration_seconds Wall-clock duration of the last run"
+        echo "# TYPE hill90_backup_duration_seconds gauge"
+        echo "hill90_backup_duration_seconds ${duration}"
+    } > "$tmp"
+
+    # Atomic rename. node-exporter reads this directory on EVERY scrape, and a
+    # half-written file flips node_textfile_scrape_error to 1 — a real alertable
+    # condition that we must not manufacture ourselves.
+    mv -f "$tmp" "$dest"
+    chmod 644 "$dest"
+
+    echo "  ✓ Wrote backup metrics to $dest"
+}
+
+# ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
 
@@ -432,20 +515,35 @@ cmd_backup_all() {
     # then skip vault, infra and observability entirely. One missing service must
     # not cost the other four their backups — but it must still turn the run red.
     local failed=()
+    local results=()
+    local run_ts
+    run_ts="$(date +%s)"
     for svc in db app-db minio vault infra observability; do
-        if ! ( cmd_backup "$svc" ); then
+        if ( cmd_backup "$svc" ); then
+            results+=("${svc}:1")
+        else
             failed+=("$svc")
+            results+=("${svc}:0")
             warn "Backup FAILED for: $svc (continuing with the remaining services)"
         fi
         echo ""
     done
 
+    local duration=$(( $(date +%s) - run_ts ))
+
     echo "================================"
     if [ ${#failed[@]} -eq 0 ]; then
+        # Metrics are written BEFORE the success return and before the die()
+        # below, so a partial run still records which targets failed. Emitting
+        # only on success would leave the operator with a stale timestamp and no
+        # indication of what broke.
+        write_backup_metrics "$run_ts" "$duration" "true" "${results[@]}"
         echo "Full Backup Complete!"
         echo "================================"
         return 0
     fi
+
+    write_backup_metrics "$run_ts" "$duration" "false" "${results[@]}"
 
     echo "Full Backup INCOMPLETE"
     echo "================================"

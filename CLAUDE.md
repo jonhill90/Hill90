@@ -247,13 +247,17 @@ bash scripts/deploy.sh verify <service> prod
 gh workflow run deploy.yml -f service=all
 ```
 
-- Platform baseline is **13 containers, 0 unhealthy** — **16 once this PR's
-  observability deploy runs.** `alertmanager` and `blackbox-exporter` are new
-  platform containers; the count before them was 13 by name plus `minio` (14
-  running), so the expected post-deploy figure is **16 platform containers, 0
-  unhealthy**, plus the tenant's 7 for **23 total**. Neither new container has
-  Traefik labels and neither is public. Update this line when they land, not
-  before. A tenant's containers sit
+- Platform baseline is **16 containers by name, 0 unhealthy** —
+  `Verified 2026-07-31 09:58 UTC`, after #617 deployed `alertmanager` and
+  `blackbox-exporter`. With the tenant's 7 that is **23 running in total**.
+  The full 16: `alertmanager blackbox-exporter cadvisor grafana keycloak loki
+  minio node-exporter openbao portainer postgres postgres-exporter prometheus
+  promtail tempo traefik`.
+  **Count by that list, not from memory.** The old shorthand was "13 by name plus
+  minio", so 13 + 2 new = 15 is a natural and wrong arithmetic — minio was never
+  inside the 13. And match on `blackbox-exporter`, not `blackbox`: an exact-match
+  sweep for the short name reports it missing when it is running.
+  A tenant's containers sit
   alongside them and are not part of that count. **Verify the baseline after any
   tenant action — a degraded baseline is the stop-everything signal.** The
   tenancy contract has been tested in both directions: on 2026-07-29 the tenant
