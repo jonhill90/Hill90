@@ -142,7 +142,10 @@ afterwards at 13 containers by name plus `minio`, **0 unhealthy** — re-confirm
 
 **What this exercise does not prove:** that Grafana *starts* against the restored volume
 and renders its dashboards — the restore was verified at the file level, in a throwaway,
-without pointing a Grafana at it. And it says nothing about `openbao-data`,
+without pointing a Grafana at it. (A later exercise did start Grafana against an **empty**
+volume, which is a different question and is why the restore matters less than it looks —
+see [`backup-consistency-options.md`](../decisions/backup-consistency-options.md).) And it
+says nothing about `openbao-data`,
 `prometheus-data` or `prod_minio-data`, whose exposure to the same problem is larger
 because they are written continuously. OpenBao has a proper fix available — a raft
 snapshot, taken from the running server — costed in
@@ -274,13 +277,31 @@ bash scripts/backup.sh restore db /path/to/backup
 > [platform-postgres-password-rotation.md](platform-postgres-password-rotation.md) for
 > the exact shape of both steps.
 
-> **This restores Postgres only. It does NOT restore Grafana.** Grafana keeps its
-> state in **SQLite** inside the `grafana-data` volume, not in Postgres — verified
-> 2026-07-31: no `grafana` database exists on the platform instance, and
-> `/var/lib/grafana/grafana.db` is ~1.8 MB. Grafana's dashboards, users and
-> preferences come back from the **observability** volume tar:
-> `bash scripts/backup.sh restore observability /path/to/backup`. Sequencing a rebuild
-> around the Postgres dump alone leaves Grafana empty.
+> **This restores Postgres only, and Grafana is not in it.** Grafana keeps its state in
+> **SQLite** inside the `grafana-data` volume, not in Postgres — verified 2026-07-31: no
+> `grafana` database exists on the platform instance, and `/var/lib/grafana/grafana.db` is
+> ~1.8 MB.
+>
+> **But do not sequence a rebuild around restoring that volume — you almost certainly do
+> not need to.** This entry used to say Grafana's "dashboards, users and preferences come
+> back from the observability volume tar" and that a Postgres-only restore "leaves Grafana
+> empty". Both overstate it, and the second is false. `Verified 2026-07-31 08:26 UTC` by
+> starting Grafana 11.6.0 against an **empty** volume and this repository's provisioning
+> directory: it came up with all **6 dashboards** and all **3 datasources**, because they
+> are provisioned from files in `platform/observability/grafana/provisioning/` — every live
+> dashboard carries a `dashboard_provisioning` row, so none was made in the UI. Alert rules,
+> annotations, stars, preferences, folders, playlists, teams and API keys are **0 in both**.
+>
+> What the volume tar uniquely holds is **one user row** — `jon@hill90.com`, created by
+> OAuth — and two session tokens. The `admin` user is rebuilt from `GF_SECURITY_ADMIN_*`,
+> which comes from `GRAFANA_ADMIN_PASSWORD` in the encrypted store. So the honest
+> instruction is: **deploy observability normally and let it provision.** The OAuth user
+> reappears at the next sign-in.
+>
+> The restore is still available if you want that user row and the session state back
+> without a login — `bash scripts/backup.sh restore observability /path/to/backup` — but it
+> is a convenience, not a step. Full evidence in
+> [`backup-consistency-options.md`](../decisions/backup-consistency-options.md).
 
 ### 10. Deploy All Services
 
