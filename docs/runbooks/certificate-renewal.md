@@ -132,9 +132,32 @@ below under [Proposed: the alert that would notice](#proposed-the-alert-that-wou
   is good evidence the August renewal will work — not proof, which only Aug 13
   provides.
 
-## Proposed: the alert that would notice
+## The alert that notices — APPLIED
 
-`Specified 2026-07-31. Nothing was enabled — see Scope at the end.`
+> **`Applied 2026-07-31 09:57 UTC`.** These rules are live in
+> `platform/observability/prometheus/alerts.yml`, delivered by the Alertmanager
+> that #617 shipped. The thresholds below are unchanged from the specification —
+> they were argued here and were not re-picked.
+>
+> **Both were proven to fire**, not merely validated: a stub exposing
+> `traefik_tls_certs_not_after` with the real label set
+> (`cn, instance, job, sans, serial`) at 15 and 5 days produced
+> `CertificateExpiringSoon` on both and `CertificateExpiringCritical` on the
+> 5-day one only, and the emails arrived. A third series at 80 days correctly
+> matched neither.
+>
+> Series verified on the live Prometheus first, per #619: 11 series, `cn` present
+> on all of them, and `(value - time())/86400` yielding 42.7–87.8 real days rather
+> than an empty vector.
+>
+> **`CertificateCountDropped` is the exception and is honestly weaker.** Its
+> `offset 1h` comparison cannot be exercised in a short-lived test instance, which
+> has no hour of history. What was verified instead is that both halves evaluate
+> on the live Prometheus — `count(...)` and `count(... offset 1h)` both return 11 —
+> so the rule compares two real numbers rather than silently returning nothing.
+> It has not been observed firing.
+
+`Specified 2026-07-31.`
 
 ### The metric needs nothing turned on
 

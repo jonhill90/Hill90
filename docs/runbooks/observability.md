@@ -149,6 +149,28 @@ as "Do this first" and is not optional — add it to any new rule.
 | PostgresConnectionsHigh | Active connections > 80% of max | warning | Never fired |
 | LokiIngestionErrors | Ingestion error rate > 0 | warning | Never fired |
 | TempoIngestionErrors | Ingestion failure rate > 0 | warning | Fired ~1.3 h with no receiver |
+| **CertificateExpiringSoon** | any cert < 21 days remaining, 1h | warning | **New.** 21 days = nine consecutive failed renewals; thresholds argued in [certificate-renewal.md](certificate-renewal.md) |
+| **CertificateExpiringCritical** | any cert < 10 days remaining, 1h | critical | **New.** ~20 failures; the warning was missed |
+| **CertificateCountDropped** | fewer certs than 1h ago, 2h | warning | **New.** Catches a cert that vanished rather than aged. `for: 2h` so a Traefik restart does not double-report `ServiceDown` |
+| **BackupNotSucceeding** | last success > 26h ago, 15m | warning | **New.** One missed night, fires ~05:00 |
+| **BackupNotSucceedingCritical** | last success > 50h ago, 15m | critical | **New.** Two consecutive nights |
+| **BackupSignalMissing** | metric absent, 6h | warning | **New.** The staleness rules are *silent* when the metric does not exist — this is the rule that notices the alarm was removed |
+
+> **The backup metric comes from a textfile, and it does not exist until one full
+> `backup-all` has run.** `backup.sh` writes
+> `/opt/hill90/metrics/textfile_collector/hill90_backup.prom` at the end of a
+> `backup-all`, and node-exporter serves it via
+> `--collector.textfile.directory` through its existing `/rootfs` mount.
+>
+> **After deploying this, seed it rather than waiting**, or `BackupSignalMissing`
+> fires six hours later and stays firing until 03:00:
+>
+> ```bash
+> cd /opt/hill90/app && SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt \
+>   bash scripts/backup.sh backup-all
+> ```
+>
+> That is a real backup, not a stub — it takes about a minute.
 
 > **`HostMemoryHigh` was called `HighMemoryUsage` and did not watch containers.**
 > cAdvisor exposes 45 cgroup series and **zero Docker containers** —
