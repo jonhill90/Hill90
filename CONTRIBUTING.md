@@ -181,6 +181,50 @@ workflow, on a weekly schedule or manual trigger.
   unless you actually need one.
 - Skip CI or review feedback.
 
+### Verify the Instrument Before You Believe the Verdict
+
+**An instrument that cannot see the thing is not evidence that the thing is absent.**
+Blindness and absence produce identical output — an empty list, a zero, a silent grep —
+and nothing in that output tells you which one you got.
+
+This is not a maxim. It is the single most common defect found on 2026-07-31, and it
+appeared **six times in one day wearing six different coats**:
+
+| The check said | What was actually true |
+|---|---|
+| `strings` on Alertmanager's log: no matches → *"the log is empty"* | **`strings` was not installed.** The command produced nothing because it did not exist. The file was 123 bytes and non-empty. |
+| `/api/v2/alerts`: `0 alerts` → *"nothing has ever fired"* | That endpoint reports **currently active** alerts, and Alertmanager had restarted minutes earlier. It answers "what is firing now", never "what has fired". |
+| `du` over `/var/lib/docker/*/` → *"the directory is empty"* | The glob expanded **as an unprivileged user** against a root-only directory and matched nothing. `sudo` returned 26 GiB. |
+| the tenancy contract: *"`cadvisor` scrapes all containers"* | cAdvisor emits **zero Docker container series** here — 45 cgroup and systemd series, `count(container_memory_usage_bytes{name!=""})` = 0. A documented guarantee resting on a blind instrument. |
+| `amtool check-config`: **SUCCESS** | Every notification then failed at *render* time — `default` is not an Alertmanager template function. A **green verdict** from an instrument that could not see the failure. |
+| an exact-match sweep for `blackbox` → *"container missing"* | The container is named `blackbox-exporter`. It was running the whole time. |
+
+Three more from the tenant the same week: `ls -l` hiding a dotfile read as *"the file is
+absent"*; a `grep` for a compose warning whose quotes were backslash-escaped read as
+*"compose is silent"*; `wc -l` on a mistyped `mc` alias read as *"zero objects"*.
+
+**The defence is a positive control: run the check against a case whose answer you already
+know, and confirm it produces a result, before believing it when it produces none.**
+
+- `check_alert_series.py` earns its trust by independently rediscovering the two rules
+  already known to be unfireable. If it stops finding those, it has gone blind.
+- Before reporting "no objects in the bucket", put one there and see it.
+- Before reporting a container missing, list all of them and read the names.
+- `promtool test` cannot prove a rule can fire — the test author supplies the labels. Only
+  the live series check can. Neither is sufficient alone.
+
+Two habits that cost nothing:
+
+- **Say "not recorded", never "did not happen"**, when the recording only started recently.
+  Keycloak's event log is the standing example: an empty result for a past date means
+  nothing was writing then.
+- **Check the exit code of the thing you meant**, not of the pipeline. `cmd | tail; echo $?`
+  reports `tail`'s status — which read as "the check passed" for a script that exited 1.
+
+The fuller instance-by-instance record, including the checks that were wrong *about the
+alert rules themselves*, is in
+[`docs/decisions/alert-series-verification.md`](docs/decisions/alert-series-verification.md).
+
 ### Manual Workarounds Are a Merge Blocker
 
 If verifying a PR required an ad-hoc manual workaround — `chmod`/`chown`,
