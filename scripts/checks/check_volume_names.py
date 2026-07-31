@@ -13,6 +13,7 @@ Exit codes:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,10 +21,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 # Stateful compose files that must have explicit volume names.
+# Variables declared with ${VAR:?...} in the compose files above. They have no
+# default by design; `compose config` refuses to render without them.
+REQUIRED_PLACEHOLDERS = [
+    "MINIO_ROOT_USER",
+    "MINIO_ROOT_PASSWORD",
+    "MINIO_OIDC_CLIENT_SECRET",
+]
+
 TARGET_FILES = [
     "deploy/compose/prod/docker-compose.infra.yml",
     "deploy/compose/prod/docker-compose.observability.yml",
     "deploy/compose/prod/docker-compose.vault.yml",
+    # Stateful stacks restored as platform services; an unnamed volume here
+    # would silently orphan data on rename.
+    "deploy/compose/prod/docker-compose.db.yml",
+    "deploy/compose/prod/docker-compose.minio.yml",
 ]
 
 
@@ -33,6 +46,13 @@ def check_file(rel_path: str) -> list[str]:
     if not full_path.exists():
         return [f"{rel_path}: file not found"]
 
+    # Credentials that MUST have no default use ${VAR:?...}, which makes
+    # `compose config` fail outright on an unset environment. That guard is
+    # deliberate (an empty MinIO root password silently yields
+    # minioadmin/minioadmin), so supply throwaway values here: this check is
+    # about volume NAMES, not about credentials.
+    env = {**os.environ, **{k: "placeholder" for k in REQUIRED_PLACEHOLDERS}}
+
     try:
         result = subprocess.run(
             ["docker", "compose", "-f", str(full_path), "config", "--format", "json"],
@@ -40,6 +60,7 @@ def check_file(rel_path: str) -> list[str]:
             text=True,
             check=True,
             cwd=ROOT,
+            env=env,
         )
     except FileNotFoundError:
         # docker compose not available — fall back to raw YAML key scan

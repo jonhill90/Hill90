@@ -138,9 +138,26 @@ Keycloak's first boot; editing it later changes nothing while still logging
 "Import finished successfully". Use `scripts/keycloak.sh apply`. See
 [the Keycloak README](../../platform/auth/keycloak/README.md).
 
-## What is not covered
+## MinIO — OIDC yes, SSO no
 
-**MinIO is not deployed.** Issue #530 lists it, but there is no MinIO service in
-this repository — it was removed with the application in #495 and no compose file
-exists. Its SSO is therefore **deferred, not done**, and will be part of whatever
-work deploys MinIO in the first place.
+MinIO is now deployed as a platform service, and its OIDC is wired to Keycloak.
+**MinIO has no SSO login.** That is not a configuration gap:
+
+MinIO removed the management console from the AGPL community build in May 2025.
+On every release from `RELEASE.2025-05-24` onward the console reports
+`loginStrategy: form` with `redirectRules: null` regardless of OIDC settings —
+verified by running the releases side by side against a real Keycloak.
+
+So the MinIO console fallback is the *only* path: `MINIO_ROOT_USER` /
+`MINIO_ROOT_PASSWORD` from SOPS. There is nothing to fall back *from*.
+
+What does work is the S3/STS path: a Keycloak token exchanges for temporary S3
+credentials via `AssumeRoleWithWebIdentity`. See
+[object-store.md](object-store.md). Do not describe that as SSO.
+
+| Service | Fallback | Keycloak login? |
+|---|---|---|
+| Grafana | local `admin` | yes, org-admin mapping |
+| Portainer | local `admin` | yes, promote once |
+| OpenBao | AppRole / root token | yes |
+| MinIO | root credentials (**only** path) | no — S3/STS only |

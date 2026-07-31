@@ -32,6 +32,7 @@ Commands:
 Services with backups:
   db             PostgreSQL SQL dump + data volume tar
   app-db         hill90-app tenant: SQL dump + data volume tar
+  minio          Object store data volume tar
   vault          OpenBao secrets data (volume tar)
   infra          Traefik certificates + Portainer data (volume tar)
   observability  Grafana dashboards + Prometheus data (volume tar)
@@ -287,6 +288,16 @@ backup_observability() {
     backup_volume "prometheus-data" "$backup_dir/prometheus-data.tar.gz" || true
 }
 
+backup_minio() {
+    local backup_dir="$1"
+    mkdir -p "$backup_dir"
+
+    echo "Backing up MinIO object store..."
+    # Volume tar only. `mc mirror` would need working credentials and somewhere
+    # to mirror TO; the volume is the whole store and is what a restore needs.
+    backup_volume "prod_minio-data" "$backup_dir/minio-data.tar.gz" || true
+}
+
 backup_vault() {
     local backup_dir="$1"
     mkdir -p "$backup_dir"
@@ -304,8 +315,8 @@ cmd_backup() {
 
     # Validate service before constructing any paths
     case "$service" in
-        db|app-db|vault|infra|observability) ;;
-        *) die "Unknown service for backup: $service. Use: db, app-db, vault, infra, observability" ;;
+        db|app-db|minio|vault|infra|observability) ;;
+        *) die "Unknown service for backup: $service. Use: db, app-db, minio, vault, infra, observability" ;;
     esac
 
     local timestamp
@@ -315,6 +326,7 @@ cmd_backup() {
     case "$service" in
         db)            backup_db "$backup_dir" ;;
         app-db)        backup_app_db "$backup_dir" ;;
+        minio)         backup_minio "$backup_dir" ;;
         vault)         backup_vault "$backup_dir" ;;
         infra)         backup_infra "$backup_dir" ;;
         observability) backup_observability "$backup_dir" ;;
@@ -338,7 +350,7 @@ cmd_backup_all() {
     # then skip vault, infra and observability entirely. One missing service must
     # not cost the other four their backups — but it must still turn the run red.
     local failed=()
-    for svc in db app-db vault infra observability; do
+    for svc in db app-db minio vault infra observability; do
         if ! ( cmd_backup "$svc" ); then
             failed+=("$svc")
             warn "Backup FAILED for: $svc (continuing with the remaining services)"
