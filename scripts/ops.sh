@@ -29,8 +29,17 @@ EOF
 # ---------------------------------------------------------------------------
 
 cmd_health() {
+    # NOT traefik.hill90.com/ping. That check could never pass: `ping` is not
+    # enabled in platform/edge/traefik.yml.tmpl at all — `traefik healthcheck`
+    # replies "please enable `ping` to use health check" — and the dashboard
+    # router carries auth@file, so the URL returned 401 on every run. A health
+    # check that is permanently red is worse than none: it trains people to skim
+    # past the output, and the next real failure goes with it.
+    #
+    # The public apex proves the thing that matters — Traefik is routing and
+    # terminating TLS — and it is unauthenticated, so a 200 means 200.
     local services=(
-        "https://traefik.hill90.com/ping"
+        "https://hill90.com/"
     )
 
     echo "================================"
@@ -173,6 +182,8 @@ cmd_health() {
         fi
     fi
 
+    check_host_invariants || all_healthy=false
+
     echo ""
     if [ "$all_healthy" = true ]; then
         echo "✓ All services healthy!"
@@ -181,6 +192,115 @@ cmd_health() {
         echo "✗ Some services are unhealthy"
         return 1
     fi
+}
+
+# ---------------------------------------------------------------------------
+# Host invariants: things Config VPS applies and nothing ever re-checked
+# ---------------------------------------------------------------------------
+#
+# WHY THIS EXISTS
+#
+# SSH password authentication was enabled on this host for weeks while the
+# repository, the playbook and docs/architecture/security.md all said it was off.
+# Nothing noticed, because nothing looked. The playbook asserts the value during a
+# bootstrap and then never again, and a bootstrap is a rare event.
+#
+# WHAT MAKES A PROPERTY BELONG HERE
+#
+# Three things together: it is documented in this repository, it is applied by
+# Config VPS, and its failure is SILENT. The last one is the filter. Docker being
+# enabled at boot is documented and applied, but if it regresses every service on
+# the host is down and you will hear about it within minutes — it does not need a
+# checker. These three fail quietly and stay failed:
+#
+#   1. sshd's EFFECTIVE hardening
+#   2. SSH not reachable from the public internet
+#   3. the vault auto-unseal unit still enabled at boot
+#
+# ASSERT THE EFFECTIVE CONFIGURATION, NOT THE FILE
+#
+# `sshd -T` is the post-include, composed configuration the daemon is actually
+# running. The whole point of the original finding is that /etc/ssh/sshd_config
+# said `PasswordAuthentication no` while the daemon did the opposite, because a
+# drop-in read earlier won. Grepping the file, or asserting the drop-in exists,
+# would both have reported healthy throughout. Only `sshd -T` tells the truth.
+check_host_invariants() {
+    echo ""
+    echo "Checking host invariants..."
+
+    local ok=true
+
+    # These need root. deploy has NOPASSWD sudo, so -n succeeds non-interactively;
+    # anywhere else, say the check could not run rather than inventing a verdict.
+    # A check that cannot run must never report the thing it checks as healthy —
+    # nor as broken.
+    if ! sudo -n true 2>/dev/null; then
+        echo "  ⚠ Cannot check host invariants — no non-interactive root."
+        echo "    Run on the VPS as deploy, or with sudo."
+        return 0
+    fi
+
+    # --- 1. sshd effective hardening -------------------------------------
+    local effective
+    effective=$(sudo -n /usr/sbin/sshd -T 2>/dev/null)
+    if [ -z "$effective" ]; then
+        echo "  ⚠ sshd -T produced no output — cannot verify SSH hardening"
+    else
+        local pwauth rootlogin dropin=/etc/ssh/sshd_config.d/00-hill90-hardening.conf
+        pwauth=$(printf '%s\n' "$effective" | awk '/^passwordauthentication /{print $2}')
+        rootlogin=$(printf '%s\n' "$effective" | awk '/^permitrootlogin /{print $2}')
+
+        echo -n "  SSH password authentication... "
+        if [ "$pwauth" = "no" ]; then
+            echo "✓ disabled"
+        elif sudo -n test -f "$dropin"; then
+            # The control is installed and something is overriding it. That is a
+            # REGRESSION — the cloud-init-renames-its-drop-in scenario — and it
+            # is the case this check exists to catch.
+            echo "✗ ENABLED despite the hardening drop-in being present"
+            echo "    Something is read before ${dropin}. Find it with:"
+            echo "      sudo grep -rniE '^[[:space:]]*PasswordAuthentication' /etc/ssh/"
+            ok=false
+        else
+            # Known, accepted, not yet applied. WARN rather than FAIL on purpose:
+            # a check that fails every run on a condition someone has already
+            # decided not to fix yet teaches people to ignore the output, and the
+            # next real failure goes with it. This flips to ✗ by itself the moment
+            # the drop-in is installed, so no one has to remember to change it.
+            echo "⚠ enabled — hardening not applied to this host yet"
+            echo "    Known and accepted; see docs/runbooks/ssh-hardening-drop-in.md"
+        fi
+
+        echo -n "  SSH root login... "
+        if [ "$rootlogin" = "no" ]; then
+            echo "✓ disabled"
+        else
+            echo "✗ permitted (effective: ${rootlogin:-unknown})"
+            ok=false
+        fi
+    fi
+
+    # --- 2. SSH not reachable from the public internet -------------------
+    echo -n "  SSH closed on the public zone... "
+    local pub
+    pub=$(sudo -n firewall-cmd --zone=public --query-service=ssh 2>/dev/null)
+    case "$pub" in
+        no)  echo "✓ closed" ;;
+        yes) echo "✗ OPEN — ssh is served to the public interface"; ok=false ;;
+        *)   echo "⚠ could not query firewalld" ;;
+    esac
+
+    # --- 3. vault auto-unseal still enabled at boot ------------------------
+    echo -n "  Vault auto-unseal unit... "
+    local unit
+    unit=$(systemctl is-enabled hill90-vault-unseal 2>/dev/null)
+    case "$unit" in
+        enabled) echo "✓ enabled" ;;
+        "")      echo "⚠ unit not installed on this host" ;;
+        *)       echo "✗ ${unit} — OpenBao will stay sealed after a reboot"; ok=false ;;
+    esac
+
+    [ "$ok" = true ]
 }
 
 # ---------------------------------------------------------------------------
