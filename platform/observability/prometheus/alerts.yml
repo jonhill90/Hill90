@@ -56,6 +56,31 @@ groups:
             same thing happens after the next reboot.
           runbook: docs/runbooks/vault-unseal.md
 
+      # See the job comment in prometheus.yml for why this is edge scope rather
+      # than tenant-internal monitoring, and docs/decisions/tenant-monitoring-coverage.md
+      # for the boundary argument and what deliberately was NOT added.
+      - alert: TenantApiDown
+        expr: probe_success{job="blackbox-tenant-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "api.hill90.com is not answering from the internet"
+          description: >-
+            The blackbox probe of {{ $labels.instance }} has not received HTTP 200 for
+            over 2 minutes. hill90.com can still return 200 while this is broken — the
+            UI's own /api/health reports service "ui" and does not proxy to the API — so
+            PublicSiteDown will NOT cover this. Signed-in features that call the API are
+            failing for users.
+          action: >-
+            Check the edge first: `docker ps --filter name=traefik`. Then the tenant's
+            container, which is NOT a Prometheus scrape target — `docker ps -a --filter
+            name=app-api` and `docker logs --tail 50 app-api`. Confirm from outside with
+            `curl -s https://api.hill90.com/health`. This is the TENANT's container: the
+            platform can see it is down but cannot fix it, so the tenant's deploy path is
+            where the repair happens.
+          runbook: docs/decisions/tenant-monitoring-coverage.md
+
   - name: service-health
     rules:
       - alert: ServiceDown

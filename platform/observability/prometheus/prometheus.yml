@@ -93,6 +93,37 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox-exporter:9115
 
+  # Is the tenant's API answering on its public hostname?
+  #
+  # EDGE SCOPE, NOT TENANT INTERNALS. This probes a public hostname that this
+  # platform's Traefik routes and holds the certificate for, from outside, with
+  # no credential — exactly the same class of check as blackbox-public above. It
+  # does not scrape the tenant's containers and does not reach inside them. The
+  # boundary argument is written out in
+  # docs/decisions/tenant-monitoring-coverage.md.
+  #
+  # THE PATH IS NOT INCIDENTAL. api.hill90.com/ returns 404 — there is no root
+  # route — so probing `/` would alert permanently. /health returns
+  # {"status":"healthy","service":"api"} unauthenticated. Verified against the
+  # running blackbox-exporter on 2026-07-31: probe_success 1, status 200.
+  #
+  # It is a SHALLOW liveness endpoint: it says the process is up and routed, not
+  # that its database works. Treat a pass as "app-api is reachable", nothing more.
+  - job_name: blackbox-tenant-api
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://api.hill90.com/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
   # Is OpenBao sealed? /v1/sys/health answers 503 when sealed and needs no token.
   # Probed over the INTERNAL network on purpose: vault.hill90.com is behind the
   # edge IP allowlist and returns 403 to anything not on the tailnet, which would
