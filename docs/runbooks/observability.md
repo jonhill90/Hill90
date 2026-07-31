@@ -107,7 +107,7 @@ When investigating an issue, follow this signal hierarchy:
 | Dashboard | Source | Covers |
 |-----------|--------|--------|
 | Node Exporter | Provisioned | CPU, memory, disk, network (host) |
-| cAdvisor | Provisioned | Container CPU, memory, network |
+| cAdvisor | Provisioned | **Little — cAdvisor exposes no Docker containers on this host**, only cgroup and systemd slices. `Verified 2026-07-31` |
 | Traefik | Provisioned | Request rates, latencies, errors |
 | Loki Logs | Provisioned | Log search and exploration |
 
@@ -115,15 +115,36 @@ All dashboards are file-provisioned from `platform/observability/grafana/provisi
 
 ## Alert Rules
 
-Baseline alerts in `platform/observability/prometheus/alerts.yml`:
+> ## ⚠ These rules notify nobody. There is no Alertmanager and no receiver.
+>
+> `Verified 2026-07-31 08:44 UTC`: `/api/v1/alertmanagers` returns
+> `{"activeAlertmanagers":[],"droppedAlertmanagers":[]}`, there is no Alertmanager
+> container, Grafana has **0** alert rules, and the host has no MTA and no `MAILTO`.
+> An alert firing here changes a state inside Prometheus and nothing else.
+>
+> This is not theoretical: **`ServiceDown` fired for at least 48 hours** across
+> `keycloak`, `minio` and `postgres-exporter`, ending 2026-07-26 06:42 UTC, and reached
+> nobody. Read [alerting-audit.md](../decisions/alerting-audit.md) before relying on
+> anything in this table.
 
-| Alert | Condition | Severity |
-|-------|-----------|----------|
-| ServiceDown | Any scrape target down > 5m | critical |
-| HighMemoryUsage | Container memory > 90% of limit | warning |
-| DiskSpaceRunningLow | Root filesystem < 15% free | warning |
-| LokiIngestionErrors | Ingestion error rate > 0 | warning |
-| TempoIngestionErrors | Ingestion failure rate > 0 | warning |
+Baseline alerts in `platform/observability/prometheus/alerts.yml`. All six load with
+`health=ok`; the "Ever fired" column is measured over the 7-day retention window.
+
+| Alert | Condition | Severity | Ever fired? |
+|-------|-----------|----------|-------------|
+| ServiceDown | Any scrape target down > 5m | critical | **Yes** — ≥48 h, 3 targets |
+| HighMemoryUsage | **Host root cgroup** memory > 90% — *not containers, see below* | warning | Never |
+| DiskSpaceRunningLow | Root filesystem < 15% free | warning | Never |
+| PostgresConnectionsHigh | Active connections > 80% of max | warning | Never |
+| LokiIngestionErrors | Ingestion error rate > 0 | warning | Never |
+| TempoIngestionErrors | Ingestion failure rate > 0 | warning | **Yes** — ~1.3 h |
+
+> **`HighMemoryUsage` does not watch containers, despite its name and its annotation.**
+> cAdvisor exposes 45 cgroup series and **zero Docker containers** —
+> `count(container_memory_usage_bytes{name!=""})` is 0, and the only series with a memory
+> limit is `id="/"`, whose limit is total host RAM. The rule therefore evaluates over the
+> host root cgroup alone, and `{{ $labels.name }}` would render empty. The same absence is
+> why the cAdvisor dashboard below shows no per-container data.
 
 ## Backup and Retention
 
