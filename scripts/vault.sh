@@ -42,6 +42,7 @@ Commands:
   backup        Backup OpenBao data volume
   export        Export all KV v2 secrets to stdout (requires BAO_TOKEN)
   auto-unseal         Wait for container + unseal (for systemd/deploy hooks)
+  assert-unsealed     Exit non-zero if OpenBao is deployed but still sealed
   sync-to-sops        Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
   setup-sync-token    Create a read-only sync token and store in SOPS (requires BAO_TOKEN)
   bootstrap-approles  Generate AppRole credentials for all services and store in SOPS
@@ -884,6 +885,38 @@ cmd_auto_unseal() {
     cmd_unseal
 }
 
+# Assert the end state, not the exit code of the attempt.
+#
+# WHY THIS EXISTS: cmd_auto_unseal returns 0 when the container never appears —
+# deliberately, because on a fresh VPS OpenBao is not deployed yet and a failed
+# unit there would be noise. But at BOOT on a live host that is precisely the
+# failure that matters: the unit exits 0, having done nothing, and OpenBao stays
+# sealed with nothing marking it. On a homelab that silence can last days.
+#
+# So the systemd unit runs this afterwards. It separates the two cases the exit
+# code conflates:
+#
+#   container absent    -> 0. Nothing to unseal. Fresh VPS, or vault not deployed.
+#   container + unsealed-> 0. The good path.
+#   container + sealed  -> 1. Loud: the unit goes to `failed` and stays there.
+#
+# `bao status` exits 0 unsealed, 2 sealed, 1 on error — so anything non-zero
+# here is a real problem, and an error is reported as one rather than swallowed.
+cmd_assert_unsealed() {
+    if ! docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
+        echo "OpenBao container '${CONTAINER_NAME}' is not deployed — nothing to assert."
+        return 0
+    fi
+
+    local rc=0
+    bao_exec status >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) success "OpenBao is unsealed." ;;
+        2) die "OpenBao is STILL SEALED after auto-unseal ran. Nothing that depends on Vault will resolve a secret until this is fixed: bash scripts/vault.sh unseal (see docs/runbooks/vault-unseal.md)" ;;
+        *) die "Could not determine OpenBao seal state (bao status exit ${rc}). Treating as failed rather than assuming healthy." ;;
+    esac
+}
+
 # ---------------------------------------------------------------------------
 # Main dispatcher
 # ---------------------------------------------------------------------------
@@ -910,6 +943,7 @@ main() {
         backup)        cmd_backup "$@" ;;
         export)        cmd_export "$@" ;;
         auto-unseal)        cmd_auto_unseal "$@" ;;
+        assert-unsealed)    cmd_assert_unsealed "$@" ;;
         sync-to-sops)       cmd_sync_to_sops "$@" ;;
         setup-sync-token)   cmd_setup_sync_token "$@" ;;
         bootstrap-approles) cmd_bootstrap_approles "$@" ;;

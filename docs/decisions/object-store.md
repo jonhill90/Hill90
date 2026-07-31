@@ -793,6 +793,14 @@ distinguish "no" from "could not ask".
 | `mc ls -r alias/bucket \| wc -l` with a wrong alias | "0 objects" | alias does not exist; the error went to stderr and was not counted |
 | `head -c 40 file \| grep -q 'ENC\['` | "the file is plaintext" | the file was zero bytes. Absence of an encryption marker is not presence of a secret |
 | `grep 'docker compose.*ps' deploy.sh` | "the bug is still there" | it matched the comment explaining the fix |
+| `ls -l platform/edge/dynamic/` | "`.htpasswd` is missing — dashboard auth will break on restart" | `ls -l` does not list dotfiles. The file was there all along. Use `ls -la` |
+| `grep -oE 'VAR:-[0-9]+' \| cut -d- -f3` | "the value is unset" | the name has no hyphen, so `:-120` splits into two fields and `-f3` is empty |
+| `grep -oE 'The "VAR" variable is not set'` | "compose is silent about it" | compose escapes the quotes (`\"VAR\"`); there were 14 warnings |
+
+Two of those are from checks written *while* cataloguing this failure mode, which is the
+point: the reflex to trust a command that returned nothing is very hard to unlearn. The
+rule that actually works is to make the check produce a **positive** result on a known
+input before believing a negative one on an unknown.
 
 The working version of the first one, for the runbook:
 
