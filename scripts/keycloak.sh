@@ -130,6 +130,86 @@ client_uuid() {
 }
 
 # ---------------------------------------------------------------------------
+# Login event storage
+# ---------------------------------------------------------------------------
+
+# How long events are kept, in seconds. 30 days.
+#
+# Chosen, not defaulted. The question this exists to answer — "did this user log
+# in, and when" — is almost always asked about the recent past, and 30 days also
+# covers "was anything used between the leak and the rotation", which is the
+# question this estate actually had to ask twice this week. Longer buys little:
+# beyond a month the answer stops being operational and starts being forensic,
+# and forensics wants the Loki/Grafana pipeline, not a Keycloak table.
+#
+# Storage lands in the PLATFORM Postgres — database `keycloak`, tables
+# `event_entity` and `admin_event_entity` — which every other platform service
+# depends on, so it is bounded on purpose rather than left to grow forever.
+# For scale: the whole `keycloak` database was 13 MB with both tables empty, and
+# an event row is a few hundred bytes. Keycloak expires rows on a periodic task;
+# nothing here needs a cron.
+KC_EVENTS_EXPIRATION="${KC_EVENTS_EXPIRATION:-2592000}"
+
+# The event types worth storing, rather than "all of them".
+#
+# eventsEnabled with an empty enabledEventTypes records EVERY user event,
+# including REFRESH_TOKEN on every token refresh — high volume, and none of it
+# answers the question. This list is the question, written out.
+KC_EVENT_TYPES="${KC_EVENT_TYPES:-LOGIN LOGIN_ERROR LOGOUT LOGOUT_ERROR}"
+
+# Master records logins only. See the comment on cmd_apply's master call.
+KC_MASTER_EVENT_TYPES="${KC_MASTER_EVENT_TYPES:-LOGIN LOGIN_ERROR}"
+
+# Turn on event storage for one realm, idempotently.
+#
+# WHY THIS EXISTS AT ALL: sessions live in Infinispan, not the database, so
+# "who is logged in" and "who has ever logged in" are different questions and
+# only the second one is answerable from the host. With events off, `event_entity`
+# is empty — and an empty `event_entity` is NOT evidence that nobody logged in.
+# More than one session this week has had to say that out loud.
+#
+# admin_events_details is deliberately NOT exposed as an argument. See below.
+ensure_event_logging() {
+    local realm="$1" expiration="$2" admin_events="$3"; shift 3
+    local types="$*"
+
+    # `update events/config` replaces the whole config object, so every field
+    # that should survive has to be named here — omitting one silently reverts
+    # it to the server default rather than leaving it alone.
+    local payload
+    payload=$(python3 -c '
+import json, sys
+realm, expiration, admin_events = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "true"
+print(json.dumps({
+    "eventsEnabled": True,
+    "eventsExpiration": expiration,
+    "enabledEventTypes": sys.argv[4:],
+    "adminEventsEnabled": admin_events,
+    # Details store the full JSON representation of the changed resource in
+    # admin_event_entity.representation (a text column — verified in the live
+    # schema). A client representation carries its `secret`, so switching this
+    # on writes client secrets in plaintext into the platform Postgres, where
+    # they would then be picked up by every database backup. The audit value is
+    # "who changed what and when", which the operation type and resource path
+    # already give. Left off deliberately; do not flip it without a reason that
+    # survives that sentence.
+    "adminEventsDetailsEnabled": False,
+    }))
+' "$realm" "$expiration" "$admin_events" $types)
+
+    # `docker exec -i`, NOT the kc() helper: kc() has no -i, so a payload piped
+    # into `-f -` never reaches kcadm. ensure_client uses the same direct form
+    # for the same reason.
+    echo "$payload" | docker exec -i "$KC_CONTAINER" /opt/keycloak/bin/kcadm.sh \
+        update "events/config" -r "$realm" -f - >/dev/null \
+        || die "Failed to enable event logging on realm '${realm}'"
+
+    local days=$(( expiration / 86400 ))
+    echo "  = ${realm}: login events ON, ${days}d retention, admin events ${admin_events}, details OFF"
+    echo "      types: ${types}"
+}
+
+# ---------------------------------------------------------------------------
 # Realm roles
 # ---------------------------------------------------------------------------
 
@@ -281,6 +361,32 @@ cmd_apply() {
         || die "Cannot resolve MINIO_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
 
     ensure_realm_roles
+
+    echo ""
+    echo "Event logging..."
+    # The tenant realm: user logins. This is the one that answers "has anyone
+    # actually logged in", which nothing on the host could answer before.
+    #
+    # Admin events ON here, because this realm's configuration is supposed to
+    # arrive through this script from git. A change made by hand in the admin
+    # console is exactly the drift nothing else would record, and the resource
+    # path plus operation type is enough to spot it. Details stay off — see
+    # ensure_event_logging.
+    ensure_event_logging "$KC_REALM" "$KC_EVENTS_EXPIRATION" true $KC_EVENT_TYPES
+
+    # MASTER IS A SEPARATE DECISION, not the same one applied twice.
+    #
+    # Master holds no application users, so "did a user log in" is not a question
+    # anyone asks of it. The reason to record here is narrower and concrete: the
+    # master admin credential leaked and was rotated on 2026-07-30, and without a
+    # login record there is no way to answer whether it was used in between. That
+    # question will recur at the next rotation.
+    #
+    # So: logins only, and LOGOUT is dropped — on an admin realm a logout tells
+    # you nothing the login did not. Admin events ON for the same
+    # console-drift reason as above, still without details.
+    ensure_event_logging master "$KC_EVENTS_EXPIRATION" true $KC_MASTER_EVENT_TYPES
+
     echo ""
     echo "Clients..."
 

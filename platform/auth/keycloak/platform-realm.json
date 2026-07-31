@@ -1,6 +1,16 @@
 {
   "realm": "platform",
   "enabled": true,
+  "eventsEnabled": true,
+  "eventsExpiration": 2592000,
+  "enabledEventTypes": [
+    "LOGIN",
+    "LOGIN_ERROR",
+    "LOGOUT",
+    "LOGOUT_ERROR"
+  ],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
   "displayName": "Hill90 Platform",
   "sslRequired": "external",
   "registrationAllowed": false,
