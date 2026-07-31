@@ -22,6 +22,11 @@ volumes:
     name: ${VOLUME_PREFIX_BARE:-}grafana-data
   promtail-positions:
     name: ${VOLUME_PREFIX_BARE:-}promtail-positions
+  # Holds silences and notification-dedup state. Losing it re-sends currently
+  # firing alerts once and drops any active silence; it is not in the nightly
+  # backup set and does not need to be — see docs/reference/backup-coverage.md.
+  alertmanager-data:
+    name: ${VOLUME_PREFIX_BARE:-}alertmanager-data
 
 services:
   prometheus:
@@ -44,6 +49,81 @@ services:
       - "--web.enable-lifecycle"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Alertmanager — the missing half. Prometheus had six rules and no receiver.
+  #
+  # DELIBERATELY NOT PUBLIC. There are no traefik.* labels here, and there must
+  # not be: production Traefik sets no provider `constraints`, so any container
+  # on the socket with traefik.enable=true and a Host rule is live on the public
+  # internet the moment it starts (invariant 3). Alertmanager's UI can silence
+  # alerts with no authentication of its own. Reach it over Tailscale with
+  # `ssh vps -L 9093:localhost:9093` if you need the UI, or add it behind the
+  # same IP-allowlist middleware the other internal services use — deliberately,
+  # not by copying a label block.
+  #
+  # ON `edge` AND NOT ONLY `internal`: hill90_internal is `internal: true`, so a
+  # container attached to it alone has NO EGRESS and cannot resolve or reach
+  # smtp.hostinger.com. An Alertmanager on internal only would start healthy,
+  # accept every alert, and fail every delivery — the exact silent-failure shape
+  # this whole change exists to remove. Verified 2026-07-31 by testing both
+  # networks.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: ${CONTAINER_PREFIX:-}alertmanager
+    restart: unless-stopped
+    mem_limit: 128m
+    # uid stays 65534 (`nobody`, what the image expects and what owns the
+    # alertmanager-data volume); gid becomes the deploy group so the 0640
+    # rendered config is readable. Dropping either half breaks it — a 0600 config
+    # made the container exit with "permission denied" during verification.
+    user: "65534:${SECRETS_GID:-1000}"
+    networks:
+      - edge
+      - internal
+    volumes:
+      # Rendered OUTSIDE the checkout by scripts/render-alertmanager-config.sh
+      # because it carries the SMTP password. See that script's header.
+      - /opt/hill90/secrets/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      # Needed for silences and for links in notifications to be meaningful.
+      - "--web.external-url=http://localhost:9093"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Blackbox exporter — the only honest signal for the top two audit gaps.
+  #
+  # The cheaper options were checked and do not exist here:
+  # traefik_service_server_up has zero series, and the tenant's containers are
+  # not scrape targets, so ServiceDown structurally cannot fire for hill90.com.
+  # See platform/observability/blackbox/blackbox.yml.
+  #
+  # Also on `edge`: probing hill90.com goes out to public DNS and back through
+  # the real edge path, which internal-only cannot do.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.26.0
+    container_name: ${CONTAINER_PREFIX:-}blackbox-exporter
+    restart: unless-stopped
+    mem_limit: 64m
+    networks:
+      - edge
+      - internal
+    volumes:
+      - ../../../platform/observability/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    command:
+      - "--config.file=/etc/blackbox/blackbox.yml"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9115/-/healthy"]
       interval: 30s
       timeout: 10s
       retries: 3

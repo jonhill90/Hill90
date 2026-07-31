@@ -5,6 +5,18 @@ global:
 rule_files:
   - /etc/prometheus/alerts.yml
 
+# WITHOUT THIS BLOCK EVERY RULE ABOVE IS INERT.
+#
+# Until 2026-07-31 this file had rule_files and no alerting section, so
+# /api/v1/alertmanagers returned empty lists and six rules evaluated into
+# nothing. ServiceDown fired for at least 48 hours in the week to 2026-07-26 and
+# reached nobody. Do not remove this block; if Alertmanager is ever retired,
+# remove the rules too rather than leaving them looking like coverage.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: prometheus
     static_configs:
@@ -50,3 +62,52 @@ scrape_configs:
     metrics_path: /minio/v2/metrics/cluster
     static_configs:
       - targets: ['minio:9000']
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
+  - job_name: blackbox-exporter
+    static_configs:
+      - targets: ["blackbox-exporter:9115"]
+
+  # ---------------------------------------------------------------------------
+  # Blackbox probes. The `instance` label ends up being the probed URL, which is
+  # what the alert annotations report — so it must stay readable.
+  # ---------------------------------------------------------------------------
+
+  # Is the public product answering from the internet? The tenant's containers
+  # are not scrape targets, so this is the ONLY signal for hill90.com being down.
+  - job_name: blackbox-public
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://hill90.com/
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Is OpenBao sealed? /v1/sys/health answers 503 when sealed and needs no token.
+  # Probed over the INTERNAL network on purpose: vault.hill90.com is behind the
+  # edge IP allowlist and returns 403 to anything not on the tailnet, which would
+  # make a public probe alert permanently. Verified 2026-07-31.
+  - job_name: blackbox-vault
+    metrics_path: /probe
+    params:
+      module: [vault_health]
+    static_configs:
+      - targets:
+          - http://openbao:8200/v1/sys/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
