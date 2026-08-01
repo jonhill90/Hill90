@@ -99,16 +99,13 @@ more powerful than any SSO identity. Verified against a real token — the realm
 both the ID token and the userinfo response as `realm_access.roles`.
 
 **Portainer Community Edition cannot do this.** Claim-to-team mapping and
-automatic admin rights are Business Edition features. An SSO user is created
-automatically but arrives as a **standard user**, and someone has to promote them
-once, signed in as the local admin:
+automatic admin rights are Business Edition features, so an SSO user authenticates
+and is granted nothing — the login succeeds and the UI is empty. Someone has to
+promote each person once, signed in as the local admin. That is a per-person,
+ongoing step and the main rough edge in this setup.
 
-> Users → *the user* → set Role to Administrator
-
-Equivalently via the API, `PUT /api/users/:id` with `{"Role": 1}` (1 =
-administrator, 2 = standard) — verified against the running 2.39.5 instance.
-
-That is a per-person, one-time step, and it is the main rough edge in this setup.
+Full symptom, cause, click path and version caveat:
+**[portainer-sso-admin.md](portainer-sso-admin.md)**.
 
 **OpenBao** maps the realm `admin` role to the `policy-oidc-admin` policy through
 the `admin-sso` role, configured by `vault.sh setup-oidc`.
