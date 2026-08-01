@@ -155,10 +155,34 @@ revisited deliberately rather than worked around.
 > See
 > [tenant-databases-on-platform-postgres.md](docs/decisions/tenant-databases-on-platform-postgres.md).
 >
-> **The app has NOT been cut over.** It still reads and writes `app-postgres`. The
-> databases on this platform are empty and waiting. The change set that repoints it
-> is written and **not applied** —
-> [app-postgres-cutover-plan.md](docs/decisions/app-postgres-cutover-plan.md).
+> **The cutover HAPPENED on 2026-07-31, and this paragraph said the opposite until
+> it was checked.** It read *"The app has NOT been cut over. It still reads and writes
+> `app-postgres`. The databases on this platform are empty and waiting."* All three
+> clauses are now false, and the section immediately below already recorded the
+> retirement — so this file contradicted itself.
+>
+> `Verified 2026-07-31 12:05 UTC` on the host: `app-api`'s `DATABASE_URL` is
+> `postgresql://hill90_app:…@postgres:5432/hill90_api` — this platform's Postgres,
+> which the container resolves to `172.19.0.9` — and **no `app-postgres` container
+> exists at all**, not even stopped. The three databases the tenant role `hill90_app`
+> owns — `hill90_akm`, `hill90_api`, `hill90_litellm` — are on this instance and are
+> the ones the app reads.
+>
+> **That is the tenant-owned subset, not the instance's database list.** The complete
+> list is stated once, above: six plus templates, the other three (`hill90`, `keycloak`,
+> `postgres`) belonging to the platform role. `keycloak` is load-bearing — it is the
+> platform Keycloak's own store. Enumerating them twice is how two lists drift apart,
+> so this one names an ownership subset and says so.
+>
+> *Instrument note, because this paragraph got it wrong once:* the first version listed
+> four databases as though that were the instance, because the query behind it filtered
+> on `datname LIKE 'hill90%'` and the filter was forgotten by the time it was written up.
+> Query unfiltered — `select datname from pg_database where not datistemplate` — and use
+> `-U hill90`. **`-U postgres` fails with `role "postgres" does not exist`**, so an empty
+> result from that invocation is blindness, not absence.
+>
+> [app-postgres-cutover-plan.md](docs/decisions/app-postgres-cutover-plan.md) is
+> therefore a record of a plan that was carried out, not of pending work.
 
 **This is greenfield, not a migration — with one qualifier that matters.**
 hill90-app reached the VPS for the first time on 2026-07-29. Export, import,
@@ -287,9 +311,11 @@ gh workflow run deploy.yml -f service=all
 - Public: `hill90.com` (the tenant's UI), `auth.hill90.com` (this platform's
   Keycloak, realm `platform`). Tailscale-only: `traefik`, `portainer`,
   `grafana`, `vault`.
-- `app-auth.hill90.com` is the **tenant's** Keycloak, not this one. It is **still
-  running**, but the app no longer authenticates against it: sign-in now goes to
-  `auth.hill90.com`, realm `platform`, on this platform's Keycloak. Retiring
-  `app-auth` is pending local parity, not done.
+- `app-auth.hill90.com` is the **tenant's** Keycloak, not this one, and it is
+  **gone**. `Verified 2026-07-31 12:05 UTC`: no `app-keycloak` container exists and
+  the hostname returns **404**. This entry said *"It is still running … retiring
+  `app-auth` is pending local parity, not done"* — false since 2026-07-30, and
+  contradicted by the retirement recorded earlier in this file. Sign-in goes to
+  `auth.hill90.com`, realm `platform`, on this platform's Keycloak.
 - The deploy user on the VPS is `deploy`; the checkout is `/opt/hill90/app`.
   `/opt/hill90-app` is the tenant's, despite the similar name.
