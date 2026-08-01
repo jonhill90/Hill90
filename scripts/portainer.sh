@@ -11,7 +11,7 @@
 #   * Automatic user provisioning: supported.
 #   * Group/claim -> team mapping and automatic admin rights: BUSINESS ONLY.
 # So an SSO user arrives as a STANDARD user. Granting Portainer admin is a
-# manual, one-time step per person — see docs/runbooks/sso-fallback.md.
+# manual, one-time step per person — see docs/runbooks/portainer-sso-admin.md.
 #
 # THE LOCAL ADMIN LOGIN IS NEVER DISABLED. Portainer's OAuth settings include
 # an "SSO"/hide-internal-auth behaviour; this script leaves internal

@@ -2,6 +2,14 @@
 
 Common issues and solutions for Hill90 VPS infrastructure.
 
+## Portainer accepts my SSO login but shows no environments
+
+Not a misconfiguration and not fixable in Keycloak — Portainer Community Edition
+cannot map claims to permissions, so it authenticates the user and grants nothing.
+Each person must be promoted once by the local admin.
+
+**[portainer-sso-admin.md](portainer-sso-admin.md)**
+
 ## VPS Access Issues
 
 ### Cannot SSH to VPS
