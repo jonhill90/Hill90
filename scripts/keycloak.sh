@@ -35,7 +35,20 @@ VAULT_PUBLIC_URL="${VAULT_PUBLIC_URL:-https://vault.hill90.com}"
 MINIO_PUBLIC_URL="${MINIO_PUBLIC_URL:-https://storage.hill90.com}"
 
 # Realm roles mapped onto each service's own role model.
-REALM_ROLES="admin editor viewer"
+# platform-admin / platform-viewer are the option-B roles (2026-08-01). They are
+# ADDITIVE: admin, user, editor and viewer stay until every consumer is repointed
+# and proven, which is a separate change. Removing a role a consumer still binds
+# on would break that consumer silently — the binding simply stops matching.
+REALM_ROLES="admin editor viewer platform-admin platform-viewer"
+
+# Humans who administer the platform. Granted platform-admin plus the NARROWEST
+# realm-management set that was measured to work — see ensure_platform_admins.
+#
+# This exists because a role granted by hand is lost the next time the realm is
+# rebuilt from nothing, and nothing would say so. That is the same class as the
+# OIDC-client trap #634 guards: the deploy succeeds, the object is absent, and the
+# failure only appears later.
+PLATFORM_ADMIN_USERS="${PLATFORM_ADMIN_USERS:-jon}"
 
 usage() {
     cat <<EOF
@@ -227,6 +240,51 @@ ensure_realm_roles() {
     done
 }
 
+# Grant the platform administrators their roles, idempotently.
+#
+# THE NARROW SET IS NARROW ON PURPOSE, AND IT WAS MEASURED, NOT ASSUMED.
+# realm-admin would work and grants everything. These three were tested against
+# the live admin API on 2026-08-01 and are what actually lets a human administer
+# users and their role assignments:
+#
+#   manage-users   create/edit users, assign and remove their role mappings
+#   view-clients   see clients, which is required to assign CLIENT roles
+#   view-realm     load the realm in the console at all
+#
+# What they deliberately do NOT permit, measured the same way (403 on each):
+# creating realm roles, creating or managing clients, changing realm settings,
+# viewing identity providers, and viewing login events. Widening is a decision,
+# not an oversight — see docs/decisions/stage1-platform-roles.md.
+#
+# ON A FRESH REALM THIS IS A NO-OP, AND IT SAYS SO LOUDLY. platform-realm.json
+# ships ZERO users by design, so after a rebuild there is no `jon` to grant to.
+# The roles are created by ensure_realm_roles regardless; the GRANT waits for the
+# user to exist. A silent skip here would be exactly the drift this function is
+# meant to close, so it warns.
+ensure_platform_admins() {
+    echo "Platform administrators..."
+    local user uuid missing=0
+    for user in $PLATFORM_ADMIN_USERS; do
+        uuid=$(kc get users -r "$KC_REALM" -q "username=${user}" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | head -1)
+        if [ -z "$uuid" ]; then
+            warn "  ! ${user} does not exist in realm '${KC_REALM}' — cannot grant. Create the user, then re-run: bash scripts/keycloak.sh apply"
+            missing=$((missing + 1))
+            continue
+        fi
+        # add-roles is idempotent in kcadm: re-adding an existing mapping is a no-op.
+        kc add-roles -r "$KC_REALM" --uusername "$user" --rolename platform-admin >/dev/null 2>&1 \
+            && echo "  = ${user}: platform-admin" \
+            || warn "  ! ${user}: could not grant platform-admin"
+        local rmrole
+        for rmrole in manage-users view-clients view-realm; do
+            kc add-roles -r "$KC_REALM" --uusername "$user" --cclientid realm-management --rolename "$rmrole" >/dev/null 2>&1 \
+                && echo "  = ${user}: realm-management:${rmrole}" \
+                || warn "  ! ${user}: could not grant realm-management:${rmrole}"
+        done
+    done
+    [ "$missing" -eq 0 ] || warn "  ${missing} administrator(s) not present. On a rebuilt realm this is expected until the accounts are recreated — the realm import ships no users."
+}
+
 # ---------------------------------------------------------------------------
 # Clients
 #
@@ -361,6 +419,7 @@ cmd_apply() {
         || die "Cannot resolve MINIO_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
 
     ensure_realm_roles
+    ensure_platform_admins
 
     echo ""
     echo "Event logging..."
@@ -424,7 +483,7 @@ cmd_apply() {
     echo ""
     echo "  Grant a user access by assigning a realm role:"
     echo "    docker exec ${KC_CONTAINER} /opt/keycloak/bin/kcadm.sh add-roles \\"
-    echo "      -r ${KC_REALM} --uusername <user> --rolename admin"
+    echo "      -r ${KC_REALM} --uusername <user> --rolename platform-admin"
     echo ""
     echo "  Every service keeps its local admin login. If Keycloak is down, see"
     echo "  docs/runbooks/sso-fallback.md."
