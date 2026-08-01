@@ -164,8 +164,22 @@ revisited deliberately rather than worked around.
 > `Verified 2026-07-31 12:05 UTC` on the host: `app-api`'s `DATABASE_URL` is
 > `postgresql://hill90_app:…@postgres:5432/hill90_api` — this platform's Postgres,
 > which the container resolves to `172.19.0.9` — and **no `app-postgres` container
-> exists at all**, not even stopped. The instance holds `hill90`, `hill90_akm`,
-> `hill90_api` and `hill90_litellm`.
+> exists at all**, not even stopped. The three databases the tenant role `hill90_app`
+> owns — `hill90_akm`, `hill90_api`, `hill90_litellm` — are on this instance and are
+> the ones the app reads.
+>
+> **That is the tenant-owned subset, not the instance's database list.** The complete
+> list is stated once, above: six plus templates, the other three (`hill90`, `keycloak`,
+> `postgres`) belonging to the platform role. `keycloak` is load-bearing — it is the
+> platform Keycloak's own store. Enumerating them twice is how two lists drift apart,
+> so this one names an ownership subset and says so.
+>
+> *Instrument note, because this paragraph got it wrong once:* the first version listed
+> four databases as though that were the instance, because the query behind it filtered
+> on `datname LIKE 'hill90%'` and the filter was forgotten by the time it was written up.
+> Query unfiltered — `select datname from pg_database where not datistemplate` — and use
+> `-U hill90`. **`-U postgres` fails with `role "postgres" does not exist`**, so an empty
+> result from that invocation is blindness, not absence.
 >
 > [app-postgres-cutover-plan.md](docs/decisions/app-postgres-cutover-plan.md) is
 > therefore a record of a plan that was carried out, not of pending work.
