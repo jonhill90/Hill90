@@ -198,6 +198,7 @@ appeared **six times in one day wearing six different coats**:
 | the tenancy contract: *"`cadvisor` scrapes all containers"* | cAdvisor emits **zero Docker container series** here — 45 cgroup and systemd series, `count(container_memory_usage_bytes{name!=""})` = 0. A documented guarantee resting on a blind instrument. |
 | `amtool check-config`: **SUCCESS** | Every notification then failed at *render* time — `default` is not an Alertmanager template function. A **green verdict** from an instrument that could not see the failure. |
 | an exact-match sweep for `blackbox` → *"container missing"* | The container is named `blackbox-exporter`. It was running the whole time. |
+| decoding a token from `admin-cli`: no `sub`, no `realm_access` → *"the user has no roles"* | **`admin-cli` issues a LIGHTWEIGHT access token.** The token is valid — it returned `200` from every admin endpoint — because Keycloak resolves permissions server-side from the session, not from claims. Fine for probing permissions; blind for inspecting claims. Use an authorization-code flow through a real client. |
 
 Three more from the tenant the same week: `ls -l` hiding a dotfile read as *"the file is
 absent"*; a `grep` for a compose warning whose quotes were backslash-escaped read as
