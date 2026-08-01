@@ -123,6 +123,41 @@ API key for Hostinger VPS management, used by `scripts/vps.sh` and the
 Cloudflare API token used by Traefik/lego for the ACME DNS-01 challenge. Scoped
 to the `hill90.com` zone with Zone/Zone/Read and Zone/DNS/Edit. Not a Global API Key.
 
+### The tenant's OIDC client secret — why `AUTH_KEYCLOAK_SECRET` is not here
+
+**If you are looking for a Keycloak client secret in this store and cannot find
+one, that is the correct outcome. Do not add one.**
+
+Two different names describe the same credential — the secret for client
+`hill90-ui` in realm `platform` — and only one of them belongs in this
+repository:
+
+| Name | Whose | Where it lives |
+|---|---|---|
+| `HILL90_UI_CLIENT_SECRET` | the platform's | this store, declared in `platform/vault/secrets-schema.yaml` |
+| `AUTH_KEYCLOAK_SECRET` | the **tenant's** | hill90-app's store, never this one |
+
+`AUTH_KEYCLOAK_SECRET` is the name hill90-app uses for its copy, because that is
+what NextAuth expects. A value under that name in *this* store opens nothing: the
+platform reads `HILL90_UI_CLIENT_SECRET`, and nothing here consumes the other
+name. One did exist and was removed in #596 — it was 32 characters against a live
+64-character secret, so anyone who found it and used it would have got
+`unauthorized_client` with nothing explaining why.
+
+**`HILL90_UI_CLIENT_SECRET` itself is declared but currently has no production
+value**, which is deliberate rather than an oversight. `scripts/keycloak.sh
+tenant-clients` never rewrites an existing client's secret, so production is
+unaffected — the live client already exists and its secret is correct. The case
+that depends on this key is a **VPS rebuild**, where the realm is imported for the
+first time, and then it must equal the value hill90-app holds.
+`check_env_surface.py` deliberately allows it no default: a fallback would import
+a *known* secret for the client fronting hill90.com and say nothing.
+
+Ownership is argued in
+[tenant-credential-ownership.md](../decisions/tenant-credential-ownership.md):
+the object lives in the platform's realm, so the platform is authoritative and the
+tenant holds the replica — not the other way around.
+
 ## Best Practices
 
 **RECOMMENDED approaches:**
