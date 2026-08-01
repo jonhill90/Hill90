@@ -155,10 +155,20 @@ revisited deliberately rather than worked around.
 > See
 > [tenant-databases-on-platform-postgres.md](docs/decisions/tenant-databases-on-platform-postgres.md).
 >
-> **The app has NOT been cut over.** It still reads and writes `app-postgres`. The
-> databases on this platform are empty and waiting. The change set that repoints it
-> is written and **not applied** —
-> [app-postgres-cutover-plan.md](docs/decisions/app-postgres-cutover-plan.md).
+> **The cutover HAPPENED on 2026-07-31, and this paragraph said the opposite until
+> it was checked.** It read *"The app has NOT been cut over. It still reads and writes
+> `app-postgres`. The databases on this platform are empty and waiting."* All three
+> clauses are now false, and the section immediately below already recorded the
+> retirement — so this file contradicted itself.
+>
+> `Verified 2026-07-31 12:05 UTC` on the host: `app-api`'s `DATABASE_URL` is
+> `postgresql://hill90_app:…@postgres:5432/hill90_api` — this platform's Postgres,
+> which the container resolves to `172.19.0.9` — and **no `app-postgres` container
+> exists at all**, not even stopped. The instance holds `hill90`, `hill90_akm`,
+> `hill90_api` and `hill90_litellm`.
+>
+> [app-postgres-cutover-plan.md](docs/decisions/app-postgres-cutover-plan.md) is
+> therefore a record of a plan that was carried out, not of pending work.
 
 **This is greenfield, not a migration — with one qualifier that matters.**
 hill90-app reached the VPS for the first time on 2026-07-29. Export, import,
@@ -287,9 +297,11 @@ gh workflow run deploy.yml -f service=all
 - Public: `hill90.com` (the tenant's UI), `auth.hill90.com` (this platform's
   Keycloak, realm `platform`). Tailscale-only: `traefik`, `portainer`,
   `grafana`, `vault`.
-- `app-auth.hill90.com` is the **tenant's** Keycloak, not this one. It is **still
-  running**, but the app no longer authenticates against it: sign-in now goes to
-  `auth.hill90.com`, realm `platform`, on this platform's Keycloak. Retiring
-  `app-auth` is pending local parity, not done.
+- `app-auth.hill90.com` is the **tenant's** Keycloak, not this one, and it is
+  **gone**. `Verified 2026-07-31 12:05 UTC`: no `app-keycloak` container exists and
+  the hostname returns **404**. This entry said *"It is still running … retiring
+  `app-auth` is pending local parity, not done"* — false since 2026-07-30, and
+  contradicted by the retirement recorded earlier in this file. Sign-in goes to
+  `auth.hill90.com`, realm `platform`, on this platform's Keycloak.
 - The deploy user on the VPS is `deploy`; the checkout is `/opt/hill90/app`.
   `/opt/hill90-app` is the tenant's, despite the similar name.
