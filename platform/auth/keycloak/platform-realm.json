@@ -34,6 +34,18 @@
       },
       {
         "name": "admin"
+      },
+      {
+        "name": "platform-admin",
+        "description": "Platform administrator (option B, 2026-08-01)",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "platform-viewer",
+        "description": "Platform read-only (option B, 2026-08-01)",
+        "composite": false,
+        "clientRole": false
       }
     ],
     "client": {
