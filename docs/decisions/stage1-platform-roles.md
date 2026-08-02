@@ -65,10 +65,10 @@ So `manage-users` + `view-clients` + `view-realm` lets Jon **administer people**
 users, assign and remove their realm and client roles — which is what granting somebody
 `platform-admin` requires. It does not let him change the shape of the realm.
 
-**The one gap worth flagging:** he cannot view login events. CLAUDE.md records that event
-storage is on and "did this user log in, and when" is answerable from the host — but not by
-Jon in the console, without `view-events`. **Widening is a decision, not an oversight**, so
-it is recorded rather than taken.
+**That gap was closed on 2026-08-02.** This section recorded that Jon could not view login
+events without `view-events`, and flagged widening as a decision rather than taking it. Jon
+took the decision: `view-events` is now granted and codified in `ensure_platform_admins`.
+The `403` recorded below was true when measured and is no longer.
 
 ## Reproducibility on a rebuild — tested, and half of it is a no-op
 
