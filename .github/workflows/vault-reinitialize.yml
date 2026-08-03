@@ -286,6 +286,18 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup-sync-token'
 
+      # Enable OIDC BEFORE anything can revoke root. This workflow does not itself
+      # revoke — but it used to leave the vault with no OIDC method, and the very
+      # next documented step (bootstrap-approles) revokes when it finishes. That
+      # combination rebuilt an unconfigurable vault on 2026-08-02, which is the
+      # 2026-07-26 failure reached by following the recovery. See
+      # docs/runbooks/openbao-rebuild.md and scripts/checks/check_vault_revoke_order.py.
+      - name: Enable OIDC auth against the platform realm
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup-oidc'
+
       # ---- Prove it, then hand back the secrets ------------------------------
 
       - name: Prove auto-unseal survives a container restart

@@ -90,6 +90,9 @@ jobs:
       - name: Assert every referenced OIDC client is created on the deploy path
         run: python3 scripts/checks/check_oidc_clients_reconciled.py
 
+      - name: Assert no path revokes root before OIDC is enabled
+        run: python3 scripts/checks/check_vault_revoke_order.py
+
       - name: Validate secrets schema consistency
         env:
           SECRETS_SCHEMA_STRICT: "0"
