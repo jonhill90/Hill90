@@ -171,22 +171,25 @@ mc() { MC_HOST_local="$MC_ALIAS_ENV" docker exec -e MC_HOST_local -i "$MINIO_CON
 #   platform-admin  : full control, including the admin API
 #   platform-viewer : read only
 #
-# admin/editor/viewer are the Stage-0 names, kept below because production still
-# has them. They are named after realm roles with ZERO holders, so they are
-# unreachable today — but they are a live over-grant path the moment anyone is
-# granted realm role `admin`. Retiring them is a separate decision; see
-# docs/decisions/minio-stage3-2026-08-03.md.
+# admin/editor/viewer are RETIRED and are now deleted by cmd_apply, not created.
+#
+# They were named after realm roles with zero holders, so they granted nobody —
+# but "unreachable" was contingent, not structural: the moment anyone was granted
+# realm role `admin`, the union rule above would have handed them MinIO's `admin`
+# policy, which is s3:* plus admin:*. Nobody would have requested that; it would
+# simply have arrived with the role. The realm roles are deleted in the same
+# change (keycloak.sh REALM_ROLES_REMOVED), and a policy outliving its role is
+# how the next accidental grant would happen.
+# Stage-0 policy names, retired. Named after realm roles that are deleted in the
+# same change; a policy that outlives its role is a latent over-grant waiting for
+# someone to recreate the role.
+LEGACY_POLICIES="admin editor viewer"
+
 policy_json() {
     case "$1" in
         # s3 and admin actions must be SEPARATE statements: MinIO validates a
         # statement containing any admin: action as admin-only and rejects
         # s3:* inside it with "unsupported admin action 's3:*'".
-        admin)  echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["admin:*"]}]}' ;;
-        editor) echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::*"]}]}' ;;
-        viewer) echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::*"]}]}' ;;
-        # Stage 3. Bodies are byte-identical to admin/viewer above: this is the
-        # SAME privilege level reachable by the roles that actually have holders,
-        # not a new one.
         platform-admin)  echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["admin:*"]}]}' ;;
         platform-viewer) echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::*"]}]}' ;;
         *)      die "Unknown policy: $1" ;;
@@ -205,7 +208,7 @@ cmd_apply() {
     local existing
     existing=$(mc admin policy ls local 2>/dev/null | tr -d '\r' || true)
 
-    for policy in platform-admin platform-viewer admin editor viewer; do
+    for policy in platform-admin platform-viewer; do
         # `mc admin policy create` is an upsert, so this is idempotent either
         # way; the check is only so the output says what changed.
         local verb="+"
@@ -213,6 +216,20 @@ cmd_apply() {
         policy_json "$policy" | mc admin policy create local "$policy" /dev/stdin >/dev/null 2>&1 \
             || die "Failed to create MinIO policy '${policy}'"
         echo "  ${verb} ${policy}"
+    done
+
+    # Delete the retired Stage-0 policies. Deliberately AFTER the creates above,
+    # so a run that removed the old ones and then failed cannot leave MinIO with
+    # neither. `mc admin policy rm` is a no-op-with-error on an absent policy, so
+    # absence is reported rather than treated as a failure.
+    for policy in $LEGACY_POLICIES; do
+        if echo "$existing" | grep -qx "$policy"; then
+            mc admin policy rm local "$policy" >/dev/null 2>&1 \
+                && echo "  - ${policy} deleted (retired)" \
+                || warn "  ! ${policy} could not be deleted — check nothing is attached to it"
+        else
+            echo "  . ${policy} already absent"
+        fi
     done
 
     echo ""
