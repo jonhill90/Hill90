@@ -165,8 +165,12 @@ options, and this is a decision rather than a fix:
    always actually been.
 
 **Not chosen here.** Service is restored, the failure is now loud, and moving credentials
-into a new store during an incident is how incidents get longer. `scripts/checks/vault-approle-paths-test.sh`
-makes the gap visible until it is decided.
+into a new store during an incident is how incidents get longer.
+`scripts/checks/vault-approle-real-read-test.sh` makes the gap visible until it is
+decided. *(This originally named `vault-approle-paths-test.sh`, which asked the
+capability API. It was retired on 2026-08-03 once the real-read check covered every
+property it asserted — and it would have reported this particular gap as FINE, because
+the policies were later applied while the paths still held no data.)*
 
 ## What proves it is over
 
