@@ -61,6 +61,13 @@ ALLOWLIST_A = {
 # --- shape B ---------------------------------------------------------------
 # Steps whose name reads like cleanup/assertion but whose skip-on-failure is correct.
 ALLOWLIST_B = {
+    ("reusable-deploy-service.yml", "Prove Grafana SSO still yields the expected role"): (
+        "a VERIFICATION, not a cleanup. success() is correct here: verifying a "
+        "deploy that did not happen proves nothing and would fail for the wrong "
+        "reason. The rule this check enforces is about CLEANUP — a revoke, a "
+        "restore, an assertion about disposal — which must survive a failed run. "
+        "Matched on the word 'Prove'."
+    ),
     ("vault-regain-root.yml", "Refuse without the typed confirmation"): (
         "the FIRST step of the job — nothing can have failed before it, so the "
         "implicit success() is unreachable. Matched on the word 'Refuse'."
