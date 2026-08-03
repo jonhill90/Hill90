@@ -1,5 +1,14 @@
 name: Vault Reinitialize (Prod)
 
+# ROOT-TOKEN-DISPOSAL: deliberate — this workflow mints a root token and does NOT
+# revoke it, by design. The "What is left to do" summary hands the operator the
+# revoke command and says "Deliberately not automated", because on
+# OpenBao >= 2.5.3 revoking is a one-way door and the whole point of a
+# reinitialise is to leave the vault configurable while its behaviour is checked.
+# Declared here so that scripts/checks/check_root_revoke_fails_closed.py sees a
+# decision rather than an omission — a workflow that simply forgot still fails
+# that check. See #662.
+
 # The whole reinitialize decision as ONE action.
 #
 # docs/decisions/vault-vs-sops.md describes reinitializing as seven ordered
