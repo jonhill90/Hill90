@@ -263,6 +263,80 @@ Two questions that cost nothing and catch most of it:
 - **"Which arm of this test would have changed?"** A check whose passing half passes under
   both the old and new behaviour has told you nothing about the change.
 
+#### A grep is an instrument, and a hit is not a finding
+
+The two sections above are about checks that cannot see and operations that do not
+happen. This is the same lesson from a third angle, and it has a concrete
+conclusion: **searching for a word does not find defects. Asking whether a
+sentence is true does.**
+
+On 2026-08-03 three repositories were swept for "shelved" and "resurrection",
+because the AI agent application had been described as shelved and had in fact
+been serving `hill90.com` as a tenant since 2026-07-29.
+
+| Repository | Files carrying the word | Genuinely wrong | Correct as written |
+|---|---|---|---|
+| `hill90-docs` | 7 | **4** | 3 |
+| `Hill90` | 11 | **8** | 3 |
+| `hill90-app` | 8 | **0** | 8 |
+| **total** | **26** | **12** | **14** |
+
+**Fourteen of twenty-six hits would have been wrong to remove**, and four of those
+fourteen are the corrections *stating the application is not shelved* — deleting
+on match would have restored the original error.
+
+**The two most valuable finds contained no error the search could see.** A live
+runbook cited `RESURRECTION.md` §2 and §6 seven days after that file was deleted;
+an observability runbook said "nothing currently emits traces" while Tempo carried
+108 tag names across five services. Neither is about the word. Both were found by
+checking whether the sentence was true.
+
+##### Already adjudicated — do not re-litigate these
+
+A future reader who greps and finds hits should know these have been read, one by
+one, and judged. Four reasons a hit is correct:
+
+**1. The hit IS the correction.** Removing it restores the error.
+`Hill90`: `README.md`, `CONTRIBUTING.md`, `PRD.md`,
+`docs/decisions/platform-primitives.md` — each now reads "not shelved: it runs in
+production as a tenant". `hill90-app`: `PRD.md`, whose passage opens "This section
+used to say the opposite."
+
+**2. A decision record or a spec that flags itself as historical.**
+`Hill90`: `SPEC.md` (opens "Historical: this specifies the 2026-07-26 app/infra
+strip as planned, not the estate as it stands"),
+`docs/decisions/infra-app-separation.md` (a stub headed "SUPERSEDED by events"
+which states the decision and then that none of it happened),
+`docs/decisions/2026-07-31-handoff.md` (carries the governing rule: *decision
+records preserve, status trackers expire*).
+`hill90-app`: `SPEC.md`, `docs/decisions/infra-app-separation.md`,
+`docs/extraction/PROVENANCE.md`.
+`hill90-docs`: `audits/2026-07-27-hill90-app-docs.md`, headed "Written:
+2026-07-27, before the app-arch lane's work landed" and naming the commit audited.
+
+**3. A different sense of the same word.** `hill90-app`'s `CLAUDE.md`,
+`scripts/deploy.sh`, `deploy/compose/prod/docker-compose.minio.yml` and
+`tests/scripts/retired-stacks.bats` all say "resurrection" about **restarting the
+retired `app-minio` container**, not about the repository split. Three of those
+are live safety machinery: `deploy.sh` refuses that stack and explains why, and a
+bats test asserts the refusal keeps explaining it.
+
+**4. A narrative that resolves in the same breath.** `hill90-docs`:
+`index.mdx` ("Shelved in June 2026, brought back locally on 2026-07-27, and
+deployed to the VPS as a tenant on 2026-07-29") and `homelab/secrets.mdx`, whose
+next clause is "Keycloak is back".
+
+**This section adds hits of its own**, quoting the word to explain it. That is the
+shape in miniature: the file most explicitly telling you these are adjudicated is
+also a file your grep will return.
+
+##### The test to apply instead
+
+> Would a cold reader be **misled**? Not: does the word appear.
+
+A sentence that says "was shelved" and then says what is true now **informs**. One
+that stops at "was shelved" **misinforms**. Twelve stopped.
+
 ### The Other Half: An Operation That Fails and Reports Success
 
 The section above is about a **check** that cannot see. This one is about an
