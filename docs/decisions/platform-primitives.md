@@ -103,9 +103,8 @@ also removed their Prometheus scrape targets, Grafana dashboards and the
 
 ## What this does not change
 
-The application strip itself was correct. The AI agent app lives in
-`hill90-app` and is not coming back into this repository — it was moved out, not
-shelved, and runs there as a tenant of this platform. Removing
+This decision does not bring the application back. The AI agent app lives in
+`hill90-app` and runs against this platform as a tenant. Removing
 `services/api`, `services/ai`, `services/ui`, `services/mcp`,
 `services/knowledge` and `services/agentbox` stands. LiteLLM and the model-router
 were application components and stay gone.

@@ -5,13 +5,10 @@
 ## System Architecture
 
 Hill90 is homelab infrastructure on a single Hostinger VPS running AlmaLinux 10.
-It is not an application host — the AI agent application that once ran here was
-removed in July 2026. It was **not** left shelved: since 2026-07-29 it runs on this
-VPS as a **tenant** of the platform, serving `hill90.com` from
-[hill90-app](https://github.com/jonhill90/hill90-app). See
-[Infra/app separation](../decisions/infra-app-separation.md) for the superseded
-decision and [App tenancy on the VPS](../decisions/app-tenancy-on-the-vps.md) for
-the contract that replaced it.
+It is not an application host: it provides identity, data and storage, and the
+[hill90-app](https://github.com/jonhill90/hill90-app) AI application consumes them
+as a **tenant**, serving `hill90.com`. The contract is
+[App tenancy on the VPS](../decisions/app-tenancy-on-the-vps.md).
 
 ### Components
 
