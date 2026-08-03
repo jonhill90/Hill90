@@ -226,6 +226,78 @@ The fuller instance-by-instance record, including the checks that were wrong *ab
 alert rules themselves*, is in
 [`docs/decisions/alert-series-verification.md`](docs/decisions/alert-series-verification.md).
 
+### The Other Half: An Operation That Fails and Reports Success
+
+The section above is about a **check** that cannot see. This one is about an
+**operation** that does not happen and says it did. Same family, opposite end: there
+the verdict was green because nothing was measured; here the verdict is green because
+nothing was *done*, and the failure is invisible precisely to whoever is watching for it.
+
+**2026-08-03 produced a 43-minute auth outage and a Grafana SSO breakage, and both were
+this.** Five instances were found and closed in one day:
+
+| The thing that "succeeded" | What actually happened |
+|---|---|
+| `vault_load_secrets` on a **403** | Returned success with nothing loaded. Keycloak deployed with `KC_ADMIN_PASSWORD` empty, restart-looped, and took SSO down for 43 minutes. Fixed in #651. |
+| A service with **no declared vault paths** | `return 0` — "loaded nothing, successfully". Every unlisted service took this path on every deploy. `minio` survived only because its compose file writes `${MINIO_ROOT_USER:?}`, a second guard doing the first one's job. Fixed in #655. |
+| **Root-token revoke**, requested with `revoke_root_at_end=true` | Skipped, on exactly the runs that failed. A live root token sat on the production host. The shut-door assertion passed throughout — shutting the door and holding a key are different things. Fixed in #663. |
+| A **pre-up hook that refused** | `render-alertmanager-config.sh` printed `Refusing to render the Alertmanager config` and the deploy went **green, twice**. The Alertmanager config silently stopped being re-rendered for two days. Fixed in #671. |
+| A **partial vault load**, exported anyway | `vault: loaded 1 variables for observability, none empty` — true, and useless. `GRAFANA_OIDC_CLIENT_SECRET` was *absent*, not blank, so the empty-value guard found nothing wrong. Grafana started with an empty OIDC secret. Fixed in #672. |
+
+#### The shell mechanism, plainly
+
+**Four of those five were possible because `set -e` does not apply inside a compound
+command on the left of `||`.** Every vault-first deploy is shaped like this:
+
+```sh
+( load_secrets_and_deploy ) || { fall_back_to_sops; }
+```
+
+Inside those parentheses, `set -e` is **suppressed**. A command that fails does not stop
+the subshell; it prints its error and execution continues to the next line — which is
+usually `docker compose up` with a half-populated environment. Three lines reproduce it:
+
+```sh
+set -e; f() { return 1; }
+( f; echo "still running" ) || echo "fallback"   # -> still running
+( f || exit 1; echo x )     || echo "fallback"   # -> fallback
+```
+
+`exit` is not subject to the suppression. `return`, and a bare call, are.
+
+The same rule has a second face in GitHub Actions. **A custom `if:` on a step does not
+replace the implicit `success()`; it is ANDed with it** unless the expression names
+`always()`, `failure()` or `cancelled()`. So `if: ${{ inputs.revoke_root_at_end }}` runs
+only when nothing has failed — the inverse of what a cleanup step is for.
+
+#### What to do about it
+
+- **Every call inside a `( ... ) || fallback` subshell needs `|| exit 1`.** Not the
+  functions — the call sites. `tests/scripts/pre-up-hook-aborts-control.bats` pins this,
+  and demonstrates the bug and the fix rather than grepping for the fix.
+- **Every cleanup step in a workflow needs `always() &&`**, and an assertion afterwards
+  that it actually happened. `scripts/checks/check_root_revoke_fails_closed.py` simulates
+  a failure at each step and requires the revoke to still be reachable.
+- **"Succeeded" must mean the postcondition holds, not that the command returned.**
+  `loaded N variables, none empty` described what arrived, never what was needed. Assert
+  against a declared requirement — see `vault_required_vars_for_service`.
+- **A guard whose failure is ignored is worse than no guard**, because it reads as
+  coverage in review. If you add one, add the test that proves the caller propagates it.
+- **Distinguish absent from blank.** They need separate checks and produce the identical
+  empty string in a container.
+
+#### Positive controls apply here too, in mirror image
+
+For a blind check you prove it can see. For a silent success you **make the operation fail
+on purpose and confirm something stops.** Both halves of that were done live on
+2026-08-03: `chattr +i` on the Alertmanager output made the pre-up hook fail, and the
+deploy went red where the identical condition had gone green hours earlier.
+
+Reach for the induced failure that the guard is *supposed* to catch, and check you are
+failing for the reason you meant — a first attempt used `chmod 000` on the template, which
+git reported as a modified file, so the deploy would have failed at the checkout preflight
+instead and proved nothing.
+
 ### Manual Workarounds Are a Merge Blocker
 
 If verifying a PR required an ad-hoc manual workaround — `chmod`/`chown`,
