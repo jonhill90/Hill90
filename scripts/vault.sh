@@ -43,7 +43,7 @@ Commands:
   backup        Backup OpenBao data volume
   export        Export all KV v2 secrets to stdout (requires BAO_TOKEN)
   auto-unseal         Wait for container + unseal (for systemd/deploy hooks)
-  assert-unsealed     Exit non-zero if OpenBao is deployed but still sealed
+  assert-unsealed     Exit non-zero if OpenBao is sealed OR not deployed (an assertion)
   sync-to-sops        Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
   setup-sync-token    Create a read-only sync token and store in SOPS (requires BAO_TOKEN)
   bootstrap-approles  Generate AppRole credentials for all services and store in SOPS
@@ -1171,8 +1171,14 @@ cmd_auto_unseal() {
     echo "Auto-unseal: waiting for ${CONTAINER_NAME}..."
     while ! docker container inspect "$CONTAINER_NAME" --format '{{.State.Running}}' 2>/dev/null | grep -q "true"; do
         if [ $waited -ge $max_wait ]; then
-            # Container not running — may not be deployed yet (not an error on fresh VPS)
-            echo "Container ${CONTAINER_NAME} not running after ${max_wait}s — skipping auto-unseal"
+            # BEST EFFORT BY CONTRACT — see the note above cmd_assert_unsealed.
+            # Returning 0 here is deliberate and is NOT the silent-success defect:
+            # the caller is the boot-time systemd unit, and a host without OpenBao
+            # deployed is a legitimate state for it to meet. Say so explicitly so
+            # that a reader does not have to infer intent from a bare `return 0`.
+            echo "auto-unseal: container ${CONTAINER_NAME} not running after ${max_wait}s."
+            echo "auto-unseal: nothing to unseal — this is a NO-OP, not a success."
+            echo "auto-unseal: if you expected it deployed, use: bash scripts/vault.sh assert-unsealed"
             return 0
         fi
         sleep 5
@@ -1229,10 +1235,40 @@ cmd_auto_unseal() {
 #
 # `bao status` exits 0 unsealed, 2 sealed, 1 on error — so anything non-zero
 # here is a real problem, and an error is reported as one rather than swallowed.
+# ---------------------------------------------------------------------------
+# TWO COMMANDS, TWO DELIBERATELY DIFFERENT CONTRACTS ON ABSENCE
+#
+# Both of these meet a missing container, and they must answer differently. The
+# distinction is written here rather than left for a reader to infer from a
+# `return 0`, because inferring it wrongly is what put both on the #674 sweep.
+#
+#   auto-unseal      BEST EFFORT. Returns 0 when the container is absent.
+#                    Its caller is the boot-time systemd unit, which runs on
+#                    every start of a host that may legitimately not have
+#                    OpenBao deployed yet. "Nothing to unseal" is a real and
+#                    correct outcome there, not a failure to report.
+#
+#   assert-unsealed  AN ASSERTION. Returns NON-ZERO when the container is
+#                    absent. An assertion that passes because it could not look
+#                    is the defect this estate spent 2026-08-03 removing: it
+#                    reports the state you wanted rather than the state there is.
+#                    Its only callers are in vault-regain-root.yml, both AFTER a
+#                    deploy, so an absent container there means the deploy did
+#                    not produce one — precisely the thing worth failing on.
+#
+# The rule that separates them: a command that ACTS may no-op on absence; a
+# command that ASSERTS may not.
+# ---------------------------------------------------------------------------
+
 cmd_assert_unsealed() {
     if ! docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-        echo "OpenBao container '${CONTAINER_NAME}' is not deployed — nothing to assert."
-        return 0
+        # Was `return 0` — an assertion passing because it cannot see. See the
+        # contract note above.
+        die "Cannot assert OpenBao is unsealed: container '${CONTAINER_NAME}' is NOT DEPLOYED.
+This is a failure, not a pass. Every caller of this command runs it after a
+deploy that is supposed to have produced the container, so an absent one means
+the deploy did not. Deploy it first: bash scripts/deploy.sh vault prod
+If you want a best-effort check that tolerates absence, that is auto-unseal."
     fi
 
     local rc=0

@@ -221,8 +221,12 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && bash scripts/vault.sh revoke-root'
 
+      # always(), because this reports the location of a LIVE CREDENTIAL. A run
+      # that fails after `init` has minted one leaves it on the host, and that is
+      # exactly the run where the operator most needs to be told where it is.
+      # Gated on the input alone, it was skipped precisely then. See #674.
       - name: Report where the root token is
-        if: ${{ !inputs.revoke_root }}
+        if: ${{ always() && !inputs.revoke_root }}
         run: |
           echo "Root token left at /opt/hill90/secrets/openbao-root.token (0600 deploy:deploy)."
           echo "Run setup / seed / setup-sync-token, then revoke it with:"
