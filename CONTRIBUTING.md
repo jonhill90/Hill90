@@ -368,3 +368,18 @@ the correct expectation to hold about them.
 *(Measured during the 2026-07-26 branch audit, which covered 168 remote branches. That
 audit's inventory is spent — the repository carries 25 today — but this property of the
 tags is not, so it is recorded here rather than left to die with the audit.)*
+
+## Dated claims: state what becomes true, not that the date is coming
+
+A future-tense sentence about a date reads as *not yet due* forever, so it fails silently
+the moment it passes. Worse, a `Verified <timestamp>` on one is misleading **in both
+directions at once**: it certifies when the claim was checked, while the sentence describes
+a moment that has since arrived.
+
+Write `expired 2026-08-01 01:41 UTC; after that it is an untaken decision` rather than
+`expires 2026-08-01 01:41 UTC`. The first is true before **and** after; the second is only
+true before.
+
+Found on 2026-08-03 by sweeping both repos: 2 instances in 107 markdown files, both the same
+`app-minio` retention window. Rare, not systemic — which is why this is a convention and not
+a CI check.
