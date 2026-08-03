@@ -215,6 +215,33 @@ for k, v in data.items():
     }
 }
 
+# What each service must have NON-EMPTY in its environment after a vault load.
+#
+# THIS IS THE HOLE THE EMPTY-VALUE GUARD DOES NOT COVER, and the distinction is
+# the whole point. #651 made vault_load_secrets refuse when a value vault RETURNS
+# is blank. It cannot refuse a variable vault never returns at all — an absent
+# key is not an empty value, it is simply missing, and compose then substitutes
+# the empty string.
+#
+# That is exactly what happened on 2026-08-03: secret/observability/grafana held
+# one key, GRAFANA_OIDC_CLIENT_SECRET was ABSENT rather than blank, and the guard
+# reported "loaded 1 variables for observability, none empty" — true, and
+# useless. Grafana started with an empty OIDC secret and SSO broke.
+#
+# So presence is asserted against a DECLARED list rather than inferred from what
+# arrived. check_vault_covers_compose.py keeps this list honest against the
+# compose files and pre-up hooks, so it cannot silently under-declare.
+vault_required_vars_for_service() {
+    local service="$1"
+    case "$service" in
+        db)            echo "DB_USER DB_PASSWORD" ;;
+        auth)          echo "DB_USER DB_PASSWORD KC_ADMIN_USERNAME KC_ADMIN_PASSWORD VAULT_OIDC_CLIENT_SECRET" ;;
+        infra)         echo "TRAEFIK_ADMIN_PASSWORD_HASH ACME_EMAIL ACME_CA_SERVER CF_DNS_API_TOKEN" ;;
+        observability) echo "GRAFANA_ADMIN_PASSWORD GRAFANA_OIDC_CLIENT_SECRET SMTP_PASSWORD ACME_EMAIL" ;;
+        *)             echo "" ;;
+    esac
+}
+
 vault_paths_for_service() {
     local service="$1"
     case "$service" in
@@ -305,11 +332,33 @@ vault_load_secrets() {
         return 1
     fi
 
+    # THE COMPLETENESS GUARD — presence, not just non-emptiness.
+    #
+    # Checked BEFORE `source`, so a deploy can never proceed on a partial load.
+    # The empty-value guard above asks "is anything vault gave us blank?"; this
+    # asks "did vault give us everything this service needs?". The 2026-08-03
+    # Grafana outage passed the first and would have failed this one.
+    local missing_vars=() required
+    required=$(vault_required_vars_for_service "$service")
+    for key in $required; do
+        if ! grep -qE "^${key}=" "$temp_file"; then
+            missing_vars+=("${key}(absent)")
+        fi
+    done
+
+    if [ ${#missing_vars[@]} -gt 0 ]; then
+        warn "vault: ${service} — OpenBao did not supply: ${missing_vars[*]}"
+        warn "vault: these are declared required for ${service}; deploying now would"
+        warn "vault: substitute the EMPTY STRING for each. Falling back to SOPS."
+        warn "vault: fix by seeding them — see vault_required_vars_for_service in scripts/_common.sh"
+        return 1
+    fi
+
     set -a
     # shellcheck disable=SC1090
     source "$temp_file"
     set +a
-    info "vault: loaded ${count} variables for ${service}, none empty"
+    info "vault: loaded ${count} variables for ${service}, none empty, all ${service} requirements present"
 
     rm -f "$temp_file"
     trap - RETURN

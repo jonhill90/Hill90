@@ -63,11 +63,27 @@ load_and_run() {
   vault_load_secrets "auth" "$ROOT/infra/secrets/prod.enc.env"
 }
 
+# The fixture carries ALL of auth's required variables. It previously carried two
+# of them, which was a healthy load under the empty-value guard alone and is an
+# INCOMPLETE one under the completeness guard added for #665 — a partial load is
+# exactly what that guard exists to refuse. The test's intent is unchanged; the
+# fixture now represents what "healthy" actually means.
 @test "a healthy read still succeeds and exports the values" {
-  make_docker_stub '{"data":{"data":{"KC_ADMIN_USERNAME":"admin","KC_ADMIN_PASSWORD":"realsecret"}}}' 0
+  make_docker_stub '{"data":{"data":{"KC_ADMIN_USERNAME":"admin","KC_ADMIN_PASSWORD":"realsecret","DB_USER":"u","DB_PASSWORD":"p","VAULT_OIDC_CLIENT_SECRET":"s"}}}' 0
   run load_and_run
   [ "$status" -eq 0 ]
   [[ "$output" == *"loaded"*"none empty"* ]]
+}
+
+@test "an INCOMPLETE read is refused and names what OpenBao did not supply" {
+  # The 2026-08-03 shape: nothing blank, something absent.
+  make_docker_stub '{"data":{"data":{"KC_ADMIN_USERNAME":"admin","KC_ADMIN_PASSWORD":"realsecret"}}}' 0
+  run load_and_run
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"did not supply"* ]]
+  [[ "$output" == *"DB_USER(absent)"* ]]
+  [[ "$output" == *"VAULT_OIDC_CLIENT_SECRET(absent)"* ]]
+  [[ "$output" == *"SOPS"* ]]
 }
 
 @test "REFUSES when a value resolves EMPTY — the outage condition" {
