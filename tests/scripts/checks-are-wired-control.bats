@@ -34,7 +34,7 @@ setup() {
   done
   # …and wire the check under test with a minimal stub instead, so it is not an
   # orphan inside the fixture for the wrong reason.
-  printf '%s\n' '@test "stub" { run python3 "$BATS_TEST_DIRNAME/../../scripts/checks/check_checks_are_wired.py"; }' \
+  printf '%s\n' '# wires scripts/checks/check_checks_are_wired.py' \
     > "$CTL/tests/scripts/wired-stub.bats"
   # tests/checks/*.py too. Omitting them made realm-tenant-serves-test.sh and
   # tenant-login-local-test.sh — both invoked by pytest — look orphaned inside
@@ -119,7 +119,10 @@ PY
   cat > "$CTL/tests/scripts/bats-gated-only-control.bats" <<'BATS'
 #!/usr/bin/env bats
 setup() { CHECK="$BATS_TEST_DIRNAME/../../scripts/checks/check_bats_gated_only.py"; }
-@test "runs it" { run python3 "$CHECK"; [ "$status" -eq 0 ]; }
+# exercises scripts/checks/check_bats_gated_only.py — a MENTION is all the
+# classifier needs for a .bats file. A literal ^@test line here was COUNTED by
+# bats as a declaration in this file and never executed, which is exactly what
+# "Executed 480 instead of expected 481 tests" meant on CI.
 BATS
 
   run python3 "$CHECK"
