@@ -28,6 +28,13 @@ Services that declare NO vault paths are skipped: since #655 vault_load_secrets
 returns non-zero for them and the deploy takes the SOPS path, which has
 everything. minio is deliberately in that category.
 
+PRE-UP HOOKS ARE PART OF THE SURFACE, and leaving them out was this check's own
+blind spot. It originally read compose files only. SMTP_PASSWORD never appears in
+a compose file — it reaches Alertmanager through a config rendered by
+render-alertmanager-config.sh — so the check passed green while every vault-path
+observability deploy skipped the render (#669). A hook runs inside the same
+exported environment as compose, so it is the same exposure.
+
 This is the static half of #665. The runtime guard — refusing a deploy whose
 resolved value is empty — is still wanted, because this cannot see a key that is
 present in vault but blank.
@@ -92,6 +99,30 @@ def seeded_keys_by_path() -> dict[str, set[str]]:
     return out
 
 
+def hook_vars(service_compose: Path) -> tuple[str, set[str]]:
+    """The pre-up hook for THIS service, and the $VARS it reads.
+
+    Association is by case ARM, not by proximity. A first attempt searched a
+    fixed window after the compose filename and attributed observability's
+    alertmanager hook to auth, db, minio and vault — four false positives, caught
+    by reading the first red run instead of trusting it. deploy.sh's dispatcher is
+    a `case` whose arms end in `;;`, so the arm is the unit that means "this
+    service", and a hook set in another arm is another service's.
+    """
+    dep = (ROOT / "scripts/deploy.sh").read_text()
+    for arm in dep.split(";;"):
+        if service_compose.name not in arm:
+            continue
+        m = re.search(r'pre_up_hook="([^"]+)"', arm)
+        if not m:
+            continue
+        hook = ROOT / "scripts" / m.group(1)
+        if not hook.exists():
+            return m.group(1), set()
+        return m.group(1), set(re.findall(r"\$\{?([A-Z][A-Z0-9_]{3,})", hook.read_text()))
+    return "", set()
+
+
 def main() -> int:
     secrets = sops_key_names()
     decl = declared()
@@ -104,6 +135,16 @@ def main() -> int:
     for f in sorted(COMPOSE_DIR.glob("docker-compose.*.yml")):
         service = f.stem.replace("docker-compose.", "")
         needed = {v for v in re.findall(r"\$\{([A-Z0-9_]+)", f.read_text()) if v in secrets}
+
+        # The pre-up hook runs in the SAME exported environment as compose, so a
+        # variable it reads is exposed identically. ALERT_EMAIL_TO is excluded
+        # because deploy.sh derives it from ACME_EMAIL, which IS checked.
+        hook_name, hvars = hook_vars(f)
+        hook_needed = {v for v in hvars if v in secrets}
+        if hook_needed:
+            print(f"  ....  {service:<14} pre-up hook {hook_name} reads {', '.join(sorted(hook_needed))}")
+        needed |= hook_needed
+
         if not needed:
             continue
         paths = decl.get(service)
@@ -116,8 +157,11 @@ def main() -> int:
         missing = sorted(needed - have)
         print(f"  {'MISS' if missing else 'ok  '}  {service:<14} needs {len(needed)}, vault carries {len(needed) - len(missing)}")
         for k in missing:
+            # Name the real consumer. A hook variable reported as "needed by the
+            # compose file" sends the reader to the wrong file.
+            where = f"pre-up hook {hook_name}" if k in hook_needed else f.name
             problems.append(
-                f"{service}: {k} is needed by {f.name} and is in SOPS, but no vault path "
+                f"{service}: {k} is needed by {where} and is in SOPS, but no vault path "
                 f"the service declares ({', '.join(paths)}) carries it. The deploy will "
                 f"export it EMPTY and report success."
             )

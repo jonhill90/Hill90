@@ -20,7 +20,7 @@ setup() {
   CTL="$BATS_TEST_TMPDIR/ctl"
   mkdir -p "$CTL/scripts/checks" "$CTL/deploy/compose/prod" "$CTL/infra/secrets"
   cp "$ROOT/scripts/checks/check_vault_covers_compose.py" "$CTL/scripts/checks/"
-  cp "$ROOT/scripts/vault.sh" "$ROOT/scripts/_common.sh" "$CTL/scripts/"
+  cp "$ROOT/scripts/vault.sh" "$ROOT/scripts/_common.sh" "$ROOT/scripts/deploy.sh" "$ROOT/scripts/render-alertmanager-config.sh" "$CTL/scripts/"
   cp "$ROOT"/deploy/compose/prod/docker-compose.*.yml "$CTL/deploy/compose/prod/"
   cp -R "$ROOT/infra/secrets/." "$CTL/infra/secrets/"
   CHECK="$CTL/scripts/checks/check_vault_covers_compose.py"
@@ -78,4 +78,26 @@ PY
   run python3 "$CHECK"
   [ "$status" -eq 1 ]
   [[ "$output" == *"infra"* ]]
+}
+
+# HOOK COVERAGE — this check's own blind spot until #669. SMTP_PASSWORD appears
+# in no compose file; it reaches Alertmanager through a rendered config.
+@test "removing SMTP_PASSWORD from the seed turns it red, naming the hook" {
+  sed -i.bak '/"SMTP_PASSWORD=\$(get_secret SMTP_PASSWORD)"/d' "$CTL/scripts/vault.sh"
+  rm -f "$CTL/scripts/vault.sh".bak*
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"SMTP_PASSWORD"* ]]
+  [[ "$output" == *"pre-up hook render-alertmanager-config.sh"* ]]
+}
+
+# The association must be by CASE ARM. A proximity match attributed the
+# observability hook to auth, db, minio and vault — four false positives.
+@test "the alertmanager hook is attributed to observability only" {
+  run python3 "$CHECK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"observability  pre-up hook render-alertmanager-config.sh"* ]]
+  run bash -c "python3 '$CHECK' | grep -c 'pre-up hook'"
+  [ "$output" -eq 1 ]
 }
