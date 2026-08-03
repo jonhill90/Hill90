@@ -74,6 +74,24 @@ else
     FAIL=1
 fi
 
+# RESTARTING IS THE GAP THAT HID AN OUTAGE.
+#
+# On 2026-08-03 Keycloak crash-looped for 39 minutes while this check reported
+# the baseline intact. A restart-looping container is PRESENT by name — so the
+# name sweep above passes — and it reports NO health status at all, because the
+# healthcheck never gets a chance to run, so `--filter health=unhealthy` does not
+# match it either. Both instruments were blind to it in the same way.
+#
+# `docker ps` lists restarting containers, which is why the name sweep saw it.
+# State is what distinguishes them.
+RESTARTING="$(docker ps --filter status=restarting --format '{{.Names}}')"
+if [ -z "$RESTARTING" ]; then
+    echo "  ✓ 0 restarting"
+else
+    echo "  ✗ RESTARTING (crash loop): $(printf '%s' "$RESTARTING" | tr '\n' ' ')"
+    FAIL=1
+fi
+
 # Informational: a tenant's containers are not part of the baseline, but a
 # tenant that vanished during a platform action is worth seeing immediately.
 TENANT_COUNT=$(printf '%s\n' "$RUNNING" | grep -c '^app-' || true)
