@@ -720,6 +720,7 @@ cmd_seed() {
         KC_ADMIN_PASSWORD
         GRAFANA_OIDC_CLIENT_SECRET
         VAULT_OIDC_CLIENT_SECRET
+        SMTP_PASSWORD
     )
     local missing=()
     local key
@@ -756,10 +757,22 @@ cmd_seed() {
     # which is true and useless: "none empty" describes the keys vault RETURNED,
     # not the keys the compose file NEEDS. Local admin login kept working, so
     # nothing looked wrong.
+    #
+    # SMTP_PASSWORD and ACME_EMAIL are here for the SAME reason one level out:
+    # observability's pre-up hook renders the Alertmanager config and reads both
+    # (ACME_EMAIL via deploy.sh's ALERT_EMAIL_TO fallback). Neither is in any
+    # compose file, so the outage's fix did not cover them and every vault-path
+    # observability deploy has been skipping the render — see #669.
+    #
+    # ACME_EMAIL is seeded rather than a new ALERT_EMAIL_TO key: it already IS
+    # the live recipient (verified against the running config, not assumed), and
+    # a second key holding the same address is a second thing to keep in step.
     echo "Seeding secret/observability/grafana..."
     bao_exec_env kv put secret/observability/grafana \
         "GRAFANA_ADMIN_PASSWORD=$(get_secret GRAFANA_ADMIN_PASSWORD)" \
-        "GRAFANA_OIDC_CLIENT_SECRET=$(get_secret GRAFANA_OIDC_CLIENT_SECRET)"
+        "GRAFANA_OIDC_CLIENT_SECRET=$(get_secret GRAFANA_OIDC_CLIENT_SECRET)" \
+        "SMTP_PASSWORD=$(get_secret SMTP_PASSWORD)" \
+        "ACME_EMAIL=$(get_secret ACME_EMAIL)"
 
     # Seed shared/database and auth/config.
     #
