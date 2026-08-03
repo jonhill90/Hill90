@@ -37,6 +37,11 @@ on:
         required: false
         default: true
         type: boolean
+      run_policy_apply:
+        description: 'Apply platform/vault/policies/*.hcl with the recovered token. Writing a policy needs sys/policy, which only root has — so this is the ONLY pipeline route to it.'
+        required: false
+        default: true
+        type: boolean
       revoke_root_at_end:
         description: 'Revoke the recovered root token when finished. Safe once OIDC is enabled; assert_safe_to_revoke refuses otherwise.'
         required: false
@@ -167,6 +172,27 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup-oidc'
 
+      # POLICIES BEFORE THE WINDOW CLOSES, for the same reason as OIDC above.
+      #
+      # WHY THIS LIVES IN THE BREAK-GLASS WORKFLOW AND NOT A ROUTINE DEPLOY.
+      # Writing a policy is a `sys/policy/*` update, and the only identity on this
+      # vault holding it is root, which is revoked by design. No deploy path calls
+      # policy-apply — `vault.sh setup` does, and setup is a bootstrap. So there
+      # was NO pipeline route to apply a policy at all, which is how the 2026-08-03
+      # AppRole gap stayed live after its fix merged: the .hcl files reached main,
+      # reached the box through the bind mount at docker-compose.vault.yml:68, and
+      # the vault was never told. Merging a policy file applies nothing.
+      #
+      # Duplicating the open/mint/close sequence into a dedicated workflow was the
+      # alternative and is worse: the assertion below that PROVES the door shut
+      # again is the delicate part, and two copies of it is one copy that rots.
+      - name: Apply the AppRole policies
+        if: ${{ inputs.run_policy_apply }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh policy-apply'
+
       # ---- Close the window, and PROVE it closed ------------------------------
 
       - name: Restore the production config
@@ -219,6 +245,18 @@ jobs:
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && bash scripts/checks/vault-approle-login-test.sh'
+
+      # AND THEN THE READ, because the step above only proves authentication.
+      # The 2026-08-03 outage is precisely the state where all four roles log in
+      # and two of them can read nothing: authenticating is not being authorised.
+      # A login test passes clean through that failure, which is why it is not the
+      # gate for a run that just rewrote the policies.
+      - name: PROVE every AppRole can READ its declared paths
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/vault-approle-real-read-test.sh'
 
       - name: Revoke the recovered root token
         if: ${{ inputs.revoke_root_at_end }}
