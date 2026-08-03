@@ -145,9 +145,37 @@ mc_setup() {
 mc() { MC_HOST_local="$MC_ALIAS_ENV" docker exec -e MC_HOST_local -i "$MINIO_CONTAINER" mc "$@"; }
 
 # Realm role -> what it can do in the object store.
-#   admin  : full control, including the admin API
-#   editor : read and write objects
-#   viewer : read only
+#
+# HOW MINIO ACTUALLY RESOLVES THIS — measured 2026-08-03 against
+# RELEASE.2025-09-07T16-13-09Z, not inferred from documentation:
+#
+#   * The claim is a JSON ARRAY of realm role names, because the Keycloak mapper
+#     is a realm-role mapper. jon's is
+#     ['offline_access','platform-admin','uma_authorization','default-roles-platform'].
+#   * A value naming no policy is IGNORED, not an error.
+#   * If NO value names a policy, STS refuses outright:
+#     "None of the given policies (...) are defined, credentials will not be
+#     generated". That is the state production is in today.
+#   * If several values name policies, the grant is their UNION.
+#
+# THE UNION RULE IS THE DANGEROUS PART, and it is why the names below matter.
+# Three of the values in every token — offline_access, uma_authorization and
+# default-roles-platform — are held by EVERY user in the realm. A MinIO policy
+# named after any of them grants that policy to everyone who can log in. This was
+# demonstrated, not theorised: creating policies called uma_authorization and
+# offline_access gave jon list and write purely for being a realm member.
+#
+# So: policies here are named after DELIBERATE roles only. Never name one after a
+# role Keycloak grants automatically.
+#
+#   platform-admin  : full control, including the admin API
+#   platform-viewer : read only
+#
+# admin/editor/viewer are the Stage-0 names, kept below because production still
+# has them. They are named after realm roles with ZERO holders, so they are
+# unreachable today — but they are a live over-grant path the moment anyone is
+# granted realm role `admin`. Retiring them is a separate decision; see
+# docs/decisions/minio-stage3-2026-08-03.md.
 policy_json() {
     case "$1" in
         # s3 and admin actions must be SEPARATE statements: MinIO validates a
@@ -156,6 +184,11 @@ policy_json() {
         admin)  echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["admin:*"]}]}' ;;
         editor) echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::*"]}]}' ;;
         viewer) echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::*"]}]}' ;;
+        # Stage 3. Bodies are byte-identical to admin/viewer above: this is the
+        # SAME privilege level reachable by the roles that actually have holders,
+        # not a new one.
+        platform-admin)  echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::*"]},{"Effect":"Allow","Action":["admin:*"]}]}' ;;
+        platform-viewer) echo '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::*"]}]}' ;;
         *)      die "Unknown policy: $1" ;;
     esac
 }
@@ -172,7 +205,7 @@ cmd_apply() {
     local existing
     existing=$(mc admin policy ls local 2>/dev/null | tr -d '\r' || true)
 
-    for policy in admin editor viewer; do
+    for policy in platform-admin platform-viewer admin editor viewer; do
         # `mc admin policy create` is an upsert, so this is idempotent either
         # way; the check is only so the output says what changed.
         local verb="+"
@@ -185,9 +218,10 @@ cmd_apply() {
     echo ""
     success "Policies provisioned."
     echo ""
-    echo "  A Keycloak user with realm role 'admin' now receives the MinIO"
-    echo "  'admin' policy when exchanging a token via"
-    echo "  AssumeRoleWithWebIdentity."
+    echo "  A Keycloak user with realm role 'platform-admin' now receives the"
+    echo "  MinIO 'platform-admin' policy when exchanging a token via"
+    echo "  AssumeRoleWithWebIdentity. Verify with:"
+    echo "    bash scripts/checks/minio-policy-names-test.sh"
     echo ""
     echo "  This is the S3/STS path only. MinIO's console has no SSO login in"
     echo "  the AGPL build — see docs/runbooks/object-store.md."

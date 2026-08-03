@@ -232,7 +232,23 @@ vault_load_secrets() {
 
     local paths
     paths=$(vault_paths_for_service "$service")
-    [ -z "$paths" ] && return 0
+    # NO DECLARED PATHS IS NOT A SUCCESSFUL LOAD.
+    #
+    # This used to `return 0`, which is the same silent-empty bug that took auth
+    # down on 2026-08-03, one level up: the caller's vault branch then continued
+    # to `docker compose` with an entirely empty environment. Every service not
+    # listed in vault_paths_for_service — minio, ui, and anything added later —
+    # takes this path on every single deploy.
+    #
+    # minio survived it only because docker-compose.minio.yml writes
+    # `${MINIO_ROOT_USER:?...}`, so compose failed and tripped the fallback. That
+    # is a second guard doing the first guard's job, and not every compose file
+    # has one. Fail here instead: vault holds nothing for this service, so SOPS
+    # is the correct source and the fallback is the correct route to it.
+    if [ -z "$paths" ]; then
+        info "vault: ${service} declares no vault paths — using SOPS"
+        return 1
+    fi
 
     local token
     token=$(vault_login "$service" "$secrets_file") || return 1

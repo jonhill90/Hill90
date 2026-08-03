@@ -77,6 +77,22 @@ services:
       # MinIO reads the policy to grant from this claim. keycloak.sh adds a
       # mapper that emits it; a token without it gets no access rather than
       # broad access.
+      #
+      # THE EMPTY CASE WAS NEVER THE PROBLEM. The mapper is a REALM-ROLE mapper,
+      # so this claim arrives populated with role names, not a policy name —
+      # measured 2026-08-03 on RELEASE.2025-09-07T16-13-09Z:
+      #
+      #   values naming no policy   -> ignored
+      #   nothing matches at all    -> STS refuses, "None of the given policies
+      #                                (...) are defined"
+      #   several match             -> the grant is their UNION
+      #
+      # The union rule is the sharp edge: every token also carries
+      # offline_access, uma_authorization and default-roles-platform, which every
+      # realm account holds. A MinIO policy named after one of those is granted
+      # to everybody who can log in. scripts/checks/minio-policy-names-test.sh
+      # fails on exactly that collision. See
+      # docs/decisions/minio-stage3-2026-08-03.md.
       - MINIO_IDENTITY_OPENID_CLAIM_NAME=${MINIO_OIDC_CLAIM_NAME:-minio_policy}
       - MINIO_IDENTITY_OPENID_REDIRECT_URI=${MINIO_PUBLIC_URL:-https://storage.hill90.com}/oauth_callback
     healthcheck:
