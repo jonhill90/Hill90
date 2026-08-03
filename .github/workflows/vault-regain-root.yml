@@ -42,6 +42,11 @@ on:
         required: false
         default: true
         type: boolean
+      run_seed:
+        description: 'Seed KV v2 from SOPS with the recovered token. Writing a secret needs root like policy-apply does, so this is the only pipeline route to it. Idempotent: kv put overwrites a path with the same values, creating a new version.'
+        required: false
+        default: false
+        type: boolean
       revoke_root_at_end:
         description: 'Revoke the recovered root token when finished. Safe once OIDC is enabled; assert_safe_to_revoke refuses otherwise.'
         required: false
@@ -192,6 +197,33 @@ jobs:
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh policy-apply'
+
+      # SEEDING NEEDS ROOT FOR THE SAME REASON POLICY-APPLY DOES, so it has the
+      # same problem: no deploy path calls it, `vault.sh setup` is a bootstrap,
+      # and the only identity that can write a secret is the one this window
+      # mints. A policy without data is exactly as inert as data without a
+      # policy — #661 is the second half of #660.
+      #
+      # Off by default. Policies are declarative and re-applying them is a no-op;
+      # seeding writes credentials and creates a new KV version each time, so it
+      # is something to ask for rather than something to get by default.
+      - name: Seed KV v2 from SOPS
+        if: ${{ inputs.run_seed }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh seed'
+
+      # The name-only comparison #650 asks for, run while a token still exists.
+      # It CANNOT run outside this window: an unauthenticated bao read returns
+      # empty, and empty from a missing token looks exactly like empty from a
+      # missing secret — which is the confusion that hid this defect for months.
+      - name: Compare vault against SOPS by name
+        if: ${{ always() && inputs.run_seed }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/checks/vault-sops-name-parity.sh'
 
       # ---- Close the window, and PROVE it closed ------------------------------
 
