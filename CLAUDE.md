@@ -109,15 +109,29 @@ an Entra analogy — you do not create a second tenant for one organisation; one
 directory, controlled with roles and groups. An earlier version of this file said
 *"one Keycloak does not mean one realm"*; that was wrong.
 
-**The realm-role collision is resolved in fact, and that is now evidence rather
-than design intent.** It was the whole justification for choosing client roles, so
-state it plainly: in realm `platform`, the realm role `admin` exists and **has zero
-holders**, as do `user`, `editor` and `viewer`. `jon`, `hill90admin` and
-`testuser01` hold only `default-roles-platform` as a realm role. Their app
-permissions are client roles — `jon` = `hill90-ui:admin,user`, `hill90admin` =
-`hill90-ui:admin`, `testuser01` = `hill90-ui:user`. **The Grafana Admin and OpenBao
-grant that hangs off the realm `admin` role is therefore unreachable by any app
-user.** Measured, not asserted.
+**The realm-role collision is resolved by deletion, not merely by nobody holding
+the roles.** It was the whole justification for choosing client roles, so state it
+plainly. `Verified 2026-08-03`:
+
+- **The realm roles `admin`, `user`, `editor` and `viewer` no longer exist.** They
+  were deleted in #670 after every consumer was repointed. The realm now carries
+  `platform-admin`, `platform-editor`, `platform-viewer` and Keycloak's own
+  `default-roles-platform`, `offline_access` and `uma_authorization`.
+- **App permissions are client roles on `hill90-ui`** — `jon` =
+  `hill90-ui:admin,user`, `hill90admin` = `hill90-ui:admin`, `testuser01` =
+  `hill90-ui:user`. Unchanged, and untouched by the deletion: the client roles
+  share two names with the deleted realm roles and are different objects.
+- **Realm roles held:** `jon` has `platform-admin`; `hill90admin` and `testuser01`
+  have none beyond the three Keycloak grants everyone gets.
+
+**This paragraph previously said those four roles "exist and have zero holders",
+that all three accounts "hold only `default-roles-platform`", and that the Grafana
+and OpenBao grants "hang off the realm `admin` role".** All three were true when
+written and all three are now false — `jon` holds `platform-admin`, and Grafana's
+`role_attribute_path` and OpenBao's `admin-sso` bound claim were repointed to
+`platform-admin` in #637 and #667 before the old roles were removed. The
+zero-holder argument is superseded by a stronger one: a role that does not exist
+cannot be granted by accident.
 
 > **Two caveats that the good news must not bury.**
 >
