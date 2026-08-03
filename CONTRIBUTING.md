@@ -245,3 +245,17 @@ fix, and pick one of:
   follow-up issue immediately and link it in the PR body.
 - **Merge now** — permitted only when the supposed workaround turned out to be
   unnecessary, or the durable fix is already in the PR.
+
+## What the archive tags preserve, and what they do not
+
+`archive/app-stack-final` points at `f03f12d`, which **is an ancestor of `main`**. It
+preserves the state of the mainline immediately before the strip — it does not preserve
+anything that never reached the mainline. `hill90-app` was extracted from that same
+commit, so it carries the identical blind spot.
+
+**Both archives are complete for *merged* work and empty for *unmerged* work.** That is
+the correct expectation to hold about them.
+
+*(Measured during the 2026-07-26 branch audit, which covered 168 remote branches. That
+audit's inventory is spent — the repository carries 25 today — but this property of the
+tags is not, so it is recorded here rather than left to die with the audit.)*
