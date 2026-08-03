@@ -757,6 +757,22 @@ cmd_bootstrap_approles() {
         die "No unseal key found. Required to generate root token."
     fi
 
+    # USE AN EXISTING ROOT TOKEN IF ONE IS ALREADY IN HAND.
+    #
+    # This function used to jump straight to generate-root, and on OpenBao >= 2.5.3
+    # that is a dead end: the unauthenticated root-generation endpoints are disabled
+    # by default, so `generate-root -init` returns 403 and this died at
+    # "Generating temporary root token..." with the error swallowed. That made the
+    # documented REPAIR path unusable on exactly the vault it was meant to repair —
+    # measured 2026-08-02, immediately after a reinitialise that had left a perfectly
+    # good root token on the host.
+    #
+    # So: if BAO_TOKEN is set and works, use it. Only fall back to generate-root when
+    # there is nothing else, and say so rather than failing opaquely.
+    if [ -n "${BAO_TOKEN:-}" ] && bao_exec_env token lookup >/dev/null 2>&1; then
+        info "Using the existing BAO_TOKEN — no root generation needed"
+    else
+
     # Generate a temporary root token (cancel any stale attempt first)
     echo "Generating temporary root token..."
     bao_exec operator generate-root -cancel >/dev/null 2>&1 || true
@@ -772,12 +788,18 @@ cmd_bootstrap_approles() {
     root_token=$(bao_exec operator generate-root -decode="$encoded" -otp="$otp" 2>/dev/null)
 
     if [ -z "$root_token" ]; then
-        die "Failed to generate root token"
+        die "Failed to generate root token. On OpenBao >= 2.5.3 the unauthenticated
+root-generation endpoints are disabled by default, so this cannot mint one. Supply an
+existing root token instead:
+
+  export BAO_TOKEN=\"\$(sudo cat /opt/hill90/secrets/openbao-root.token)\"
+  bash scripts/vault.sh bootstrap-approles"
     fi
     info "Root token generated"
 
     # Export for bao_exec_env
     export BAO_TOKEN="$root_token"
+    fi
 
     # Run setup (idempotent — creates AppRoles, policies, KV engine)
     echo ""
