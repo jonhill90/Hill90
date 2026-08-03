@@ -22,3 +22,59 @@
     - http
     - https
     - ssh
+
+# ---------------------------------------------------------------------------
+# Services the BASE IMAGE opened that this estate does not want
+# ---------------------------------------------------------------------------
+#
+# The AlmaLinux cloud image ships `cockpit` enabled in the public zone. Nothing
+# in this repository asked for it, and 04-ssh-lockdown.yml later removes `ssh`
+# from public — so on a configured host the public zone should carry http and
+# https only.
+#
+# Measured on the running host 2026-08-03:
+#
+#   public (default, active)
+#     services: cockpit dhcpv6-client http https
+#
+# cockpit is a ROOT-CAPABLE WEB ADMIN CONSOLE on 9090. It is currently inert
+# here — `cockpit.socket` is inactive and not-enabled, and nothing listens on
+# 9090 — so this is not an open door today. It is an open doorway waiting for a
+# door: anything that starts the socket, including a package update or a future
+# playbook, becomes immediately reachable from the public internet with no
+# further change. Removing the firewall permission means starting the service is
+# no longer sufficient to expose it.
+#
+# This is deliberately NOT bundled with a claim that it was exploitable. It was
+# not. It is removed because an allowance nobody asked for should not outlive the
+# reason it was never noticed.
+- name: Remove base-image services this estate does not serve publicly
+  firewalld:
+    service: "{{ item }}"
+    permanent: yes
+    state: disabled
+    immediate: yes
+  loop:
+    - cockpit
+  failed_when: false   # absent on images that never shipped it; not an error
+
+- name: Read the effective public zone
+  command: firewall-cmd --zone=public --list-services
+  register: fw_public
+  changed_when: false
+
+# The assertion that would have caught this. A firewall rule nobody reads is the
+# same class as a config file nobody reads: 04-ssh-lockdown.yml exists precisely
+# because `sshd_config` said one thing and `sshd -T` said another.
+- name: Assert the public zone carries only what this estate serves
+  assert:
+    that:
+      - "'cockpit' not in fw_public.stdout"
+    fail_msg: |
+      The public firewall zone still permits cockpit, a root-capable web admin
+      console on 9090, reachable from the internet.
+
+      Effective public services: {{ fw_public.stdout }}
+
+      Inspect with: sudo firewall-cmd --zone=public --list-all
+    success_msg: "Public zone verified: cockpit is not permitted ({{ fw_public.stdout }})"
