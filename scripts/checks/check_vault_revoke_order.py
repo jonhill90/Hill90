@@ -51,8 +51,48 @@ VAULT_SH = ROOT / "scripts/vault.sh"
 # counting it produced two false positives on the first draft — a check that cries
 # wolf gets ignored, which is the failure mode this whole file exists to prevent.
 VERB = re.compile(r"bash\s+scripts/vault\.sh\s+([a-z][a-z0-9-]*)")
+
+# Verbs that REVOKE the root token. `revoke-root` is the obvious one;
+# `bootstrap-approles` revokes on its way out — read it in scripts/vault.sh:
+# cmd_bootstrap_approles ends with `assert_safe_to_revoke` then
+# `token revoke -self`. It was omitted here, so a workflow that ran
+# bootstrap-approles before setup-oidc passed this check while being exactly the
+# sequence that closed the door in #643. Nothing invokes it from a workflow today;
+# that is the reason to encode it now rather than after something does.
+REVOKING_VERBS = ("revoke-root", "bootstrap-approles")
 ECHOED = re.compile(r"^\s*echo\b")
 STEP = re.compile(r"^\s*-\s+name:\s*(.+?)\s*$")
+# Job boundaries. GitHub jobs are INDEPENDENT unless chained with `needs:`, so
+# `setup-oidc` in one job does not protect a revoke in another.
+JOBS_KEY = re.compile(r"^jobs:\s*$")
+JOB_NAME = re.compile(r"^  ([A-Za-z0-9_.\-]+):\s*$")
+
+
+def split_jobs(text: str):
+    """[(job_name, job_text)] — or one ("<file>", text) segment if `jobs:` is absent.
+
+    WHY THIS EXISTS. The check used to carry `seen_oidc` across the WHOLE FILE, so
+    a workflow with `setup-oidc` in job A and `revoke-root` in job B passed —
+    verified 2026-08-03 with a two-job fixture that the check happily accepted.
+    Job B can run with OIDC never having been enabled, which is precisely the path
+    this file exists to forbid, and the docstring already claimed it reasoned
+    about paths. It did not."""
+    lines = text.splitlines()
+    start = next((i for i, l in enumerate(lines) if JOBS_KEY.match(l)), None)
+    if start is None:
+        return [("<file>", text)]
+    jobs, name, buf = [], None, []
+    for line in lines[start + 1:]:
+        m = JOB_NAME.match(line)
+        if m:
+            if name is not None:
+                jobs.append((name, "\n".join(buf)))
+            name, buf = m.group(1), []
+        else:
+            buf.append(line)
+    if name is not None:
+        jobs.append((name, "\n".join(buf)))
+    return jobs or [("<file>", text)]
 
 
 def steps_with_verbs(text: str):
@@ -75,19 +115,21 @@ def steps_with_verbs(text: str):
 
 def check_workflow(path: Path) -> list[str]:
     problems = []
-    steps = steps_with_verbs(path.read_text(encoding="utf-8"))
-    seen_oidc = False
-    for name, verbs in steps:
-        for v in verbs:
-            if v == "setup-oidc":
-                seen_oidc = True
-            elif v == "revoke-root" and not seen_oidc:
-                problems.append(
-                    f"{path.name}: step {name!r} can reach `vault.sh revoke-root` "
-                    f"with the OIDC auth method not yet enabled — no `setup-oidc` "
-                    f"runs before it in this job. Undoing that needs a full "
-                    f"root-recovery run (vault-regain-root.yml)."
-                )
+    for job, job_text in split_jobs(path.read_text(encoding="utf-8")):
+        # Reset per JOB, not per file: jobs run independently.
+        seen_oidc = False
+        for name, verbs in steps_with_verbs(job_text):
+            for v in verbs:
+                if v == "setup-oidc":
+                    seen_oidc = True
+                elif v in REVOKING_VERBS and not seen_oidc:
+                    problems.append(
+                        f"{path.name}: job {job!r}, step {name!r} can reach "
+                        f"`vault.sh {v}` — which revokes root — with the OIDC auth "
+                        f"method not yet enabled; no `setup-oidc` runs before it in "
+                        f"THIS job. Undoing that needs a full root-recovery run "
+                        f"(vault-regain-root.yml)."
+                    )
     return problems
 
 
@@ -129,9 +171,10 @@ def main() -> int:
     problems += check_script()
 
     for wf in wfs:
-        verbs = [v for _, vs in steps_with_verbs(wf.read_text(encoding="utf-8")) for v in vs]
-        if verbs:
-            print(f"  {wf.name}: {' -> '.join(verbs)}")
+        for job, job_text in split_jobs(wf.read_text(encoding="utf-8")):
+            verbs = [v for _, vs in steps_with_verbs(job_text) for v in vs]
+            if verbs:
+                print(f"  {wf.name} [{job}]: {' -> '.join(verbs)}")
 
     if problems:
         print("\nFAIL — a revoke can precede OIDC being enabled:\n", file=sys.stderr)
