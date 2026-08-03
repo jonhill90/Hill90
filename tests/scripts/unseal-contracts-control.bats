@@ -25,15 +25,42 @@ setup() {
   ABSENT="hill90-definitely-absent-$$"
 }
 
+# EVERY command that could wait runs through this.
+#
+# The first version of this file set VAULT_AUTO_UNSEAL_MAX_WAIT, which vault.sh
+# does not read — it reads VAULT_AUTO_UNSEAL_TIMEOUT, default 120. So the
+# auto-unseal test waited the full two minutes instead of one second. It did not
+# hang forever, but it outlasted anyone watching it, and a test that neither
+# passes nor fails within a human's patience teaches nothing — which is the
+# family this whole change is closing.
+#
+# A wrong variable name must now produce a FAILURE, not a wait. `timeout` returns
+# 124 when it fires, and that is asserted explicitly rather than left to look
+# like any other non-zero status.
+bounded() {  # bounded <seconds> <command...>
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$secs" "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$secs" "$@"
+  else
+    # perl is present on every platform this repo runs on, and alarm(2) is a
+    # hard bound rather than a cooperative one.
+    perl -e 'alarm shift; exec @ARGV' "$secs" "$@"
+  fi
+}
+
 @test "assert-unsealed FAILS when the container is absent" {
-  run env VAULT_CONTAINER="$ABSENT" bash "$ROOT/scripts/vault.sh" assert-unsealed
+  run bounded 20 env VAULT_CONTAINER="$ABSENT" bash "$ROOT/scripts/vault.sh" assert-unsealed
+  [ "$status" -ne 124 ]   # 124 = timed out, i.e. it waited instead of asserting
   [ "$status" -ne 0 ]
   [[ "$output" == *"NOT DEPLOYED"* ]]
   [[ "$output" == *"failure, not a pass"* ]]
 }
 
 @test "assert-unsealed names the alternative rather than just refusing" {
-  run env VAULT_CONTAINER="$ABSENT" bash "$ROOT/scripts/vault.sh" assert-unsealed
+  run bounded 20 env VAULT_CONTAINER="$ABSENT" bash "$ROOT/scripts/vault.sh" assert-unsealed
+  [ "$status" -ne 124 ]
   [ "$status" -ne 0 ]
   # The next person should not have to work out what to run instead.
   [[ "$output" == *"deploy.sh vault prod"* ]]
@@ -53,8 +80,11 @@ setup() {
 }
 
 @test "auto-unseal returns 0 on absence — deliberate, and says it is a NO-OP" {
-  run env VAULT_CONTAINER="$ABSENT" VAULT_AUTO_UNSEAL_MAX_WAIT=1 \
+  # VAULT_AUTO_UNSEAL_TIMEOUT — the name vault.sh actually reads. Bounded well
+  # above it so a future rename fails here instead of stalling the suite.
+  run bounded 30 env VAULT_CONTAINER="$ABSENT" VAULT_AUTO_UNSEAL_TIMEOUT=1 \
       bash "$ROOT/scripts/vault.sh" auto-unseal
+  [ "$status" -ne 124 ]
   [ "$status" -eq 0 ]
   [[ "$output" == *"NO-OP, not a success"* ]]
   [[ "$output" == *"assert-unsealed"* ]]
@@ -94,4 +124,18 @@ d=yaml.safe_load(open('$ROOT/.github/workflows/vault-regain-root.yml'))
 s=[x for x in d['jobs']['regain']['steps'] if x.get('name')=='Confirm OIDC survived the config swap'][0]
 print(s['if'])"
   [[ "$output" == *"always()"* ]]
+}
+
+# THE CLASS, guarded. Three times now I have set an environment variable that the
+# script under test does not read — TRAEFIK_CONFIG for TRAEFIK_CONFIG_OUTPUT, and
+# VAULT_AUTO_UNSEAL_MAX_WAIT for VAULT_AUTO_UNSEAL_TIMEOUT. Both produced a test
+# that exercised the DEFAULT rather than the fixture: one passed for the wrong
+# reason, one waited two minutes. A name nothing reads is a silent no-op.
+@test "every VAULT_/TRAEFIK_ variable this file sets is actually read by a script" {
+  local unread=""
+  for v in $(grep -oE '\b(VAULT|TRAEFIK|ALERT|ALERTMANAGER|SMTP)_[A-Z0-9_]+=' \
+             "$BATS_TEST_FILENAME" | tr -d '=' | sort -u); do
+    grep -q "$v" "$ROOT"/scripts/*.sh || unread="$unread $v"
+  done
+  [ -z "$unread" ] || { echo "set but read by no script:$unread"; false; }
 }
