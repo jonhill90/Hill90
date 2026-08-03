@@ -713,6 +713,11 @@ cmd_seed() {
         CF_DNS_API_TOKEN
         HOSTINGER_API_KEY
         GRAFANA_ADMIN_PASSWORD
+        DB_USER
+        DB_PASSWORD
+        DB_NAME
+        KC_ADMIN_USERNAME
+        KC_ADMIN_PASSWORD
     )
     local missing=()
     local key
@@ -742,6 +747,30 @@ cmd_seed() {
     echo "Seeding secret/observability/grafana..."
     bao_exec_env kv put secret/observability/grafana \
         "GRAFANA_ADMIN_PASSWORD=$(get_secret GRAFANA_ADMIN_PASSWORD)"
+
+    # Seed shared/database and auth/config.
+    #
+    # RESTORED, NOT NEW. #495 removed both blocks when Keycloak and Postgres left
+    # the estate, which was correct at the time. #531 brought those services back
+    # and restored their DECLARATIONS in vault_paths_for_service — db ->
+    # secret/shared/database, auth -> secret/shared/database + secret/auth/config
+    # — but not the seed that fills them. So the two roles have been declared,
+    # later policied, and pointed at paths that never existed.
+    #
+    # This is why the 2026-08-03 auth outage read as a vault problem. The 403
+    # from the missing policy sat on top of a 404 from this, and fixing only the
+    # policy turned "permission denied" into "No value found" — a different
+    # error, an identical outcome for the caller.
+    echo "Seeding secret/shared/database..."
+    bao_exec_env kv put secret/shared/database \
+        "DB_USER=$(get_secret DB_USER)" \
+        "DB_PASSWORD=$(get_secret DB_PASSWORD)" \
+        "DB_NAME=$(get_secret DB_NAME)"
+
+    echo "Seeding secret/auth/config..."
+    bao_exec_env kv put secret/auth/config \
+        "KC_ADMIN_USERNAME=$(get_secret KC_ADMIN_USERNAME)" \
+        "KC_ADMIN_PASSWORD=$(get_secret KC_ADMIN_PASSWORD)"
 
     rm -f "$temp_file"
     trap - RETURN
@@ -780,6 +809,8 @@ cmd_export() {
         "secret/infra/traefik"
         "secret/infra/vps"
         "secret/observability/grafana"
+        "secret/shared/database"
+        "secret/auth/config"
     )
 
     for p in "${paths[@]}"; do
@@ -806,6 +837,8 @@ cmd_sync_to_sops() {
         "secret/infra/traefik"
         "secret/infra/vps"
         "secret/observability/grafana"
+        "secret/shared/database"
+        "secret/auth/config"
     )
 
     # Create timestamped backup before modifying SOPS
