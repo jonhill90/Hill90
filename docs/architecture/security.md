@@ -13,6 +13,39 @@ restricting administration to a private network.
   for the evidence and for the surfaces that are deliberately public.
 - SSH access is restricted to the Tailscale CIDR (`100.64.0.0/10`) via firewall
   rules.
+- **`sshd` is not what answers.** Measured 2026-08-03 over 24 hours:
+
+  | server | sessions |
+  |---|---|
+  | Tailscale SSH, `remote-user=jonhill90@github` (interactive) | 557 |
+  | Tailscale SSH, `remote-user=tag:github-actions` (deploy pipeline) | 189 |
+  | `sshd`, accepted logins | **0** |
+
+  Tailscale SSH intercepts port 22 on the tailnet and serves it itself, so
+  **connections authenticate on tailnet identity and the Tailscale ACL, not on
+  anything in `sshd_config`**. Both humans and the deploy pipeline arrive this
+  way. The evidence is `tailscaled be-child ssh --remote-user=… --local-user=deploy`
+  in the journal; `sshd`'s own log records no accepted authentication at all.
+
+  Three consequences worth holding together:
+
+  - **The ACL is the access control.** Changing who can reach this host means
+    changing the Tailscale ACL (`.github/workflows/tailscale.yml`), not
+    `sshd_config`. A review that hardens `sshd` and stops there has not
+    changed who can get in.
+  - **The `sshd` hardening below is defence in depth, and still worth applying.**
+    It becomes load-bearing the moment Tailscale SSH is disabled, the ACL is
+    widened, or the firewall rule changes — none of which would announce
+    themselves.
+  - **It also means applying it cannot lock anyone out**, because nothing
+    currently authenticates through `sshd`. That is a measurement, not an
+    assumption, and it is the reason the runbook's two-terminal check is a
+    formality rather than the thing standing between you and a lockout.
+
+  A client-side `ssh -o PreferredAuthentications=publickey` proves nothing here:
+  those options are interpreted by the local client and ignored by the server
+  that actually answers. Confirm which server served a session from the host
+  side, in the journal.
 
 ## Identity And Secrets
 
