@@ -165,6 +165,32 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/minio-policy-names-test.sh'
 
+      # PROVE EVERY ALERT RULE CAN ACTUALLY MATCH A SERIES.
+      #
+      # A rule can be health=ok and still never fire, if its selector names a
+      # label or metric production does not emit. Two shipped that way. promtool
+      # cannot catch it because the test author supplies the labels — only the
+      # live Prometheus can, which is why this runs here and not in CI.
+      #
+      # ci.yml:66 ECHOES "python3 scripts/checks/check_alert_series.py (run on
+      # the VPS)" as a reminder. It therefore appears in every CI log while never
+      # executing — the check CONTRIBUTING credits with "independently
+      # rediscovering the two rules already known to be unfireable" ran only when
+      # somebody remembered (#689). This connects it.
+      #
+      # The check fails closed on its own: if Prometheus is unreachable it prints
+      # "A check that cannot run must not report success" and exits 1, so a
+      # network problem cannot be mistaken for a clean result.
+      #
+      # success(), as with the two verifications below it: verifying a deploy
+      # that did not happen proves nothing. Cleanup needs always().
+      - name: Prove every alert rule matches a live series
+        if: success() && inputs.service == 'observability'
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && python3 scripts/checks/check_alert_series.py'
+
       - name: Prove Grafana SSO still yields the expected role
         if: success() && inputs.service == 'observability'
         run: |
