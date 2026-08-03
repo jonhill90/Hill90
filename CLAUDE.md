@@ -267,9 +267,11 @@ the migration run — but say "nothing worth preserving", not "empty".
 **MinIO is settled and shipped — this entry used to say it was never addressed.** A
 platform MinIO runs (`Verified 2026-07-31 06:21 UTC`, healthy) and the tenant was cut over
 to it; storage moved *up*, as the governing principle indicated. `app-minio` was stopped
-2026-07-31 01:40:43 UTC and is **not yet removed**: its retention window expires
-**2026-08-01 01:41 UTC**, and deleting `prod_app-minio-data` is a separate, irreversible
-decision.
+2026-07-31 01:40:43 UTC and is **still not removed**. Its retention window expired
+**2026-08-01 01:41 UTC** — over two days ago — so this is no longer a pending deadline
+but an untaken decision. `Verified 2026-08-03 13:45 UTC`: the container exists in state
+`Exited (0)` and the volume `prod_app-minio-data` is still present. Deleting that volume
+is irreversible and is Jon's call.
 
 **What is genuinely open now is Jon's, not a lane's** — repository visibility for
 hill90-app with the history-rewrite costs, whether the tenant's local stack moves onto the
@@ -285,9 +287,14 @@ bash scripts/deploy.sh verify <service> prod
 gh workflow run deploy.yml -f service=all
 ```
 
-- **Alerts reach a human, as of 2026-07-31.** 16 rules, 8 groups, delivered by
-  Alertmanager over email to `ACME_EMAIL` via the SMTP account the estate already
-  had. Delivery is proven end to end, not assumed. Before that date there was **no
+- **Alerts reach a human.** `Verified 2026-08-03 13:45 UTC` by firing two real alerts and
+  reading Alertmanager's own counters: `notifications_total{integration="email"}`
+  incremented and every `notifications_failed_total` stayed at 0. **18 rules in 9
+  groups** — this entry said 16 and 8, counted before #617 and never re-counted.
+  Delivered over email to `ACME_EMAIL` via the SMTP account the estate already
+  had. Delivery is proven end to end, not assumed — but note the boundary: this
+  proves Alertmanager handed the message to the mail server, not that it reached
+  an inbox. Before that date there was **no
   receiver at all** and every rule was inert — `ServiceDown` fired for ≥48 hours in
   the week to 2026-07-26 and reached nobody. Start at
   [`docs/decisions/alerting-audit.md`](docs/decisions/alerting-audit.md).
@@ -307,7 +314,7 @@ gh workflow run deploy.yml -f service=all
   `python3 scripts/checks/check_alert_series.py` **on the VPS**, which asks the live
   Prometheus.
 - Platform baseline is **16 containers by name, 0 unhealthy** —
-  `Verified 2026-07-31 09:58 UTC`, after #617 deployed `alertmanager` and
+  `Verified 2026-08-03 13:45 UTC`, unchanged since #617 deployed `alertmanager` and
   `blackbox-exporter`. With the tenant's 7 that is **23 running in total**.
   The full 16: `alertmanager blackbox-exporter cadvisor grafana keycloak loki
   minio node-exporter openbao portainer postgres postgres-exporter prometheus
