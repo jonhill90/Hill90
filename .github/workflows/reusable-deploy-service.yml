@@ -113,6 +113,38 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && bash scripts/deploy.sh verify ${{ inputs.service }}"
 
+      # PROVE SSO STILL WORKS, not just that the container is healthy.
+      #
+      # On 2026-08-03 an observability deploy started Grafana with an empty
+      # GRAFANA_OIDC_CLIENT_SECRET. The container was healthy, `deploy.sh verify`
+      # passed, the local admin login still worked — and every SSO login failed
+      # with `unauthorized_client` at token exchange. Nothing in this workflow
+      # could see it, and nothing did for the rest of the deploy.
+      #
+      # scripts/checks/grafana-role-login-test.sh was written that day to prove
+      # the opposite case and then wired to NOTHING. It sat in the tree
+      # referenced by no workflow, no test and no runbook — a guard that cannot
+      # fail because it never runs, which is the same defect as a check that
+      # reports success without looking. This is it being connected.
+      #
+      # testuser01 rather than a real person: it drives a full authorization-code
+      # flow and creates a genuine Keycloak login event, and the account exists
+      # for exactly this. Viewer is its correct role with no platform-editor
+      # grant, so a wrong answer here means the mapping or the exchange broke,
+      # not that someone's permissions changed.
+      #
+      # ON THE CONDITION, because this file now contains both shapes: `success()`
+      # is CORRECT for a verification. A cleanup must run when the run fails —
+      # that was #663 — but verifying a deploy that did not happen proves nothing
+      # and would fail for the wrong reason. Cleanup needs always(); verification
+      # needs success().
+      - name: Prove Grafana SSO still yields the expected role
+        if: success() && inputs.service == 'observability'
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/grafana-role-login-test.sh testuser01 Viewer'
+
       - name: Signal post-deploy hooks
         if: success() && inputs.service == 'auth'
         uses: peter-evans/repository-dispatch@v3
