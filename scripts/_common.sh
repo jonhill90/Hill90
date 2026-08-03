@@ -163,6 +163,23 @@ vault_login() {
         python3 -c "import sys,json; print(json.load(sys.stdin)['auth']['client_token'])"
 }
 
+# Read one KV v2 path. NON-ZERO if the path cannot be read for ANY reason.
+#
+# THIS FUNCTION CAUSED A PRODUCTION OUTAGE ON 2026-08-03 by succeeding quietly.
+# It sent stderr to /dev/null and piped into python, so the pipeline's exit
+# status was python's — and python exits 0 after printing nothing when its input
+# is empty. A 403, a missing path and a genuinely empty secret were therefore
+# indistinguishable from a successful read, all reported as success.
+#
+# Downstream that meant `vault_load_secrets` exported NOTHING and returned 0, the
+# SOPS fallback never fired because nothing had failed, and Keycloak deployed with
+# KC_BOOTSTRAP_ADMIN_PASSWORD empty. It then refused to boot with
+# "bootstrap-admin-username available only when bootstrap admin password is set"
+# and auth.hill90.com 404d for 20 minutes.
+#
+# The rule this encodes: EMPTY IS NOT SUCCESS. Vault being unreachable is not the
+# only way the vault path can fail to produce a secret, and it was the only one
+# being handled.
 vault_read_kv() {
     local token="$1"
     local path="$2"
@@ -170,14 +187,32 @@ vault_read_kv() {
     # through, where `-e NAME=value` would put the token in the docker CLI's
     # command line for any local user to read with `ps`. Same reasoning as
     # scripts/keycloak.sh's kc_login and scripts/vault.sh's bao_exec_env.
-    BAO_TOKEN="$token" docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN openbao \
-        bao kv get -format=json "$path" 2>/dev/null | \
-        python3 -c "
+    local raw
+    raw=$(BAO_TOKEN="$token" docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN openbao \
+        bao kv get -format=json "$path" 2>&1) || {
+        warn "vault: cannot read ${path} — $(printf '%s' "$raw" | grep -oE '\* .*' | head -1)"
+        return 1
+    }
+
+    # Parse separately from the read so a JSON shape change is not read as an
+    # empty secret. python exits non-zero on a shape it does not recognise, and
+    # that status is now the function's.
+    printf '%s' "$raw" | python3 -c "
 import sys, json, shlex
-data = json.load(sys.stdin)['data']['data']
+try:
+    data = json.load(sys.stdin)['data']['data']
+except Exception as e:
+    sys.stderr.write(f'unparseable response: {e}\n')
+    sys.exit(1)
+if not data:
+    sys.stderr.write('path exists but holds no keys\n')
+    sys.exit(1)
 for k, v in data.items():
     print(f'{k}={shlex.quote(str(v))}')
-"
+" || {
+        warn "vault: ${path} did not yield usable data"
+        return 1
+    }
 }
 
 vault_paths_for_service() {
@@ -207,14 +242,58 @@ vault_load_secrets() {
     # shellcheck disable=SC2064
     trap "rm -f '$temp_file'" RETURN
 
+    # A path this service DECLARES it needs and cannot read is a failure, not a
+    # zero-length contribution. Returning non-zero here is what makes the caller
+    # fall back to SOPS — the fallback exists in both deploy paths and was simply
+    # never reached, because nothing ever failed.
     for path in $paths; do
-        vault_read_kv "$token" "$path" >> "$temp_file"
+        vault_read_kv "$token" "$path" >> "$temp_file" || {
+            warn "vault: ${service} declares ${path} but it could not be read — falling back to SOPS"
+            return 1
+        }
     done
+
+    # THE GENERIC EMPTY-VALUE GUARD.
+    #
+    # deploy.sh had one of these for TRAEFIK_ADMIN_PASSWORD_HASH on the infra path
+    # only — somebody learned this lesson once, for one variable, in one branch.
+    # The generic service path had none, which is why an empty KC_ADMIN_PASSWORD
+    # reached Keycloak on 2026-08-03. Checking one known variable per service does
+    # not scale and does not generalise: this asserts that NOTHING vault hands
+    # back is empty, whatever it is called.
+    #
+    # An empty value in vault is never a legitimate deploy input here. If one is
+    # ever wanted, it belongs in SOPS as an explicit empty, not arriving silently
+    # from a gap in the store.
+    local empty_keys=()
+    local line key
+    while IFS= read -r line; do
+        case "$line" in ''|'#'*) continue ;; esac
+        key="${line%%=*}"
+        # The values are shlex-quoted, so an empty one is exactly '' or "".
+        case "${line#*=}" in
+            "''"|'""'|'') empty_keys+=("$key") ;;
+        esac
+    done < "$temp_file"
+
+    if [ ${#empty_keys[@]} -gt 0 ]; then
+        warn "vault: ${service} — these resolved EMPTY from OpenBao: ${empty_keys[*]}"
+        warn "vault: refusing to deploy an empty credential; falling back to SOPS"
+        return 1
+    fi
+
+    local count
+    count=$(grep -cE '^[A-Za-z_][A-Za-z0-9_]*=' "$temp_file" 2>/dev/null || echo 0)
+    if [ "$count" -eq 0 ]; then
+        warn "vault: ${service} — the declared paths yielded no variables at all; falling back to SOPS"
+        return 1
+    fi
 
     set -a
     # shellcheck disable=SC1090
     source "$temp_file"
     set +a
+    info "vault: loaded ${count} variables for ${service}, none empty"
 
     rm -f "$temp_file"
     trap - RETURN
