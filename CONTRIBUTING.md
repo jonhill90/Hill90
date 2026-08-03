@@ -226,6 +226,41 @@ The fuller instance-by-instance record, including the checks that were wrong *ab
 alert rules themselves*, is in
 [`docs/decisions/alert-series-verification.md`](docs/decisions/alert-series-verification.md).
 
+#### When to doubt the instrument: the dangerous null is the one that agrees with you
+
+The section above says to check the instrument. This says **when**, because you cannot
+positive-control everything and the budget has to go somewhere.
+
+**Spend it on the results you were hoping for.** A null that blocks you gets investigated
+by reflex — you wanted the thing and it is not there, so you go looking. A null that
+*confirms* you stops the investigation, which is exactly when nobody looks again. Every
+false result recorded on 2026-08-03 was of the second kind:
+
+| The convenient result | What it actually was |
+|---|---|
+| a mock counter reporting clean | it **double-counted**, so a real imbalance read as balanced |
+| a global `jest.fn` hook reporting no interference | it intercepted **0 mocks** — the pool mock is created inside each file's factory, where a global hook cannot see it |
+| a byte recorder capturing nothing untoward | it read **only three digits** of the status line |
+| `grep` for a test file in the CI log: **0 lines** → *"it did not run"* | bats TAP prints test **names**, never file names. The file had run; the pattern could never have matched either way |
+| an audit reporting `VAULT_CONTAINER` and `TRAEFIK_CONFIG_OUTPUT` are read by no script | the audit's own pattern was wrong. Both are read, on the first line of two scripts |
+| `assert-unsealed` "verified against the live estate" | the host checkout was **one commit behind**, so the verification ran against the code the change replaced — and the passing half of the test passed identically under both |
+
+The last one is the sharpest, because it looked like success twice over: the command exited
+0, and 0 was the expected answer. Only the *other* arm — the one that was supposed to
+change — exposed that nothing had been deployed.
+
+The app repo's flake investigation reached the same conclusion independently and states it
+as a measurement rather than an aphorism: **every check in that file that reported a clean
+result was wrong at least once until it was positive-controlled**
+([`api-suite-flakiness.md`](https://github.com/jonhill90/hill90-app/blob/main/docs/decisions/api-suite-flakiness.md)).
+
+Two questions that cost nothing and catch most of it:
+
+- **"What would this look like if the instrument were broken?"** If the answer is "the same
+  as what I am looking at", you have not measured anything yet.
+- **"Which arm of this test would have changed?"** A check whose passing half passes under
+  both the old and new behaviour has told you nothing about the change.
+
 ### The Other Half: An Operation That Fails and Reports Success
 
 The section above is about a **check** that cannot see. This one is about an
