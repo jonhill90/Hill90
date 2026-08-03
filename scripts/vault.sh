@@ -718,6 +718,8 @@ cmd_seed() {
         DB_NAME
         KC_ADMIN_USERNAME
         KC_ADMIN_PASSWORD
+        GRAFANA_OIDC_CLIENT_SECRET
+        VAULT_OIDC_CLIENT_SECRET
     )
     local missing=()
     local key
@@ -744,9 +746,20 @@ cmd_seed() {
         "HOSTINGER_API_KEY=$(get_secret HOSTINGER_API_KEY)"
 
     # Seed observability/grafana
+    # GRAFANA_OIDC_CLIENT_SECRET belongs here, and its absence caused an outage.
+    #
+    # The generic deploy path exports ONLY what vault returns for the service. On
+    # 2026-08-03 this path held one key, so `deploy.sh observability` started
+    # Grafana with GRAFANA_OIDC_CLIENT_SECRET empty and SSO broke with
+    # `unauthorized_client`. The deploy reported
+    #     vault: loaded 1 variables for observability, none empty
+    # which is true and useless: "none empty" describes the keys vault RETURNED,
+    # not the keys the compose file NEEDS. Local admin login kept working, so
+    # nothing looked wrong.
     echo "Seeding secret/observability/grafana..."
     bao_exec_env kv put secret/observability/grafana \
-        "GRAFANA_ADMIN_PASSWORD=$(get_secret GRAFANA_ADMIN_PASSWORD)"
+        "GRAFANA_ADMIN_PASSWORD=$(get_secret GRAFANA_ADMIN_PASSWORD)" \
+        "GRAFANA_OIDC_CLIENT_SECRET=$(get_secret GRAFANA_OIDC_CLIENT_SECRET)"
 
     # Seed shared/database and auth/config.
     #
@@ -767,10 +780,15 @@ cmd_seed() {
         "DB_PASSWORD=$(get_secret DB_PASSWORD)" \
         "DB_NAME=$(get_secret DB_NAME)"
 
+    # VAULT_OIDC_CLIENT_SECRET is the same latent gap, not yet triggered:
+    # docker-compose.auth.yml needs it and no vault path carried it, so the auth
+    # deploy has been exporting it empty. It did not surface because
+    # keycloak.sh apply does not rewrite an existing client secret.
     echo "Seeding secret/auth/config..."
     bao_exec_env kv put secret/auth/config \
         "KC_ADMIN_USERNAME=$(get_secret KC_ADMIN_USERNAME)" \
-        "KC_ADMIN_PASSWORD=$(get_secret KC_ADMIN_PASSWORD)"
+        "KC_ADMIN_PASSWORD=$(get_secret KC_ADMIN_PASSWORD)" \
+        "VAULT_OIDC_CLIENT_SECRET=$(get_secret VAULT_OIDC_CLIENT_SECRET)"
 
     rm -f "$temp_file"
     trap - RETURN
