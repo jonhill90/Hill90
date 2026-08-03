@@ -39,6 +39,7 @@ Context measured at the same time, because it bounds the recovery:
 | Path | Result |
 |---|---|
 | `bao operator generate-root -init` | **403 permission denied** |
+| `POST sys/generate-root/attempt` *(added 2026-08-02)* | **405** under `config.hcl` — the CLI row above used a legacy path and overstated the block; see [`stage2b-oidc-blocked-2026-08-02.md`](stage2b-oidc-blocked-2026-08-02.md) |
 | root token file `/opt/hill90/secrets/openbao-root.token` | **absent** |
 | `VAULT_SYNC_TOKEN` from the store | **did not validate** |
 | `bao read auth/oidc/role/admin-sso` | fails without a token |

@@ -32,6 +32,7 @@ Usage: vault.sh <command>
 Commands:
   init          Initialize OpenBao (writes unseal key + root token to 0600 files)
   revoke-root   Revoke the root token and remove it from disk
+  regain-root   Mint a new root token from the unseal key (needs config.recovery.hcl)
   store-unseal-key  Copy the host unseal key into SOPS as OPENBAO_UNSEAL_KEY
   unseal        Unseal OpenBao using host key file or SOPS fallback
   status        Show OpenBao seal/init status
@@ -173,13 +174,20 @@ cmd_init() {
 # run, nothing needs it — day-to-day access is by AppRole. Leaving it on the
 # filesystem is the single largest standing risk in this design.
 #
-# ONE-WAY DOOR. On OpenBao >= 2.5.3 the unauthenticated root-generation
-# endpoints are disabled by default (disable_unauthed_generate_root_endpoints
-# defaults to true), so `bao operator generate-root` returns 403 — verified
-# against 2.6.1, both before and after revocation, with the flag set at
-# listener and top level. Regaining root then requires an existing
-# sudo-capable token, and if none exists the only route back is
-# reinitializing the vault.
+# EXPENSIVE DOOR — and it was called one-way here until 2026-08-02, wrongly.
+# On OpenBao >= 2.5.3 the unauthenticated root-generation endpoints are disabled
+# by default (disable_unauthed_generate_root_endpoints defaults to true), so
+# `bao operator generate-root` returns 403.
+#
+# That 403 does not mean what it was read to mean. The CLI targets the legacy
+# sys/generate-root-token/* path, which 403s under every configuration. The live
+# endpoint is sys/generate-root/*, and the flag is honoured ONLY in the listener
+# stanza — at top level it is accepted and silently ignored. With the flag false
+# on the listener, root is minted from the unseal key: see cmd_regain_root.
+#
+# So the cost of revoking early is a production config change, two vault restarts
+# and a window where an unseal key share alone mints root — not a reinitialise.
+# Still expensive, still worth avoiding, which is why assert_safe_to_revoke stays.
 #
 # So: run `setup`, `seed` and `setup-sync-token` BEFORE this. Revoking first
 # leaves a vault that cannot be configured.
@@ -217,10 +225,12 @@ assert_safe_to_revoke() {
     fi
     die "Refusing to revoke root: the OIDC auth method is NOT enabled on this vault.
 
-Revoking now is a ONE-WAY DOOR. generate-root is disabled on OpenBao >= 2.5.3, so
-after this revoke nothing can enable OIDC and the vault becomes permanently
-unconfigurable — the 2026-07-26 failure, which the documented recovery reproduced
-on 2026-08-02.
+Revoking now costs a full root-recovery to undo. The unauthenticated
+root-generation endpoints are disabled by default on OpenBao >= 2.5.3, so nothing
+can enable OIDC afterwards until the vault is redeployed on the recovery config —
+a production config change, two restarts, and a window in which an unseal key
+share alone mints root (scripts/vault.sh regain-root). This is the 2026-07-26
+failure, which the documented recovery reproduced on 2026-08-02.
 
 Run this first, then revoke:
   bash scripts/vault.sh setup-oidc
@@ -277,6 +287,141 @@ cmd_revoke_root() {
         rm -f "$ROOT_TOKEN_PATH"
     fi
     success "✓ Removed ${ROOT_TOKEN_PATH}"
+}
+
+# Mint a new root token from the unseal key, on a vault that has no usable token.
+#
+# THE INSTRUMENT THAT MADE THIS LOOK IMPOSSIBLE
+# =============================================
+# `bao operator generate-root` returns 403 on 2.6.1 and that was read, three times
+# across this estate, as "root generation is disabled, the door is one-way". The
+# CLI targets sys/generate-root-token/*, a legacy path that 403s no matter how the
+# server is configured. The live endpoint is sys/generate-root/*, and on a server
+# with disable_unauthed_generate_root_endpoints=false in its LISTENER stanza it
+# answers 200. Measured A/B on throwaway 2.6.1 instances with root revoked:
+#
+#   production config.hcl        POST sys/generate-root/attempt -> 405
+#   + the flag on the listener   POST sys/generate-root/attempt -> 200
+#   absent-path control                                         -> 403
+#
+# So this speaks HTTP directly rather than going through the CLI. Do not
+# "simplify" it back to `bao operator generate-root` — that is the instrument
+# that reported the door as closed.
+#
+# Requires the vault to be running platform/vault/config.recovery.hcl. It refuses
+# otherwise rather than emitting a confusing 405, and it never prints the token.
+cmd_regain_root() {
+    require_running
+
+    local key_file="$UNSEAL_KEY_PATH"
+    require_file "$key_file" "Unseal key"
+    [ -r "$key_file" ] || die "Unseal key at ${key_file} is not readable by $(id -un)."
+
+    # Refuse to clobber a token that might still be live. Losing a working root
+    # token by overwriting the file is a cheap mistake with an expensive recovery.
+    if [ -f "$ROOT_TOKEN_PATH" ] && [ -s "$ROOT_TOKEN_PATH" ]; then
+        if BAO_TOKEN="$(cat "$ROOT_TOKEN_PATH")" docker exec \
+                -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN \
+                "$CONTAINER_NAME" bao token lookup >/dev/null 2>&1; then
+            die "A VALID root token already exists at ${ROOT_TOKEN_PATH}. Nothing to regain — use it, or revoke it first."
+        fi
+        warn "Root token file exists but its token is dead; it will be replaced."
+    fi
+
+    echo "================================"
+    echo "OpenBao Root Regeneration"
+    echo "================================"
+    echo ""
+
+    # Is the unauthenticated endpoint actually open? A 405 here means the vault is
+    # running config.hcl, not config.recovery.hcl.
+    local attempt
+    attempt=$(docker exec "$CONTAINER_NAME" sh -c \
+        "wget -qO- --post-data='{}' --header=Content-Type:application/json \
+         http://127.0.0.1:8200/v1/sys/generate-root/attempt 2>/dev/null" || true)
+
+    local nonce otp
+    nonce=$(printf '%s' "$attempt" | python3 -c 'import sys,json
+try: print(json.load(sys.stdin)["nonce"])
+except Exception: print("")' 2>/dev/null)
+    otp=$(printf '%s' "$attempt" | python3 -c 'import sys,json
+try: print(json.load(sys.stdin)["otp"])
+except Exception: print("")' 2>/dev/null)
+    unset attempt
+
+    if [ -z "$nonce" ] || [ -z "$otp" ]; then
+        die "sys/generate-root/attempt did not start an attempt.
+
+Almost always: the vault is running platform/vault/config.hcl, where the
+unauthenticated endpoint is closed and returns 405. Deploy the recovery config
+first — through the pipeline, not by hand:
+
+  gh workflow run vault-regain-root.yml
+
+That workflow deploys config.recovery.hcl, runs this command, and puts
+config.hcl back in the same run."
+    fi
+    info "Attempt started (otp length ${#otp})."
+
+    # Supply the single unseal key share. The key travels in the request BODY,
+    # built inside the container's stdin — never in argv, never in a log line.
+    local body update encoded complete
+    body=$(python3 -c 'import json,sys; print(json.dumps({"key": sys.argv[1], "nonce": sys.argv[2]}))' \
+           "$(cat "$key_file")" "$nonce")
+    update=$(BODY="$body" docker exec -e BODY -i "$CONTAINER_NAME" sh -c \
+        'wget -qO- --post-data="$BODY" --header=Content-Type:application/json \
+         http://127.0.0.1:8200/v1/sys/generate-root/update 2>/dev/null' || true)
+    unset body
+
+    complete=$(printf '%s' "$update" | python3 -c 'import sys,json
+try: print(json.load(sys.stdin).get("complete"))
+except Exception: print("")' 2>/dev/null)
+    encoded=$(printf '%s' "$update" | python3 -c 'import sys,json
+try: print(json.load(sys.stdin).get("encoded_token",""))
+except Exception: print("")' 2>/dev/null)
+    unset update
+
+    [ "$complete" = "True" ] || [ "$complete" = "true" ] \
+        || die "The unseal key did not complete the attempt (complete=${complete:-<none>}). Wrong key?"
+    [ -n "$encoded" ] || die "No encoded_token returned."
+    info "Unseal key accepted; attempt complete."
+
+    # Decode client-side: the token is the encoded value XORed with the OTP.
+    # `bao operator generate-root -decode` exists but routes through the same
+    # legacy path and fails here; the XOR is the whole operation.
+    local old_umask
+    old_umask=$(umask)
+    umask 077
+    ENC="$encoded" OTP="$otp" python3 -c '
+import base64, os, sys
+enc = os.environ["ENC"]
+raw = base64.b64decode(enc + "=" * (-len(enc) % 4))
+otp = os.environ["OTP"].encode()
+sys.stdout.write("".join(chr(a ^ b) for a, b in zip(raw, otp)))' > "$ROOT_TOKEN_PATH"
+    umask "$old_umask"
+    chmod 600 "$ROOT_TOKEN_PATH"
+    unset encoded otp
+
+    [ -s "$ROOT_TOKEN_PATH" ] || die "Decoded token is empty — ${ROOT_TOKEN_PATH} was not written."
+
+    # Independently confirm it is a working root token before claiming success.
+    local policies
+    policies=$(BAO_TOKEN="$(cat "$ROOT_TOKEN_PATH")" docker exec \
+        -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN "$CONTAINER_NAME" \
+        bao token lookup -format=json 2>/dev/null \
+        | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin)["data"]["policies"]))' 2>/dev/null)
+
+    case ",$policies," in
+        *,root,*) ;;
+        *) die "Minted a token but it does not carry the root policy (policies=${policies:-<none>})." ;;
+    esac
+
+    success "✓ Root regained. Token written to ${ROOT_TOKEN_PATH} (0600), policies: ${policies}"
+    echo ""
+    warn "The vault is running the RECOVERY config; the unauthenticated"
+    warn "root-generation endpoint is OPEN. Put config.hcl back as soon as"
+    warn "setup-oidc has run. vault-regain-root.yml does that in the same run."
+    echo ""
 }
 
 # Copy the unseal key from the host key file into SOPS.
@@ -1037,6 +1182,7 @@ main() {
     case "$cmd" in
         init)          cmd_init "$@" ;;
         revoke-root)   cmd_revoke_root "$@" ;;
+        regain-root)   cmd_regain_root "$@" ;;
         store-unseal-key) cmd_store_unseal_key "$@" ;;
         unseal)        cmd_unseal "$@" ;;
         status)        cmd_status "$@" ;;
