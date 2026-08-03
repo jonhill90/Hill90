@@ -4,12 +4,10 @@ Hill90 is homelab infrastructure for a single Hostinger VPS: Ansible
 provisioning, Traefik edge routing, an observability stack, SOPS/OpenBao
 secrets, and Tailscale-secured SSH.
 
-> **Scope:** Hill90 is not an application host. The AI agent application that
-> once lived here was removed in July 2026 — not shelved: it runs in production
-> as a **tenant** of this platform, from
-> [`hill90-app`](https://github.com/jonhill90/hill90-app). See
-> [Infra/app separation](docs/decisions/infra-app-separation.md); the code is
-> preserved at the `archive/app-stack-final` tag.
+> **Scope:** Hill90 is not an application host. It provides identity, data and
+> storage; the [`hill90-app`](https://github.com/jonhill90/hill90-app) AI
+> application consumes them as a **tenant**. The contract is
+> [App tenancy on the VPS](docs/decisions/app-tenancy-on-the-vps.md).
 
 ## Issue Tracking
 
