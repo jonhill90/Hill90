@@ -463,7 +463,7 @@ cmd_apply() {
 
     # hill90-vault is created by the realm import. Its claim is realm_roles, NOT
     # realm_access.roles: vault.sh setup-oidc binds
-    # bound_claims {"realm_roles": ["admin"]}, so defaulting here would create a
+    # bound_claims {"realm_roles": ["platform-admin"]}, so defaulting here would create a
     # mapper OpenBao can never match and SSO would fail for everyone.
     ensure_client "hill90-vault" "$vault_secret" \
         "${VAULT_PUBLIC_URL}/v1/auth/oidc/callback,${VAULT_PUBLIC_URL}/ui/vault/auth/oidc/oidc/callback" \

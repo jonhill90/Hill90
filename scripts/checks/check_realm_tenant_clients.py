@@ -22,11 +22,12 @@ So three things are asserted here, and each one has a specific way of going wron
 
    `scripts/keycloak.sh` gives every PLATFORM client a realm-roles mapper, and
    `hill90-vault` deliberately uses claim `realm_roles` because
-   `vault.sh setup-oidc` binds `{"realm_roles": ["admin"]}`. That is correct FOR
+   `vault.sh setup-oidc` binds `{"realm_roles": ["platform-admin"]}`. That is correct FOR
    THE PLATFORM'S OWN CLIENTS.
 
    For the tenant it would be a privilege hole. The `platform` realm grants
-   Grafana Admin and OpenBao access off the REALM role `admin`. The app reads
+   Grafana Admin and OpenBao access off a REALM role — `platform-admin` since
+   #637 and Stage 2b, `admin` before that. The app reads
    client roles precisely so that an app admin does not inherit infrastructure
    admin — `services/api/src/middleware/keycloak-config.ts` says there is
    deliberately no fallback to `realm_roles` for that reason. Adding a
