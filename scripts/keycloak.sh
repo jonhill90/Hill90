@@ -39,7 +39,19 @@ MINIO_PUBLIC_URL="${MINIO_PUBLIC_URL:-https://storage.hill90.com}"
 # ADDITIVE: admin, user, editor and viewer stay until every consumer is repointed
 # and proven, which is a separate change. Removing a role a consumer still binds
 # on would break that consumer silently — the binding simply stops matching.
-REALM_ROLES="admin editor viewer platform-admin platform-viewer"
+# platform-editor added 2026-08-03. Grafana's role_attribute_path named the
+# zero-holder realm role `editor`; Stage 2a repointed only the admin arm and said
+# so, leaving the editor arm to the change that proves every consumer. This is
+# that change.
+#
+# A NEW ROLE RATHER THAN REUSING platform-viewer. A Grafana Editor creates and
+# edits dashboards, panels and alert rules — it writes. platform-viewer is the
+# read-only tier and MinIO already grants it a read-only S3 policy, so pointing
+# the Editor arm at it would hand every platform-viewer holder write access in
+# Grafana while they stay read-only everywhere else. That is a silent upgrade and
+# an incoherent tier. platform-editor starts with zero holders, so nobody's
+# effective access changes on the day it lands.
+REALM_ROLES="admin editor viewer platform-admin platform-editor platform-viewer"
 
 # Humans who administer the platform. Granted platform-admin plus the NARROWEST
 # realm-management set that was measured to work — see ensure_platform_admins.
