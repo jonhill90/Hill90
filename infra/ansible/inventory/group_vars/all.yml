@@ -39,9 +39,29 @@ domain: hill90.com
 acme_email: jonhill90@live.com
 
 # Let's Encrypt configuration
-# IMPORTANT: Use staging for testing to avoid rate limits (50/week for production)
-# Set to 'production' only when ready for real certificates
-letsencrypt_env: production  # 'staging' or 'production'
+#
+# THERE IS NO letsencrypt_env HERE, DELIBERATELY. It used to sit at this line as
+# `letsencrypt_env: production  # 'staging' or 'production'`, above a comment
+# telling the reader to switch it for testing. It was defined here and read
+# NOWHERE — no playbook, template or script referenced it. Setting it to
+# 'staging' changed nothing, which is worse than having no knob at all: a
+# control that appears to work and does not is how somebody concludes they are
+# testing against staging while issuing production certificates.
+#
+# THE REAL CONTROL is ACME_CA_SERVER, held in the SOPS store and rendered into
+# platform/edge/traefik.generated.yml by scripts/render-traefik-config.sh. It has
+# NO DEFAULT on purpose: an unset value refuses the render rather than quietly
+# selecting staging, which is what #543 was about.
+#
+#   inspect   make secrets-view KEY=ACME_CA_SERVER
+#   change    make secrets-update KEY=ACME_CA_SERVER VALUE=<acme directory url>
+#   verify    grep caServer platform/edge/traefik.generated.yml
+#
+# Read docs/architecture/certificates.md before changing it. Switching CA is not
+# free: Traefik will not reissue a certificate it still considers valid, and
+# acme-dns.json holds all four DNS-01 certificates in one file, so recovering
+# from an accidental staging issuance means clearing that file and reissuing
+# every public name at once.
 
 # Traefik admin password - stored in encrypted secrets
 # Generate with: htpasswd -nb admin yourpassword
