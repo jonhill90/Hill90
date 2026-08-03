@@ -153,3 +153,25 @@ Code: 403. Errors:
     [[ "$line" == *"|| exit"* ]] || { echo "unguarded call site: $line"; return 1; }
   done <<< "$output"
 }
+
+# ---------------------------------------------------------------------------
+# A service that declares NO vault paths is the same silent-empty class of bug
+# #651 fixed, one level up. vault_load_secrets returned 0 immediately, having
+# exported nothing, so the vault branch proceeded to `docker compose` with an
+# empty environment. minio, ui and every other service not in
+# vault_paths_for_service() take that path on every deploy.
+#
+# minio survived it only because docker-compose.minio.yml uses `${VAR:?}`, which
+# fails the compose and trips the fallback — a second guard doing the first
+# guard's job, and not present in every compose file.
+# ---------------------------------------------------------------------------
+
+@test "a service with NO declared vault paths falls back rather than loading nothing" {
+  make_docker_stub '{"data":{"data":{}}}' 0
+  cd "$ROOT"
+  # shellcheck disable=SC1091
+  PROJECT_ROOT="$ROOT" source scripts/_common.sh
+  run vault_load_secrets "minio" "$ROOT/infra/secrets/prod.enc.env"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no vault paths"* ]]
+}
