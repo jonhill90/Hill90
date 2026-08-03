@@ -196,14 +196,26 @@ jobs:
       # with no OIDC method and no credential able to add one on 2026-08-02.
       # scripts/checks/check_vault_revoke_order.py fails if this ordering is undone.
       - name: Enable OIDC auth before anything can revoke root
-        if: ${{ inputs.revoke_root }}
+        if: ${{ always() && inputs.revoke_root }}
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup-oidc'
 
+      # always() here for the reason set out in vault-regain-root.yml: a custom
+      # `if:` is ANDed with GitHub's implicit success(), so this used to be
+      # skipped by any earlier failure — leaving a live root token exactly when
+      # the run had already gone wrong. Run 30791332461 hit that on the sibling
+      # workflow. See #662.
+      #
+      # The step ABOVE is always() for the same property rather than for its own
+      # sake: revoking is only safe once OIDC exists, assert_safe_to_revoke
+      # refuses otherwise, and a revoke that refuses is a live token. Enabling
+      # OIDC has to survive the same failure the revoke now survives, or the
+      # revoke inherits a guard it cannot satisfy. If init itself failed there is
+      # no token file and cmd_revoke_root exits 0 on "nothing to revoke".
       - name: Revoke root token
-        if: ${{ inputs.revoke_root }}
+        if: ${{ always() && inputs.revoke_root }}
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
@@ -247,8 +259,10 @@ jobs:
           echo "after systemd unit run, bao status exit: $RC (expect 0)"
           [ "$RC" = "0" ] || { echo "::error::hill90-vault-unseal.service did not unseal the vault (exit $RC)"; exit 1; }
 
+      # always(), or the confirmation vanishes precisely when it matters — a run
+      # that failed is the one whose token disposal most needs proving.
       - name: Confirm root token is gone
-        if: ${{ inputs.revoke_root }}
+        if: ${{ always() && inputs.revoke_root }}
         run: |
           GONE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \

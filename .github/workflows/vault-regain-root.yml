@@ -258,12 +258,46 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/vault-approle-real-read-test.sh'
 
+      # always() IS LOAD-BEARING, NOT TIDINESS.
+      #
+      # This read `if: ${{ inputs.revoke_root_at_end }}`, and a custom `if:` does
+      # not replace GitHub's implicit success() — it is ANDed with it unless the
+      # expression names always(), failure() or cancelled(). So the revoke ran
+      # only when nothing had failed, which inverts the intent: the run that goes
+      # wrong is exactly the run you least want leaving a standing root token.
+      #
+      # Run 30791332461 did precisely that. It failed at the read-proof step,
+      # skipped this one, and left a VALID root token on the production host. The
+      # shut-door assertion above passed the whole time — shutting the door and
+      # holding a key are different things.
+      #
+      # Revoking after a FAILED run is safe: cmd_revoke_root calls
+      # assert_safe_to_revoke, which refuses when OIDC is not enabled, and exits
+      # non-zero on a token that survives. So the worst case is a loud failure
+      # here rather than a silent live token.
       - name: Revoke the recovered root token
-        if: ${{ inputs.revoke_root_at_end }}
+        if: ${{ always() && inputs.revoke_root_at_end }}
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && bash scripts/vault.sh revoke-root'
+
+      # And PROVE it, the same way the shut-door assertion does. cmd_revoke_root
+      # already refuses to report success on a live token, but that is a log line
+      # inside an ssh session; this makes a failed disposal fail the RUN.
+      - name: ASSERT the root token is dead
+        if: ${{ always() && inputs.revoke_root_at_end }}
+        run: |
+          STATE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'if [ -s /opt/hill90/secrets/openbao-root.token ]; then
+               BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN openbao bao token lookup >/dev/null 2>&1 && echo live || echo dead
+             else echo absent; fi')
+          echo "root token after revoke: $STATE  (absent or dead = disposed, live = EXPOSED)"
+          if [ "$STATE" = "live" ]; then
+            echo "::error::A VALID root token is still on the production host. Revoke it before walking away: ssh deploy@remote.hill90.com 'cd /opt/hill90/app && bash scripts/vault.sh revoke-root'"
+            exit 1
+          fi
 
       - name: Final baseline
         if: always()
