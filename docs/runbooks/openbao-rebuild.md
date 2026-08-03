@@ -161,3 +161,18 @@ risk in this design.
 
 Stage 2b — repointing the `admin-sso` OIDC role from `realm_roles: admin` to
 `platform-admin` — follows once AppRole is proven. Stage 3 (MinIO) is out of scope.
+
+> **AppRole was proven, and Stage 2b is still blocked — for a different reason.**
+> `Verified 2026-08-02.` This rebuild ran **before** #645's guard existed, so Step 5 went in
+> the order this page originally gave: `bootstrap-approles` first, `setup-oidc` never. The
+> result is the one-way door again — **no OIDC auth method, a root token file whose token is
+> dead, `generate-root` 403, and `deny` on `sys/auth/oidc` for all four AppRoles.**
+>
+> All four AppRoles do authenticate, so Step 6's first bullet passes. That is not the
+> blocker and never was.
+>
+> Diagnose before assuming a second reinitialise:
+> `bash scripts/checks/vault-oidc-enabled-test.sh` answers "is OIDC mounted" with no token,
+> which is the state a token-based check cannot reach. Full evidence and the one untried
+> non-destructive lever:
+> [`stage2b-oidc-blocked-2026-08-02.md`](../decisions/stage2b-oidc-blocked-2026-08-02.md).
