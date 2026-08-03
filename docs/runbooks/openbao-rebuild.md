@@ -116,7 +116,10 @@ bash scripts/vault.sh setup-oidc          # MUST come first — see the warning
 bash scripts/vault.sh bootstrap-approles
 ```
 
-> **`bootstrap-approles` REVOKES the root token when it finishes**, unconditionally. With
+> **`bootstrap-approles` used to REVOKE the root token unconditionally when it finished.**
+> Since #644 both revoke sites call `assert_safe_to_revoke`, which **refuses** when the OIDC
+> auth method is not enabled — so the door can no longer be closed by accident, and the
+> ordering below is enforced rather than merely advised. With
 > `generate-root` disabled, that makes it the last administrative act possible — anything
 > not configured before it cannot be configured afterwards without another reinitialise.
 >

@@ -184,6 +184,18 @@ jobs:
       # unconditionally — therefore produced a vault that was up, healthy, and
       # permanently unconfigurable. Run setup, seed and setup-sync-token first,
       # then revoke.
+      # OIDC BEFORE THE REVOKE, and this step is not optional even though the
+      # revoke is. The comment above says "run setup, seed and setup-sync-token
+      # first" — it omitted OIDC, and that omission is how a rebuilt vault ended up
+      # with no OIDC method and no credential able to add one on 2026-08-02.
+      # scripts/checks/check_vault_revoke_order.py fails if this ordering is undone.
+      - name: Enable OIDC auth before anything can revoke root
+        if: ${{ inputs.revoke_root }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup-oidc'
+
       - name: Revoke root token
         if: ${{ inputs.revoke_root }}
         run: |

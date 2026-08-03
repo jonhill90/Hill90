@@ -183,6 +183,52 @@ cmd_init() {
 #
 # So: run `setup`, `seed` and `setup-sync-token` BEFORE this. Revoking first
 # leaves a vault that cannot be configured.
+# Is the OIDC auth method enabled on the live vault?
+#
+# THE CHOKE POINT. Revoking root is irreversible on OpenBao >= 2.5.3 —
+# generate-root is disabled by default — so whatever is not configured before the
+# revoke can never be configured after it. On 2026-07-26 that produced a healthy,
+# permanently unconfigurable vault. On 2026-08-02 the DOCUMENTED RECOVERY produced
+# it again: reinitialise leaves OIDC unconfigured, and bootstrap-approles revokes
+# root when it finishes.
+#
+# Guarding the workflow alone would not close this, because `vault.sh revoke-root`
+# can be run by hand and bootstrap-approles revokes on its own. So the guard lives
+# at the revoke itself, where every path must pass.
+oidc_enabled() {
+    local token="${1:-${BAO_TOKEN:-}}"
+    [ -n "$token" ] || return 1
+    BAO_TOKEN="$token" docker exec -e "BAO_ADDR=http://127.0.0.1:8200" -e BAO_TOKEN \
+        "$CONTAINER_NAME" bao auth list -format=json 2>/dev/null \
+        | python3 -c 'import sys,json
+try: sys.exit(0 if any(v.get("type")=="oidc" for v in json.load(sys.stdin).values()) else 1)
+except Exception: sys.exit(1)'
+}
+
+# Refuse a revoke that would close the door, unless the operator says otherwise.
+assert_safe_to_revoke() {
+    local token="${1:-${BAO_TOKEN:-}}"
+    if [ "${ALLOW_REVOKE_WITHOUT_OIDC:-0}" = "1" ]; then
+        warn "ALLOW_REVOKE_WITHOUT_OIDC=1 — revoking without checking for the OIDC auth method."
+        return 0
+    fi
+    if oidc_enabled "$token"; then
+        return 0
+    fi
+    die "Refusing to revoke root: the OIDC auth method is NOT enabled on this vault.
+
+Revoking now is a ONE-WAY DOOR. generate-root is disabled on OpenBao >= 2.5.3, so
+after this revoke nothing can enable OIDC and the vault becomes permanently
+unconfigurable — the 2026-07-26 failure, which the documented recovery reproduced
+on 2026-08-02.
+
+Run this first, then revoke:
+  bash scripts/vault.sh setup-oidc
+
+If you genuinely intend an AppRole-only vault with no OIDC, say so explicitly:
+  ALLOW_REVOKE_WITHOUT_OIDC=1 bash scripts/vault.sh revoke-root"
+}
+
 cmd_revoke_root() {
     require_running
 
@@ -202,6 +248,8 @@ cmd_revoke_root() {
         rm -f "$ROOT_TOKEN_PATH"
         return 0
     fi
+
+    assert_safe_to_revoke "$token"
 
     echo "Revoking root token..."
     # `-e BAO_TOKEN` passes the variable through from this shell rather than
@@ -855,9 +903,14 @@ existing root token instead:
         stored=$((stored + 1))
     done
 
-    # Revoke the temporary root token
+    # Revoke the temporary root token — but NOT if that would close the door.
+    #
+    # This revoke used to be unconditional, and that is precisely how #643 turned a
+    # successful rebuild into an unconfigurable vault: bootstrap-approles was the
+    # last administrative act, and OIDC had never been enabled.
     echo ""
     echo "Revoking temporary root token..."
+    assert_safe_to_revoke
     bao_exec_env token revoke -self 2>/dev/null || warn "Failed to revoke root token (may have already expired)"
     unset BAO_TOKEN
 
