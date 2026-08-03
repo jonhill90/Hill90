@@ -502,9 +502,27 @@ cmd_service() {
             # path above for why a bare call silently continues.
             vault_load_secrets "$service" "$secrets_file" || exit 1
 
+            # `|| exit 1` IS LOAD-BEARING, for the third time in this file.
+            #
+            # A pre-up hook can REFUSE — render-alertmanager-config.sh calls die
+            # when SMTP_PASSWORD or ALERT_EMAIL_TO is empty, precisely so a blank
+            # config is never written. That refusal was being swallowed: `set -e`
+            # is suppressed inside a compound command on the left of `||`, and
+            # this subshell is exactly that, so a failing hook printed its error
+            # and the deploy carried on and reported success.
+            #
+            # Observed, not theorised: both observability deploys on 2026-08-03
+            # logged "ERROR: SMTP_PASSWORD is not set. Refusing to render the
+            # Alertmanager config." and both went green. The Alertmanager config
+            # had not been re-rendered since 1 August and nobody knew.
+            #
+            # Same shape as the vault_load_secrets bug (#652) and the revoke-step
+            # condition (#663): a guard whose failure is ignored is worse than no
+            # guard, because it reads as coverage. `exit` is not subject to the
+            # suppression; `return` and a bare call are.
             if [ -n "$pre_up_hook" ]; then
                 export ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-${ACME_EMAIL:-}}"
-                bash "$SCRIPT_DIR/$pre_up_hook"
+                bash "$SCRIPT_DIR/$pre_up_hook" || exit 1
             fi
 
             if [ "$deploy_mode" = "stateful" ]; then
