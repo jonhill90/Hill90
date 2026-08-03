@@ -23,14 +23,15 @@ setup() {
   [[ "$output" == *"no NEW instance beyond the tracked baseline"* ]]
 }
 
-@test "CONTROL: the sweep actually looks — it reports the known findings" {
+@test "CONTROL: the baseline is EMPTY — every sweep finding has been fixed" {
+  # All four are closed: deploy.sh:236/:243 with #676, the two workflow
+  # conditions with this change. An empty baseline is the goal state, not a
+  # broken check — tests 3 and 4 prove the sweep can still see.
   run python3 "$CHECK"
   [ "$status" -eq 0 ]
-  # The two deploy.sh findings were FIXED and removed from the baseline, so
-  # the remaining tracked set is the two workflow ones.
-  [[ "$output" == *"Report where the root token is"* ]]
-  [[ "$output" == *"Confirm OIDC survived the config swap"* ]]
-  [[ "$output" == *"known and tracked (baseline): 2"* ]]
+  [[ "$output" == *"known and tracked (baseline): 0"* ]]
+  [[ "$output" == *"A. swallowed inside a fallback subshell: 0"* ]]
+  [[ "$output" == *"B. cleanup/assertion skipped on failure: 0"* ]]
 }
 
 # REGRESSION OF #671 — the pre-up hook whose refusal was discarded.
@@ -70,14 +71,15 @@ PY
 }
 
 # A BASELINE THAT ROTS IS SCAFFOLDING. Fixing a finding must force its removal.
-@test "fixing a baseline finding without removing the entry FAILS as stale" {
-  # The deploy.sh pair is fixed already, so this mutates a still-baselined
-  # workflow finding instead.
-  python3 - "$CTL/.github/workflows/vault-init.yml" <<'PY'
+@test "a baseline entry with nothing matching it FAILS as stale" {
+  # The baseline is empty now, so plant one and confirm the staleness rule still
+  # bites. Without this, emptying the baseline would silently retire the rule.
+  python3 - "$CHECK" <<'PY'
 import sys
 p = sys.argv[1]
 t = open(p).read()
-t2 = t.replace("if: ${{ !inputs.revoke_root }}", "if: ${{ always() && !inputs.revoke_root }}")
+t2 = t.replace("BASELINE: dict[str, str] = {}",
+               'BASELINE = {"deploy.sh:999": "a finding that no longer exists"}')
 assert t2 != t, "mutation did not apply"
 open(p, "w").write(t2)
 PY

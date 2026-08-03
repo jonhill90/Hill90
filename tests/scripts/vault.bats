@@ -441,10 +441,19 @@
   grep -q 'assert-unsealed)' scripts/vault.sh
 }
 
-@test "assert-unsealed exits 0 when the container is absent" {
+# INVERTED, and the inversion is the decision — see the contract note above
+# cmd_assert_unsealed in scripts/vault.sh.
+#
+# This test pinned the DEFECT: an assertion that passed because it could not
+# look. Both callers run assert-unsealed after a deploy that is supposed to have
+# produced the container, so absence means the deploy did not — the single most
+# useful thing it could report, and it reported success instead. Found by the
+# #674 sweep as rank 2.2.
+@test "assert-unsealed FAILS when the container is absent — an assertion must not pass on absence" {
   run env VAULT_CONTAINER=definitely-not-a-container-h90 bash scripts/vault.sh assert-unsealed
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"not deployed"* ]]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"NOT DEPLOYED"* ]]
+  [[ "$output" == *"failure, not a pass"* ]]
 }
 
 @test "assert-unsealed fails loudly when seal state cannot be determined" {
@@ -465,7 +474,10 @@
   fi
   run env VAULT_AUTO_UNSEAL_TIMEOUT=1 bash scripts/vault.sh auto-unseal
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipping auto-unseal"* ]]
+  # Message changed with #674 rank 2.1: the tolerance is unchanged and
+  # deliberate, but it now states that it is a NO-OP rather than implying
+  # success, and points at assert-unsealed for the case where absence is a fault.
+  [[ "$output" == *"NO-OP, not a success"* ]]
 }
 
 # ---------------------------------------------------------------------------
