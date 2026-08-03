@@ -340,10 +340,13 @@ cmd_up() {
 import json, sys
 base = sys.argv[1].rstrip("/")
 print(json.dumps([
+    # The API callback is /v1/auth/oidc/OIDC/callback — mount path plus the
+    # plugin route, both `oidc`. These read /v1/auth/oidc/callback until
+    # 2026-08-03; that is not a route and answers permission denied silently.
     "https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback",
-    "https://vault.hill90.com/v1/auth/oidc/callback",
+    "https://vault.hill90.com/v1/auth/oidc/oidc/callback",
     base + "/ui/vault/auth/oidc/oidc/callback",
-    base + "/v1/auth/oidc/callback",
+    base + "/v1/auth/oidc/oidc/callback",
 ]))' "$vault_local")
     local vault_cid
     vault_cid=$(docker exec "${cpfx}keycloak" /opt/keycloak/bin/kcadm.sh get clients \

@@ -129,13 +129,16 @@ bash scripts/vault.sh bootstrap-approles
 > Since #644 both revoke sites call `assert_safe_to_revoke`, which **refuses** when the OIDC
 > auth method is not enabled — so the door can no longer be closed by accident, and the
 > ordering below is enforced rather than merely advised. With
-> `generate-root` disabled, that makes it the last administrative act possible — anything
-> not configured before it cannot be configured afterwards without another reinitialise.
+> `generate-root` disabled, that makes it the last administrative act possible on the
+> production config — anything not configured before it needs a recovery run
+> (`vault-regain-root.yml`) afterwards. This sentence said "without another reinitialise",
+> which overstated it.
 >
 > **This was learned the hard way on 2026-08-02.** The reinitialise workflow does not run
 > `setup-oidc` at all, and this runbook originally listed `bootstrap-approles` first. The
 > result was a rebuilt vault with working AppRoles, no OIDC auth method, and no way to add
-> one — the same one-way door as 2026-07-26, recreated by the repair itself.
+> one — the same trap as 2026-07-26, recreated by the repair itself. It was reopened on
+> 2026-08-03 by minting root from the unseal key, without destroying anything.
 
 `bootstrap-approles` writes the new role/secret IDs back into SOPS — **that change must be
 committed**, or the next deploy syncs the host checkout to `main` and reverts them.
@@ -174,8 +177,10 @@ Stage 2b — repointing the `admin-sso` OIDC role from `realm_roles: admin` to
 > **AppRole was proven, and Stage 2b is still blocked — for a different reason.**
 > `Verified 2026-08-02.` This rebuild ran **before** #645's guard existed, so Step 5 went in
 > the order this page originally gave: `bootstrap-approles` first, `setup-oidc` never. The
-> result is the one-way door again — **no OIDC auth method, a root token file whose token is
+> result was that trap again — **no OIDC auth method, a root token file whose token is
 > dead, `generate-root` 403, and `deny` on `sys/auth/oidc` for all four AppRoles.**
+> **RESOLVED 2026-08-03** by `vault-regain-root.yml`: OIDC is enabled and a real login for
+> `jon` yields `policy-oidc-admin`.
 >
 > All four AppRoles do authenticate, so Step 6's first bullet passes. That is not the
 > blocker and never was.
