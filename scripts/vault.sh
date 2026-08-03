@@ -467,6 +467,19 @@ cmd_setup_oidc() {
     # Create admin-sso role (maps Keycloak admin role to vault policy)
     # Uses JSON via stdin because bound_claims requires a map type that
     # the CLI doesn't parse correctly from positional arguments.
+    # The bound claim is `platform-admin`, NOT `admin` — Stage 2b, matching the
+    # Grafana repoint in #637. The claim NAME stays `realm_roles`: hill90-vault's
+    # mapper is deliberately non-default (`claim.name=realm_roles` rather than
+    # Keycloak's `realm_access.roles`), measured against a real token in #635, and
+    # changing it would break a binding that is already consistent. Only the VALUE
+    # moved, because realm role `admin` has zero holders and `platform-admin` is
+    # the role `jon` actually carries.
+    #
+    # NOT PROVEN BY A LIVE LOGIN. The production vault has no OIDC auth method to
+    # apply this to and no way to acquire one — see
+    # docs/decisions/stage2b-oidc-blocked-2026-08-02.md. This value is what the
+    # NEXT successful `setup-oidc` will write; until then Stage 2b is unfinished,
+    # and this line must not be read as evidence that it works.
     echo "Creating admin-sso OIDC role..."
     # Redirect URIs must match the vault's own public URL. Defaulting to the
     # production URL keeps this byte-identical to what prod got before; local
@@ -481,7 +494,7 @@ print(json.dumps({
     "user_claim": "sub",
     "policies": ["policy-oidc-admin"],
     "oidc_scopes": ["openid", "profile", "email"],
-    "bound_claims": {"realm_roles": ["admin"]},
+    "bound_claims": {"realm_roles": ["platform-admin"]},
     "allowed_redirect_uris": [
         base + "/v1/auth/oidc/callback",
         base + "/ui/vault/auth/oidc/oidc/callback",
@@ -496,7 +509,7 @@ print(json.dumps({
     success "OIDC setup complete!"
     echo "  Login at: ${vault_url}/ui/"
     echo "  Auth method: OIDC"
-    echo "  Keycloak users with 'admin' role can now sign in."
+    echo "  Keycloak users with the 'platform-admin' realm role can now sign in."
     echo ""
 }
 
