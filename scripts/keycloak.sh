@@ -51,7 +51,22 @@ MINIO_PUBLIC_URL="${MINIO_PUBLIC_URL:-https://storage.hill90.com}"
 # Grafana while they stay read-only everywhere else. That is a silent upgrade and
 # an incoherent tier. platform-editor starts with zero holders, so nobody's
 # effective access changes on the day it lands.
-REALM_ROLES="admin editor viewer platform-admin platform-editor platform-viewer"
+REALM_ROLES="platform-admin platform-editor platform-viewer"
+
+# Roles this repo has RETIRED and actively deletes. Removal is driven by an
+# explicit list, not by absence from REALM_ROLES, and that distinction is the
+# whole reason this exists:
+#
+#   `user` was live in the realm and NOT in REALM_ROLES. ensure_realm_roles only
+#   creates what is listed, so a role missing from that list is not managed —
+#   it is invisible. Deleting by "anything not in REALM_ROLES" would have been a
+#   rule that also deleted `default-roles-platform`, `offline_access` and
+#   `uma_authorization`, which are Keycloak's own and are held by every user.
+#
+# So retirement is stated, never inferred. remove_realm_roles refuses to delete a
+# role that has holders, so this list cannot become a foot-gun if one is granted
+# later.
+REALM_ROLES_REMOVED="admin user editor viewer"
 
 # Humans who administer the platform. Granted platform-admin plus the NARROWEST
 # realm-management set that was measured to work — see ensure_platform_admins.
@@ -252,6 +267,48 @@ ensure_realm_roles() {
     done
 }
 
+# Delete the retired roles, refusing if anyone still holds one.
+#
+# THE REFUSAL IS THE POINT. Zero holders was measured before this shipped, but a
+# measurement is a fact about a moment. Somebody can grant `admin` between then
+# and the next deploy, and a delete that runs anyway would silently strip it.
+#
+# Holders are checked THREE ways, because a direct-holder query alone would miss
+# two paths: a role granted through a GROUP does not appear in roles/<r>/users,
+# and a role reached through a COMPOSITE parent appears on neither. All three
+# must be empty.
+remove_realm_roles() {
+    echo "Retired realm roles..."
+    local role existing
+    existing=$(kc get roles -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r')
+    for role in $REALM_ROLES_REMOVED; do
+        if ! echo "$existing" | grep -qx "$role"; then
+            echo "  . ${role} already absent"
+            continue
+        fi
+
+        local users groups parents
+        users=$(kc get "roles/${role}/users"  -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -c . || true)
+        groups=$(kc get "roles/${role}/groups" -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -c . || true)
+        # Composite parents: any role whose composites include this one.
+        parents=$(kc get roles -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r' | while read -r other; do
+            [ -n "$other" ] || continue
+            [ "$other" = "$role" ] && continue
+            kc get "roles/${other}/composites" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null \
+                | tr -d '\r' | grep -qx "$role" && echo "$other"
+        done | grep -c . || true)
+
+        if [ "$users" -ne 0 ] || [ "$groups" -ne 0 ] || [ "$parents" -ne 0 ]; then
+            warn "  ! ${role} NOT deleted — holders found (users=${users} groups=${groups} composite-parents=${parents}). Retirement is blocked until it has none; do not force it."
+            continue
+        fi
+
+        kc delete "roles/${role}" -r "$KC_REALM" >/dev/null 2>&1 \
+            && echo "  - ${role} deleted (0 users, 0 groups, 0 composite parents)" \
+            || warn "  ! ${role} could not be deleted"
+    done
+}
+
 # Grant the platform administrators their roles, idempotently.
 #
 # THE NARROW SET IS NARROW ON PURPOSE, AND IT WAS MEASURED, NOT ASSUMED.
@@ -435,6 +492,9 @@ cmd_apply() {
         || die "Cannot resolve MINIO_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
 
     ensure_realm_roles
+    # AFTER creating the replacements, never before: a run that deleted the old
+    # roles and then failed would leave the realm with neither.
+    remove_realm_roles
     ensure_platform_admins
 
     echo ""
