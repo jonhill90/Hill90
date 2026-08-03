@@ -61,6 +61,11 @@ ALLOWLIST_A = {
 # --- shape B ---------------------------------------------------------------
 # Steps whose name reads like cleanup/assertion but whose skip-on-failure is correct.
 ALLOWLIST_B = {
+    ("reusable-deploy-service.yml", "Prove no MinIO policy collides with an automatic realm role"): (
+        "a VERIFICATION, not a cleanup — same reasoning as the Grafana entry "
+        "below. success() is correct: verifying a deploy that did not happen "
+        "proves nothing. Matched on the word 'Prove'."
+    ),
     ("reusable-deploy-service.yml", "Prove Grafana SSO still yields the expected role"): (
         "a VERIFICATION, not a cleanup. success() is correct here: verifying a "
         "deploy that did not happen proves nothing and would fail for the wrong "

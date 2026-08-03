@@ -138,6 +138,33 @@ jobs:
       # that was #663 — but verifying a deploy that did not happen proves nothing
       # and would fail for the wrong reason. Cleanup needs always(); verification
       # needs success().
+      # PROVE NO MINIO POLICY IS NAMED AFTER AN AUTOMATIC REALM ROLE.
+      #
+      # MinIO grants the UNION of every claim value that names a policy. Three
+      # values ride in EVERY token in realm `platform` — offline_access,
+      # uma_authorization and default-roles-platform — because Keycloak grants
+      # them to every account. So a MinIO policy named after any of those is
+      # granted to everyone who can log in, with nobody having asked for it.
+      #
+      # Demonstrated rather than theorised in #655: policies called
+      # uma_authorization and offline_access gave `jon` list and write purely for
+      # being a realm member.
+      #
+      # minio.sh apply prints "Verify with: …minio-policy-names-test.sh" after it
+      # runs. That is a sentence, not a call — the check was invoked by nothing
+      # (#689) and had been since it was written. This is it being connected, the
+      # same way #688 connected the Grafana SSO check.
+      #
+      # `success()` for the same reason as that one: this VERIFIES a deploy, and
+      # verifying a deploy that did not happen proves nothing. Cleanup needs
+      # always(); verification needs success().
+      - name: Prove no MinIO policy collides with an automatic realm role
+        if: success() && inputs.service == 'minio'
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/minio-policy-names-test.sh'
+
       - name: Prove Grafana SSO still yields the expected role
         if: success() && inputs.service == 'observability'
         run: |
