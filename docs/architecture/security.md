@@ -45,11 +45,17 @@ restricting administration to a private network.
 
 **Vault admin access is token-based. There is no single sign-on.**
 
-OIDC through Keycloak was removed along with the Keycloak stack — the
-`hill90-vault` client was its only remaining consumer, and carrying a full
-identity provider for one operator was not worth the surface. Obtain a token
-from `vault.sh init` output or `bao operator generate-root`, and revoke
-generated root tokens immediately after use.
+**OIDC through Keycloak is ENABLED, and this paragraph said it had been removed.**
+`Verified 2026-08-03` by a completed authorization-code login: `jon` authenticates
+against realm `platform` through client `hill90-vault` and receives
+`policy-oidc-admin`, bound on the realm role `platform-admin`. The claim is
+`realm_roles`, deliberately not Keycloak's `realm_access.roles` default.
+`scripts/checks/vault-oidc-login-test.sh` re-proves it.
+
+For a root token: `vault.sh init` output, or the unseal key via
+`bash scripts/vault.sh regain-root` (see `vault-regain-root.yml`). **Not**
+`bao operator generate-root` — that CLI targets a legacy path and returns 403
+whatever the configuration. Revoke generated root tokens immediately after use.
 
 The Traefik dashboard and Portainer are protected by Traefik basic auth plus the
 Tailscale IP allowlist. The dashboard password hash is generated at deploy time

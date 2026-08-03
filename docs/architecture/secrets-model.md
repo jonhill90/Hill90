@@ -26,8 +26,11 @@
 > Filling it is a deliberate next step, not an oversight — it depends on the
 > open question in [Vault vs SOPS](../decisions/vault-vs-sops.md), which is
 > still Jon's call. Running `setup` and `seed` also needs a root token, and the
-> one minted at init was revoked immediately by design; a new one comes from
-> `bao operator generate-root` using the unseal key.
+> one minted at init was revoked immediately by design; a new one comes from the
+> unseal key via `bash scripts/vault.sh regain-root`, which needs the vault
+> redeployed on `config.recovery.hcl` first — `gh workflow run
+> vault-regain-root.yml` does both. **Not** `bao operator generate-root`: that CLI
+> targets a legacy path and returns 403 whatever the configuration.
 
 ## Intended model
 

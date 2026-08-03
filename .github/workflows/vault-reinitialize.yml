@@ -13,9 +13,11 @@ name: Vault Reinitialize (Prod)
 #   backup -> wipe -> redeploy (on raft) -> init -> unseal -> store key
 #          -> setup -> seed -> setup-sync-token -> PR the new secrets
 #
-# Root is NOT revoked. That is the one-way door, it is the mistake this
+# Root is NOT revoked. Revoking before anything is configured is the mistake this
 # workflow exists to avoid repeating, and it is left as a separate deliberate
-# command printed at the end.
+# command printed at the end. (It was called a ONE-WAY door here until
+# 2026-08-03; it is not — see vault-regain-root.yml — but it is expensive enough
+# that the ordering still matters.)
 #
 # DESTRUCTIVE: it deletes the openbao-data volume. Three things stand in the
 # way of that happening by accident:

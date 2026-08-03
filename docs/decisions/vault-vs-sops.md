@@ -202,8 +202,10 @@ with the new secrets.
 anyway. Doing it separately means a second outage and an `operator migrate` for
 no benefit.
 
-**Root is not revoked.** That is the one-way door, and revoking it before
-anything was configured is precisely what produced the current inert vault. The
+**Root is not revoked.** Revoking it before anything was configured is precisely
+what produced the current inert vault. *(Called a one-way door here until
+2026-08-03; it is recoverable via `vault.sh regain-root` at the cost of a config change, two restarts and a credential-free window — see
+[`stage2b-oidc-blocked-2026-08-02.md`](stage2b-oidc-blocked-2026-08-02.md).)* The
 run summary prints the single command to do it once you are satisfied.
 
 It cannot fire by accident. The confirmation input must be exactly

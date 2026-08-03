@@ -182,8 +182,9 @@ change both.**
 ## Rehearsing the vault lifecycle
 
 The vault is the one part of the stack with irreversible steps — initialization
-mints a key that cannot be recovered, and revoking root is a one-way door on
-OpenBao ≥ 2.5.3. Locally all of it is free and the volume is disposable, so the
+mints a key that cannot be recovered, and revoking root on OpenBao ≥ 2.5.3 costs
+a full recovery run to undo (`vault.sh regain-root`) — it was described here as a
+one-way door until 2026-08-03, which was wrong. Locally all of it is free and the volume is disposable, so the
 sequence can be practised before it is run against the VPS:
 
 ```bash

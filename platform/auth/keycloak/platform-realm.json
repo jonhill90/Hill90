@@ -84,7 +84,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "https://vault.hill90.com/v1/auth/oidc/callback",
+        "https://vault.hill90.com/v1/auth/oidc/oidc/callback",
         "https://vault.hill90.com/ui/vault/auth/oidc/oidc/callback"
       ],
       "webOrigins": [
