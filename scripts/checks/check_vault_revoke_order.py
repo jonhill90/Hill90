@@ -4,10 +4,15 @@
 WHY
 ===
 
-Revoking root is a ONE-WAY DOOR on OpenBao >= 2.5.3: the unauthenticated
-root-generation endpoints are disabled by default, so `bao operator generate-root`
-returns 403 and whatever was not configured before the revoke can never be
-configured after it. That produced a healthy, permanently unconfigurable vault on
+Revoking root is EXPENSIVE to undo on OpenBao >= 2.5.3: the unauthenticated
+root-generation endpoints are disabled by default, so whatever was not configured
+before the revoke cannot be configured after it without redeploying the vault on
+platform/vault/config.recovery.hcl and minting root from the unseal key
+(scripts/vault.sh regain-root, proven 2026-08-02). This docstring called it a
+ONE-WAY DOOR and that was wrong — `bao operator generate-root`'s 403 comes from a
+legacy path, not from an irreversible state. The guard stays: recovery means a
+production config change, two restarts, and a window where an unseal key share
+alone mints root. That produced a healthy, unconfigurable vault on
 2026-07-26 — and again on 2026-08-02, this time by FOLLOWING the documented
 recovery, because the reinitialise workflow never enabled OIDC and
 `bootstrap-approles` revokes root when it finishes.

@@ -1,0 +1,242 @@
+name: Vault Regain Root (Prod)
+
+# Recover administrative access to a vault whose root token has been revoked,
+# WITHOUT destroying it.
+#
+# This exists because the estate believed that was impossible. `bao operator
+# generate-root` returns 403 on OpenBao 2.6.1, and that was read three times as
+# "root generation is disabled, the door is one-way, the only way back is a
+# reinitialise". The CLI targets sys/generate-root-token/*, a legacy path that
+# 403s regardless of configuration. The live endpoint is sys/generate-root/*, and
+# it opens when the listener carries
+# disable_unauthed_generate_root_endpoints = false.
+#
+# Proven A/B on throwaway OpenBao 2.6.1 instances with root revoked, before this
+# workflow was written — see docs/decisions/stage2b-oidc-blocked-2026-08-02.md.
+#
+# THE EXPOSURE, AND WHY IT IS BOUNDED BY THIS FILE RATHER THAN BY A HUMAN
+# ======================================================================
+# While the recovery config is live, anyone who can reach the listener AND holds
+# an unseal key share can mint root with no token at all. Threshold here is 1 of 1.
+# So the window is opened and closed by ONE run: deploy recovery config -> mint ->
+# configure -> deploy config.hcl -> ASSERT the endpoint is shut again. The run
+# fails if the door is left open. Do not do this by hand in two sittings.
+#
+# It is NOT destructive: no volume is removed, no data is touched, and the vault
+# it recovers is the one that keeps running.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type REGAIN (exactly) to confirm. Opens unauthenticated root generation for the duration of this run.'
+        required: true
+        type: string
+      run_setup_oidc:
+        description: 'Run setup-oidc with the recovered token. This is the reason the recovery exists — leave it on unless you have another.'
+        required: false
+        default: true
+        type: boolean
+      revoke_root_at_end:
+        description: 'Revoke the recovered root token when finished. Safe once OIDC is enabled; assert_safe_to_revoke refuses otherwise.'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  regain:
+    name: Regain root
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Refuse without the typed confirmation
+        if: ${{ inputs.confirm != 'REGAIN' }}
+        run: |
+          echo "::error::confirm must be exactly REGAIN. Got: '${{ inputs.confirm }}'"
+          exit 1
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age for secrets
+        env:
+          SOPS_VERSION: "3.9.4"
+        run: |
+          curl -fsSL -o /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          if file /tmp/sops | grep -q "HTML"; then
+            echo "::error::SOPS download returned HTML instead of binary"
+            exit 1
+          fi
+          chmod +x /tmp/sops && sudo mv /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      # ---- Preconditions -----------------------------------------------------
+
+      - name: Baseline before touching anything
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/checks/platform-baseline-test.sh'
+
+      - name: Refuse if a VALID root token already exists
+        run: |
+          # A live token means this workflow is the wrong tool — use the token.
+          # Running anyway would open the endpoint for no reason.
+          STATE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'if [ -s /opt/hill90/secrets/openbao-root.token ]; then
+               BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN openbao bao token lookup >/dev/null 2>&1 && echo live || echo dead
+             else echo absent; fi')
+          echo "existing root token: $STATE"
+          if [ "$STATE" = "live" ]; then
+            echo "::error::A valid root token already exists on the host. Use it — do not open unauthenticated root generation."
+            exit 1
+          fi
+
+      # ---- Open the window ---------------------------------------------------
+
+      - name: Deploy the RECOVERY config
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd /opt/hill90/app && \
+             git fetch origin && \
+             { [ -f scripts/preflight-checkout.sh ] || { echo '::error::scripts/preflight-checkout.sh is missing from /opt/hill90/app on the VPS. It ships in this repository, so it exists on the box only AFTER one deploy that includes it. Fix: ssh to the VPS as deploy, run cd /opt/hill90/app && git pull, then re-run this workflow. Do not remove the guard to get past this.'; exit 1; }; } && \
+             bash scripts/preflight-checkout.sh && \
+             git reset --hard origin/main && \
+             export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
+             export VAULT_CONFIG_FILE=config.recovery.hcl && \
+             bash scripts/deploy.sh vault prod"
+
+      # A restart seals the vault. Auto-unseal is meant to bring it back; assert
+      # that it DID rather than assuming, because a vault that stays sealed here
+      # looks like a failed recovery and is actually a failed unseal.
+      - name: Confirm auto-unseal brought it back
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh assert-unsealed'
+
+      - name: Baseline after the recovery-config deploy
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/checks/platform-baseline-test.sh'
+
+      # ---- Mint, and configure while we can ----------------------------------
+
+      - name: Regain root from the unseal key
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh regain-root'
+
+      # OIDC BEFORE the window closes. This is the whole point: whatever is not
+      # configured while root exists needs another recovery run afterwards.
+      - name: Enable OIDC against the platform realm
+        if: ${{ inputs.run_setup_oidc }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && export BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)" && bash scripts/vault.sh setup-oidc'
+
+      # ---- Close the window, and PROVE it closed ------------------------------
+
+      - name: Restore the production config
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd /opt/hill90/app && \
+             export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
+             bash scripts/deploy.sh vault prod"
+
+      - name: Confirm auto-unseal brought it back again
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh assert-unsealed'
+
+      # The assertion that makes the window bounded rather than merely intended.
+      - name: ASSERT unauthenticated root generation is shut again
+        if: always()
+        run: |
+          CODE=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "docker exec openbao sh -c \"wget -qO- --server-response --post-data='{}' --header=Content-Type:application/json http://127.0.0.1:8200/v1/sys/generate-root/attempt 2>&1\" | sed -n 's|.*HTTP/1.1 \([0-9]*\).*|\1|p' | head -1")
+          echo "POST sys/generate-root/attempt -> $CODE  (405 = closed, 200 = STILL OPEN)"
+          if [ "$CODE" = "200" ]; then
+            echo "::error::The vault is STILL running the recovery config. Unauthenticated root generation is open on production. Redeploy vault immediately: gh workflow run deploy-vault.yml"
+            exit 1
+          fi
+          if [ "$CODE" != "405" ]; then
+            echo "::error::Unexpected status $CODE — cannot confirm the endpoint is closed. Investigate before walking away."
+            exit 1
+          fi
+
+      - name: Confirm OIDC survived the config swap
+        if: ${{ inputs.run_setup_oidc }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/checks/vault-oidc-enabled-test.sh'
+
+      # ---- Independent re-proof ----------------------------------------------
+
+      # AppRole is a DIFFERENT auth method. Nothing above tested it, and a vault
+      # that gained OIDC while losing AppRole would look like a success.
+      - name: Re-prove AppRole for all four platform roles
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/checks/vault-approle-login-test.sh'
+
+      - name: Revoke the recovered root token
+        if: ${{ inputs.revoke_root_at_end }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/vault.sh revoke-root'
+
+      - name: Final baseline
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash scripts/checks/platform-baseline-test.sh'
+
+      - name: What remains
+        run: |
+          echo "Root regained and OIDC enabled. NOT yet proven, and not provable from here:"
+          echo "  a real authorization-code login for jon yielding policy-oidc-admin."
+          echo "Do that at https://vault.hill90.com/ui/ and record it. Config that reads"
+          echo "correctly is what this estate already had for six days while it worked for nobody."
