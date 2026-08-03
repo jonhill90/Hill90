@@ -118,3 +118,38 @@ Code: 403. Errors:
   run load_and_run
   [ "$status" -ne 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# The SECOND half of the 2026-08-03 outage.
+#
+# #651 made vault_load_secrets return non-zero correctly — and auth STILL
+# deployed with every variable blank, because `set -e` is SUPPRESSED inside a
+# compound command on the left of `||`. deploy.sh wraps the vault branch in
+# `( ... ) || { warn; _deploy_with_sops; }`, so a bare call that returns 1 does
+# not stop the subshell: it warns, carries on, and runs docker compose with no
+# secrets. The compose log showed all six variables "not set".
+#
+# `exit` is not subject to the suppression. `return` is. These tests pin that.
+# ---------------------------------------------------------------------------
+
+@test "bash really does suppress set -e inside a subshell on the left of ||" {
+  run bash -c 'set -e; f(){ return 1; }; ( f; echo REACHED ) || echo FALLBACK'
+  [[ "$output" == *"REACHED"* ]]
+  [[ "$output" != *"FALLBACK"* ]]
+}
+
+@test "... and || exit 1 defeats it" {
+  run bash -c 'set -e; f(){ return 1; }; ( f || exit 1; echo REACHED ) || echo FALLBACK'
+  [[ "$output" == *"FALLBACK"* ]]
+  [[ "$output" != *"REACHED"* ]]
+}
+
+@test "EVERY vault_load_secrets call site aborts its subshell explicitly" {
+  cd "$BATS_TEST_DIRNAME/../.."
+  # A bare call here means a failed secret load deploys blank credentials.
+  run grep -nE '^[[:space:]]*vault_load_secrets ' scripts/deploy.sh
+  [ "$status" -eq 0 ]
+  while IFS= read -r line; do
+    [[ "$line" == *"|| exit"* ]] || { echo "unguarded call site: $line"; return 1; }
+  done <<< "$output"
+}

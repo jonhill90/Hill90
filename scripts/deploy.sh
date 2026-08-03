@@ -206,7 +206,23 @@ cmd_infra() {
 
     if [ "$vault_ok" = true ]; then
         (
-            vault_load_secrets "infra" "$secrets_file"
+            # `|| exit 1` IS LOad-BEARING — do not reduce it to a bare call.
+            #
+            # `set -e` is SUPPRESSED inside a compound command on the left of
+            # `||`, and this subshell is exactly that: `( ... ) || { fallback }`.
+            # So a bare `vault_load_secrets` that returns non-zero does NOT stop
+            # the subshell; it prints its warning and the deploy carries on with
+            # no secrets loaded. Demonstrable in three lines:
+            #
+            #   set -e; f(){ return 1; }
+            #   ( f; echo "still running" ) || echo "fallback"   -> still running
+            #   ( f || exit 1; echo x )    || echo "fallback"    -> fallback
+            #
+            # This is the second half of the 2026-08-03 auth outage. The first
+            # fix (#651) made vault_load_secrets return non-zero correctly, and
+            # the deploy ignored it and shipped a container with every variable
+            # blank. `exit` is not subject to the suppression; `return` is.
+            vault_load_secrets "infra" "$secrets_file" || exit 1
 
             echo "Generating Traefik basic auth credentials..."
             mkdir -p platform/edge/dynamic
@@ -405,10 +421,24 @@ cmd_service() {
     echo "${banner} - ${env}"
     echo "================================"
 
-    # Pre-deploy backup for stateful services
+    # Pre-deploy backup for stateful services.
+    #
+    # `auth` has no volume of its own: Keycloak keeps realms, clients and users in
+    # the platform Postgres `keycloak` database. So `backup.sh backup auth` was
+    # never a valid target and died with "Unknown service for backup: auth" —
+    # warned, continued, and the pre-deploy safety net for the IDENTITY PROVIDER
+    # silently did nothing. Observed on the 2026-08-03 outage deploy.
+    #
+    # Backing up `db` is what "back up auth before touching it" actually means.
     if [ "$stateful" = true ]; then
-        echo "Running pre-deploy backup for ${service}..."
-        bash "$SCRIPT_DIR/backup.sh" backup "$service" || warn "Pre-deploy backup failed (continuing deploy)"
+        local backup_target="$service"
+        [ "$service" = "auth" ] && backup_target="db"
+        if [ "$backup_target" != "$service" ]; then
+            echo "Running pre-deploy backup for ${service} (its state lives in ${backup_target})..."
+        else
+            echo "Running pre-deploy backup for ${service}..."
+        fi
+        bash "$SCRIPT_DIR/backup.sh" backup "$backup_target" || warn "Pre-deploy backup failed (continuing deploy)"
     fi
 
     # Vault-first, SOPS-fallback for service secrets
@@ -468,7 +498,9 @@ cmd_service() {
         # Subshell: load secrets + deploy. If vault_load_secrets fails
         # transiently, fall through to SOPS.
         (
-            vault_load_secrets "$service" "$secrets_file"
+            # `|| exit 1` is load-bearing — see the identical guard on the infra
+            # path above for why a bare call silently continues.
+            vault_load_secrets "$service" "$secrets_file" || exit 1
 
             if [ -n "$pre_up_hook" ]; then
                 export ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-${ACME_EMAIL:-}}"
