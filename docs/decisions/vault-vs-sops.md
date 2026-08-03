@@ -41,6 +41,18 @@ because it was never about whether a vault *could* run.
   2.5.3. With no other sudo-capable token, the only route back to root is
   reinitializing. So the running vault is not just empty, it is inert until
   someone decides to reinitialize it.
+
+> **Corrected 2026-08-02 — "cannot mint a new one" was measured with the wrong
+> instrument.** `bao operator generate-root` targets the legacy
+> `sys/generate-root-token/*` path, which returns 403 regardless of configuration.
+> The live endpoint is `sys/generate-root/*`: **405** under production's `config.hcl`,
+> **200** with `disable_unauthed_generate_root_endpoints = false` in the **listener**
+> stanza, after which root is minted from the unseal key. Root recovery therefore does
+> NOT require reinitialising — see
+> [`stage2b-oidc-blocked-2026-08-02.md`](stage2b-oidc-blocked-2026-08-02.md) and
+> `scripts/vault.sh regain-root`. The reasons not to revoke root early still stand;
+> recovery costs a config change, two restarts and a credential-free exposure window.
+
 - Between the June 14 rebuild and 2026-07-26 there was no vault at all, and
   nothing noticed.
 - Every secret in use has been served by SOPS + age for six weeks. Nothing
@@ -146,6 +158,18 @@ root token was revoked and OpenBao 2.6.1 cannot mint a new one (403 from
 `bao operator generate-root`; the unauthenticated root-generation endpoints are
 disabled by default since 2.5.3). The only route to a working vault is to start
 it over.
+
+> **Corrected 2026-08-02 — "cannot mint a new one" was measured with the wrong
+> instrument.** `bao operator generate-root` targets the legacy
+> `sys/generate-root-token/*` path, which returns 403 regardless of configuration.
+> The live endpoint is `sys/generate-root/*`: **405** under production's `config.hcl`,
+> **200** with `disable_unauthed_generate_root_endpoints = false` in the **listener**
+> stanza, after which root is minted from the unseal key. Root recovery therefore does
+> NOT require reinitialising — see
+> [`stage2b-oidc-blocked-2026-08-02.md`](stage2b-oidc-blocked-2026-08-02.md) and
+> `scripts/vault.sh regain-root`. The reasons not to revoke root early still stand;
+> recovery costs a config change, two restarts and a credential-free exposure window.
+
 
 ### What it costs
 

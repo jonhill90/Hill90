@@ -1,32 +1,32 @@
-# Stage 2b is blocked: the vault has no OIDC auth method, and no way to acquire one
+# Stage 2b: the vault has no OIDC method — and the door back is not one-way after all
 
-`Measured 2026-08-02 against production. Read-only — nothing was deployed, created or
-changed on the host.` Every command below was run over SSH as `deploy` and every one of
-them only reads.
+`Measured 2026-08-02.` Production was inspected **read-only**; nothing was deployed or
+changed there. The recovery was proven on **throwaway OpenBao 2.6.1 instances**, isolated,
+never against production.
 
-**Stage 2b — repointing OpenBao's `admin-sso` OIDC role from realm role `admin` to
-`platform-admin` — cannot be completed.** Not because the change is wrong; because there
-is no OIDC auth method on the production vault to repoint, and enabling one needs a
-root-or-sudo token that does not exist and cannot be minted.
+**Two findings, and the second is the one that matters beyond Stage 2b.**
 
-This is the 2026-07-26 one-way door, standing open again. #645 closed the door on
-*future* revokes; it landed **after** #643 had already walked through it.
+1. **Stage 2b cannot be completed as things stand.** The production vault has no OIDC auth
+   method to repoint, no usable root token, and no AppRole that can create one.
+2. **The estate's belief that this is unrecoverable is false, and rests on a broken
+   instrument.** Root *can* be regained from the unseal key, without destroying the vault.
+   `bao operator generate-root`'s 403 — cited in five documents as proof the door is
+   one-way — comes from a **legacy API path**, not from an irreversible state.
 
-## The verdict, and the four facts behind it
+## Finding 1 — why Stage 2b is blocked
 
-| Question | Answer | How |
+| Question | Answer | Instrument |
 |---|---|---|
-| Is the OIDC auth method mounted? | **No** | unauthenticated probe with both controls — below |
-| Is the on-disk root token usable? | **No** — `403 permission denied` | `bao token lookup` with `/opt/hill90/secrets/openbao-root.token` |
-| Can root be regenerated? | **No** — `403 permission denied` | `bao operator generate-root -init` and `-status` |
-| Can any AppRole enable it? | **No** — `deny` on all four | `bao token capabilities sys/auth/oidc` after a real login |
+| Is the OIDC auth method mounted? | **No** | unauthenticated probe with both controls |
+| Is the on-disk root token usable? | **No** — `403 permission denied` | `bao token lookup` |
+| Can any AppRole enable it? | **No** — `deny` ×4 | `bao token capabilities sys/auth/oidc` |
 
-Any one of those would be recoverable. Together they are the closed door.
+#643 rebuilt the vault **before** #645's guard existed, so `bootstrap-approles` ran first
+and revoked root on its way out; `setup-oidc` never ran.
 
-## Fact 1 — OIDC is not mounted, and the instrument was controlled before it was believed
-
-There is no token, so `bao auth list` is unavailable — which is exactly why this was
-unanswerable until now. The probe instead reads the status of an unauthenticated POST:
+**OIDC is not mounted**, and the instrument was controlled before it was believed. With no
+token, `bao auth list` is unavailable — which is why this was unanswerable until now. The
+probe reads unauthenticated status codes instead:
 
 ```
 positive control  auth/approle/login                -> 500   (mounted; backend rejected the payload)
@@ -34,155 +34,145 @@ negative control  auth/no-such-method-3594870/login -> 403   (absent; no handler
 target            auth/oidc/oidc/auth_url           -> 403   (matches the ABSENT control)
 ```
 
-**403, not 404, is what OpenBao returns for a mount that does not exist**, which is
-counter-intuitive enough that the reading is worthless without the pair of controls. Both
-behaved, so the target's 403 means absent. Shipped as
-`scripts/checks/vault-oidc-enabled-test.sh`, which refuses to report a verdict at all if
-either control misbehaves.
+**403, not 404, is what OpenBao returns for an absent mount** — counter-intuitive enough
+that the reading is worthless without the pair. Shipped as
+`scripts/checks/vault-oidc-enabled-test.sh`, which refuses a verdict if either control
+misbehaves. A second, independent instrument agrees: the barrier-encrypted auth mount table
+`/openbao/file/core/_auth` has mtime `Aug 2 23:48` — the rebuild, untouched since.
 
-**A second, independent instrument agrees.** The barrier-encrypted auth mount table is a
-single file in the storage backend, and while its contents are unreadable its *mtime* is
-not:
+**AppRole is healthy** and is not the blocker: `db`, `auth`, `infra` and `observability` all
+authenticate, each with its own policy. Now a command rather than a memory:
+`scripts/checks/vault-approle-login-test.sh`.
 
-```
--rw-------  openbao  561  Aug  2 23:48  /openbao/file/core/_auth
-```
+**Keycloak is already correct.** `jon` holds realm role `platform-admin` (#636); client
+`hill90-vault` carries mapper `realm-roles` with `claim.name=realm_roles`, the deliberate
+non-default. OpenBao is the only thing in the way.
 
-`23:48` is the rebuild. Nothing has been added to the auth mount table since — no
-`setup-oidc` ran during #643, and none has run since. (`sys/policy/` is `23:51`, so
-`policy-apply` did run; policies are not auth methods.)
+## Finding 2 — the 403 that closed the door was the wrong instrument
 
-## Fact 2 — the root token file survives, and the token in it is dead
+Five documents state that root cannot be regenerated on 2.6.1, all tracing to one
+observation: `bao operator generate-root -init` returns **403 permission denied**.
 
-```
--rw------- 1 deploy deploy 26 Aug  2 23:48 /opt/hill90/secrets/openbao-root.token
-```
+**The CLI targets `sys/generate-root-token/*`. That path returns 403 under every
+configuration tested — flag or no flag. The live endpoint is `sys/generate-root/*`.**
 
-The file's existence is misleading and worth stating plainly, because a future session
-will find it and think it has root:
+A/B on throwaway 2.6.1 instances, each initialised, unsealed, and with root revoked and
+confirmed dead first — so both arms model production:
 
-```
-Error looking up token: ... Code: 403. Errors: * permission denied
-```
+| Arm | Config | `POST sys/generate-root/attempt` |
+|---|---|---|
+| A | production's `config.hcl`, verbatim | **405** |
+| C | same + `disable_unauthed_generate_root_endpoints = false` **in the listener stanza** | **200** |
+| — | absent-path control, both arms | 403 |
 
-`bootstrap-approles` revoked the token in-place when it finished — the unconditional
-revoke that #645 later removed — but it revokes with `token revoke -self` and never
-touches the file. Only `vault.sh revoke-root` deletes it, and that was never run. So the
-host holds a 0600 file containing a dead credential. **A root token file on disk is not
-evidence of root access.**
-
-## Fact 3 — `generate-root` is closed, and today's 403 does not by itself prove why
+On arm C the recovery completes end to end:
 
 ```
-PUT /v1/sys/generate-root-token/attempt -> 403 permission denied
-GET /v1/sys/generate-root-token/attempt -> 403 permission denied
+attempt started                     nonce + otp returned
+unseal key share supplied           complete=true, encoded_token returned
+decoded (XOR of encoded and otp)    26-byte token
+token lookup                        policies: ['root']
+auth enable oidc                    SUCCEEDED
+auth/oidc probe                     403 -> 400   (absent -> mounted)
 ```
 
-The estate's existing record says this was verified on 2.6.1 "with the flag set at
-listener and at top level" (`docs/runbooks/vault-unseal.md`). **Be precise about what
-today's measurement adds and what it does not.** The live config carries no such flag:
+### Why this was missed, and the control that proves the placement
 
-```hcl
-ui = true
-disable_mlock = true
-storage "file" { path = "/openbao/file" }
-listener "tcp" { address = "0.0.0.0:8200"  tls_disable = 1 }
-api_addr = "https://vault.hill90.com"
+**The flag is read only inside `listener`.** At top level it is *accepted and silently
+ignored*. The parser is the control:
+
+```
+disable_unauthed_generate_root_endpoints = "not-a-bool"   at top level  -> server boots happily
+disable_unauthed_generate_root_endpoints = "not-a-bool"   in listener   -> refuses to boot:
+    invalid value for disable_unauthed_generate_root_endpoints: cannot parse as bool
 ```
 
-So today's 403 is the **documented default** for OpenBao ≥ 2.5.3, not a re-proof that
-overriding the default fails. The option is real and top-level — confirmed by name in the
-2.6.1 binary itself, `disable_unauthed_generate_root_endpoints`, alongside its
-`DisableUnauthedGenerateRootEndpointsRaw.hcl` struct tag.
+`vault-unseal.md` recorded the 2026-07-26 attempt as made "with the flag set at listener and
+at top level". Given the top-level placement is inert and the CLI 403s regardless, that
+attempt could not have succeeded however it was placed — the CLI was the wrong instrument in
+both cases. **The prior negative result was honest and wrong.**
 
-**That leaves exactly one untried lever**, and it is Jon's call, not this session's:
-set `disable_unauthed_generate_root_endpoints = false` in `config.hcl`, deploy through
-the pipeline, restart OpenBao, and mint root with the unseal key — which is present, at
-threshold 1 of 1. If it works, Stage 2b proceeds with no data loss and no reinitialise.
-The prior negative result argues it will not, but that result predates this and its own
-wording ("at listener and at top level") suggests the flag's placement was uncertain at
-the time. **It was not tested here**: it changes production config and restarts the
-platform's vault, which is a deploy and beyond a read-only diagnosis.
+### What this does and does not change
 
-## Fact 4 — AppRole is healthy, and is not a way in
+**Does not change:** don't revoke root early. Recovery costs a production config change, two
+vault restarts, and a window in which anyone reaching the listener with an unseal key share
+mints root **with no token at all** — threshold here is 1 of 1. #645's
+`assert_safe_to_revoke` stays exactly as it is; it prevents needing any of this.
 
-All four platform AppRoles authenticate. This is also the Stage 2b post-check the runbook
-asks for, so it is recorded as a result in its own right:
+**Does change:** "the only route back is a reinitialise" is retired. A reinitialise destroys
+the barrier and mints new AppRole credentials that need their own commit; root recovery
+touches no data. Corrected in `vault-unseal.md`, `vault-vs-sops.md` (twice),
+`approle-rejection-2026-08-01.md`, `keycloak-admin-rotation.md`, `openbao-rebuild.md`,
+`scripts/vault.sh` and `check_vault_revoke_order.py`.
 
-| Service | Login | Policies | `sys/auth/oidc` |
-|---|---|---|---|
-| `infra` | OK | `['default', 'policy-infra']` | **deny** |
-| `db` | OK | `['default', 'policy-db']` | **deny** |
-| `auth` | OK | `['default', 'policy-auth']` | **deny** |
-| `observability` | OK | `['default', 'policy-observability']` | **deny** |
+## What this PR ships
 
-Enabling an auth method is `sys/auth/oidc`, and **no policy in this repo grants it** —
-not even `policy-admin`, the break-glass one, which grants `auth/*` but not `sys/auth/*`.
-`auth/*` and `sys/auth/*` look alike and are not: one operates *within* a mounted method,
-the other *creates* one. Nothing is bound to `policy-admin` in any case.
+- **`platform/vault/config.recovery.hcl`** — production's config plus the one listener
+  parameter. Selected at deploy time through `VAULT_CONFIG_FILE`, which
+  `docker-compose.vault.yml` already supports (the mechanism `config.raft.hcl` uses), so
+  **merging this file changes nothing by itself.**
+- **`scripts/vault.sh regain-root`** — speaks HTTP directly, because the CLI is the
+  instrument that reported the door closed. Refuses if the endpoint answers 405 (wrong
+  config) and refuses to clobber a token that is still valid. Never prints the token.
+  Tested three ways against throwaway vaults: refusal on production config, success on
+  recovery config, refusal when a live token exists.
+- **`.github/workflows/vault-regain-root.yml`** — opens the window and closes it in **one
+  run**: deploy recovery config → assert auto-unseal → mint → `setup-oidc` → deploy
+  `config.hcl` → **assert the endpoint answers 405 again** → re-prove AppRole → baseline.
+  The run fails if the door is left open. Typed `REGAIN` confirmation; refuses outright if a
+  valid root token already exists.
+- **`scripts/checks/platform-baseline-test.sh`** — 16 by name, 0 unhealthy, encoding both
+  traps CLAUDE.md warns about: count from the list not from memory, and match
+  `blackbox-exporter` exactly.
+- **`scripts/vault.sh` bound claim** → `platform-admin`, matching Grafana's #637. Claim
+  *name* unchanged; #635 measured that binding as already consistent.
 
-`VAULT_SYNC_TOKEN` in SOPS is also rejected (`permission denied`) — the pre-rebuild value,
-never regenerated.
+## The dead root token file — removed, and why
 
-## Everything on the Keycloak side is already correct
+`/opt/hill90/secrets/openbao-root.token` (0600 `deploy:deploy`, 26 bytes, mtime
+`Aug 2 23:48`) held a **revoked** token. `bootstrap-approles` revokes with
+`token revoke -self` and never touches the file; only `vault.sh revoke-root` deletes it, and
+that never ran. So the host advertised root access it did not have.
 
-The blockage is entirely OpenBao's. Measured the same day, read-only:
+Verified dead immediately before removal, with both controls — a known-bad token also reads
+dead, and a working AppRole token reads live, so the probe distinguishes the two — then
+`shred -u`, and absence confirmed. **`openbao-unseal.key` is untouched**: it is what the
+recovery depends on.
 
-- `jon` holds realm roles `default-roles-platform` and **`platform-admin`** — Stage 1
-  (#636) is live.
-- Client `hill90-vault` exists, with mapper `realm-roles`,
-  `oidc-usermodel-realm-role-mapper`, **`claim.name=realm_roles`** — the deliberate
-  non-default, unchanged.
+It could not be made to hold a live value instead, because minting one requires deploying
+the recovery config, and deploys come from `origin/main`.
 
-So the moment an OIDC method exists, `setup-oidc` writes a role binding
-`{"realm_roles": ["platform-admin"]}` against a claim that is emitted and a role that
-`jon` holds, and the login should work. **"Should" is doing real work in that sentence —
-it has not been tested, and nothing here may be cited as if it had.**
+## Operational note: the host checkout is behind, and the next deploy will halt
 
-## What this PR changes, and what it deliberately does not
-
-**Changed:** `scripts/vault.sh` now binds `platform-admin` instead of `admin`, matching
-Grafana's repoint in #637. The claim NAME stays `realm_roles` — #635 measured that binding
-as already consistent, and renaming the mapper was the fix that would have changed
-nothing. Two stale comments quoting the old value are corrected, in `scripts/keycloak.sh`
-and `scripts/checks/check_realm_tenant_clients.py`.
-
-The old value was not merely outdated, it was inert: realm role `admin` has **zero
-holders**. Leaving it would mean the next rebuild silently reinstating a binding that can
-authorise nobody.
-
-**Not changed, and not claimed:** nothing was deployed. There is no live `admin-sso` role,
-so there is no OIDC login to prove and none is asserted. This is the value the **next**
-successful `setup-oidc` will write. Stage 2b is **not done**, and a reader finding
-`platform-admin` in `vault.sh` must not conclude otherwise — `vault.sh` carries a comment
-pointing here for that reason.
-
-## What has to happen before Stage 2b can be finished
-
-1. **Jon decides** between the config-flag attempt above and a second reinitialise. The
-   flag is cheap, reversible and might fail; the reinitialise is known to work, destroys
-   the barrier, and mints new AppRole credentials that need their own commit.
-2. Whichever path, run `setup-oidc` **before** `bootstrap-approles`. #645's
-   `assert_safe_to_revoke` now enforces this rather than merely advising it, so a repeat
-   of #643 requires an explicit `ALLOW_REVOKE_WITHOUT_OIDC=1`.
-3. Prove it with a **real authorization-code login** for `jon` yielding
-   `policy-oidc-admin`. Reading `bao read auth/oidc/role/admin-sso` is not proof; it is
-   the config that was already believed correct for the six days the role could authorise
-   nobody.
-4. **Re-confirm AppRole separately afterwards.** OIDC and AppRole are independent auth
-   methods and proving one says nothing about the other — the four rows in Fact 4 are the
-   baseline to re-measure against.
+`/opt/hill90/app` is at **`c16a4de` (#640)**, five commits behind, and
+`infra/secrets/prod.enc.env` shows as modified against it. **It is byte-identical to current
+`origin/main`** — #643 did commit the regenerated AppRole credentials — so nothing is at
+risk. But `preflight-checkout.sh` refuses a dirty tree, so the **first deploy of any kind
+will stop** until someone confirms that. Expected, fail-closed, and better known in advance
+than at the top of a recovery run.
 
 ## Baseline
 
-`Verified 2026-08-02` after every step, and unchanged throughout — no step here modified
-anything:
-
+`Verified 2026-08-02`, before and after every step, including after removing the token file:
 **16 platform containers by name, 0 unhealthy** — `alertmanager blackbox-exporter cadvisor
 grafana keycloak loki minio node-exporter openbao portainer postgres postgres-exporter
-prometheus promtail tempo traefik`. The tenant's 7 (`app-ai app-api app-docker-proxy
-app-knowledge app-litellm app-mcp app-ui`) alongside, for 23 in total.
+prometheus promtail tempo traefik` — with the tenant's 7 alongside, 23 in total. OpenBao
+`Initialized true / Sealed false`, 2.6.1.
 
-OpenBao itself is `Initialized true / Sealed false`, version 2.6.1. **It is healthy. It is
-also unadministrable, and health checks cannot tell the difference** — which is the whole
-reason this failure mode keeps going unnoticed.
+## What remains, in order
+
+1. **Merge, then `gh workflow run vault-regain-root.yml -f confirm=REGAIN`.** Deploys come
+   from `origin/main`, so this cannot run from a branch.
+2. **Prove a real authorization-code login for `jon` yields `policy-oidc-admin`** at
+   `https://vault.hill90.com/ui/`. Reading `auth/oidc/role/admin-sso` is not proof — config
+   that reads correctly is what this estate had for six days while it authorised nobody.
+3. **Re-prove AppRole separately** — `scripts/checks/vault-approle-login-test.sh`. The
+   workflow runs it, and it is independent of OIDC by construction.
+4. **Decide the root token's end state.** `revoke_root_at_end` defaults to `false`, leaving a
+   live token on the host; `assert_safe_to_revoke` will now permit the revoke because OIDC
+   exists. Leaving it live is the standing largest risk in this design; revoking it means the
+   next configuration change needs another recovery run. That trade is Jon's.
+
+**If step 1 or 2 fails, the reinitialise remains available and is unaffected by any of
+this** — `vault-reinitialize.yml`, with #643's non-negotiables: fresh backup, restore proven
+into a throwaway volume, and every stored KV path confirmed to have a SOPS source.

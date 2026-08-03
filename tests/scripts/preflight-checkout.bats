@@ -97,7 +97,8 @@ setup() {
   for wf in .github/workflows/deploy-infra.yml \
             .github/workflows/reusable-deploy-service.yml \
             .github/workflows/vault-init.yml \
-            .github/workflows/vault-reinitialize.yml; do
+            .github/workflows/vault-reinitialize.yml \
+            .github/workflows/vault-regain-root.yml; do
     grep -q "preflight-checkout.sh" "$wf" || { echo "missing preflight in $wf"; return 1; }
   done
 }
@@ -134,7 +135,7 @@ setup() {
 # Halting is correct — it is the fail-closed direction. Halting without an
 # explanation is not. hill90-app solved this first; these tests port it back.
 #
-# The message must be BYTE-IDENTICAL in all four workflows so it is greppable.
+# The message must be BYTE-IDENTICAL in every deploy workflow so it is greppable.
 # The four sites cannot share an abstraction (see the comment in the
 # implementation), so a test is what keeps them in step.
 # ---------------------------------------------------------------------------
@@ -144,6 +145,7 @@ DEPLOY_WORKFLOWS=(
   ".github/workflows/deploy-infra.yml"
   ".github/workflows/vault-init.yml"
   ".github/workflows/vault-reinitialize.yml"
+  ".github/workflows/vault-regain-root.yml"
 )
 
 # The canonical text lives here, once. The implementation must match it exactly.
@@ -161,7 +163,7 @@ EXPECTED_MESSAGE='::error::scripts/preflight-checkout.sh is missing from /opt/hi
   done
 }
 
-@test "the missing-preflight message is byte-identical in all four workflows" {
+@test "the missing-preflight message is byte-identical in every deploy workflow" {
   cd "$BATS_TEST_DIRNAME/../.."
   for wf in "${DEPLOY_WORKFLOWS[@]}"; do
     grep -qF -- "$EXPECTED_MESSAGE" "$wf" \

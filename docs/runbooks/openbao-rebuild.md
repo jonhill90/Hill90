@@ -10,9 +10,18 @@ before running anything. The gate in Step 2 is not optional: if the restore rehe
 
 ## Why this is necessary
 
+> **This table overstated the block, and the correction is why a rebuild may not be
+> needed at all.** `Corrected 2026-08-02.` The first row used `bao operator generate-root`,
+> which targets a legacy path that 403s under every configuration. Via the live endpoint
+> `sys/generate-root/*`, a vault redeployed on `platform/vault/config.recovery.hcl` mints
+> root from the unseal key — proven end to end on throwaway 2.6.1 instances. Try
+> `gh workflow run vault-regain-root.yml` **before** reaching for this page. Detail:
+> [`stage2b-oidc-blocked-2026-08-02.md`](../decisions/stage2b-oidc-blocked-2026-08-02.md).
+
 | Path back to root | State |
 |---|---|
-| `bao operator generate-root -init` | **403 permission denied** — unauthenticated root generation is disabled by default on OpenBao ≥ 2.5.3 |
+| `bao operator generate-root -init` | **403 permission denied** — but see the correction above: this is the legacy path, not the live one |
+| `POST sys/generate-root/attempt` *(added 2026-08-02)* | **405** under `config.hcl`; **200** under `config.recovery.hcl` — **this is the way back** |
 | root token file `/opt/hill90/secrets/openbao-root.token` | absent |
 | `VAULT_SYNC_TOKEN` | does not validate |
 | all nine AppRole credentials | rejected, `invalid role or secret ID` |
@@ -173,6 +182,9 @@ Stage 2b — repointing the `admin-sso` OIDC role from `realm_roles: admin` to
 >
 > Diagnose before assuming a second reinitialise:
 > `bash scripts/checks/vault-oidc-enabled-test.sh` answers "is OIDC mounted" with no token,
-> which is the state a token-based check cannot reach. Full evidence and the one untried
-> non-destructive lever:
+> which is the state a token-based check cannot reach.
+>
+> **And a second reinitialise is probably not needed.** Root recovery from the unseal key
+> works — `gh workflow run vault-regain-root.yml -f confirm=REGAIN` — and touches no data.
+> Full evidence:
 > [`stage2b-oidc-blocked-2026-08-02.md`](../decisions/stage2b-oidc-blocked-2026-08-02.md).

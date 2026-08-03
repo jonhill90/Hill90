@@ -136,7 +136,9 @@ too. Checked on the host:
   **refused** — so `vault_load_secrets` fails and `deploy.sh` falls through to SOPS, as
   its own comment says it will.
 - The root token is **revoked** (`/opt/hill90/secrets/openbao-root.token` absent),
-  `generate-root` is disabled, and **nothing is bound to `policy-admin`** — `setup`
+  `generate-root` is disabled *(recoverable — see
+  [`stage2b-oidc-blocked-2026-08-02.md`](../decisions/stage2b-oidc-blocked-2026-08-02.md);
+  the CLI's 403 came from a legacy path)*, and **nothing is bound to `policy-admin`** — `setup`
   creates AppRoles only for `db auth infra observability`, all read-only. So there is
   no write-capable credential for OpenBao at all.
 - `cmd_sync_to_sops`'s `SYNC_PATHS` covers only traefik/vps/grafana, so the sync

@@ -9,6 +9,28 @@ OpenBao (vault) starts sealed after every container restart. This runbook covers
 > top level. With no other sudo-capable token, there is then no supported way
 > back to root, and the vault cannot be configured at all.
 >
+> **CORRECTED 2026-08-02: "no supported way back" is false, and the 403 above was
+> measured with the wrong instrument.** `bao operator generate-root` targets
+> `sys/generate-root-token/*`, a legacy path that returns 403 whatever the
+> configuration. The live endpoint is `sys/generate-root/*`. Measured A/B on
+> throwaway 2.6.1 instances with root revoked:
+> production's `config.hcl` answers **405**, and the same config with
+> `disable_unauthed_generate_root_endpoints = false` **in the listener stanza**
+> answers **200** — after which root is minted from the unseal key and
+> `auth enable oidc` succeeds.
+>
+> The flag is read **only** inside `listener`. At top level it is accepted and
+> silently ignored, which is very likely why the attempt described above failed:
+> a bad value at top level still boots, the same bad value in the listener
+> refuses to boot. That parser difference is the control.
+>
+> **What does not change:** don't revoke early anyway. Recovery costs a
+> production config change, two vault restarts and a window in which anyone
+> holding an unseal key share can mint root without a token. `vault.sh
+> regain-root` and `.github/workflows/vault-regain-root.yml` exist so the window
+> is opened and closed by one automated run. Evidence:
+> [`stage2b-oidc-blocked-2026-08-02.md`](../decisions/stage2b-oidc-blocked-2026-08-02.md).
+>
 > Correct order: `init` -> `unseal` -> `setup` -> `seed` -> `setup-sync-token`
 > -> `revoke-root`. The `vault-init` workflow now leaves the root token in place
 > by default (`revoke_root: false`) for exactly this reason.
