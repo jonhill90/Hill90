@@ -276,7 +276,11 @@ ensure_platform_admins() {
             && echo "  = ${user}: platform-admin" \
             || warn "  ! ${user}: could not grant platform-admin"
         local rmrole
-        for rmrole in manage-users view-clients view-realm; do
+        # view-events added 2026-08-02. Event storage was deliberately enabled so
+        # that "has anyone logged in, and when" is answerable — and it is not
+        # answerable from the admin console without this role. Measured before
+        # adding it: GET /admin/realms/platform/events returned 403 for jon.
+        for rmrole in manage-users view-clients view-realm view-events; do
             kc add-roles -r "$KC_REALM" --uusername "$user" --cclientid realm-management --rolename "$rmrole" >/dev/null 2>&1 \
                 && echo "  = ${user}: realm-management:${rmrole}" \
                 || warn "  ! ${user}: could not grant realm-management:${rmrole}"
