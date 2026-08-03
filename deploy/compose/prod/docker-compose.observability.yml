@@ -203,10 +203,18 @@ services:
       # has ZERO holders (#635), so this expression fell through to 'Viewer' for
       # every SSO user — Grafana authenticated them and then authorised nobody.
       #
-      # The 'editor' term is deliberately UNCHANGED. It names another zero-holder
-      # role, and repointing it is part of removing the old roles, which is a
-      # separate change once every consumer is proven.
-      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(realm_access.roles[*], 'platform-admin') && 'Admin' || contains(realm_access.roles[*], 'editor') && 'Editor' || 'Viewer'
+      # 2026-08-03: 'editor' -> 'platform-editor', finishing the repoint. Stage 2a
+      # changed the admin arm and left this one, which is why #666 found a config
+      # that LOOKED repointed still naming a zero-holder role. Because
+      # role_attribute_strict defaults to false, that arm did not error — it fell
+      # through to 'Viewer' silently, so nothing would ever have reported it.
+      #
+      # platform-editor, not platform-viewer: a Grafana Editor writes (dashboards,
+      # panels, alert rules), while platform-viewer is the read-only tier and
+      # already maps to a read-only S3 policy in MinIO. Pointing this arm at it
+      # would grant every platform-viewer holder write access here and nowhere
+      # else. platform-editor lands with zero holders, so no one's access changes.
+      - GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH=contains(realm_access.roles[*], 'platform-admin') && 'Admin' || contains(realm_access.roles[*], 'platform-editor') && 'Editor' || 'Viewer'
       # Realm roles map to Grafana ORGANISATION roles only. Server-admin rights
       # stay with the local `admin` account, so no SSO identity can ever be more
       # powerful than the fallback login. (Users with no mapped role fall through
