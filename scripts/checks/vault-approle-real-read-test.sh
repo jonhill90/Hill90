@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Can every platform AppRole actually READ its declared paths — by reading them?
 #
-# WHY THIS EXISTS ALONGSIDE vault-approle-paths-test.sh
-# =====================================================
-# That check asks OpenBao's capability API what a token *would* be allowed to do.
-# This one performs the read. The 2026-08-03 auth outage is the reason the
+# WHY THIS PERFORMS THE READ RATHER THAN ASKING FOR CAPABILITIES
+# ==============================================================
+# `bao token capabilities` asks OpenBao what a token *would* be allowed to do.
+# This performs the read instead. A capability check formerly lived in
+# vault-approle-paths-test.sh, retired 2026-08-03 once this file covered every
+# property it asserted. The 2026-08-03 auth outage is the reason the
 # distinction is worth paying for: the failure surfaced as
 # "preflight capability check returned 403", and the lesson recorded from it is
 # that a capability answer and a real read can disagree. A check that asks the
@@ -69,7 +71,22 @@ for svc in $VAULT_SERVICES; do
   fi
   printf '  login   ok\n'
 
-  for path in $(vault_paths_for_service "$svc"); do
+  # A service in VAULT_SERVICES that declares NO paths is reported, not skipped
+  # silently. Ported from vault-approle-paths-test.sh when that check was retired
+  # (it printed "declares no vault paths — nothing to check"); this loop would
+  # otherwise iterate zero times and say nothing at all.
+  #
+  # Not a failure: vault_load_secrets already returns non-zero for that case and
+  # the deploy falls back to SOPS (#655). But silence here would hide the one
+  # state where a service is in the AppRole list and gets nothing from vault.
+  declared="$(vault_paths_for_service "$svc")"
+  if [ -z "$declared" ]; then
+    printf '  %s-%s       declares no vault paths — nothing to read\n' "$BOLD" "$OFF"
+    REPORT+=("$svc|-|no-declared-paths")
+    continue
+  fi
+
+  for path in $declared; do
     # THE ACTUAL READ. Only the byte count of the result ever leaves the container.
     # `bao read secret/data/<p>`, NOT `bao kv get secret/<p>`.
     #
