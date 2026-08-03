@@ -465,8 +465,13 @@ cmd_apply() {
     # realm_access.roles: vault.sh setup-oidc binds
     # bound_claims {"realm_roles": ["platform-admin"]}, so defaulting here would create a
     # mapper OpenBao can never match and SSO would fail for everyone.
+    # The API callback is /v1/auth/oidc/OIDC/callback — the mount path and the
+    # plugin's own route are both `oidc`. This list read /v1/auth/oidc/callback,
+    # which is not a route: it answers `permission denied` with nothing logged,
+    # indistinguishable from a rejected claim. Corrected 2026-08-03; the UI entry
+    # was always right, so browser logins never saw it.
     ensure_client "hill90-vault" "$vault_secret" \
-        "${VAULT_PUBLIC_URL}/v1/auth/oidc/callback,${VAULT_PUBLIC_URL}/ui/vault/auth/oidc/oidc/callback" \
+        "${VAULT_PUBLIC_URL}/v1/auth/oidc/oidc/callback,${VAULT_PUBLIC_URL}/ui/vault/auth/oidc/oidc/callback" \
         "${VAULT_PUBLIC_URL}" \
         "realm_roles"
 

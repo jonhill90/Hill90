@@ -630,6 +630,17 @@ cmd_setup_oidc() {
     # production URL keeps this byte-identical to what prod got before; local
     # rehearsal sets VAULT_PUBLIC_URL instead of forking the command.
     local vault_url="${VAULT_PUBLIC_URL:-https://vault.hill90.com}"
+    # THE API CALLBACK HAS A DOUBLED SEGMENT, and allowed_redirect_uris had it
+    # wrong below. The method is mounted at `oidc` and the plugin route is also
+    # `oidc/callback`, so the real endpoint is /v1/auth/oidc/oidc/callback. This
+    # list used to carry /v1/auth/oidc/callback — not a route at all, which
+    # answers `permission denied` with NOTHING in the OpenBao log and therefore
+    # reads exactly like a rejected bound claim. It cost an hour on 2026-08-03.
+    # The UI entry was always right, which is why browser logins were unaffected.
+    #
+    # Keep prose OUT of the python block below: it is inside a single-quoted
+    # shell string, so one apostrophe in a comment terminates the quote and
+    # breaks the command. That happened while writing this fix.
     local role_json
     role_json=$(python3 -c '
 import json, sys
@@ -641,7 +652,7 @@ print(json.dumps({
     "oidc_scopes": ["openid", "profile", "email"],
     "bound_claims": {"realm_roles": ["platform-admin"]},
     "allowed_redirect_uris": [
-        base + "/v1/auth/oidc/callback",
+        base + "/v1/auth/oidc/oidc/callback",
         base + "/ui/vault/auth/oidc/oidc/callback",
     ],
 }))' "$vault_url")
@@ -994,8 +1005,11 @@ cmd_bootstrap_approles() {
     root_token=$(bao_exec operator generate-root -decode="$encoded" -otp="$otp" 2>/dev/null)
 
     if [ -z "$root_token" ]; then
-        die "Failed to generate root token. On OpenBao >= 2.5.3 the unauthenticated
-root-generation endpoints are disabled by default, so this cannot mint one. Supply an
+        die "Failed to generate root token. This code path uses \`bao operator
+generate-root\`, which targets a LEGACY endpoint and returns 403 on 2.6.1 whatever the
+configuration — it cannot mint one here. The working route is
+\`gh workflow run vault-regain-root.yml\` (redeploys on config.recovery.hcl, then
+scripts/vault.sh regain-root). Supply an
 existing root token instead:
 
   export BAO_TOKEN=\"\$(sudo cat /opt/hill90/secrets/openbao-root.token)\"

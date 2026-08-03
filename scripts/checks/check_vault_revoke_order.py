@@ -85,7 +85,8 @@ def check_workflow(path: Path) -> list[str]:
                 problems.append(
                     f"{path.name}: step {name!r} can reach `vault.sh revoke-root` "
                     f"with the OIDC auth method not yet enabled — no `setup-oidc` "
-                    f"runs before it in this job. That revoke is a one-way door."
+                    f"runs before it in this job. Undoing that needs a full "
+                    f"root-recovery run (vault-regain-root.yml)."
                 )
     return problems
 

@@ -172,13 +172,19 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && git checkout -- infra/secrets/prod.enc.env && rm -f infra/secrets/prod.enc.env.backup.*' || true
 
-      # ONE-WAY DOOR — off by default, and this is why.
+      # EXPENSIVE DOOR — off by default, and this is why.
       #
       # On OpenBao >= 2.5.3 the unauthenticated root-generation endpoints are
-      # disabled by default, so `bao operator generate-root` returns 403
-      # (verified against 2.6.1). With no other sudo-capable token, revoking
-      # root means the vault can never be configured again without
-      # reinitializing it.
+      # disabled by default. With no other sudo-capable token, revoking root
+      # means the vault cannot be configured again until it is redeployed on
+      # platform/vault/config.recovery.hcl and root is minted from the unseal
+      # key — `gh workflow run vault-regain-root.yml`, proven end to end
+      # 2026-08-03.
+      #
+      # This comment said "can never be configured again without reinitializing"
+      # and cited `bao operator generate-root` returning 403. That CLI targets a
+      # legacy path which 403s under every configuration; the live endpoint is
+      # sys/generate-root/*. See docs/decisions/stage2b-oidc-blocked-2026-08-02.md.
       #
       # Revoking immediately after init — which this workflow used to do
       # unconditionally — therefore produced a vault that was up, healthy, and
