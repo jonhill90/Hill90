@@ -1,0 +1,56 @@
+name: Tenant Baseline Agreement
+
+# Does hill90-app's copy of our container list still match ours?
+#
+# WHERE THE TENANT'S FILE COMES FROM, and why not a path on someone's laptop:
+# it is checked out from jonhill90/hill90-app into this runner's workspace. The
+# check itself takes a PATH and hardcodes nothing, so it runs identically here,
+# on a developer's machine against a sibling clone, or anywhere else. Nothing in
+# this repo depends on a particular directory existing.
+#
+# hill90-app is PRIVATE and this repo is PUBLIC, so the checkout needs a token
+# with read access to it: TENANT_BASELINE_TOKEN. Until that secret exists the
+# checkout fails and this job is RED — deliberately. A missing credential is a
+# reason this check cannot see, and a check that cannot see must not report
+# agreement.
+#
+# NOT a pull_request trigger. Secrets are not available to fork pull requests,
+# so a PR gate would fail for a reason unrelated to its change. Catching drift
+# on the push that causes it, plus daily, is weaker than blocking the PR and is
+# the trade taken. If a PR gate is wanted, it can be added for same-repo PRs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # The only commits that can move the number.
+      - 'deploy/compose/prod/**'
+      - 'scripts/checks/check_tenant_baseline_agrees.py'
+  schedule:
+    # Daily, because the tenant's copy can also go stale by THEIR edit, which no
+    # push to this repo would catch.
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  agree:
+    name: tenant baseline agrees
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this platform
+        uses: actions/checkout@v4
+
+      - name: Checkout the tenant, for its baseline copy only
+        uses: actions/checkout@v4
+        with:
+          repository: jonhill90/hill90-app
+          token: ${{ secrets.TENANT_BASELINE_TOKEN }}
+          path: tenant
+          sparse-checkout: |
+            scripts/checks/hill90-platform-baseline.txt
+          sparse-checkout-cone-mode: false
+
+      - name: Compare the two lists
+        run: |
+          python3 scripts/checks/check_tenant_baseline_agrees.py \
+            tenant/scripts/checks/hill90-platform-baseline.txt
