@@ -149,10 +149,10 @@ def shape_b() -> list[str]:
 # longer matches is ALSO a failure — otherwise a fix leaves dead scaffolding and
 # the next reader cannot tell which entries are real.
 BASELINE = {
-    "deploy.sh:236": "render-traefik-config.sh swallowed — see the sweep issue",
-    "deploy.sh:243": "preflight-edge.sh swallowed — see the sweep issue",
-    "vault-init.yml:init step 18": "root-token location not reported on failure",
-    "vault-regain-root.yml:regain step 20": "OIDC survival unverified on failure",
+    # deploy.sh:236 and :243 were here and are FIXED — removed in the same change
+    # that fixed them, which is what the stale-entry check exists to force.
+    "vault-init.yml:init step 18": "root-token location not reported on failure (#674 rank 2.4)",
+    "vault-regain-root.yml:regain step 20": "OIDC survival unverified on failure (#674 rank 2.3)",
 }
 
 

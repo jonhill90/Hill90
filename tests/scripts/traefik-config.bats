@@ -168,7 +168,9 @@ for name,v in r.items():
 @test "deploy.sh renders the config on both the vault and SOPS paths" {
   # The SOPS path runs inside `sops exec-env '<cmd>'`, a new shell, so the call
   # must break out of the single quotes to interpolate SCRIPT_DIR.
-  run bash -c 'grep -c "render-traefik-config.sh" scripts/deploy.sh'
+  # Count INVOCATIONS, not mentions: a prose reference in a comment is not a
+  # call, and counting them made this fail when the guards were documented.
+  run bash -c 'grep -cE "bash .*render-traefik-config[.]sh" scripts/deploy.sh'
   [ "$output" -eq 2 ]
   run grep -F "bash '\"\$SCRIPT_DIR\"'/render-traefik-config.sh" scripts/deploy.sh
   [ "$status" -eq 0 ]
@@ -193,10 +195,10 @@ for name,v in r.items():
 }
 
 @test "both deploy paths preflight the rendered config before compose up" {
-  run bash -c 'grep -c "preflight-edge.sh" scripts/deploy.sh'
+  run bash -c 'grep -cE "bash .*preflight-edge[.]sh" scripts/deploy.sh'
   [ "$output" -eq 2 ]
   run bash -c '
-    pf=$(grep -n "preflight-edge.sh" scripts/deploy.sh | cut -d: -f1 | tr "\n" " ")
+    pf=$(grep -nE "bash .*preflight-edge[.]sh" scripts/deploy.sh | cut -d: -f1 | tr "\n" " ")
     up=$(grep -n "up -d --force-recreate" scripts/deploy.sh | cut -d: -f1 | tr "\n" " ")
     set -- $pf; p1=$1; p2=$2
     set -- $up; u1=$1; u2=$2
