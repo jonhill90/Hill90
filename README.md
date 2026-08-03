@@ -5,8 +5,9 @@ observability, and secrets — automated end to end.
 
 Hill90 is not an application host. It is the automation that takes a bare VPS to
 a running, TLS-terminated, observable, Tailscale-secured Docker host, and keeps
-it there. An AI agent application previously lived here; it was shelved in June
-2026 and removed in July 2026. See
+it there. An AI agent application previously lived here and was removed in July
+2026. It was not shelved: it runs in production as a **tenant** of this platform,
+from [`hill90-app`](https://github.com/jonhill90/hill90-app). See
 [Infra/app separation](docs/decisions/infra-app-separation.md) for the record,
 and the `archive/app-stack-final` tag for the code.
 
