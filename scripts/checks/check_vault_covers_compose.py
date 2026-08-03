@@ -73,6 +73,28 @@ def sops_key_names() -> set[str]:
     return {m.group(1) for m in re.finditer(r"^([A-Z0-9_]+)=", out, re.M)}
 
 
+def required_vars() -> dict[str, set[str]]:
+    """The runtime guard's manifest, parsed from vault_required_vars_for_service.
+
+    The manifest is what the RUNTIME guard enforces. If it under-declares, the
+    guard passes a load that is missing exactly the variable nobody listed — the
+    2026-08-03 failure with an extra step. So this compares it against what the
+    compose file and pre-up hook actually interpolate.
+    """
+    body = COMMON.read_text()
+    m = re.search(r"vault_required_vars_for_service\(\)\s*\{(.*?)\n\}", body, re.S)
+    if not m:
+        sys.exit("could not find vault_required_vars_for_service() in scripts/_common.sh")
+    out: dict[str, set[str]] = {}
+    for arm in re.finditer(r"^\s*([a-z0-9_|]+)\)\s*echo\s+\"([^\"]*)\"", m.group(1), re.M):
+        service, vars_ = arm.group(1), set(arm.group(2).split())
+        if service == "*" or not vars_:
+            continue
+        for name in service.split("|"):
+            out[name] = vars_
+    return out
+
+
 def declared() -> dict[str, list[str]]:
     body = COMMON.read_text()
     m = re.search(r"vault_paths_for_service\(\)\s*\{(.*?)\n\}", body, re.S)
@@ -127,6 +149,7 @@ def main() -> int:
     secrets = sops_key_names()
     decl = declared()
     seeded = seeded_keys_by_path()
+    required = required_vars()
     problems: list[str] = []
 
     print("Vault must carry every secret the compose file needs")
@@ -154,6 +177,16 @@ def main() -> int:
         have: set[str] = set()
         for p in paths:
             have |= seeded.get(p, set())
+        # The runtime manifest must cover everything this service actually needs,
+        # or the guard enforces an incomplete list.
+        under = sorted(needed - required.get(service, set()))
+        for k in under:
+            problems.append(
+                f"{service}: {k} is needed at runtime but is NOT in "
+                f"vault_required_vars_for_service — the runtime guard would not "
+                f"notice it missing"
+            )
+
         missing = sorted(needed - have)
         print(f"  {'MISS' if missing else 'ok  '}  {service:<14} needs {len(needed)}, vault carries {len(needed) - len(missing)}")
         for k in missing:
