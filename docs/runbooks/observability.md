@@ -40,8 +40,15 @@ All signals ──→ Grafana (query + visualize)
 | Portainer | — | Promtail | — |
 | OpenBao | — | Promtail | — |
 
-Tempo is deployed and receiving-capable, but nothing currently emits traces —
-tracing was used by the shelved application. It is retained for future use.
+Tempo is deployed and **receiving traces**. `Verified 2026-08-03`: 108 tag names
+are present and `service.name` carries `ai`, `api`, `keycloak`, `knowledge` and
+`mcp` — the tenant application's four services plus Keycloak.
+
+This paragraph said "nothing currently emits traces — tracing was used by the
+shelved application. It is retained for future use." Both halves are false: the
+application is not shelved, it runs as a tenant, and it emits. Check with
+`docker exec tempo wget -qO- http://localhost:3200/api/search/tag/service.name/values`
+rather than assuming either way.
 
 ## Deployment
 
