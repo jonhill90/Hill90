@@ -5,7 +5,9 @@ provisioning, Traefik edge routing, an observability stack, SOPS/OpenBao
 secrets, and Tailscale-secured SSH.
 
 > **Scope:** Hill90 is not an application host. The AI agent application that
-> once lived here was shelved in June 2026 and removed in July 2026. See
+> once lived here was removed in July 2026 — not shelved: it runs in production
+> as a **tenant** of this platform, from
+> [`hill90-app`](https://github.com/jonhill90/hill90-app). See
 > [Infra/app separation](docs/decisions/infra-app-separation.md); the code is
 > preserved at the `archive/app-stack-final` tag.
 
