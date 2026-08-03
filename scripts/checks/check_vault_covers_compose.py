@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Vault must carry every secret a service's compose file needs.
+
+    python3 scripts/checks/check_vault_covers_compose.py
+
+WHY THIS EXISTS — an outage on 2026-08-03, caused by a deploy that reported
+success. `deploy.sh` is vault-first: on the generic service path it exports ONLY
+the keys vault returns for that service, and does not merge SOPS underneath. So
+a variable the compose file needs but the vault path does not hold resolves to
+the empty string, and compose substitutes nothing.
+
+`secret/observability/grafana` held one key. Deploying observability therefore
+started Grafana with GRAFANA_OIDC_CLIENT_SECRET empty, and SSO failed with
+`unauthorized_client`. The deploy printed:
+
+    vault: loaded 1 variables for observability, none empty
+
+which is true and worthless — "none empty" describes the keys vault RETURNED,
+not the keys the service NEEDS. Nothing was reported, and local admin login kept
+working, so the failure was invisible from the outside.
+
+WHAT IT CHECKS. For every prod compose file, take the ${VARS} it interpolates,
+keep the ones that are SOPS-backed — that is the definition of a secret here,
+taken from the store rather than from a hand-maintained list — and require each
+to be written by cmd_seed into one of the paths the service declares.
+
+Services that declare NO vault paths are skipped: since #655 vault_load_secrets
+returns non-zero for them and the deploy takes the SOPS path, which has
+everything. minio is deliberately in that category.
+
+This is the static half of #665. The runtime guard — refusing a deploy whose
+resolved value is empty — is still wanted, because this cannot see a key that is
+present in vault but blank.
+"""
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+COMPOSE_DIR = ROOT / "deploy/compose/prod"
+COMMON = ROOT / "scripts/_common.sh"
+VAULT = ROOT / "scripts/vault.sh"
+STORE = ROOT / "infra/secrets/prod.enc.env"
+
+
+def sops_key_names() -> set[str]:
+    """KEY NAMES from the store. Names only — no value is bound or printed."""
+    env = {"SOPS_AGE_KEY_FILE": str(ROOT / "infra/secrets/keys/age-prod.key")}
+    import os
+
+    for candidate in (env["SOPS_AGE_KEY_FILE"], "/opt/hill90/secrets/keys/keys.txt"):
+        if Path(candidate).exists():
+            env["SOPS_AGE_KEY_FILE"] = candidate
+            break
+    try:
+        out = subprocess.run(
+            ["sops", "-d", str(STORE)],
+            capture_output=True, text=True, check=True,
+            env=dict(os.environ, **env),
+        ).stdout
+    except Exception as e:  # noqa: BLE001
+        sys.exit(f"cannot decrypt the store, so this check cannot run: {e}")
+    return {m.group(1) for m in re.finditer(r"^([A-Z0-9_]+)=", out, re.M)}
+
+
+def declared() -> dict[str, list[str]]:
+    body = COMMON.read_text()
+    m = re.search(r"vault_paths_for_service\(\)\s*\{(.*?)\n\}", body, re.S)
+    out: dict[str, list[str]] = {}
+    for arm in re.finditer(r"^\s*([a-z0-9_|]+)\)\s*echo\s+\"([^\"]*)\"", m.group(1), re.M):
+        service, paths = arm.group(1), arm.group(2).split()
+        if service == "*" or not paths:
+            continue
+        for name in service.split("|"):
+            out[name] = paths
+    return out
+
+
+def seeded_keys_by_path() -> dict[str, set[str]]:
+    body = VAULT.read_text()
+    m = re.search(r"^cmd_seed\(\)\s*\{(.*?)^\}", body, re.S | re.M)
+    text = "\n".join(
+        ln for ln in m.group(1).splitlines()
+        if not ln.lstrip().startswith(("#", "echo", "printf"))
+    )
+    out: dict[str, set[str]] = {}
+    for blk in re.finditer(r"kv put\s+(secret/\S+)((?:.|\n)*?)(?=\n\s*\n|kv put|\Z)", text):
+        out.setdefault(blk.group(1), set()).update(re.findall(r'"([A-Z0-9_]+)=', blk.group(2)))
+    return out
+
+
+def main() -> int:
+    secrets = sops_key_names()
+    decl = declared()
+    seeded = seeded_keys_by_path()
+    problems: list[str] = []
+
+    print("Vault must carry every secret the compose file needs")
+    print("====================================================")
+
+    for f in sorted(COMPOSE_DIR.glob("docker-compose.*.yml")):
+        service = f.stem.replace("docker-compose.", "")
+        needed = {v for v in re.findall(r"\$\{([A-Z0-9_]+)", f.read_text()) if v in secrets}
+        if not needed:
+            continue
+        paths = decl.get(service)
+        if not paths:
+            print(f"  skip  {service:<14} declares no vault paths -> SOPS path, which has all keys")
+            continue
+        have: set[str] = set()
+        for p in paths:
+            have |= seeded.get(p, set())
+        missing = sorted(needed - have)
+        print(f"  {'MISS' if missing else 'ok  '}  {service:<14} needs {len(needed)}, vault carries {len(needed) - len(missing)}")
+        for k in missing:
+            problems.append(
+                f"{service}: {k} is needed by {f.name} and is in SOPS, but no vault path "
+                f"the service declares ({', '.join(paths)}) carries it. The deploy will "
+                f"export it EMPTY and report success."
+            )
+
+    print()
+    if problems:
+        print(f"FAIL — {len(problems)} problem(s):\n")
+        for p in problems:
+            print(f"  {p}")
+        print(
+            "\ndeploy.sh does not merge SOPS underneath vault on the generic path, so a\n"
+            "key vault does not hold is a blank in the container, not a fallback."
+        )
+        return 1
+    print("PASS — every SOPS-backed compose variable is carried by a declared vault path")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
