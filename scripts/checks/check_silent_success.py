@@ -148,12 +148,11 @@ def shape_b() -> list[str]:
 # "this is a defect we have named and not yet closed". A baseline entry that no
 # longer matches is ALSO a failure — otherwise a fix leaves dead scaffolding and
 # the next reader cannot tell which entries are real.
-BASELINE = {
-    # deploy.sh:236 and :243 were here and are FIXED — removed in the same change
-    # that fixed them, which is what the stale-entry check exists to force.
-    "vault-init.yml:init step 18": "root-token location not reported on failure (#674 rank 2.4)",
-    "vault-regain-root.yml:regain step 20": "OIDC survival unverified on failure (#674 rank 2.3)",
-}
+# EMPTY, and that is the point: every finding the sweep made has been fixed and
+# its entry removed in the same change. deploy.sh:236/:243 went with #676; the
+# two workflow conditions went with this one. An entry left behind after a fix
+# fails as stale, which is what keeps this honest rather than decorative.
+BASELINE: dict[str, str] = {}
 
 
 def split_baseline(problems: list[str]) -> tuple[list[str], list[str]]:

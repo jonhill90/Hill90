@@ -260,8 +260,12 @@ jobs:
             exit 1
           fi
 
+      # always(), because this VERIFIES the thing the config swap is most likely
+      # to have broken. Gated on the input alone it was skipped whenever an
+      # earlier step failed — removing the check at the only moment it would have
+      # told you something. See #674.
       - name: Confirm OIDC survived the config swap
-        if: ${{ inputs.run_setup_oidc }}
+        if: ${{ always() && inputs.run_setup_oidc }}
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
