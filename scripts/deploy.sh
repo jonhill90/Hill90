@@ -170,8 +170,14 @@ cmd_infra() {
     # Helper: infra deploy with SOPS
     _deploy_infra_with_sops() {
         # `set -e` is essential and easy to lose. `sops exec-env` runs this
-        # string in a NEW shell that does NOT inherit deploy.sh's `set -e`, and
-        # exec-env returns 0 regardless of what the command did. Without it, a
+        # string in a NEW shell that does NOT inherit deploy.sh's `set -e`.
+        #
+        # CORRECTION, measured 2026-08-03: exec-env DOES propagate the inner
+        # exit code — `exec-env '''set -e; exit 7'''` returns 7, and a bare
+        # `false` returns 1. This comment previously claimed it "returns 0
+        # regardless of what the command did", which is false and would have
+        # told the next reader that this path could not be trusted to fail.
+        # The `set -e` below is still essential: without it, a
         # failed render is swallowed and `docker compose up` runs anyway —
         # mounting a missing config, which Docker materialises as a DIRECTORY,
         # which stops Traefik and takes every routed service down while the
@@ -233,14 +239,33 @@ cmd_infra() {
             echo "admin:${TRAEFIK_ADMIN_PASSWORD_HASH}" > platform/edge/dynamic/.htpasswd
             echo "✓ Created .htpasswd for Traefik dashboard authentication"
 
-            bash "$SCRIPT_DIR/render-traefik-config.sh"
+            # `|| exit 1` on BOTH, for the reason spelled out above the
+            # vault_load_secrets call: `set -e` is suppressed inside this
+            # subshell, so a bare invocation prints its refusal and the deploy
+            # carries on.
+            #
+            # These two are the sharpest instance of that in the repository, and
+            # they were missed when the same defect was fixed on the generic
+            # service path (#671) — that audit looked at the path where the
+            # outage had happened. Found by the proactive sweep (#674/#675).
+            #
+            # render-traefik-config.sh has nine refusal paths, including a
+            # staging-versus-production CA mismatch. preflight-edge.sh exists to
+            # refuse when the rendered config is MISSING, EMPTY or a DIRECTORY —
+            # and a missing bind-mount source is exactly what Docker materialises
+            # as a directory, which stops Traefik. Both refusals were discarded,
+            # in sequence, and the second was inspecting the first one's output.
+            #
+            # Traefik is the edge for every public service, so this fails open
+            # into a total outage rather than a component one.
+            bash "$SCRIPT_DIR/render-traefik-config.sh" || exit 1
 
             echo "Building and pulling images..."
             docker compose -p "hill90-${env}-edge" -f "$compose_file" build --parallel --no-cache
             docker compose -p "hill90-${env}-edge" -f "$compose_file" pull --ignore-buildable
 
             echo "Deploying edge stack (traefik, portainer)..."
-            bash "$SCRIPT_DIR/preflight-edge.sh"
+            bash "$SCRIPT_DIR/preflight-edge.sh" || exit 1
             docker compose -p "hill90-${env}-edge" -f "$compose_file" up -d --force-recreate
         ) || {
             warn "Vault deploy failed for infra, retrying with SOPS fallback"
