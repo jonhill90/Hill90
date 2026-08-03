@@ -129,10 +129,21 @@
   [ -z "$(vault_paths_for_service unknown)" ]
 }
 
-@test "_common.sh vault_load_secrets returns 0 for no-path service" {
+# INVERTED DELIBERATELY on 2026-08-03. This asserted `status -eq 0` — that a
+# service with no declared vault paths is a SUCCESSFUL load. It is not: the
+# function returns having exported nothing, and the caller's vault branch then
+# runs `docker compose` with an entirely empty environment. That is the same
+# silent-empty class of bug that took auth down the same day (#651, #652), and
+# every service outside vault_paths_for_service — minio, ui — takes this path on
+# every deploy. minio survived only because its compose file uses `${VAR:?}`.
+#
+# Non-zero is correct: vault holds nothing for this service, so SOPS is the right
+# source and the fallback is the right route to it.
+@test "_common.sh vault_load_secrets REFUSES for a no-path service, so SOPS is used" {
   source scripts/_common.sh
   run vault_load_secrets vault
-  [ "$status" -eq 0 ]
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no vault paths"* ]]
 }
 
 @test "_common.sh vault_available returns non-zero when no container" {
