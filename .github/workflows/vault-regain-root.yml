@@ -271,6 +271,35 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && bash scripts/checks/vault-oidc-enabled-test.sh'
 
+      # MOUNTED IS NOT WORKING — the same distinction that retired
+      # vault-approle-paths-test.sh in #694.
+      #
+      # The step above asks whether the OIDC auth method is MOUNTED. It answers
+      # without a token, which is exactly why it exists, and it is satisfied by a
+      # mount that authorises nobody. This drives the full authorization-code
+      # flow and asserts the POLICY the login yields, so it covers the chain the
+      # mount check cannot see: Keycloak mapper -> claim -> bound_claims ->
+      # policy. Four documents cite it as the proof that vault SSO works —
+      # secrets-model.md, security.md, and two decision records — and until now
+      # nothing ran it (#689).
+      #
+      # HERE rather than on every deploy, deliberately. A completed login writes
+      # a real LOGIN event for a real person into Keycloak's event log, and that
+      # log exists so "did jon sign in, and when" is answerable. Wiring it to
+      # routine deploys would fill that answer with synthetic entries. This
+      # workflow is dispatched by hand with a typed confirmation, is rare, and is
+      # the run after which OIDC is most likely to be broken — the config swap it
+      # performs is precisely what the step above was added to check.
+      #
+      # always(), matching the step above: a failed run is when you most need to
+      # know whether SSO survived.
+      - name: Prove the OIDC login actually yields policy-oidc-admin
+        if: ${{ always() && inputs.run_setup_oidc }}
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/vault-oidc-login-test.sh'
+
       # ---- Independent re-proof ----------------------------------------------
 
       # AppRole is a DIFFERENT auth method. Nothing above tested it, and a vault
