@@ -26,9 +26,11 @@ setup() {
 @test "CONTROL: the sweep actually looks — it reports the known findings" {
   run python3 "$CHECK"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"render-traefik-config.sh"* ]]
-  [[ "$output" == *"preflight-edge.sh"* ]]
-  [[ "$output" == *"known and tracked (baseline): 4"* ]]
+  # The two deploy.sh findings were FIXED and removed from the baseline, so
+  # the remaining tracked set is the two workflow ones.
+  [[ "$output" == *"Report where the root token is"* ]]
+  [[ "$output" == *"Confirm OIDC survived the config swap"* ]]
+  [[ "$output" == *"known and tracked (baseline): 2"* ]]
 }
 
 # REGRESSION OF #671 — the pre-up hook whose refusal was discarded.
@@ -69,12 +71,13 @@ PY
 
 # A BASELINE THAT ROTS IS SCAFFOLDING. Fixing a finding must force its removal.
 @test "fixing a baseline finding without removing the entry FAILS as stale" {
-  python3 - "$CTL/scripts/deploy.sh" <<'PY'
+  # The deploy.sh pair is fixed already, so this mutates a still-baselined
+  # workflow finding instead.
+  python3 - "$CTL/.github/workflows/vault-init.yml" <<'PY'
 import sys
 p = sys.argv[1]
 t = open(p).read()
-t2 = t.replace('bash "$SCRIPT_DIR/render-traefik-config.sh"',
-               'bash "$SCRIPT_DIR/render-traefik-config.sh" || exit 1')
+t2 = t.replace("if: ${{ !inputs.revoke_root }}", "if: ${{ always() && !inputs.revoke_root }}")
 assert t2 != t, "mutation did not apply"
 open(p, "w").write(t2)
 PY
