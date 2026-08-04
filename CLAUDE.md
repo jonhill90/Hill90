@@ -54,6 +54,13 @@ docs/                   runbooks, reference, architecture, decisions
    `platform/data/postgres/**`, `platform/observability/**` and four
    `deploy/compose/prod/*.yml` files. Check whether a PR touches a filtered path
    *before* merging it. `docs/**` is not filtered.
+   **That undercounts the filter, and had since before this file's last full
+   sweep — `Verified 2026-08-04` against the workflow file itself, not
+   inferred.** It is **five** `deploy/compose/prod/*.yml` files (`db`, `minio`,
+   `auth`, `vault`, `observability`), plus `scripts/minio.sh`, which the
+   original text above omits entirely. `git log -S` traces `scripts/minio.sh`'s
+   addition to #593 — old enough that a prior sweep (#685) should have caught
+   it and didn't. Check the workflow's own `on.push.paths`, not this list.
 2. **`--remove-orphans` is banned globally**, in every script and workflow, and
    CI enforces it. It will delete containers belonging to another stack that
    shares a Compose project name.
@@ -213,6 +220,13 @@ bookkeeping; no agents, no chats, no user records. Nothing to preserve — every
 is created by a migration and every `created_at` falls inside the 960 ms window of
 the migration run — but say "nothing worth preserving", not "empty".
 
+**Still true today, on the LIVE (post-cutover) database, re-read directly rather
+than assumed forward from the paragraph above.** `Verified 2026-08-04`: `agents`,
+`chat_threads` and `provider_connections` are all **zero** rows on the live
+`hill90_api`. The estate still has no agents, no chats and no provider
+connections. Several claims elsewhere in this file and in hill90-app's are sized
+on that fact — re-check it before trusting anything that assumes activity.
+
 ## Still not done — do not let these read as finished
 
 - **Both are now retired — this section previously said they were not.** `app-keycloak`
@@ -250,6 +264,10 @@ the migration run — but say "nothing worth preserving", not "empty".
   `app-keycloak`, so local proves the realm design and not yet the tenancy.
   **Local parity lands before anything is retired**, because a broken local stack
   would otherwise have nothing to fall back to.
+  **That "what remains" is now closed — `Verified 2026-08-04` in hill90-app's own
+  CLAUDE.md.** A human completed a full browser-based authorization-code login
+  against the tenant's local stack, landing authenticated with the expected
+  roles. Local now proves the tenancy, not just the realm design.
 - **`HILL90_UI_CLIENT_SECRET` has no production value in the store yet.** It only
   bites on a FIRST import — the live realm already has the client — so a **VPS
   rebuild** is the case that depends on it, and it must equal the value hill90-app
@@ -316,6 +334,10 @@ gh workflow run deploy.yml -f service=all
 - Platform baseline is **16 containers by name, 0 unhealthy** —
   `Verified 2026-08-03 13:45 UTC`, unchanged since #617 deployed `alertmanager` and
   `blackbox-exporter`. With the tenant's 7 that is **23 running in total**.
+  **Re-confirmed live, `Verified 2026-08-04`: 23 containers running, 7 of them
+  the tenant's `app-` prefixed ones — the 16+7 figure holds.** `discord-bot` is
+  not among the 7 and is not running at all, consistent with its image not
+  currently being buildable.
   The full 16: `alertmanager blackbox-exporter cadvisor grafana keycloak loki
   minio node-exporter openbao portainer postgres postgres-exporter prometheus
   promtail tempo traefik`.
