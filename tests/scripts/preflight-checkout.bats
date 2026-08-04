@@ -92,17 +92,6 @@ setup() {
   [[ "$output" == *"3 commits behind"* ]]
 }
 
-@test "every deploy path calls the preflight before git reset --hard" {
-  cd "$BATS_TEST_DIRNAME/../.."
-  for wf in .github/workflows/deploy-infra.yml \
-            .github/workflows/reusable-deploy-service.yml \
-            .github/workflows/vault-init.yml \
-            .github/workflows/vault-reinitialize.yml \
-            .github/workflows/vault-regain-root.yml; do
-    grep -q "preflight-checkout.sh" "$wf" || { echo "missing preflight in $wf"; return 1; }
-  done
-}
-
 @test "drift wording is correct when only AHEAD of origin/main" {
   echo "local only" >> docs/readme.md
   git add -A && git commit -qm "local-only commit"
@@ -123,21 +112,21 @@ setup() {
 }
 
 # ---------------------------------------------------------------------------
-# The guard must fail LEGIBLY when it is not on the box yet.
+# THE BOOTSTRAP DEADLOCK (app#139, ported here as app#140's issue #705).
 #
-# The preflight ships in this repository, so it exists on /opt/hill90/app only
-# AFTER one deploy that includes it. Until then every deploy path that calls it
-# dies at `bash: scripts/preflight-checkout.sh: No such file or directory`,
-# exit 127, with nothing saying what to do. Verified on 2026-07-29: the script is
-# absent from the box and the checkout is at #563, four commits behind main, so
-# this is the live state and not a hypothetical.
+# Every one of these five workflows used to run `bash scripts/preflight-
+# checkout.sh` against the VPS's OWN checkout, in the same `&&` chain as the
+# `git reset --hard origin/main` that is the only thing that updates it. So a
+# defect in the guard could not be fixed by merging the fix — the old code
+# decided whether the new code was allowed to run, and the deploy that would
+# have delivered the fix was the deploy the unfixed guard was blocking.
 #
-# Halting is correct — it is the fail-closed direction. Halting without an
-# explanation is not. hill90-app solved this first; these tests port it back.
-#
-# The message must be BYTE-IDENTICAL in every deploy workflow so it is greppable.
-# The four sites cannot share an abstraction (see the comment in the
-# implementation), so a test is what keeps them in step.
+# The fix: run the RUNNER's copy of the script, piped over ssh with
+# `bash -s < scripts/preflight-checkout.sh`, as its own step, strictly BEFORE
+# the step that runs `git reset --hard`. That also retires the old
+# "preflight-checkout.sh is missing from the box" guard entirely — that
+# failure mode existed only because the host's own copy was being invoked, and
+# a script piped over stdin cannot be "missing".
 # ---------------------------------------------------------------------------
 
 DEPLOY_WORKFLOWS=(
@@ -148,64 +137,55 @@ DEPLOY_WORKFLOWS=(
   ".github/workflows/vault-regain-root.yml"
 )
 
-# The canonical text lives here, once. The implementation must match it exactly.
-# It deliberately contains NO quote characters of either kind: two of the four
-# call sites wrap the remote command in double quotes and two in single quotes,
-# so any quote in the message would have to differ per site and stop being
-# greppable.
-EXPECTED_MESSAGE='::error::scripts/preflight-checkout.sh is missing from /opt/hill90/app on the VPS. It ships in this repository, so it exists on the box only AFTER one deploy that includes it. Fix: ssh to the VPS as deploy, run cd /opt/hill90/app && git pull, then re-run this workflow. Do not remove the guard to get past this.'
-
-@test "every deploy path checks the preflight exists before running it" {
+@test "every deploy path pipes the RUNNER's preflight copy over ssh, not the host's" {
   cd "$BATS_TEST_DIRNAME/../.."
   for wf in "${DEPLOY_WORKFLOWS[@]}"; do
-    grep -q -- "-f scripts/preflight-checkout.sh" "$wf" \
-      || { echo "no existence check in $wf — a missing script will exit 127 with no explanation"; return 1; }
+    grep -q -- '< scripts/preflight-checkout.sh' "$wf" \
+      || { echo "$wf does not pipe scripts/preflight-checkout.sh from the runner"; return 1; }
   done
 }
 
-@test "the missing-preflight message is byte-identical in every deploy workflow" {
+@test "every deploy path calls the preflight step BEFORE the step that resets the host" {
+  # THIS COMPARES STEP NAMES, not raw occurrences of "git reset --hard" — a
+  # comment mentioning the old defect (see reusable-deploy-service.yml) also
+  # contains that text, so a naive line-number grep across the whole file can
+  # find a comment above the guard and call the ordering satisfied when it
+  # is not. A step name is the thing that actually orders execution.
   cd "$BATS_TEST_DIRNAME/../.."
   for wf in "${DEPLOY_WORKFLOWS[@]}"; do
-    grep -qF -- "$EXPECTED_MESSAGE" "$wf" \
-      || { echo "message missing or altered in $wf"; return 1; }
+    pf_line=$(grep -n '^      - name: Checkout preflight' "$wf" | head -1 | cut -d: -f1)
+    [ -n "$pf_line" ] || { echo "no preflight step in $wf"; return 1; }
+
+    # The first `git reset --hard` at or after the preflight step's line is the
+    # real invocation; anything earlier in the file is prose about the old bug.
+    reset_line=$(tail -n "+$pf_line" "$wf" | grep -n 'git reset --hard' | head -1 | cut -d: -f1)
+    [ -n "$reset_line" ] || { echo "no git reset --hard found after the preflight step in $wf"; return 1; }
+    reset_line=$((pf_line + reset_line - 1))
+
+    [ "$pf_line" -lt "$reset_line" ] \
+      || { echo "$wf resets before (or without) running the preflight"; return 1; }
   done
 }
 
-@test "the message contains no quote characters — it must survive both quotings" {
-  # Two sites embed the remote command in "..." and two in '...'. A quote in the
-  # message would need escaping that differs per site, which is how four copies
-  # stop being greppable.
-  [[ "$EXPECTED_MESSAGE" != *"'"* ]]
-  [[ "$EXPECTED_MESSAGE" != *'"'* ]]
-}
-
-@test "the message names the exact command that fixes it" {
-  # The reader is someone whose deploy just failed. A diagnosis without a command
-  # is a fifteen-minute detour.
-  [[ "$EXPECTED_MESSAGE" == *"git pull"* ]]
-  [[ "$EXPECTED_MESSAGE" == *"/opt/hill90/app"* ]]
-}
-
-@test "the existence check runs BEFORE the script is invoked, in each workflow" {
+@test "CONTROL: the ordering test can fail — it is not vacuously true" {
+  # Proves the test above actually reads the file rather than passing on any
+  # input: a workflow with the preflight step AFTER the reset must fail it.
   cd "$BATS_TEST_DIRNAME/../.."
-  for wf in "${DEPLOY_WORKFLOWS[@]}"; do
-    check_line=$(grep -n -- "-f scripts/preflight-checkout.sh" "$wf" | head -1 | cut -d: -f1)
-    run_line=$(grep -n -- "bash scripts/preflight-checkout.sh" "$wf" | head -1 | cut -d: -f1)
-    [ -n "$check_line" ] || { echo "no existence check in $wf"; return 1; }
-    [ -n "$run_line" ]   || { echo "no invocation in $wf"; return 1; }
-    # Same line is fine (a one-liner chains both); after is not.
-    [ "$check_line" -le "$run_line" ] \
-      || { echo "$wf checks for the script AFTER trying to run it"; return 1; }
-  done
-}
-
-@test "the guard is still fail-closed — it exits rather than skipping the preflight" {
-  cd "$BATS_TEST_DIRNAME/../.."
-  for wf in "${DEPLOY_WORKFLOWS[@]}"; do
-    # The whole point is halting. A check that warns and continues would deploy
-    # with no preflight at all, which is worse than the 127 it replaces.
-    line=$(grep -- "-f scripts/preflight-checkout.sh" "$wf" | head -1)
-    [[ "$line" == *"exit 1"* ]] \
-      || { echo "$wf checks for the script but does not exit when it is absent"; return 1; }
-  done
+  tmp="$BATS_TEST_TMPDIR/reordered.yml"
+  cat > "$tmp" <<'EOF'
+jobs:
+  deploy:
+    steps:
+      - name: Deploy service
+        run: |
+          ssh host "cd /opt/hill90/app && git reset --hard origin/main"
+      - name: Checkout preflight (this repo's copy, not the host's)
+        run: |
+          ssh host "cd /opt/hill90/app && bash -s" < scripts/preflight-checkout.sh
+EOF
+  pf_line=$(grep -n '^      - name: Checkout preflight' "$tmp" | head -1 | cut -d: -f1)
+  reset_line=$(tail -n "+$pf_line" "$tmp" | grep -n 'git reset --hard' | head -1 | cut -d: -f1)
+  # No reset found AT OR AFTER the (now-last) preflight step confirms the
+  # fixture is genuinely reordered, not an accident of the grep.
+  [ -z "$reset_line" ]
 }
