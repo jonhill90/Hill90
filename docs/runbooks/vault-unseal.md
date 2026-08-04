@@ -243,7 +243,7 @@ journalctl -u hill90-vault-unseal -b --no-pager         # expect a successful un
 # 3. The end state, not the unit's opinion of it.
 docker exec openbao bao status | grep -E '^(Initialized|Sealed)'   # Sealed: false
 
-# 4. The retirement held. A reboot must not resurrect a retired service.
+# 4. The retirement held. A reboot must not restart a retired service.
 docker inspect app-minio --format '{{.State.Status}}'   # expect: exited
 docker ps -a --format '{{.Names}}' | grep -cE '^(app-postgres|app-keycloak)$'   # expect: 0
 

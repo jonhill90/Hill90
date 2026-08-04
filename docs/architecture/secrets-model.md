@@ -96,14 +96,6 @@ by a completed authorization-code login: `jon` authenticates through Keycloak re
 `platform` and receives `policy-oidc-admin`. Reproduce with
 `bash scripts/checks/vault-oidc-login-test.sh`.
 
-**This section said the opposite and must not be followed.** It read "There is no
-SSO", explained that OIDC "was removed when the Keycloak stack was retired
-alongside the shelved application", and instructed the reader: *"do not re-add
-`vault.sh setup-oidc` without first re-introducing an identity provider."* That was
-true in June 2026. Keycloak returned as a **platform** service in July, the
-identity provider that instruction asked for exists, and `setup-oidc` has since
-been run — so the instruction now forbids work that is already done and working.
-
 Token access remains, and is the break-glass path when OIDC or Keycloak is
 unavailable.
 

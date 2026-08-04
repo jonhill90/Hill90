@@ -82,7 +82,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 | Component | Verdict | Reasoning | Evidence |
 |---|---|---|---|
 | `services/dns-manager` | **REMOVED** | Was the Traefik DNS-01 ACME webhook. Superseded by lego's built-in `cloudflare` provider when the zone moved to Cloudflare; deleted. | `platform/edge/traefik.yml.tmpl` now reads `provider: cloudflare` |
-| `services/api` | REMOVE | TypeScript control plane for the shelved agent platform. | `docker-compose.api.yml:77` |
+| `services/api` | REMOVE | TypeScript control plane for the agent application. | `docker-compose.api.yml:77` |
 | `services/ai` | REMOVE | Model-router in front of LiteLLM. Application by explicit decision. | `docker-compose.ai.yml:60` |
 | `services/ui` | REMOVE | Next.js frontend, NextAuth + Keycloak. | `docker-compose.ui.yml:16` |
 | `services/mcp` | REMOVE | MCP gateway, JWT-verified via Keycloak. | `docker-compose.mcp.yml:16` |
@@ -171,7 +171,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 
 Note: `docs/runbooks/keycloak-auth-ops.md` is classified app rather than infra
 because Keycloak itself is being removed; its content is password-grant API
-testing for the shelved services.
+testing for the application's services.
 
 ### 1.7 `.github/workflows/`
 
