@@ -10,13 +10,15 @@ not succeed.
         --run-id 123
 
 Prints the JSON array body for `POST /api/v2/alerts` on stdout. Never touches
-the network — the caller (scheduled-checks-watchdog.yml) pipes this into
-`curl` over the SAME SSH+Tailscale path deploy-drift and the hill90-ui secret
-audit already use, run FROM the VPS against its own `localhost:9093`.
-Alertmanager gains no new listener for this: see the "DELIBERATELY NOT
-PUBLIC" comment on the alertmanager service in
-deploy/compose/prod/docker-compose.observability.yml — it has no auth of its
-own, so it stays reachable only from the host itself.
+the network — the caller (scheduled-checks-watchdog.yml) `docker cp`'s this
+into the alertmanager container and posts it with `docker exec ... wget`,
+from inside that container's own network namespace, over the same
+SSH+Tailscale path deploy-drift and the hill90-ui secret audit already use to
+reach the VPS. Alertmanager gains no new listener for this: see the
+"DELIBERATELY NOT PUBLIC" comment on the alertmanager service in
+deploy/compose/prod/docker-compose.observability.yml — it publishes no host
+port and has no auth of its own, so it stays reachable only from its own
+Docker network, exactly as it already was.
 
 WHY startsAt AND endsAt ARE BOTH SET. Left unset, Alertmanager treats an alert
 as "still firing" until resolve_timeout (5m) passes with no refresh — an
