@@ -14,6 +14,20 @@ name: Audit hill90-ui Client (Read-Only)
 # (/opt/hill90/secrets/keys/keys.txt, the same one scripts/deploy.sh uses
 # remotely) rather than threading Keycloak admin credentials through the
 # runner.
+#
+# THE SECOND ASSERTION, AND WHY IT IS THE RIGHT SHAPE. The first version of
+# this workflow could only report the live secret's hash in isolation, with
+# no earlier reading to diff it against — a hash with nothing to compare
+# against looks like evidence and is not. The property that actually matters
+# is not "is this the same secret as this morning", it is "do the two sides
+# that must agree still agree": the Keycloak client's secret and the
+# AUTH_KEYCLOAK_SECRET the running app-ui container was started with. A
+# coordinated rotation of both changes the hash on both sides and breaks
+# nothing — this check stays quiet. The two drifting apart — one side
+# restarted with an old value, one side's secret regenerated without the
+# other being updated — is the actual outage case, and THAT is what makes
+# this fail loudly. Comparing to history answers a question nobody needs
+# answered; comparing the two sides answers the one that matters.
 
 on:
   workflow_dispatch:
@@ -73,7 +87,7 @@ jobs:
           echo "::add-mask::$TAILSCALE_IP"
           echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
 
-      - name: Read hill90-ui client shape (read-only, no writes)
+      - name: Read hill90-ui client shape, and confirm it agrees with app-ui (read-only, no writes)
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
@@ -92,8 +106,12 @@ jobs:
             -q clientId=hill90-ui --fields id --format csv --noquotes 2>/dev/null | tr -d '\r')
           [ -n "$uuid" ] || { echo "::error::hill90-ui client not found in realm platform"; exit 1; }
 
-          docker exec keycloak /opt/keycloak/bin/kcadm.sh get "clients/${uuid}" -r platform 2>/dev/null \
-            | python3 -c '
+          client_json=$(docker exec keycloak /opt/keycloak/bin/kcadm.sh get "clients/${uuid}" -r platform 2>/dev/null)
+
+          # One pass over the client, so the secret's plaintext is only ever
+          # held by this single python process — never written to a shell
+          # variable, never re-read from disk or from kcadm a second time.
+          fields=$(printf '%s' "$client_json" | python3 -c '
           import json, sys, hashlib
           c = json.load(sys.stdin)
           secret = c.get("secret") or ""
@@ -108,5 +126,28 @@ jobs:
           print("webOrigins:", c.get("webOrigins"))
           print("secret length:", len(secret))
           print("secret sha256:", hashlib.sha256(secret.encode()).hexdigest())
-          '
+          ')
+          echo "$fields"
+
+          # The property that matters is AGREEMENT, not sameness-over-time — see
+          # the header comment. Neither side's plaintext ever leaves its own
+          # process: the Keycloak secret was hashed above, inside the python
+          # that already held it in memory; app-ui's is hashed inside the
+          # container that holds it as an env var. Only the two hex digests are
+          # ever assigned to a shell variable.
+          kc_hash=$(printf '%s\n' "$fields" | awk -F': ' '/^secret sha256:/{print $2}')
+          ui_hash=$(docker exec app-ui sh -c 'printf "%s" "$AUTH_KEYCLOAK_SECRET" | sha256sum' 2>/dev/null | cut -d' ' -f1)
+
+          echo "keycloak client secret sha256: ${kc_hash:-<empty>}"
+          echo "app-ui AUTH_KEYCLOAK_SECRET sha256: ${ui_hash:-<empty>}"
+
+          if [ -z "$kc_hash" ] || [ -z "$ui_hash" ]; then
+            echo "::error::could not read one or both secrets to compare — CANNOT DETERMINE agreement, not a pass"
+            exit 2
+          elif [ "$kc_hash" = "$ui_hash" ]; then
+            echo "AGREE: the Keycloak client and app-ui hold the same secret."
+          else
+            echo "::error::DISAGREE: the Keycloak client and app-ui secrets do NOT match. This is the outage case — every login will fail token exchange."
+            exit 1
+          fi
           REMOTE
