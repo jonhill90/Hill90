@@ -1,0 +1,152 @@
+name: Scheduled Checks Watchdog
+
+# Notices when a scheduled check goes red — without needing a watcher of its
+# own. Filed as Hill90#712: check_checks_are_wired.py answers "is it
+# plumbed", not "does it run", and two of the four scheduled workflows in
+# this repo had been failing for months with nothing noticing.
+#
+# WHY workflow_run, NOT ITS OWN SCHEDULE. A cron job that polls "did the
+# other four succeed" is the exact same shape as the defect it exists to
+# catch, one level up — it just relocates the blind spot instead of closing
+# it, and now needs a watcher of ITS own. `workflow_run: types: [completed]`
+# is not a poll: it is GitHub's own event dispatch, fired as a direct
+# consequence of the workflow it names actually completing. This job has no
+# schedule to go silent on, because it isn't scheduled.
+#
+# WHAT THIS DOES NOT COVER, so it is not read wider than it is. A workflow
+# that stops triggering ENTIRELY (GitHub auto-disables a schedule after 60
+# days of repo inactivity; someone deletes the cron: line) fires no
+# `completed` event at all, so this watcher stays silent too — total
+# silence, not a red run. Catching that needs a freshness metric something
+# can alert on the ABSENCE of (a Pushgateway + a staleness rule, the
+# dead-man's-switch shape #712 named), which is new infrastructure this
+# change does not add. This job's coverage is exactly: a tracked workflow
+# RAN and did not succeed.
+#
+# WHO WATCHES THIS ONE. This workflow is itself a scheduled-adjacent thing —
+# not on a cron, but still something that could silently stop firing (GitHub
+# outage, a bug in this YAML, the event never arriving). NOTHING CATCHES
+# THAT. Adding a second watcher for this watcher recreates the exact problem
+# being solved, one layer up, forever. The honest boundary: one layer that
+# reaches a human beats two that watch each other. If this workflow itself
+# goes quiet, the tracked workflows going red will still show up as red runs
+# in the GitHub Actions UI and in email inboxes for anyone who already
+# watches this repo — just not as a page. That gap is accepted, not hidden.
+#
+# WHY IT NEVER RE-RUNS ANYTHING. This job reads only fields already present
+# on the `github.event.workflow_run` payload GitHub hands it — the
+# workflow's name, conclusion, triggering event, run URL and run ID. It
+# never calls the GitHub API back, never re-dispatches the workflow it is
+# reporting on, and never touches whatever that workflow itself failed to
+# do. It reports. It does not retry.
+#
+# WHY IT REACHES ALERTMANAGER OVER SSH, NOT A NEW ROUTE. Alertmanager has no
+# Traefik label and no auth of its own — see the "DELIBERATELY NOT PUBLIC"
+# comment on the alertmanager service in
+# deploy/compose/prod/docker-compose.observability.yml. Giving it a public or
+# even tailnet-routed hostname is a real decision about a component whose UI
+# can silence alerts with nothing guarding it, and this change does not make
+# that decision. Instead this job reaches the VPS exactly the way
+# deploy-drift.yml and audit-hill90-ui-client.yml already do — Tailscale-join
+# the runner, SSH in with the existing key — and posts to
+# `localhost:9093/api/v2/alerts` FROM the host. Alertmanager gains no new
+# listener.
+
+on:
+  workflow_run:
+    workflows:
+      - "Audit hill90-ui Client Secret Agreement"
+      - "Deploy Drift Alarm"
+      - "Tenant Baseline Agreement"
+      - "Vault Sync to SOPS"
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: report a red scheduled run
+    if: github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age
+        env:
+          SOPS_VERSION: '3.9.4'
+        run: |
+          SOPS_URL="https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          curl -fsSL -o /tmp/sops "$SOPS_URL"
+          if file /tmp/sops | grep -q "HTML"; then
+            echo "::error::SOPS download returned HTML instead of binary — check URL: $SOPS_URL"
+            exit 1
+          fi
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          if [ -z "$TAILSCALE_IP" ]; then
+            echo "::error::TAILSCALE_IP is empty or absent in infra/secrets/prod.enc.env"
+            exit 1
+          fi
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      # Built on the runner, from nothing but the workflow_run event payload
+      # GitHub already handed this job — no API call back to GitHub happens
+      # anywhere in this workflow.
+      - name: Build the alert payload
+        id: build
+        env:
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          python3 scripts/checks/build_scheduled_workflow_alert.py \
+            --workflow "$WORKFLOW_NAME" \
+            --conclusion "$CONCLUSION" \
+            --event "$TRIGGER_EVENT" \
+            --run-url "$RUN_URL" \
+            --run-id "$RUN_ID" \
+            > /tmp/alert.json
+          cat /tmp/alert.json
+
+      # Posted FROM the host, over the existing SSH session — see the header
+      # comment for why this is not a new Alertmanager exposure.
+      - name: POST the alert to Alertmanager, on the host
+        run: |
+          scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            /tmp/alert.json deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/tmp/scheduled-workflow-alert.json
+
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} '
+              set -euo pipefail
+              curl -sf -X POST http://localhost:9093/api/v2/alerts \
+                -H "Content-Type: application/json" \
+                --data-binary @/tmp/scheduled-workflow-alert.json
+              rm -f /tmp/scheduled-workflow-alert.json
+            '
