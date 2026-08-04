@@ -723,8 +723,12 @@ print(json.dumps({
     #
     # Both branches below pin defaultClientScopes explicitly, and both must
     # include 'basic' — added for #704. Keycloak 24+ emits the `sub` claim via
-    # 'basic', hill90-app reads user.sub at 158 call sites, and hill90-app#306
-    # makes the api refuse a token with none. This is not just a rebuild-time
+    # 'basic', and hill90-app reads user.sub at 158 call sites. hill90-app#306
+    # will make the api refuse a token with none, but is NOT deployed as of
+    # 2026-08-04 — until it ships, a subject-less token is silently accepted
+    # and scopes ownership by `undefined` instead. Do not describe #306 as
+    # deployed without re-checking; that direction of the claim overstates
+    # today's severity, not understates it. This is not just a rebuild-time
     # concern: the RECONCILE branch (the `else` below) runs `kcadm update`
     # against a client that may already be correct, so a scope list here that
     # omitted 'basic' would have STRIPPED it from a working production client

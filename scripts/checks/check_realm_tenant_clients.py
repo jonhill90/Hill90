@@ -24,11 +24,20 @@ So four things are asserted here, and each one has a specific way of going wrong
    tenant-clients, before this fix) or through the realm's own default scopes
    gets `basic` automatically; this FILE did not list it explicitly, so a
    REALM IMPORT — the path a VPS rebuild takes — would produce a `hill90-ui`
-   that issues tokens with no `sub`. hill90-app#306, already deployed, makes
-   the api refuse such a token outright, so the failure is a total outage on
-   every request from every user, not a quiet bug. The live realm has always
-   had `basic` (it was built by kcadm, which inherited it); this file did not,
-   and until now nothing compared the two.
+   that issues tokens with no `sub`. The live realm has always had `basic`
+   (it was built by kcadm, which inherited it); this file did not, and until
+   now nothing compared the two.
+   #
+   hill90-app#306 makes the api REFUSE a token with no `sub`, which is what
+   turns this into a total outage — but #306 is NOT deployed as of 2026-08-04
+   (deployed checkout 114b9e5, main 55 commits ahead, #306 among them). So the
+   failure this check exists to prevent runs BACKWARDS right now: a rebuild
+   today would produce subject-less tokens, and the currently-deployed api
+   would keep accepting them and silently scope ownership by `undefined` at
+   all 158 call sites — quietly wrong rather than loudly down. Deploying #306
+   makes this WORSE, not better, until this scope fix ships too. Do not
+   describe #306 as deployed without re-checking; that direction of the
+   claim is the one that overstates urgency rather than understates it.
 
 2. `hill90-ui` has NO realm-roles mapper. This is the inversion worth
    understanding, because the obvious instinct is backwards:
@@ -114,16 +123,22 @@ def check(realm: dict) -> list[str]:
             )
         # ---- 1b. the basic scope is pinned too ---------------------------
         # basic is what emits `sub`. hill90-app reads user.sub at 158 call
-        # sites, and hill90-app#306 makes the api refuse a token that has
-        # none — so a REALM IMPORT (a VPS rebuild) that used this file
-        # without 'basic' would authenticate nobody. See #704.
+        # sites — a REALM IMPORT (a VPS rebuild) that used this file without
+        # 'basic' would issue tokens with no subject. hill90-app#306 makes the
+        # api refuse such a token outright, but #306 is NOT deployed as of
+        # 2026-08-04 — until it ships, a subject-less token is instead
+        # accepted and silently scopes ownership by `undefined` at all 158
+        # sites. See #704.
         if "basic" not in scopes:
             fail(
                 problems,
                 "hill90-ui's defaultClientScopes does not include 'basic', so "
-                "issued tokens carry no 'sub' claim. hill90-app#306 makes the api "
-                "refuse such a token outright — a realm import from this file "
-                "would authenticate nobody. See #704.",
+                "issued tokens carry no 'sub' claim. hill90-app#306 (not yet "
+                "deployed as of 2026-08-04) will make the api refuse such a "
+                "token outright; until it ships, the deployed api accepts it "
+                "and silently scopes ownership by 'undefined'. A realm import "
+                "from this file authenticates nobody once #306 is live, and "
+                "quietly mis-owns everything until then. See #704.",
             )
 
     # ---- 2. no realm-roles mapper on the tenant client ------------------
