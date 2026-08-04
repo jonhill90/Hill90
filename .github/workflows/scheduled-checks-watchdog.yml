@@ -48,9 +48,19 @@ name: Scheduled Checks Watchdog
 # can silence alerts with nothing guarding it, and this change does not make
 # that decision. Instead this job reaches the VPS exactly the way
 # deploy-drift.yml and audit-hill90-ui-client.yml already do — Tailscale-join
-# the runner, SSH in with the existing key — and posts to
-# `localhost:9093/api/v2/alerts` FROM the host. Alertmanager gains no new
-# listener.
+# the runner, SSH in with the existing key.
+#
+# WHY docker exec, NOT curl AGAINST THE HOST'S localhost:9093. Alertmanager
+# publishes no host port — it is reachable only by its Docker DNS name
+# (`alertmanager:9093`) from another container on the same compose network,
+# same as Prometheus already scrapes it. The host's own network namespace
+# has nothing listening on 9093 at all (proved the hard way: the first
+# version of this workflow curled the host directly and got connection
+# refused, exit 7 — see the run this replaced). The alertmanager image ships
+# `wget` (its own healthcheck uses it), so the alert is `docker cp`'d into
+# the container and POSTed with `docker exec ... wget` from inside its own
+# network namespace — no new port, no new listener, nothing added to what
+# was already reachable.
 
 on:
   workflow_run:
@@ -135,9 +145,11 @@ jobs:
             > /tmp/alert.json
           cat /tmp/alert.json
 
-      # Posted FROM the host, over the existing SSH session — see the header
-      # comment for why this is not a new Alertmanager exposure.
-      - name: POST the alert to Alertmanager, on the host
+      # Posted from INSIDE the alertmanager container's own network
+      # namespace, over the existing SSH session — see the header comment
+      # for why this is not a new Alertmanager exposure, and why docker exec
+      # rather than curling the host.
+      - name: POST the alert to Alertmanager, from its own container
         run: |
           scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             /tmp/alert.json deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/tmp/scheduled-workflow-alert.json
@@ -145,8 +157,11 @@ jobs:
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} '
               set -euo pipefail
-              curl -sf -X POST http://localhost:9093/api/v2/alerts \
-                -H "Content-Type: application/json" \
-                --data-binary @/tmp/scheduled-workflow-alert.json
+              docker cp /tmp/scheduled-workflow-alert.json alertmanager:/tmp/alert.json
+              docker exec alertmanager wget -qO- \
+                --header="Content-Type: application/json" \
+                --post-file=/tmp/alert.json \
+                http://localhost:9093/api/v2/alerts
+              docker exec alertmanager rm -f /tmp/alert.json
               rm -f /tmp/scheduled-workflow-alert.json
             '
