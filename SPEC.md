@@ -12,7 +12,6 @@
 **Status:** implemented 2026-07-26
 **Date:** 2026-07-26
 **Companion:** [PRD.md](PRD.md)
-**Decision record:** [docs/decisions/infra-app-separation.md](docs/decisions/infra-app-separation.md)
 
 This is the authoritative inventory of what stays in Hill90 and what leaves,
 with the blast radius, ordering, verification and rollback for each removal.
@@ -161,7 +160,7 @@ Verdicts: **KEEP** stays in Hill90 · **REMOVE** deleted · **MOVE** transferred
 
 ### 1.6 `docs/`
 
-**Keep as-is (infra):** `runbooks/{bootstrap,observability,secrets-schema-validation,secrets-workflow,vault-unseal}.md`; `reference/{secrets,tailscale}.md`; `decisions/infra-app-separation.md`.
+**Keep as-is (infra):** `runbooks/{bootstrap,observability,secrets-schema-validation,secrets-workflow,vault-unseal}.md`; `reference/{secrets,tailscale}.md`.
 
 **Keep with edits (mixed):** `architecture/{overview,secrets-model,security,certificates}.md`; `reference/{deployment,dns,github-actions,vps-operations}.md`; `runbooks/{deployment,disaster-recovery,troubleshooting,vps-rebuild}.md`.
 
@@ -615,9 +614,7 @@ deliberately isolated so it can be rolled back on its own.
 ### Step 4 — Documentation
 
 Remove the 13 app docs; edit the mixed ones; rewrite `README.md` and
-`CONTRIBUTING.md`; fix the six broken links in §2.7; update
-`docs/decisions/infra-app-separation.md` from "decided, not implemented" to
-implemented, linking `PRD.md` and `SPEC.md`.
+`CONTRIBUTING.md`; fix the six broken links in §2.7.
 
 **Verify:** `python3 scripts/checks/check_md_links.py` reports zero broken links.
 Read `CONTRIBUTING.md`'s command map top to bottom and confirm every command runs.

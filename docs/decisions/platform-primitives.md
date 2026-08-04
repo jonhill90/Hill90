@@ -1,7 +1,6 @@
 # Hill90 as an open-source mirror of the Azure platform primitives
 
 **Status:** decided, recorded 2026-07-26
-**Supersedes the reasoning in:** [infra-app-separation.md](infra-app-separation.md)
 
 ## Why this document exists
 
@@ -115,5 +114,4 @@ calling them.
 
 ## See also
 
-- [Infra/app separation](infra-app-separation.md) — the strip, and the reasoning this document corrects
 - [Vault vs SOPS](vault-vs-sops.md) — the secrets decision, which should now be read with the mapping above in mind

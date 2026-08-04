@@ -13,7 +13,6 @@
 **Status:** implemented 2026-07-26
 **Author:** strip-app lane
 **Date:** 2026-07-26
-**Supersedes scope of:** [docs/decisions/infra-app-separation.md](docs/decisions/infra-app-separation.md)
 
 ## Problem
 
@@ -31,8 +30,7 @@ dependencies nobody runs. An operator reading this repo cannot tell, without
 running `docker ps` on the host, which half is real.
 
 The decision to separate the application from the platform was made on
-2026-07-11 and recorded in `docs/decisions/infra-app-separation.md`. That document
-states plainly that nothing has been implemented. This is the implementation.
+2026-07-11. This is the implementation.
 
 ## What Hill90 becomes
 
@@ -161,8 +159,6 @@ The work is complete when all of the following hold.
 - [ ] `README.md` and `CONTRIBUTING.md` describe only what exists.
 - [ ] `CONTRIBUTING.md`'s command map lists only executable commands.
 - [ ] The markdown link checker reports zero broken links.
-- [ ] `docs/decisions/infra-app-separation.md` is updated from
-      "decided, not implemented" to implemented, with a pointer to this work.
 
 **Archive**
 
