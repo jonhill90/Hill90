@@ -264,10 +264,16 @@ on that fact — re-check it before trusting anything that assumes activity.
   `app-keycloak`, so local proves the realm design and not yet the tenancy.
   **Local parity lands before anything is retired**, because a broken local stack
   would otherwise have nothing to fall back to.
-  **That "what remains" is now closed — `Verified 2026-08-04` in hill90-app's own
-  CLAUDE.md.** A human completed a full browser-based authorization-code login
-  against the tenant's local stack, landing authenticated with the expected
-  roles. Local now proves the tenancy, not just the realm design.
+  **That "what remains" is closed, per hill90-app's own CLAUDE.md — not a
+  measurement taken here.** That record states its local stack now
+  authenticates against **Hill90's** Keycloak, realm `platform`, by a
+  completed authorization-code login, `Verified 2026-08-01`, with the `auth`
+  stack removed from `local.sh` entirely. Local now proves the tenancy, not
+  just the realm design. What changed there today is narrower than that: the
+  check re-proving it, `tenant-login-platform-test.sh`, now runs with the
+  parameters the UI container actually holds rather than hardcoded ones, so
+  it also fails when a browser could not complete the login — a hardening of
+  the check, not a new login performed today.
 - **`HILL90_UI_CLIENT_SECRET` has no production value in the store yet.** It only
   bites on a FIRST import — the live realm already has the client — so a **VPS
   rebuild** is the case that depends on it, and it must equal the value hill90-app
