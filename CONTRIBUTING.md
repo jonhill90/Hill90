@@ -357,11 +357,11 @@ fix, and pick one of:
 
 `archive/app-stack-final` points at `f03f12d`, which **is an ancestor of `main`**. It
 preserves the state of the mainline immediately before the strip — it does not preserve
-anything that never reached the mainline. `hill90-app` was extracted from that same
-commit, so it carries the identical blind spot.
+anything that never reached the mainline.
 
-**Both archives are complete for *merged* work and empty for *unmerged* work.** That is
-the correct expectation to hold about them.
+**The archive is complete for *merged* work and empty for *unmerged* work.** That is the
+correct expectation to hold about it. Unmerged branches are preserved separately, under
+`archive/unmerged/*`.
 
 *(Measured during the 2026-07-26 branch audit, which covered 168 remote branches. That
 audit's inventory is spent — the repository carries 25 today — but this property of the
