@@ -162,6 +162,26 @@ jobs:
                 --header="Content-Type: application/json" \
                 --post-file=/tmp/alert.json \
                 http://localhost:9093/api/v2/alerts
-              docker exec alertmanager rm -f /tmp/alert.json
+              # Best-effort only. The container runs as uid 65534 (see the
+              # "DELIBERATELY NOT PUBLIC" comment on the alertmanager
+              # service), and `docker cp` writes as root regardless of that
+              # — so this non-root exec cannot always remove what cp wrote.
+              # A leftover /tmp/alert.json is a stray file in a container
+              # that already gets torn down and rebuilt on every deploy; it
+              # must never be the reason the POST above is reported as
+              # failed.
+              docker exec alertmanager rm -f /tmp/alert.json || true
               rm -f /tmp/scheduled-workflow-alert.json
             '
+
+      # Alertmanagers API accepting the POST is a handoff, not proof an
+      # email arrived — the same boundary the SMTP precedent this reuses
+      # only proved as far as "AUTH accepted" (see alertmanager.yml.tmpl).
+      # This step names exactly what it can see: whether Alertmanager's own
+      # notification pipeline logged an attempted/successful send for THIS
+      # alert. It cannot see an inbox, and does not claim to.
+      - name: Check Alertmanager's own notify log for this alert
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'docker logs --since=2m alertmanager 2>&1 | grep -i "notify\|smtp\|email" || echo "(no matching log lines in the last 2 minutes)"'
