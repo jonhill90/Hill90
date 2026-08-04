@@ -58,6 +58,21 @@ def test_fails_when_the_roles_scope_is_dropped(realm):
     assert "roles" in r.stderr and "silently" in r.stderr
 
 
+def test_fails_when_the_basic_scope_is_dropped(realm):
+    # #704: without 'basic' the issued token carries no 'sub', and
+    # hill90-app#306 makes the api refuse it outright — a realm import from
+    # this file would authenticate nobody. Reproduces the exact defect this
+    # file had before the fix: 'basic' absent from hill90-ui's
+    # defaultClientScopes while 'roles' is present, so this must fail on its
+    # own and not be caught incidentally by the roles assertion above.
+    ui = client(realm, "hill90-ui")
+    assert "roles" in ui["defaultClientScopes"]
+    ui["defaultClientScopes"] = [s for s in ui["defaultClientScopes"] if s != "basic"]
+    r = run(realm)
+    assert r.returncode == 1
+    assert "basic" in r.stderr and "sub" in r.stderr
+
+
 def test_fails_when_default_client_scopes_are_left_implicit(realm):
     del client(realm, "hill90-ui")["defaultClientScopes"]
     r = run(realm)

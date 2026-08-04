@@ -11,11 +11,24 @@ it stops being emitted — the token still validates, the login still succeeds, 
 every permission check silently returns empty. A user sees an app with no
 permissions and no error.
 
-So three things are asserted here, and each one has a specific way of going wrong:
+So four things are asserted here, and each one has a specific way of going wrong:
 
 1. `hill90-ui` keeps `roles` in its `defaultClientScopes`. Left implicit, the
    claim depends on the realm's default-client-scope list, which is edited
    elsewhere and for other reasons.
+
+1b. `hill90-ui` also keeps `basic` — added for #704 (2026-08-04). Keycloak 24+
+   emits the `sub` claim into the access token via the `basic` client scope,
+   and hill90-app reads `user.sub` at 158 call sites to answer "is this
+   yours?". A client CREATED through `kcadm` (scripts/keycloak.sh
+   tenant-clients, before this fix) or through the realm's own default scopes
+   gets `basic` automatically; this FILE did not list it explicitly, so a
+   REALM IMPORT — the path a VPS rebuild takes — would produce a `hill90-ui`
+   that issues tokens with no `sub`. hill90-app#306, already deployed, makes
+   the api refuse such a token outright, so the failure is a total outage on
+   every request from every user, not a quiet bug. The live realm has always
+   had `basic` (it was built by kcadm, which inherited it); this file did not,
+   and until now nothing compared the two.
 
 2. `hill90-ui` has NO realm-roles mapper. This is the inversion worth
    understanding, because the obvious instinct is backwards:
@@ -91,13 +104,27 @@ def check(realm: dict) -> list[str]:
             "hill90-ui has no explicit defaultClientScopes. "
             f"{TENANT_ROLES_CLAIM} then depends on the realm's default list; pin it.",
         )
-    elif "roles" not in scopes:
-        fail(
-            problems,
-            "hill90-ui's defaultClientScopes does not include 'roles', so "
-            f"{TENANT_ROLES_CLAIM} is never emitted and every permission check "
-            "silently returns empty.",
-        )
+    else:
+        if "roles" not in scopes:
+            fail(
+                problems,
+                "hill90-ui's defaultClientScopes does not include 'roles', so "
+                f"{TENANT_ROLES_CLAIM} is never emitted and every permission check "
+                "silently returns empty.",
+            )
+        # ---- 1b. the basic scope is pinned too ---------------------------
+        # basic is what emits `sub`. hill90-app reads user.sub at 158 call
+        # sites, and hill90-app#306 makes the api refuse a token that has
+        # none — so a REALM IMPORT (a VPS rebuild) that used this file
+        # without 'basic' would authenticate nobody. See #704.
+        if "basic" not in scopes:
+            fail(
+                problems,
+                "hill90-ui's defaultClientScopes does not include 'basic', so "
+                "issued tokens carry no 'sub' claim. hill90-app#306 makes the api "
+                "refuse such a token outright — a realm import from this file "
+                "would authenticate nobody. See #704.",
+            )
 
     # ---- 2. no realm-roles mapper on the tenant client ------------------
     for m in ui.get("protocolMappers", []) or []:
