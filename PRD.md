@@ -30,9 +30,9 @@ cannot be deployed. Dependabot files vulnerability alerts against application
 dependencies nobody runs. An operator reading this repo cannot tell, without
 running `docker ps` on the host, which half is real.
 
-The decision to shelve the application was made on 2026-07-11 and recorded in
-`docs/decisions/infra-app-separation.md`. That document states plainly that
-nothing has been implemented. This is the implementation.
+The decision to separate the application from the platform was made on
+2026-07-11 and recorded in `docs/decisions/infra-app-separation.md`. That document
+states plainly that nothing has been implemented. This is the implementation.
 
 ## What Hill90 becomes
 
@@ -97,9 +97,8 @@ template is a separate parallel effort.
 - **Not a rewrite of the infrastructure.** Traefik, the observability stack, the
   deploy scripts and the secrets model are kept as they are. This is subtraction,
   not redesign.
-- **Not a re-litigation of the separation decision.** The application left this
-  repository; it was not shelved, and has run as a tenant of this platform since
-  2026-07-29.
+- **Not a re-litigation of the separation decision.** The application lives in
+  `hill90-app` and has run as a tenant of this platform since 2026-07-29.
 - **Not a cleanup of pre-existing infra drift.** Known DNS drift
   (`vps.hill90.com` and `openclaw.hill90.com` still pointing at a stale address)
   is recorded, not fixed here.

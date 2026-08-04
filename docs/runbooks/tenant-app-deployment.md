@@ -171,15 +171,11 @@ No such file or directory
 ```
 
 No deploy script, no secrets store, no age key, no vault AppRole, no CI deploy
-workflow. The extraction record states this plainly and has been right the whole
-time: "The deploy tooling — `scripts/deploy.sh`, the `Makefile` targets, and the
-per-service GitHub Actions deploy workflows all stayed in Hill90."
-
-*(Quoted from `RESURRECTION.md` §2, which was removed from hill90-app on
-2026-07-31 with its durable sections relocated to
-[`docs/extraction/PROVENANCE.md`](https://github.com/jonhill90/hill90-app/blob/main/docs/extraction/PROVENANCE.md).
-The quotation is preserved here because it is still accurate; the file it came
-from is not somewhere a reader can now follow.)*
+workflow. **The deploy tooling — `scripts/deploy.sh`, the `Makefile` targets and
+the per-service GitHub Actions deploy workflows — is all in Hill90**, and
+hill90-app's
+[`docs/extraction/PROVENANCE.md`](https://github.com/jonhill90/hill90-app/blob/main/docs/extraction/PROVENANCE.md)
+records which paths came from where.
 
 And there is no checkout on the host. `/opt/hill90/app` is a **Hill90** clone
 despite the name:
@@ -403,8 +399,7 @@ rather than pre-empting.
   anything needs restoring into them is not addressed.
 - **`services/cli` and `services/discord-bot`**, which have never been part of any
   automated deploy — recorded in hill90-app's
-  [`docs/extraction/PROVENANCE.md`](https://github.com/jonhill90/hill90-app/blob/main/docs/extraction/PROVENANCE.md)
-  (formerly `RESURRECTION.md` §6, removed 2026-07-31).
+  [`docs/extraction/PROVENANCE.md`](https://github.com/jonhill90/hill90-app/blob/main/docs/extraction/PROVENANCE.md).
 - **Rollback.** Hill90's `rollback.sh` knows its own stacks only, with the same
   closed allowlist as `deploy.sh`. A tenant rollback path is part of the tooling
   that needs building, and is not designed here.
