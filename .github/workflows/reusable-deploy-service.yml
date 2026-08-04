@@ -64,45 +64,40 @@ jobs:
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
 
+      # The preflight is a GUARD, so it runs from THIS checkout, piped over ssh —
+      # not from the copy lying on the VPS.
+      #
+      # It used to run the host's copy, which is the copy `git reset --hard` has
+      # not updated yet, so the guard protecting a deploy was always one deploy
+      # older than the deploy it protected: a fix landed in scripts/preflight-
+      # checkout.sh could not reach production until a deploy succeeded, and the
+      # only thing standing between the host and a successful deploy was the
+      # unfixed guard. hill90-app hit this first (app#139) and its fix is ported
+      # here, to all five sites that run this preflight — not just this one.
+      #
+      # `bash -s` runs the script we just checked out, on the host, in the
+      # checkout directory. It sources nothing and does not read $0, so stdin
+      # execution is equivalent to running the file. This also removes the old
+      # "preflight-checkout.sh is missing from the box" guard entirely: that
+      # failure mode existed only because the host's own copy was being invoked,
+      # and running the runner's copy over stdin cannot fail that way.
+      - name: Checkout preflight (this repo's copy, not the host's)
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd /opt/hill90/app && git fetch origin && git diff --stat HEAD origin/main"
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd /opt/hill90/app && bash -s" < scripts/preflight-checkout.sh
+
       - name: Deploy ${{ inputs.service }}
         run: |
           # deploy.sh automatically runs pre-deploy backup for stateful services
           # (vault, observability) before the down/up cycle.
           echo "Deploying ${{ inputs.service }}..."
-          # The preflight ships in THIS repository, so it does not exist on
-          # /opt/hill90/app until one deploy has included it. Without this check
-          # bash fails with exit 127 and no explanation — verified on 2026-07-29,
-          # when the script was absent from the box and the checkout was four
-          # commits behind main, so every deploy would have died that way.
-          #
-          # Halting is correct; halting silently is not. hill90-app hit this first
-          # and its fix is ported here.
-          #
-          # WHY THIS IS DUPLICATED IN FOUR WORKFLOWS RATHER THAN SHARED:
-          #   * The check has to be INLINE in the remote command. Its whole job is
-          #     to report that the repository's own scripts/ is not on the box, so
-          #     it cannot live in scripts/ — that is the condition it detects.
-          #   * A composite action cannot help: this runs in the REMOTE shell over
-          #     ssh, not on the runner.
-          #   * deploy-infra, vault-init and vault-reinitialize do not call this
-          #     reusable workflow (verified: zero `uses:` references), so there is
-          #     no shared path to hang it on.
-          #   * Two sites wrap the remote command in double quotes and two in
-          #     single quotes, so even a shared snippet needs per-site quoting.
-          #     The MESSAGE is byte-identical anyway — it deliberately contains no
-          #     quote characters of either kind, which is what lets one string
-          #     survive both.
-          #
-          # Drift is prevented by a test, not an abstraction:
-          # tests/scripts/preflight-checkout.bats holds the canonical message and
-          # fails if any of the four differs.
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && \
-             git fetch origin && \
-             git diff --stat HEAD origin/main && \
-             { [ -f scripts/preflight-checkout.sh ] || { echo '::error::scripts/preflight-checkout.sh is missing from /opt/hill90/app on the VPS. It ships in this repository, so it exists on the box only AFTER one deploy that includes it. Fix: ssh to the VPS as deploy, run cd /opt/hill90/app && git pull, then re-run this workflow. Do not remove the guard to get past this.'; exit 1; }; } && \
-             bash scripts/preflight-checkout.sh && \
              git reset --hard origin/main && \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && \
              bash scripts/deploy.sh ${{ inputs.service }} prod"
