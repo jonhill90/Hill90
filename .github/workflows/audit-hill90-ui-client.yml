@@ -1,35 +1,60 @@
-name: Audit hill90-ui Client (Read-Only)
+name: Audit hill90-ui Client Secret Agreement
 
-# One-off, read-only verification for #707: did the auth-stack restart that
-# PR's merge triggered (platform/auth/keycloak/** matches deploy.yml's push
-# filter) change anything about the LIVE hill90-ui client?
+# Does the LIVE Keycloak hill90-ui client still agree with the LIVE app-ui
+# container about their shared secret?
 #
-# `start --import-realm` is documented as IGNORE_EXISTING once a realm
-# exists — see platform/auth/keycloak/README.md — but that is a claim about
-# behaviour, not an observation. This asks the running Keycloak directly.
+# Originated as a one-off read for #707: did the auth-stack restart that PR's
+# merge triggered (platform/auth/keycloak/** matches deploy.yml's push
+# filter) change anything about the running client? `start --import-realm` is
+# documented as IGNORE_EXISTING once a realm exists — see
+# platform/auth/keycloak/README.md — but that is a claim about behaviour, not
+# an observation, so this asks the running Keycloak directly.
 #
-# NEVER prints the client secret. Only its length and a sha256 hash, so a
-# before/after comparison is possible without the value ever appearing in an
-# Actions log. Uses the HOST's own already-present age key
-# (/opt/hill90/secrets/keys/keys.txt, the same one scripts/deploy.sh uses
-# remotely) rather than threading Keycloak admin credentials through the
-# runner.
+# NOW SCHEDULED, because a one-off dispatched by hand is written and wired to
+# nothing the moment nobody remembers to run it — the same defect
+# scripts/checks/check_checks_are_wired.py exists to catch, pointed at a
+# workflow instead of a script.
 #
-# THE SECOND ASSERTION, AND WHY IT IS THE RIGHT SHAPE. The first version of
-# this workflow could only report the live secret's hash in isolation, with
-# no earlier reading to diff it against — a hash with nothing to compare
-# against looks like evidence and is not. The property that actually matters
-# is not "is this the same secret as this morning", it is "do the two sides
-# that must agree still agree": the Keycloak client's secret and the
-# AUTH_KEYCLOAK_SECRET the running app-ui container was started with. A
-# coordinated rotation of both changes the hash on both sides and breaks
-# nothing — this check stays quiet. The two drifting apart — one side
-# restarted with an old value, one side's secret regenerated without the
-# other being updated — is the actual outage case, and THAT is what makes
-# this fail loudly. Comparing to history answers a question nobody needs
-# answered; comparing the two sides answers the one that matters.
+# WHY ITS OWN SCHEDULE, NOT deploy-drift.yml's. deploy-drift's 4-hour cadence
+# is tuned to ITS risk: code merged and not yet deployed, which is bounded by
+# how often a human chooses to run a deploy. That reasoning does not transfer
+# here. The two secrets this checks can drift with NO deploy at all — a
+# manual rotation in the Keycloak admin console, or a SOPS-stored secret
+# edited and app-ui restarted, either one independent of any push or merge.
+# Riding deploy-drift's timer would make detection latency track an unrelated
+# event instead of the actual risk window, which is convenient, not correct.
+#
+# Every 30 minutes: agreement is a binary, always-expected state with no
+# "normal" drift to filter out (unlike deploy-drift, there is no grace
+# window here — a disagreement is never tolerable, only ever a bug), so
+# there is no reason to wait longer than the check itself is cheap to run.
+# A disagreement is also loud to any user attempting to log in, but the
+# platform's own health checks answer from container status and would not
+# catch it — the same blind spot class deploy-drift's own motivating
+# incident was about — so this closes it with a bound on how long that gap
+# can persist before something other than a user complaint notices it.
+#
+# NEVER prints either secret. Only sha256 hashes, computed inside the process
+# that already holds each plaintext (the python reading the kcadm response;
+# the container holding AUTH_KEYCLOAK_SECRET as an env var) — only the two
+# hex digests ever cross a process boundary. Uses the HOST's own
+# already-present age key (/opt/hill90/secrets/keys/keys.txt, the same one
+# scripts/deploy.sh uses remotely) rather than threading Keycloak admin
+# credentials through the runner.
+#
+# THE DECISION HAPPENS ON THE RUNNER, in
+# scripts/checks/check_hill90_ui_secret_agreement.sh — not inside the SSH
+# session — for the same reason check_deploy_drift.sh's comparison runs on
+# the runner rather than the host: the thing deciding must not also be able
+# to be the thing drifting. That script is bats-controlled
+# (tests/scripts/hill90-ui-secret-agreement-control.bats) with a fabricated
+# mismatched pair proving it fails red, independent of and never touching
+# production — a comparison that has only ever seen agreement has not been
+# shown to notice disagreement.
 
 on:
+  schedule:
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -37,7 +62,7 @@ permissions:
 
 jobs:
   audit:
-    name: read hill90-ui client shape
+    name: hill90-ui secret agreement
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -87,9 +112,13 @@ jobs:
           echo "::add-mask::$TAILSCALE_IP"
           echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
 
-      - name: Read hill90-ui client shape, and confirm it agrees with app-ui (read-only, no writes)
+      # Read-only, no writes. Reports the client's shape for context and
+      # emits ONLY the two sha256 hashes as step outputs — the decision is
+      # made by the next step, on the runner, not here.
+      - name: Read the two secret hashes from the host
+        id: read
         run: |
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+          out=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd ${VPS_APP_PATH} && bash -s" <<'REMOTE'
           set -euo pipefail
@@ -127,27 +156,24 @@ jobs:
           print("secret length:", len(secret))
           print("secret sha256:", hashlib.sha256(secret.encode()).hexdigest())
           ')
-          echo "$fields"
+          echo "$fields" >&2
 
-          # The property that matters is AGREEMENT, not sameness-over-time — see
-          # the header comment. Neither side's plaintext ever leaves its own
-          # process: the Keycloak secret was hashed above, inside the python
-          # that already held it in memory; app-ui's is hashed inside the
-          # container that holds it as an env var. Only the two hex digests are
-          # ever assigned to a shell variable.
           kc_hash=$(printf '%s\n' "$fields" | awk -F': ' '/^secret sha256:/{print $2}')
           ui_hash=$(docker exec app-ui sh -c 'printf "%s" "$AUTH_KEYCLOAK_SECRET" | sha256sum' 2>/dev/null | cut -d' ' -f1)
 
-          echo "keycloak client secret sha256: ${kc_hash:-<empty>}"
-          echo "app-ui AUTH_KEYCLOAK_SECRET sha256: ${ui_hash:-<empty>}"
-
-          if [ -z "$kc_hash" ] || [ -z "$ui_hash" ]; then
-            echo "::error::could not read one or both secrets to compare — CANNOT DETERMINE agreement, not a pass"
-            exit 2
-          elif [ "$kc_hash" = "$ui_hash" ]; then
-            echo "AGREE: the Keycloak client and app-ui hold the same secret."
-          else
-            echo "::error::DISAGREE: the Keycloak client and app-ui secrets do NOT match. This is the outage case — every login will fail token exchange."
-            exit 1
-          fi
+          echo "kc_hash=${kc_hash}"
+          echo "ui_hash=${ui_hash}"
           REMOTE
+          )
+          echo "$out" | grep '^kc_hash=' >> "$GITHUB_OUTPUT"
+          echo "$out" | grep '^ui_hash=' >> "$GITHUB_OUTPUT"
+
+      # THE DECISION. Runs on the runner, against the checkout's own tested
+      # script, against nothing but the two hashes read above — never
+      # re-contacts Keycloak or app-ui, never sees a plaintext secret. A
+      # nonzero exit here fails this step, and with it the job: a scheduled
+      # run that finds disagreement goes red, it does not print and pass.
+      - name: Assert the two sides agree
+        run: |
+          bash scripts/checks/check_hill90_ui_secret_agreement.sh \
+            "${{ steps.read.outputs.kc_hash }}" "${{ steps.read.outputs.ui_hash }}"
