@@ -724,14 +724,20 @@ print(json.dumps({
     # Both branches below pin defaultClientScopes explicitly, and both must
     # include 'basic' — added for #704. Keycloak 24+ emits the `sub` claim via
     # 'basic', and hill90-app reads user.sub at 158 call sites. hill90-app#306
-    # will make the api refuse a token with none, but is NOT deployed as of
-    # 2026-08-04 — until it ships, a subject-less token is silently accepted
-    # and scopes ownership by `undefined` instead. Do not describe #306 as
-    # deployed without re-checking; that direction of the claim overstates
-    # today's severity, not understates it. This is not just a rebuild-time
-    # concern: the RECONCILE branch (the `else` below) runs `kcadm update`
-    # against a client that may already be correct, so a scope list here that
-    # omitted 'basic' would have STRIPPED it from a working production client
+    # IS deployed as of 2026-08-04 ~15:20 UTC (verified: api/ai/knowledge/mcp/
+    # ui all on 22a6b44) and the api now refuses a token with no `sub` — a
+    # client created without 'basic', right now, authenticates nobody at all.
+    # Earlier the same day, before #306 shipped, the identical gap would have
+    # been silent instead: a subject-less token accepted and ownership scoped
+    # by `undefined`. Both states are worth keeping in this comment, because
+    # this is the one that got WORSE the moment the security fix deployed —
+    # re-check the deployed SHA before repeating either claim; do not assume
+    # this comment's date still describes the live state.
+    #
+    # This is not just a rebuild-time concern: the RECONCILE branch (the
+    # `else` below) runs `kcadm update` against a client that may already be
+    # correct, so a scope list here that omitted 'basic' would have STRIPPED
+    # it from a working production client
     # the next time this command ran — actively regressing a client that had
     # it, not merely failing to grant it to a new one. platform-realm.json
     # carries the same list for the same reason; the two must move together.

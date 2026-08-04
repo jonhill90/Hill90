@@ -119,12 +119,13 @@ assert not bad, f'realm-role mapper on a tenant client: {bad}'
 @test "scripts/keycloak.sh's hardcoded hill90-ui scope lists include 'basic', both of them" {
   # #704: platform-realm.json's hill90-ui was missing 'basic', so a realm
   # IMPORT (a VPS rebuild) would produce a client that issues tokens with no
-  # 'sub' — hill90-app reads user.sub at 158 call sites. hill90-app#306 will
-  # refuse a token without one, but is NOT deployed as of 2026-08-04; until it
-  # ships, the deployed api accepts such a token and silently scopes
-  # ownership by `undefined` instead, which is the more urgent failure to
-  # have live right now, not the total outage #306 will eventually turn it
-  # into.
+  # 'sub' — hill90-app reads user.sub at 158 call sites. hill90-app#306 IS
+  # deployed as of 2026-08-04 ~15:20 UTC (verified: api/ai/knowledge/mcp/ui
+  # all on 22a6b44), and the api now refuses such a token outright — a client
+  # created without 'basic', right now, authenticates nobody at all. Earlier
+  # the same day, before #306 shipped, the identical gap would have been
+  # silent instead: an accepted token scoping ownership by `undefined`. The
+  # hazard got WORSE the moment #306 deployed, not better.
   #
   # scripts/keycloak.sh tenant_clients has the SAME list twice, hardcoded in a
   # python payload: once when CREATING hill90-ui, once when RECONCILING it.

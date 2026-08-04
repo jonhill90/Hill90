@@ -28,16 +28,25 @@ So four things are asserted here, and each one has a specific way of going wrong
    (it was built by kcadm, which inherited it); this file did not, and until
    now nothing compared the two.
    #
-   hill90-app#306 makes the api REFUSE a token with no `sub`, which is what
-   turns this into a total outage — but #306 is NOT deployed as of 2026-08-04
-   (deployed checkout 114b9e5, main 55 commits ahead, #306 among them). So the
-   failure this check exists to prevent runs BACKWARDS right now: a rebuild
-   today would produce subject-less tokens, and the currently-deployed api
-   would keep accepting them and silently scope ownership by `undefined` at
-   all 158 call sites — quietly wrong rather than loudly down. Deploying #306
-   makes this WORSE, not better, until this scope fix ships too. Do not
-   describe #306 as deployed without re-checking; that direction of the
-   claim is the one that overstates urgency rather than understates it.
+   hill90-app#306 makes the api REFUSE a token with no `sub`, and as of
+   2026-08-04 ~15:20 UTC it IS deployed — verified: api, ai, knowledge, mcp
+   and ui are all on 22a6b44, all three pending migrations applied. The live
+   `hill90-ui` client keeps working right now ONLY because `kcadm` gave it
+   `basic` when it was created; this file's own list still does not. So
+   importing this file AS COMMITTED, right now, would take every user out —
+   loudly and immediately, every login refused at once, not a slow leak.
+   #
+   THIS IS A CHANGE FROM EARLIER THE SAME DAY, and both states are kept here
+   deliberately because a comment in a realm-guard file gets read for months.
+   Before ~15:20 UTC (deployed checkout 114b9e5, #306 still 55 commits
+   undeployed), the api accepted a subject-less token and silently scoped
+   ownership by `undefined` at all 158 call sites instead of refusing it — a
+   quiet mis-owned-data bug, not an outage. Deploying #306 made this SPECIFIC
+   gap worse, not better: the same missing scope in this file went from a
+   silent-corruption hazard to a total-lockout hazard the moment #306 shipped,
+   which inverts the usual assumption that deploying a security fix makes
+   things safer. Re-check the deployed SHA before repeating either claim; do
+   not assume this comment's date still describes the live state.
 
 2. `hill90-ui` has NO realm-roles mapper. This is the inversion worth
    understanding, because the obvious instinct is backwards:
@@ -123,22 +132,22 @@ def check(realm: dict) -> list[str]:
             )
         # ---- 1b. the basic scope is pinned too ---------------------------
         # basic is what emits `sub`. hill90-app reads user.sub at 158 call
-        # sites — a REALM IMPORT (a VPS rebuild) that used this file without
-        # 'basic' would issue tokens with no subject. hill90-app#306 makes the
-        # api refuse such a token outright, but #306 is NOT deployed as of
-        # 2026-08-04 — until it ships, a subject-less token is instead
-        # accepted and silently scopes ownership by `undefined` at all 158
-        # sites. See #704.
+        # sites, and hill90-app#306 IS deployed as of 2026-08-04 ~15:20 UTC
+        # (verified: api/ai/knowledge/mcp/ui all on 22a6b44) — the api now
+        # refuses a token with no `sub`. A REALM IMPORT that used this file
+        # without 'basic', right now, authenticates nobody: every login
+        # refused, immediately. Earlier the same day, before #306 shipped,
+        # the same missing scope would have been silent instead — undefined
+        # ownership at all 158 sites rather than a locked-out login. See
+        # #704, and re-check the deployed SHA before repeating either claim.
         if "basic" not in scopes:
             fail(
                 problems,
                 "hill90-ui's defaultClientScopes does not include 'basic', so "
-                "issued tokens carry no 'sub' claim. hill90-app#306 (not yet "
-                "deployed as of 2026-08-04) will make the api refuse such a "
-                "token outright; until it ships, the deployed api accepts it "
-                "and silently scopes ownership by 'undefined'. A realm import "
-                "from this file authenticates nobody once #306 is live, and "
-                "quietly mis-owns everything until then. See #704.",
+                "issued tokens carry no 'sub' claim. hill90-app#306 is DEPLOYED "
+                "(as of 2026-08-04) and makes the api refuse such a token "
+                "outright — a realm import from this file authenticates nobody, "
+                "right now, not eventually. See #704.",
             )
 
     # ---- 2. no realm-roles mapper on the tenant client ------------------
