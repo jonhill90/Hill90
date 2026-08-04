@@ -129,6 +129,7 @@
         "web-origins",
         "acr",
         "roles",
+        "basic",
         "profile",
         "email"
       ],

@@ -720,6 +720,27 @@ print(json.dumps({
     fi
 
     # --- hill90-ui --------------------------------------------------------
+    #
+    # Both branches below pin defaultClientScopes explicitly, and both must
+    # include 'basic' — added for #704. Keycloak 24+ emits the `sub` claim via
+    # 'basic', and hill90-app reads user.sub at 158 call sites. hill90-app#306
+    # IS deployed as of 2026-08-04 ~15:20 UTC (verified: api/ai/knowledge/mcp/
+    # ui all on 22a6b44) and the api now refuses a token with no `sub` — a
+    # client created without 'basic', right now, authenticates nobody at all.
+    # Earlier the same day, before #306 shipped, the identical gap would have
+    # been silent instead: a subject-less token accepted and ownership scoped
+    # by `undefined`. Both states are worth keeping in this comment, because
+    # this is the one that got WORSE the moment the security fix deployed —
+    # re-check the deployed SHA before repeating either claim; do not assume
+    # this comment's date still describes the live state.
+    #
+    # This is not just a rebuild-time concern: the RECONCILE branch (the
+    # `else` below) runs `kcadm update` against a client that may already be
+    # correct, so a scope list here that omitted 'basic' would have STRIPPED
+    # it from a working production client
+    # the next time this command ran — actively regressing a client that had
+    # it, not merely failing to grant it to a new one. platform-realm.json
+    # carries the same list for the same reason; the two must move together.
     local ui_uuid; ui_uuid=$(client_uuid "hill90-ui")
     if [ -z "$ui_uuid" ]; then
         [ -n "$ui_secret" ] || die "hill90-ui does not exist and HILL90_UI_CLIENT_SECRET is empty — refusing to create a login client with no secret"
@@ -731,7 +752,7 @@ print(json.dumps({
     "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
     "serviceAccountsEnabled": False, "fullScopeAllowed": True,
     "redirectUris": sys.argv[2].split(","), "webOrigins": sys.argv[3].split(","),
-    "defaultClientScopes": ["web-origins", "acr", "roles", "profile", "email"],
+    "defaultClientScopes": ["web-origins", "acr", "roles", "basic", "profile", "email"],
 }))' "$ui_secret" "$ui_redirects" "$ui_origins" \
           | docker exec -i "$KC_CONTAINER" /opt/keycloak/bin/kcadm.sh \
                 create clients -r "$KC_REALM" -f - >/dev/null 2>&1
@@ -746,7 +767,7 @@ print(json.dumps({
     "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
     "publicClient": False, "bearerOnly": False, "fullScopeAllowed": True,
     "redirectUris": sys.argv[1].split(","), "webOrigins": sys.argv[2].split(","),
-    "defaultClientScopes": ["web-origins", "acr", "roles", "profile", "email"],
+    "defaultClientScopes": ["web-origins", "acr", "roles", "basic", "profile", "email"],
 }))' "$ui_redirects" "$ui_origins" \
           | docker exec -i "$KC_CONTAINER" /opt/keycloak/bin/kcadm.sh \
                 update "clients/${ui_uuid}" -r "$KC_REALM" -f - >/dev/null 2>&1

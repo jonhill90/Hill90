@@ -116,6 +116,29 @@ assert not bad, f'realm-role mapper on a tenant client: {bad}'
   [ "$status" -eq 0 ]
 }
 
+@test "scripts/keycloak.sh's hardcoded hill90-ui scope lists include 'basic', both of them" {
+  # #704: platform-realm.json's hill90-ui was missing 'basic', so a realm
+  # IMPORT (a VPS rebuild) would produce a client that issues tokens with no
+  # 'sub' — hill90-app reads user.sub at 158 call sites. hill90-app#306 IS
+  # deployed as of 2026-08-04 ~15:20 UTC (verified: api/ai/knowledge/mcp/ui
+  # all on 22a6b44), and the api now refuses such a token outright — a client
+  # created without 'basic', right now, authenticates nobody at all. Earlier
+  # the same day, before #306 shipped, the identical gap would have been
+  # silent instead: an accepted token scoping ownership by `undefined`. The
+  # hazard got WORSE the moment #306 deployed, not better.
+  #
+  # scripts/keycloak.sh tenant_clients has the SAME list twice, hardcoded in a
+  # python payload: once when CREATING hill90-ui, once when RECONCILING it.
+  # The reconcile branch runs `kcadm update` against a client that may
+  # already be correct — so if this list omitted 'basic', running this
+  # command would have STRIPPED it from a working production client, not
+  # merely failed to grant it to a new one. Both occurrences must carry it,
+  # and both must move with platform-realm.json's own list or the two paths
+  # that can create hill90-ui (import vs kcadm) disagree again.
+  count=$(grep -c '"defaultClientScopes": \[.*"basic".*\]' scripts/keycloak.sh)
+  [ "$count" -eq 2 ]
+}
+
 @test "the platform realm requires TLS, so production is not relaxed by default" {
   # local.sh relaxes this on the RUNNING realm for plain-HTTP local dev. If the
   # shipped file ever says NONE, production silently accepts unencrypted auth.

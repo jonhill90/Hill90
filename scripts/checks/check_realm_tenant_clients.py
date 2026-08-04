@@ -11,11 +11,42 @@ it stops being emitted — the token still validates, the login still succeeds, 
 every permission check silently returns empty. A user sees an app with no
 permissions and no error.
 
-So three things are asserted here, and each one has a specific way of going wrong:
+So four things are asserted here, and each one has a specific way of going wrong:
 
 1. `hill90-ui` keeps `roles` in its `defaultClientScopes`. Left implicit, the
    claim depends on the realm's default-client-scope list, which is edited
    elsewhere and for other reasons.
+
+1b. `hill90-ui` also keeps `basic` — added for #704 (2026-08-04). Keycloak 24+
+   emits the `sub` claim into the access token via the `basic` client scope,
+   and hill90-app reads `user.sub` at 158 call sites to answer "is this
+   yours?". A client CREATED through `kcadm` (scripts/keycloak.sh
+   tenant-clients, before this fix) or through the realm's own default scopes
+   gets `basic` automatically; this FILE did not list it explicitly, so a
+   REALM IMPORT — the path a VPS rebuild takes — would produce a `hill90-ui`
+   that issues tokens with no `sub`. The live realm has always had `basic`
+   (it was built by kcadm, which inherited it); this file did not, and until
+   now nothing compared the two.
+   #
+   hill90-app#306 makes the api REFUSE a token with no `sub`, and as of
+   2026-08-04 ~15:20 UTC it IS deployed — verified: api, ai, knowledge, mcp
+   and ui are all on 22a6b44, all three pending migrations applied. The live
+   `hill90-ui` client keeps working right now ONLY because `kcadm` gave it
+   `basic` when it was created; this file's own list still does not. So
+   importing this file AS COMMITTED, right now, would take every user out —
+   loudly and immediately, every login refused at once, not a slow leak.
+   #
+   THIS IS A CHANGE FROM EARLIER THE SAME DAY, and both states are kept here
+   deliberately because a comment in a realm-guard file gets read for months.
+   Before ~15:20 UTC (deployed checkout 114b9e5, #306 still 55 commits
+   undeployed), the api accepted a subject-less token and silently scoped
+   ownership by `undefined` at all 158 call sites instead of refusing it — a
+   quiet mis-owned-data bug, not an outage. Deploying #306 made this SPECIFIC
+   gap worse, not better: the same missing scope in this file went from a
+   silent-corruption hazard to a total-lockout hazard the moment #306 shipped,
+   which inverts the usual assumption that deploying a security fix makes
+   things safer. Re-check the deployed SHA before repeating either claim; do
+   not assume this comment's date still describes the live state.
 
 2. `hill90-ui` has NO realm-roles mapper. This is the inversion worth
    understanding, because the obvious instinct is backwards:
@@ -91,13 +122,33 @@ def check(realm: dict) -> list[str]:
             "hill90-ui has no explicit defaultClientScopes. "
             f"{TENANT_ROLES_CLAIM} then depends on the realm's default list; pin it.",
         )
-    elif "roles" not in scopes:
-        fail(
-            problems,
-            "hill90-ui's defaultClientScopes does not include 'roles', so "
-            f"{TENANT_ROLES_CLAIM} is never emitted and every permission check "
-            "silently returns empty.",
-        )
+    else:
+        if "roles" not in scopes:
+            fail(
+                problems,
+                "hill90-ui's defaultClientScopes does not include 'roles', so "
+                f"{TENANT_ROLES_CLAIM} is never emitted and every permission check "
+                "silently returns empty.",
+            )
+        # ---- 1b. the basic scope is pinned too ---------------------------
+        # basic is what emits `sub`. hill90-app reads user.sub at 158 call
+        # sites, and hill90-app#306 IS deployed as of 2026-08-04 ~15:20 UTC
+        # (verified: api/ai/knowledge/mcp/ui all on 22a6b44) — the api now
+        # refuses a token with no `sub`. A REALM IMPORT that used this file
+        # without 'basic', right now, authenticates nobody: every login
+        # refused, immediately. Earlier the same day, before #306 shipped,
+        # the same missing scope would have been silent instead — undefined
+        # ownership at all 158 sites rather than a locked-out login. See
+        # #704, and re-check the deployed SHA before repeating either claim.
+        if "basic" not in scopes:
+            fail(
+                problems,
+                "hill90-ui's defaultClientScopes does not include 'basic', so "
+                "issued tokens carry no 'sub' claim. hill90-app#306 is DEPLOYED "
+                "(as of 2026-08-04) and makes the api refuse such a token "
+                "outright — a realm import from this file authenticates nobody, "
+                "right now, not eventually. See #704.",
+            )
 
     # ---- 2. no realm-roles mapper on the tenant client ------------------
     for m in ui.get("protocolMappers", []) or []:
