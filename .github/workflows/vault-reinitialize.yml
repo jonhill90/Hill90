@@ -179,17 +179,25 @@ jobs:
             exit 1
           fi
 
-      - name: Sync host checkout to main
+      # The preflight is a GUARD, so it runs from THIS checkout, piped over ssh —
+      # not from the copy lying on the VPS. See reusable-deploy-service.yml for
+      # the fuller note; ported to all five deploy-path sites (app#139). This is
+      # one of the three vault-recovery workflows, reached for when something is
+      # already wrong — the least convenient place for the old deadlock to bite.
+      - name: Checkout preflight (this repo's copy, not the host's)
         run: |
-          # Existence check before the call: the preflight ships in this repository
-          # and is absent from the box until one deploy includes it, so calling it
-          # directly dies at exit 127 with no explanation. Message is byte-identical
-          # across all four deploy workflows and pinned by
-          # tests/scripts/preflight-checkout.bats — see the fuller note in
-          # reusable-deploy-service.yml for why this is not shared code.
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'cd /opt/hill90/app && git fetch origin && { [ -f scripts/preflight-checkout.sh ] || { echo "::error::scripts/preflight-checkout.sh is missing from /opt/hill90/app on the VPS. It ships in this repository, so it exists on the box only AFTER one deploy that includes it. Fix: ssh to the VPS as deploy, run cd /opt/hill90/app && git pull, then re-run this workflow. Do not remove the guard to get past this."; exit 1; }; } && bash scripts/preflight-checkout.sh && git reset --hard origin/main'
+            'cd /opt/hill90/app && git fetch origin && git diff --stat HEAD origin/main'
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && bash -s' < scripts/preflight-checkout.sh
+
+      - name: Sync host checkout to main
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && git reset --hard origin/main'
 
       # ---- The destructive part ---------------------------------------------
 

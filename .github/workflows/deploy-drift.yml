@@ -1,0 +1,178 @@
+name: Deploy Drift Alarm
+
+# Is what the host has CHECKED OUT the same as what was MERGED?
+#
+# hill90-app hit this on 2026-08-03: a merged security fix was not running for
+# 23 minutes because two defects in that repo's deploy path each failed the
+# deploy, and nothing reported it. Nothing COULD: every health check answers
+# from the running container, so it correctly reports the OLD code as
+# healthy. This repo has the identical deploy shape in five places (app#140,
+# ported here as #705) and, before this workflow, nothing here compared
+# deployed against merged either.
+#
+# WHY THE COMPARISON HAPPENS ON THE RUNNER. The host is asked one question —
+# `git rev-parse HEAD` — and every judgement is made here, against this
+# checkout. Running the check from the host's copy would rebuild the
+# bootstrap deadlock (app#139's shape) inside the alarm itself: a stale
+# checkout deciding whether it is stale.
+#
+# WHY IT IS NOT `deployed != main`. This repo's deploys are workflow_dispatch,
+# or gated by deploy.yml's push path filters — not "every merge ships" — so
+# drift is the NORMAL state between deploys. The rules that decide what is
+# actionable live in scripts/checks/check_deploy_drift.sh and are
+# positive-controlled in tests/scripts/deploy-drift-control.bats.
+#
+# SCOPE: this checks the CHECKOUT only, deliberately not which commit any
+# running container was built from — see the comment at the top of
+# check_deploy_drift.sh for why, and hill90-app's #158 for the gap this leaves.
+
+on:
+  schedule:
+    # Every four hours. The grace window is four hours by default, so a fix
+    # that is merged and forgotten is named within roughly eight — fast enough
+    # to matter, slow enough that a normal working day of merges stays quiet.
+    - cron: '37 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      grace_hours:
+        description: 'Hours a deployable commit may wait before this alarms'
+        required: false
+        default: '4'
+        type: string
+      deployed_sha_override:
+        description: >-
+          POSITIVE CONTROL. Pretend the host is on this SHA instead of asking it.
+          Use a deliberately stale commit to watch the alarm fire, so it has been
+          seen red before it is trusted green.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: deployed vs main
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VPS_APP_PATH: /opt/hill90/app
+
+    steps:
+      # Full history: the check walks deployed..origin/main and reads commit
+      # dates. A shallow clone would make every comparison unresolvable, which
+      # this check reports as exit 2 rather than passing — but a permanently
+      # unknown alarm is a broken one.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preflight — required secrets are present
+        if: inputs.deployed_sha_override == ''
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          missing=()
+          for name in TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET VPS_SSH_PRIVATE_KEY SOPS_AGE_KEY; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Deploy drift alarm cannot run: missing secret(s) ${missing[*]}. This is not a pass — nothing was compared."
+            exit 1
+          fi
+
+      - name: Setup Tailscale
+        if: inputs.deployed_sha_override == ''
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        if: inputs.deployed_sha_override == ''
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age
+        if: inputs.deployed_sha_override == ''
+        env:
+          SOPS_VERSION: '3.9.4'
+        run: |
+          SOPS_URL="https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          curl -fsSL -o /tmp/sops "$SOPS_URL"
+          if file /tmp/sops | grep -q "HTML"; then
+            echo "::error::SOPS download returned HTML instead of binary — check URL: $SOPS_URL"
+            exit 1
+          fi
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        if: inputs.deployed_sha_override == ''
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          if [ -z "$TAILSCALE_IP" ]; then
+            echo "::error::TAILSCALE_IP is empty or absent in infra/secrets/prod.enc.env"
+            exit 1
+          fi
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      # One question, read-only. No fetch, no reset — this must not change what
+      # it is measuring, and it must never be able to "fix" the drift it reports.
+      - name: Ask the host which commit it is running
+        id: host
+        if: inputs.deployed_sha_override == ''
+        run: |
+          sha=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd ${VPS_APP_PATH} && git rev-parse HEAD" 2>/dev/null | tr -d '[:space:]')
+          # Deliberately NOT failing here on an empty answer. An unreachable or
+          # unreadable host is exactly the state the check reports as exit 2,
+          # and routing it through the check keeps one place that decides what
+          # "cannot tell" means.
+          echo "sha=${sha}" >> $GITHUB_OUTPUT
+          if [ -z "$sha" ]; then
+            echo "::warning::Could not read a SHA from the host; the check will report this as UNKNOWN."
+          fi
+
+      - name: Compare deployed against main
+        env:
+          DEPLOYED_SHA: ${{ inputs.deployed_sha_override != '' && inputs.deployed_sha_override || steps.host.outputs.sha }}
+          GRACE_HOURS: ${{ inputs.grace_hours || '4' }}
+          TARGET_REF: origin/main
+          LABEL: Hill90 (${{ env.VPS_APP_PATH }})
+        run: |
+          if [ -n "${{ inputs.deployed_sha_override }}" ]; then
+            echo "::notice::POSITIVE CONTROL — pretending the host is on ${{ inputs.deployed_sha_override }}. The host was not contacted."
+          fi
+          # `|| rc=$?` is load-bearing. GitHub runs this with `bash -e {0}`, so a
+          # bare invocation of a check that exits 1 aborts the step immediately
+          # and the case below never runs — the exit code would be right and the
+          # explanation absent. Same shape as the swallowed hook this estate has
+          # hit before.
+          rc=0
+          bash scripts/checks/check_deploy_drift.sh || rc=$?
+          case "$rc" in
+            0) echo "::notice::No actionable deploy drift." ;;
+            1) echo "Deploy the affected stacks, or record why not." ;;
+            2) echo "The alarm could not determine what is running. Treat as unverified, not as fine." ;;
+            *) echo "::error::Unrecognised exit code $rc from check_deploy_drift.sh — a new state was added without a branch here. Treat as unverified." ;;
+          esac
+          exit $rc
