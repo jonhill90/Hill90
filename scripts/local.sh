@@ -676,6 +676,32 @@ cmd_health() {
     check_http "Keycloak platform realm (OIDC discovery)" \
         "$(base_url "$(env_get AUTH_HOST auth)")/realms/${KC_PLATFORM_REALM:-platform}/.well-known/openid-configuration" 200 || failed=1
 
+    # h#758-sibling-drift sweep: this had NO MinIO check anywhere — not here,
+    # not in the routed-surfaces list above (Traefik/Portainer/Grafana/
+    # Prometheus only), not in the generic container-health-wait loop (which
+    # only watches EDGE_PROJECT/OBS_PROJECT labels, neither of which cover
+    # MinIO). `local.sh up && local.sh health` could print "All local checks
+    # passed" with MinIO broken or its credentials wrong. deploy.sh already
+    # checks this in production via `minio.sh status`
+    # (MINIO_READY_TIMEOUT=5 MINIO_READY_INTERVAL=1, in cmd_verify) — this
+    # runs the SAME script with the SAME env-override pattern cmd_up already
+    # uses for `minio.sh apply` a few lines above, so it is a rehearsal of the
+    # real command, not a simulation of one.
+    if docker inspect "${cp}minio" >/dev/null 2>&1; then
+        if MINIO_CONTAINER="${cp}minio" \
+           MINIO_SECRETS_FILE="$LOCAL_VAULT_DIR/local.enc.env" \
+           SOPS_AGE_KEY_FILE="$LOCAL_VAULT_DIR/age.key" \
+           MINIO_ROOT_USER="$(env_get MINIO_ROOT_USER "")" \
+           MINIO_ROOT_PASSWORD="$(env_get MINIO_ROOT_PASSWORD "")" \
+           MINIO_READY_TIMEOUT=5 MINIO_READY_INTERVAL=1 \
+               bash "$SCRIPT_DIR/minio.sh" status >/dev/null 2>&1; then
+            echo "  ${GREEN}✓${NC} MinIO responding, admin credentials valid"
+        else
+            echo "  ${RED}✗${NC} MinIO not responding or admin credentials invalid — 'bash scripts/minio.sh status' for detail"
+            failed=1
+        fi
+    fi
+
     echo ""
     if [ "$failed" -eq 0 ]; then
         success "All local checks passed."
