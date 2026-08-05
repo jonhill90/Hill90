@@ -319,19 +319,79 @@ jobs:
 
       # ---- Prove it, then hand back the secrets ------------------------------
 
+      # h#733: this used to be `sleep 8` after the restart and `sleep 5`
+      # after the unseal-service restart — fixed waits hoping the container
+      # and the unseal happened in time, the same shape h#725 fixed for
+      # grafana-role-login-test.sh's readiness. Reused that shape here:
+      # poll a real signal with a bounded deadline instead of guessing a
+      # duration.
+      #
+      # THE READINESS SIGNAL, verified against a real
+      # ghcr.io/openbao/openbao:2.6.1 container (the pinned production
+      # version), not assumed: `bao status`'s exit code is NOT a uniform
+      # "any API error" code the way `bao read`'s is (see h#731) — sealed
+      # gives exit 2 with a REAL, parseable JSON body (`sealed: true`),
+      # unsealed gives exit 0 with `sealed: false`, and a connection refusal
+      # (the server not listening yet) gives exit 1 with a plain-text error,
+      # not JSON. So `.sealed` decoding to literally "true" or "false" is a
+      # reliable readiness signal — "the server is up and answering" —
+      # independent of which sealed state it reports, whereas empty/anything
+      # else means it isn't up yet.
       - name: Prove auto-unseal survives a container restart
         run: |
           IP=${{ steps.get-ip.outputs.tailscale_ip }}
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP 'docker restart openbao >/dev/null && sleep 8'
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
-            'sudo systemctl restart hill90-vault-unseal.service && sleep 5' || \
-            ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
-            'cd /opt/hill90/app && bash scripts/vault.sh auto-unseal'
-          SEALED=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP \
-            'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null | jq -r ".sealed"')
-          echo "sealed after restart: $SEALED"
+          SSH="ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no deploy@$IP"
+          READY_DEADLINE_SECONDS="${VAULT_READY_DEADLINE_SECONDS:-90}"
+          READY_INTERVAL_SECONDS="${VAULT_READY_INTERVAL_SECONDS:-2}"
+
+          bao_status_field() {
+            $SSH 'docker exec -e BAO_ADDR=http://127.0.0.1:8200 openbao bao status -format=json 2>/dev/null' \
+              | jq -r ".$1" 2>/dev/null
+          }
+
+          wait_for_openbao_to_answer() {
+            local deadline=$(( $(date +%s) + READY_DEADLINE_SECONDS ))
+            local attempts=0
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              attempts=$((attempts + 1))
+              local sealed
+              sealed="$(bao_status_field sealed)"
+              if [ "$sealed" = "true" ] || [ "$sealed" = "false" ]; then
+                echo "openbao answering after ${attempts} attempt(s), sealed=${sealed}"
+                return 0
+              fi
+              sleep "$READY_INTERVAL_SECONDS"
+            done
+            echo "::error::openbao never answered \`bao status\` within ${READY_DEADLINE_SECONDS}s after the restart. Not a seal-state question — the process itself never came back."
+            return 1
+          }
+
+          $SSH 'docker restart openbao >/dev/null'
+          wait_for_openbao_to_answer
+
+          $SSH 'sudo systemctl restart hill90-vault-unseal.service' || \
+            $SSH 'cd /opt/hill90/app && bash scripts/vault.sh auto-unseal'
+
+          wait_for_openbao_to_answer
+
+          # The unseal trigger above is fire-and-forget from here (a
+          # systemd unit, or a script run over its own ssh session) — polled
+          # again, separately, because "the server answers" and "the server
+          # reports unsealed" are two different moments.
+          UNSEAL_DEADLINE=$(( $(date +%s) + READY_DEADLINE_SECONDS ))
+          SEALED=""
+          UNSEAL_ATTEMPTS=0
+          while [ "$(date +%s)" -lt "$UNSEAL_DEADLINE" ]; do
+            UNSEAL_ATTEMPTS=$((UNSEAL_ATTEMPTS + 1))
+            SEALED="$(bao_status_field sealed)"
+            if [ "$SEALED" = "false" ]; then
+              break
+            fi
+            sleep "$READY_INTERVAL_SECONDS"
+          done
+          echo "sealed after restart: ${SEALED:-(no answer)} (${UNSEAL_ATTEMPTS} attempt(s) of a ${READY_DEADLINE_SECONDS}s cap)"
           if [ "$SEALED" != "false" ]; then
-            echo "::error::Vault did not auto-unseal after restart (sealed=$SEALED)"
+            echo "::error::Vault did not auto-unseal after restart within ${READY_DEADLINE_SECONDS}s (sealed=${SEALED:-unknown})"
             exit 1
           fi
 
