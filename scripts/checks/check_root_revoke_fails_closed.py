@@ -212,6 +212,26 @@ def main() -> int:
     print(f"  workflows that mint a root token: {', '.join(minting) or 'none'}")
     print()
 
+    # `minting` ending up empty is indistinguishable from MINT's invocation
+    # strings no longer matching anything real — vault.sh's regain-root/init
+    # subcommands being renamed or reshaped — and would pass vacuously:
+    # nothing to audit, so `problems` stays empty and this prints PASS having
+    # verified zero workflows. vault-regain-root.yml and vault-init.yml are
+    # known, current root-minting workflows, so a genuinely empty list here
+    # means this check went blind, not that root minting stopped happening.
+    # Same shape as check_vault_covers_compose.py's declared()/required_vars()
+    # guards and check_declared_paths_are_seeded.py's h#730 fix.
+    if not minting:
+        print(
+            "FAIL — no root-minting workflow found at all. Either root minting has "
+            "genuinely been removed from every workflow (update MINT's comment and "
+            "this message if so, deliberately), or MINT no longer matches — a "
+            "renamed or reshaped vault.sh subcommand — which is a broken check, not "
+            "a clean estate.",
+            file=sys.stderr,
+        )
+        return 1
+
     if problems:
         print(f"FAIL — {len(problems)} problem(s):\n")
         for p in problems:
