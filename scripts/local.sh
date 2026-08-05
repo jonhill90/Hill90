@@ -284,7 +284,17 @@ cmd_up() {
     local netpfx; netpfx=$(env_get NETWORK_PREFIX hill90dev)
     for net in internal agent_internal; do
         if ! docker network inspect "${netpfx}_${net}" >/dev/null 2>&1; then
-            docker network create --driver bridge --internal "${netpfx}_${net}" >/dev/null
+            # Sibling-drift sweep: deploy.sh's identical block is protected
+            # by that script's own set -e (verified directly: a forced
+            # failure there never reaches its echo). This script has no
+            # set -e — only set -uo pipefail — so the same bare command here
+            # genuinely reported success unconditionally on a failed create.
+            # Explicit die() closes it without retrofitting set -e onto the
+            # whole 800-line script, which risks changing behavior on some
+            # other line that currently relies on continuing past a soft
+            # failure (see the held decision on set -e).
+            docker network create --driver bridge --internal "${netpfx}_${net}" >/dev/null \
+                || die "Failed to create ${netpfx}_${net} network"
             success "Created ${netpfx}_${net}"
         fi
     done

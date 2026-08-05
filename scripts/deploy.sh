@@ -277,12 +277,24 @@ cmd_infra() {
 
     # Create internal networks if not present (edge compose creates hill90_edge;
     # internal networks are needed by app services but not by edge services)
+    #
+    # Sibling-drift sweep: this repo's own set -e already aborts the script if
+    # docker network create fails here — verified directly, not assumed: a
+    # forced failure never reaches the echo below and preserves docker's own
+    # exit code. So this was never a silent-success bug in practice, but it
+    # relied on that entirely on an implicit bash abort with docker's own raw
+    # error text, rather than a legible message naming what failed — and the
+    # identical code in local.sh has no such backstop (see that fix). Made
+    # explicit here too, for the same reason a check should not depend on an
+    # interpreter flag staying set three refactors from now.
     if ! docker network inspect hill90_internal >/dev/null 2>&1; then
-        docker network create --driver bridge --internal hill90_internal
+        docker network create --driver bridge --internal hill90_internal \
+            || die "Failed to create hill90_internal network"
         echo "✓ Created hill90_internal network for app services"
     fi
     if ! docker network inspect hill90_agent_internal >/dev/null 2>&1; then
-        docker network create --driver bridge --internal hill90_agent_internal
+        docker network create --driver bridge --internal hill90_agent_internal \
+            || die "Failed to create hill90_agent_internal network"
         echo "✓ Created hill90_agent_internal network for agent containers"
     fi
 
