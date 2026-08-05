@@ -49,7 +49,21 @@ def resolve_target(source: Path, link: str) -> Path:
 def main() -> int:
     missing: list[tuple[Path, int, str]] = []
 
-    for md_file in iter_md_files():
+    md_files = iter_md_files()
+    # h#734: the same 0==0 trap check_destructive_commands.sh had — if every
+    # entry in SCAN_ROOTS stops existing (a directory renamed or moved),
+    # iter_md_files() returns [], `missing` stays empty, and this printed
+    # "no missing local links found" having scanned nothing. Same fix shape:
+    # count what was actually examined, and refuse to call zero of them a
+    # clean pass.
+    if not md_files:
+        print(
+            f"CANNOT DETERMINE: none of {', '.join(str(r) for r in SCAN_ROOTS)} "
+            "exist — nothing was scanned. Run this from the repository root."
+        )
+        return 2
+
+    for md_file in md_files:
         text = md_file.read_text(encoding="utf-8", errors="ignore")
         for line_no, line in enumerate(text.splitlines(), start=1):
             for match in LINK_RE.finditer(line):
@@ -73,7 +87,7 @@ def main() -> int:
         print(f"\nTotal missing links: {len(missing)}")
         return 1
 
-    print("Markdown link check passed: no missing local links found.")
+    print(f"Markdown link check passed: no missing local links found ({len(md_files)} files scanned).")
     return 0
 
 
