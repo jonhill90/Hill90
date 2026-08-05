@@ -30,6 +30,12 @@ jobs:
       - name: Assert CLAUDE.md's alert counts match the rules that ship
         run: python3 scripts/checks/check_alert_counts_documented.py
 
+      # `-f service=auth` deployed all five services, because on a
+      # workflow_dispatch paths-filter falls back to a parentless last commit
+      # and reports the whole repo as changed. Hermetic — reads deploy.yml.
+      - name: Assert a manual deploy targets one service
+        run: python3 scripts/checks/check_dispatch_targets_one_service.py
+
       - name: Install bats
         run: |
           sudo apt-get update
