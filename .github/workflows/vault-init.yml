@@ -164,6 +164,7 @@ jobs:
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/vault.sh store-unseal-key'
 
       - name: Copy updated SOPS back
+        id: copy-back
         run: |
           scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/opt/hill90/app/infra/secrets/prod.enc.env \
@@ -173,8 +174,16 @@ jobs:
           echo "OPENBAO_UNSEAL_KEY decrypts to $LEN bytes"
           [ "$LEN" -gt 0 ] || { echo "::error::OPENBAO_UNSEAL_KEY missing after copy-back"; exit 1; }
 
+      # Gated on copy-back having actually captured the new unseal key, not a
+      # bare always(). This step only exists to clean the host's local
+      # checkout NOW THAT the key is safely in git — if copy-back failed
+      # (network blip mid-scp, or the decrypt check above), the host's copy
+      # is the only place that key existed. Reverting it anyway would discard
+      # the one thing this whole run existed to produce, during exactly the
+      # disaster-recovery scenario this workflow is for. See
+      # scripts/checks/check_vault_cleanup_guard.py.
       - name: Restore host checkout
-        if: always()
+        if: always() && steps.copy-back.outcome != 'failure'
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \

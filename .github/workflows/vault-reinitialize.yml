@@ -396,6 +396,7 @@ jobs:
           fi
 
       - name: Copy updated SOPS back
+        id: copy-back
         run: |
           scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/opt/hill90/app/infra/secrets/prod.enc.env \
@@ -406,8 +407,11 @@ jobs:
             [ "$LEN" -gt 0 ] || { echo "::error::$k missing after copy-back"; exit 1; }
           done
 
+      # Gated on copy-back having actually captured the new key/token, not a
+      # bare always() — see vault-init.yml's identical comment and
+      # scripts/checks/check_vault_cleanup_guard.py.
       - name: Restore host checkout
-        if: always()
+        if: always() && steps.copy-back.outcome != 'failure'
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \

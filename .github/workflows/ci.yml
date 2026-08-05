@@ -199,6 +199,15 @@ jobs:
       - name: Assert no path revokes root before OIDC is enabled
         run: python3 scripts/checks/check_vault_revoke_order.py
 
+      # Found in an error-path sweep: three workflows' "revert the host's
+      # SOPS checkout" cleanup step ran unconditionally (always()), including
+      # when the copy-back it depends on had already failed — discarding the
+      # only copy of freshly-written secret material before it was ever
+      # captured off-host. Wired only to its own bats control since it was
+      # written; fully hermetic, no vault, no host.
+      - name: Assert vault workflow cleanup steps don't discard un-captured secrets
+        run: python3 scripts/checks/check_vault_cleanup_guard.py
+
       # h#758 (found by h#736's fix): wired only to its own bats control
       # since it was written. Fully hermetic — parses scripts/_common.sh and
       # scripts/vault.sh statically, no vault, no host. Same shape as
