@@ -180,8 +180,48 @@ jobs:
       # This step names exactly what it can see: whether Alertmanager's own
       # notification pipeline logged an attempted/successful send for THIS
       # alert. It cannot see an inbox, and does not claim to.
+      # THIS STEP USED TO BE UNABLE TO FAIL, REGARDLESS OF WHAT IT FOUND.
+      # `grep ... || echo ...` means the step's exit code is whichever of
+      # grep or echo ran — grep exits 0 the moment it matches ANY line, so a
+      # genuine "Notify attempt failed, will retry later" WARN line (the real
+      # shape Alertmanager logs on delivery failure, confirmed against a real
+      # prom/alertmanager:v0.28.1 container — the version this estate pins in
+      # docker-compose.observability.yml) still made this step GREEN. Verified
+      # directly: captured that exact log line from a real container whose
+      # webhook receiver was unreachable, ran the old `grep ... || echo` line
+      # against it, exit 0. This step is the last-mile confirmation in the
+      # watchdog that pages a human when every OTHER scheduled check goes red
+      # — a check that cannot fail here is decorative at the one layer this
+      # workflow exists to be the backstop for.
+      #
+      # WHAT SUCCESS LOOKS LIKE IN THESE LOGS: nothing. Alertmanager does not
+      # log a line for a notification it delivered successfully at its
+      # default (info) verbosity — confirmed against the same real container:
+      # a webhook receiver that accepted every POST produced zero matching
+      # log lines, ever, in repeated trials. So "no matching lines" cannot be
+      # promoted to a hard failure without false-paging on every clean run;
+      # it stays informational, exactly as the comment above this step
+      # already says ("It cannot see an inbox, and does not claim to").
+      #
+      # WHAT CHANGED: a matched line is now inspected, not just printed. If
+      # it contains a failure indicator (Alertmanager's own retry-failure
+      # vocabulary, confirmed against the real log line above: "failed"), the
+      # step now fails loud with ::error::. A benign match with no failure
+      # indicator, or no match at all, stays a soft pass — that boundary is
+      # unchanged from before.
       - name: Check Alertmanager's own notify log for this alert
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
-            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'docker logs --since=2m alertmanager 2>&1 | grep -i "notify\|smtp\|email" || echo "(no matching log lines in the last 2 minutes)"'
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} '
+              LOG_LINES="$(docker logs --since=2m alertmanager 2>&1 | grep -iE "notify|smtp|email" || true)"
+              if [ -z "$LOG_LINES" ]; then
+                echo "(no matching log lines in the last 2 minutes — cannot confirm a send was attempted; Alertmanager does not log successful notify attempts at this verbosity)"
+                exit 0
+              fi
+              echo "$LOG_LINES"
+              if echo "$LOG_LINES" | grep -qiE "failed|error|refused|timeout|unable|denied|unauthorized"; then
+                echo "::error::Alertmanager logged what looks like a delivery failure for this alert — see lines above"
+                exit 1
+              fi
+              echo "ok - Alertmanager logged notify-related activity with no failure indicator"
+            '
