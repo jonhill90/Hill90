@@ -78,12 +78,28 @@ load_secrets() {
 
     export SOPS_AGE_KEY_FILE="$age_key"
 
+    # Split declaration from assignment on purpose: `local decrypted=$(...)`
+    # would discard sops's own exit status — `local` returns its own status,
+    # and this function is sourced into callers with neither `set -e` nor
+    # `pipefail` (it's a library; that's the caller's choice, not this
+    # file's), so nothing downstream would catch it either. This is the
+    # widest-reaching instance of the pipeline-exit-status shape in this
+    # repo: `decrypted` holds the ENTIRE decrypted secrets store, not one
+    # value the way minio.sh's secret_for() does, so a masked failure here
+    # means every caller of load_secrets silently loads nothing rather than
+    # one script missing one key.
+    local decrypted
+    if ! decrypted=$(sops -d "$secrets_file"); then
+        die "could not decrypt ${secrets_file} — check the age key at ${age_key}"
+    fi
+
     local temp_file
     temp_file=$(mktemp)
     # shellcheck disable=SC2064  # Intentional early expansion of $temp_file
     trap "rm -f '$temp_file'" RETURN
 
-    sops -d "$secrets_file" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | while IFS='=' read -r key value; do
+    # Never echo $decrypted — it is the whole store. Only ever piped.
+    printf '%s' "$decrypted" | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | while IFS='=' read -r key value; do
         printf '%s=%q\n' "$key" "$value"
     done > "$temp_file"
 
