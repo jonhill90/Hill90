@@ -31,6 +31,70 @@
 # Every change is then verified against `sshd -T`. An assertion nobody checks is
 # how the previous version survived a full rebuild.
 
+# ---------------------------------------------------------------------------
+# GATE: refuse to lock the door until we have proven there is a key that
+# opens it
+# ---------------------------------------------------------------------------
+#
+# 01-system-prep.yml copies /root/.ssh/authorized_keys to the deploy user
+# and is deliberately tolerant of that copy failing, because not every
+# provider puts the key there; some deliver it elsewhere or via cloud-init
+# user-data instead. That tolerance is correct for THAT task, but it means
+# nothing downstream of it can assume the copy worked.
+#
+# This is defence in depth, not the only door: 03-tailscale.yml runs before
+# this play (bootstrap.yml order is 01, 02, 03-tailscale, 04) and brings up
+# `tailscale up --ssh`, so Tailscale SSH is already answering connections
+# over the tailnet BEFORE this play touches anything — verified on the real
+# host: `ssh -v` over the tailnet reports "remote software version
+# Tailscale" and "Authenticated using none", and it authorises by tailnet
+# ACL, never by reading authorized_keys. A missing key here does NOT brick
+# the host through that path.
+#
+# What it does break, and why the gate still earns its place:
+#   - Tailscale SSH is later disabled, or RunSSH is turned off — both
+#     one-line changes in future config, neither reviewed against this play.
+#   - A connection over the host's public interface, where OpenSSH's own
+#     PermitRootLogin no (set below) is what applies, not Tailscale SSH.
+#   - An operator without tailnet access, who has only the OpenSSH path.
+# In every one of those, disabling PasswordAuthentication and
+# PermitRootLogin with no verified key for deploy_user turns "degraded" into
+# "no way in" for whoever hits it.
+#
+# So the check belongs HERE, not on the copy in 01. Gating here catches
+# every way the key could be missing or empty — a failed copy, a provider
+# that never put it there, cloud-init not having run yet, a future edit
+# that changes how it's provisioned — not just this one copy failing. It is
+# also the last point at which failing loudly is still safe: nothing below
+# this task has touched sshd yet.
+- name: Stat the deploy user's authorized_keys before disabling password/root login
+  stat:
+    path: "{{ deploy_home }}/.ssh/authorized_keys"
+  register: deploy_authorized_keys
+
+- name: Refuse to proceed without a usable key for the deploy user
+  assert:
+    that:
+      - deploy_authorized_keys.stat.exists
+      - deploy_authorized_keys.stat.isreg
+      - deploy_authorized_keys.stat.size > 0
+    fail_msg: |
+      {{ deploy_home }}/.ssh/authorized_keys is missing, not a regular file,
+      or empty.
+
+      This play is about to disable PasswordAuthentication and
+      PermitRootLogin. Tailscale SSH (brought up in 03-tailscale.yml, before
+      this play) does not depend on this file and stays up regardless — but
+      OpenSSH access for "{{ deploy_user }}" becomes UNREACHABLE the moment
+      sshd reloads, with no route back short of console/rescue access from
+      the provider. That is the only path left for anyone connecting over
+      the public interface, without tailnet access, or if Tailscale SSH is
+      ever disabled or RunSSH turned off.
+
+      Refusing to continue. Fix how the key reaches {{ deploy_user }}
+      (see 01-system-prep.yml's authorized_keys copy) and re-run.
+    success_msg: "Verified: {{ deploy_user }} has a non-empty authorized_keys — safe to lock down SSH"
+
 - name: Lock SSH to Tailscale network only (100.64.0.0/10)
   firewalld:
     rich_rule: 'rule family="ipv4" source address="100.64.0.0/10" service name="ssh" accept'
