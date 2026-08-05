@@ -341,3 +341,115 @@ EOF
       bash scripts/backup.sh backup app-db
   [ "$status" -ne 0 ]
 }
+
+# ---------------------------------------------------------------------------
+# backup_volume() / restore_volume() used to report success unconditionally,
+# regardless of whether the underlying `docker run`/tar actually succeeded —
+# `echo` was the next unconditional statement after each, and echo never
+# fails. Under `backup-all` specifically this was live, not dormant: every
+# multi-volume caller wraps the call in `|| true`, and cmd_backup_all wraps
+# the whole chain in `if ( cmd_backup "$svc" )`, a subshell-as-if-condition
+# that suppresses errexit transitively underneath it — so a failed tar for
+# ANY of six targets (including prod_minio-data, the one volume this file's
+# own comments call irreplaceable) silently reported "✓ Saved" and never
+# turned the run red.
+#
+# These use REAL docker volumes rather than the stub above: the stub's bare
+# `*run*) exit 0 ;;` never actually writes a file, which is realistic for
+# testing the SQL-dump paths (those write via redirected stdout, not through
+# the container) but cannot exercise backup_volume's own real success/failure
+# path, which depends on whether `docker run ... tar czf ...` genuinely wrote
+# something. A small, real, throwaway volume is fast and faithful.
+# ---------------------------------------------------------------------------
+
+BACKUP_VOLUME_FUNCS() {
+  sed -n '/^backup_volume() {/,/^}/p; /^# Restore a named Docker volume/,/^}/p' "$1"
+}
+
+setup_real_volume() {
+  TEST_VOL="bats-backup-vol-$$"
+  docker volume create "$TEST_VOL" >/dev/null
+  docker run --rm -v "${TEST_VOL}:/data" alpine sh -c "echo real > /data/f.txt" >/dev/null
+}
+
+teardown_real_volume() {
+  docker volume rm "$TEST_VOL" >/dev/null 2>&1 || true
+}
+
+@test "REAL DOCKER: backup_volume succeeds and creates a real, non-empty archive" {
+  command -v docker >/dev/null || skip "docker not available"
+  setup_real_volume
+  FUNCS="$BATS_TEST_TMPDIR/funcs.sh"
+  BACKUP_VOLUME_FUNCS "$PWD/scripts/backup.sh" > "$FUNCS"
+  dest="$BATS_TEST_TMPDIR/vol.tar.gz"
+  run bash -c "warn() { echo \"WARN: \$*\" >&2; }; source '$FUNCS'; backup_volume '$TEST_VOL' '$dest'"
+  teardown_real_volume
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"✓ Saved"* ]]
+  [ -s "$dest" ]
+}
+
+@test "THE ASSERTION THAT MATTERS: backup_volume FAILS (not '✓ Saved') when the tar genuinely cannot write" {
+  command -v docker >/dev/null || skip "docker not available"
+  setup_real_volume
+  FUNCS="$BATS_TEST_TMPDIR/funcs.sh"
+  BACKUP_VOLUME_FUNCS "$PWD/scripts/backup.sh" > "$FUNCS"
+  ro_dir="$BATS_TEST_TMPDIR/readonly"
+  mkdir -p "$ro_dir"
+  chmod 555 "$ro_dir"
+  dest="$ro_dir/vol.tar.gz"
+  run bash -c "warn() { echo \"WARN: \$*\" >&2; }; source '$FUNCS'; backup_volume '$TEST_VOL' '$dest'"
+  chmod 755 "$ro_dir"
+  teardown_real_volume
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"✓ Saved"* ]]
+  [[ "$output" == *"FAILED"* ]]
+}
+
+@test "CONTROL: the OLD backup_volume shape would have reported success on the same real failure (regression guard)" {
+  # Not a test of the new function — a permanent record that the bug was
+  # real, using the exact real failure the fixed version now catches.
+  command -v docker >/dev/null || skip "docker not available"
+  setup_real_volume
+  ro_dir="$BATS_TEST_TMPDIR/readonly-old"
+  mkdir -p "$ro_dir"
+  chmod 555 "$ro_dir"
+  dest="$ro_dir/vol.tar.gz"
+  OLD_FUNC="$BATS_TEST_TMPDIR/old_backup_volume.sh"
+  cat > "$OLD_FUNC" <<'OLD'
+backup_volume_old() {
+    local volume="$1"; local dest_file="$2"
+    docker run --rm -v "${volume}:/data:ro" -v "$(dirname "$dest_file"):/backup" \
+        alpine tar czf "/backup/$(basename "$dest_file")" -C /data .
+    echo "  ✓ Saved to $dest_file"
+}
+OLD
+  run bash -c "source '$OLD_FUNC'; backup_volume_old '$TEST_VOL' '$dest'"
+  chmod 755 "$ro_dir"
+  teardown_real_volume
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"✓ Saved"* ]]
+  # The tar genuinely failed (readonly destination) — this is the false pass.
+}
+
+@test "REAL DOCKER: restore_volume FAILS loud (not '✓ Restored') on a genuinely corrupt archive" {
+  command -v docker >/dev/null || skip "docker not available"
+  setup_real_volume
+  FUNCS="$BATS_TEST_TMPDIR/funcs.sh"
+  BACKUP_VOLUME_FUNCS "$PWD/scripts/backup.sh" > "$FUNCS"
+  bad="$BATS_TEST_TMPDIR/corrupt.tar.gz"
+  echo "not a valid tar" > "$bad"
+  run bash -c "die() { echo \"ERROR: \$*\" >&2; exit 1; }; source '$FUNCS'; restore_volume '$TEST_VOL' '$bad'"
+  teardown_real_volume
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"✓ Restored"* ]]
+  [[ "$output" == *"FAILED to restore"* ]]
+}
+
+@test "observability restore refuses when neither archive is present, rather than reporting complete" {
+  mkdir -p "$BATS_TEST_TMPDIR/empty-dir"
+  run env BACKUP_DIR="$BATS_TEST_TMPDIR/backups" \
+      bash scripts/backup.sh restore observability "$BATS_TEST_TMPDIR/empty-dir"
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"Restore complete"* ]]
+}

@@ -169,10 +169,35 @@ backup_volume() {
     fi
 
     echo "  Backing up volume $volume..."
-    docker run --rm \
+    # The `docker run`/tar result was never checked — `echo` was the next
+    # unconditional statement, and echo never fails, so this function's own
+    # exit status reflected only the echo, never whether the tar actually
+    # happened. Under `set -e` that would still abort a direct single-service
+    # backup, but every multi-volume caller wraps this in `|| true`, and
+    # cmd_backup_all wraps the whole call chain in `if ( cmd_backup "$svc" )`
+    # — a subshell used as an if-condition, which suppresses errexit
+    # transitively underneath it. So under `backup-all`, a failed tar for ANY
+    # of six targets (including prod_minio-data, "the ONLY entry here holding
+    # state that git and SOPS cannot rebuild" per this file's own comment
+    # above) silently reported "✓ Saved", updated the Prometheus success
+    # metric, and the run printed "Full Backup Complete!" with zero trace.
+    if ! docker run --rm \
         -v "${volume}:/data:ro" \
         -v "$(dirname "$dest_file"):/backup" \
-        alpine tar czf "/backup/$(basename "$dest_file")" -C /data .
+        alpine tar czf "/backup/$(basename "$dest_file")" -C /data .; then
+        warn "  ✗ FAILED to back up volume $volume — the tar operation did not complete"
+        return 1
+    fi
+
+    # Belt and suspenders: `docker run` can exit 0 having still produced
+    # nothing or nothing useful (a mount race, alpine writing an empty
+    # archive). This is the same non-empty check verify_artifacts already
+    # applies to the SQL dumps — applied here too, at the source, rather than
+    # relying solely on callers remembering to verify afterward.
+    if [ ! -s "$dest_file" ]; then
+        warn "  ✗ FAILED to back up volume $volume — $dest_file is missing or empty"
+        return 1
+    fi
 
     echo "  ✓ Saved to $dest_file"
 }
@@ -187,10 +212,19 @@ restore_volume() {
     fi
 
     echo "  Restoring volume $volume from $src_file..."
-    docker run --rm \
+    # Same shape as backup_volume's own bug, on the side where it matters
+    # more: an unconditional "✓ Restored" after an unchecked docker run/tar
+    # extraction. Not currently reachable under set -e (no caller wraps
+    # restore in `|| true` or a subshell-if today), but it is the same
+    # one-line class of bug sitting immediately next to the exploitable one,
+    # and any future change here (a retry wrapper, a restore-all) would
+    # silently reintroduce it on the side with no second chance.
+    if ! docker run --rm \
         -v "${volume}:/data" \
         -v "$(dirname "$src_file"):/backup:ro" \
-        alpine sh -c "rm -rf /data/* && tar xzf /backup/$(basename "$src_file") -C /data"
+        alpine sh -c "rm -rf /data/* && tar xzf /backup/$(basename "$src_file") -C /data"; then
+        die "FAILED to restore volume $volume from $src_file — the extraction did not complete. The volume may now be partially emptied; do not assume it is usable."
+    fi
 
     echo "  ✓ Restored $volume"
 }
@@ -357,8 +391,17 @@ backup_infra() {
     mkdir -p "$backup_dir"
 
     echo "Backing up infrastructure volumes..."
-    backup_volume "prod_traefik-certs" "$backup_dir/traefik-certs.tar.gz" || true
-    backup_volume "prod_portainer-data" "$backup_dir/portainer-data.tar.gz" || true
+    # `|| true` here used to discard a real backup_volume failure entirely —
+    # now that backup_volume genuinely returns non-zero on failure, `|| true`
+    # would still swallow it. Accumulate instead: try both volumes (traefik
+    # failing must not skip the portainer attempt), but the function's own
+    # return value must reflect whether EITHER one actually failed, so
+    # cmd_backup_all's `if ( cmd_backup "$svc" )` can see it.
+    local failed=0
+    backup_volume "prod_traefik-certs" "$backup_dir/traefik-certs.tar.gz" || failed=1
+    backup_volume "prod_portainer-data" "$backup_dir/portainer-data.tar.gz" || failed=1
+    verify_artifacts "$backup_dir" "traefik-certs.tar.gz"
+    [ "$failed" -eq 0 ]
 }
 
 backup_observability() {
@@ -366,8 +409,11 @@ backup_observability() {
     mkdir -p "$backup_dir"
 
     echo "Backing up observability volumes..."
-    backup_volume "grafana-data" "$backup_dir/grafana-data.tar.gz" || true
-    backup_volume "prometheus-data" "$backup_dir/prometheus-data.tar.gz" || true
+    local failed=0
+    backup_volume "grafana-data" "$backup_dir/grafana-data.tar.gz" || failed=1
+    backup_volume "prometheus-data" "$backup_dir/prometheus-data.tar.gz" || failed=1
+    verify_artifacts "$backup_dir" "grafana-data.tar.gz" "prometheus-data.tar.gz"
+    [ "$failed" -eq 0 ]
 }
 
 backup_minio() {
@@ -377,7 +423,12 @@ backup_minio() {
     echo "Backing up MinIO object store..."
     # Volume tar only. `mc mirror` would need working credentials and somewhere
     # to mirror TO; the volume is the whole store and is what a restore needs.
-    backup_volume "prod_minio-data" "$backup_dir/minio-data.tar.gz" || true
+    #
+    # No `|| true` — this is the one entry in this file holding state git and
+    # SOPS cannot rebuild (see the caveat above backup_volume), so its own
+    # exit status must reach the caller directly, not be discarded.
+    backup_volume "prod_minio-data" "$backup_dir/minio-data.tar.gz"
+    verify_artifacts "$backup_dir" "minio-data.tar.gz"
 }
 
 backup_vault() {
@@ -386,6 +437,7 @@ backup_vault() {
 
     echo "Backing up OpenBao..."
     backup_volume "openbao-data" "$backup_dir/openbao-data.tar.gz"
+    verify_artifacts "$backup_dir" "openbao-data.tar.gz"
 }
 
 # ---------------------------------------------------------------------------
@@ -591,12 +643,21 @@ cmd_restore() {
             echo "  Then unseal: bash scripts/vault.sh unseal"
             ;;
         observability)
+            local restored=0
             if [ -f "$backup_dir/grafana-data.tar.gz" ]; then
                 restore_volume "grafana-data" "$backup_dir/grafana-data.tar.gz"
+                restored=1
             fi
             if [ -f "$backup_dir/prometheus-data.tar.gz" ]; then
                 restore_volume "prometheus-data" "$backup_dir/prometheus-data.tar.gz"
+                restored=1
             fi
+            # Both are individually optional (a targeted restore of just one
+            # component is legitimate), but AT LEAST one archive existing is
+            # not optional — without this, pointing this command at a
+            # directory with neither file present restored nothing at all
+            # and still fell through to "✓ Restore complete" below.
+            [ "$restored" -eq 1 ] || die "Neither grafana-data.tar.gz nor prometheus-data.tar.gz found in $backup_dir — nothing to restore"
             echo "  Restart services: docker restart grafana prometheus"
             ;;
         *)
