@@ -110,6 +110,39 @@ PY
   [[ "$output" == *"empty string"* ]]
 }
 
+# h#730: unlike its sibling check_oidc_clients_reconciled.py (which refuses a
+# zero-reference result as indistinguishable from every pattern having
+# rotted), this check had no guard for declared_paths() returning empty — a
+# regex-vs-source-shape drift that stops every case arm from matching, while
+# the outer function-body regex still matches fine, would have printed "PASS
+# — every declared path is seeded" having examined zero of them. Simulated
+# the drift the sibling's own docstring names as the trigger: a refactor away
+# from the shape the regex expects — here, `echo "..."` becoming `printf`.
+@test "THE ASSERTION THAT MATTERS: every case arm losing its echo shape refuses rather than passing vacuously" {
+  python3 - "$CTL/scripts/_common.sh" <<'PY'
+import re, sys
+p = sys.argv[1]
+t = open(p).read()
+m = re.search(r"vault_paths_for_service\(\)\s*\{(.*?)\n\}", t, re.S)
+assert m, "fixture setup broken: could not find the function to mutate"
+body = m.group(1)
+# Every arm goes from `echo "..."` to `printf '%s' "..."` — the regex this
+# check parses arms with requires the literal `echo`, so this drops every
+# arm from the parse while the outer function-body regex still matches.
+mutated_body = re.sub(r'echo\s+"', 'printf \'%s\' "', body)
+assert mutated_body != body, "mutation did not apply"
+t2 = t[:m.start(1)] + mutated_body + t[m.end(1):]
+open(p, "w").write(t2)
+PY
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL"* ]]
+  [[ "$output" == *"no declared paths found at all"* ]]
+  # Must not be silently indistinguishable from a genuine clean pass.
+  [[ "$output" != *"PASS"* ]]
+}
+
 # PROSE IS NOT AN ACTION — the same trap that made an earlier check read an
 # echoed command as a real one. A path named only in a comment is not seeded.
 @test "a path mentioned only in a comment does not count as seeded" {
