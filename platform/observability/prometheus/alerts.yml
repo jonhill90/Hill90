@@ -544,6 +544,259 @@ groups:
           runbook: docs/runbooks/deployment.md#scheduled-backups
 
   # ---------------------------------------------------------------------------
+  # h#712 (narrowed): a scheduled GitHub Actions workflow that stops
+  # TRIGGERING entirely — GitHub's 60-day auto-disable of an inactive
+  # schedule, or a deleted `cron:` line — not one that runs and fails.
+  #
+  # THAT SECOND CASE IS ALREADY CLOSED, and this group does not re-solve it.
+  # #714/#715/#716 built a `workflow_run: types: [completed]` watcher that
+  # fires on every completion of any of these four workflows regardless of
+  # conclusion, reaching Alertmanager's email path the same day. h#711 (the
+  # vault sync token dead for 18 of 20 weekly runs, undetected for five
+  # months) was exactly that shape — a workflow that ran, on schedule, and
+  # failed — and it is now covered going forward.
+  #
+  # WHAT THIS GROUP ACTUALLY ADDS: a workflow that never dispatches at all
+  # produces no `completed` event, so the #714 watcher stays silent right
+  # alongside it — total absence, not a red run, and structurally invisible
+  # to an event-triggered watcher by construction. This is the
+  # dead-man's-switch shape already used for backups (the group immediately
+  # above): each workflow writes a heartbeat on `if: always()` — reaching a
+  # verdict, success or failure — to its own textfile under the SAME
+  # already-proven node-exporter textfile collector. A staleness rule per
+  # workflow catches "still triggering, taking too long to notice"; a
+  # matching absence rule catches "the heartbeat itself vanished" — the
+  # collector directory lost, the file deleted, or the metric never having
+  # existed since it was introduced.
+  #
+  # ONE FILE PER WORKFLOW, DELIBERATELY, not one shared file four
+  # independently-scheduled jobs would all rewrite: a 30-minute job and a
+  # weekly job racing to read-modify-write the same file is a real
+  # collision risk this sidesteps by construction rather than by care.
+  #
+  # WHY if: always() AND NOT if: success(). Keying the heartbeat on the
+  # check's own verdict would mean a workflow that runs correctly and finds
+  # a REAL problem — deploy-drift finding actionable drift,
+  # audit-hill90-ui-client finding a real secret mismatch — also goes stale
+  # on THIS metric hours later, generating a second, redundant alert for
+  # the same event #714 already emailed immediately. The heartbeat answers
+  # "did the scheduler dispatch this and did it reach a decision at all",
+  # which is orthogonal to whether that decision was good news.
+  #
+  # PER-WORKFLOW THRESHOLDS, not one number for all four: the four cadences
+  # (30 minutes, 4 hours, daily, weekly) need four different numbers for the
+  # same reason backup-failure-signal.md derived 26h/50h from a specific 24h
+  # cadence rather than picking a generic threshold — each is the workflow's
+  # own nominal gap plus real slack, not a guess.
+  #
+  # WHO WATCHES THIS. Nobody new. This rides entirely on Prometheus +
+  # node-exporter + Alertmanager, the same infrastructure carrying every
+  # other alert here. docs/decisions/dead-mans-switch.md already asked "who
+  # watches Prometheus itself", found every internal candidate shares a
+  # failure domain with what it watches, and left the honest gap open,
+  # explicitly as Jon's call on an external paid service — not something
+  # this group tries to close. Building a second scheduled workflow to watch
+  # THIS one would be the exact chain #714's own header comment already
+  # rejected: "one layer that reaches a human beats two that watch each
+  # other."
+  # ---------------------------------------------------------------------------
+  - name: scheduled-workflows
+    rules:
+      # Cadence: every 30 minutes. Healthy gap is ~30 minutes; 3h is roughly
+      # six missed runs — generous on purpose, since GitHub's own scheduler
+      # is best-effort (dead-mans-switch.md measured 62-116 minutes of
+      # nominal delay on a weekly cron; a tight-cadence job is not assumed
+      # immune to the same slop) and this alert exists to catch the
+      # schedule stopping, not to page on one late run.
+      - alert: ScheduledWorkflowNotTriggering
+        expr: (time() - hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="audit-hill90-ui-client"}) / 3600 > 3
+        for: 15m
+        labels:
+          severity: warning
+          workflow: audit-hill90-ui-client
+        annotations:
+          summary: "audit-hill90-ui-client has not reached a verdict in {{ $value | printf \"%.1f\" }} hours"
+          description: >-
+            This workflow is scheduled every 30 minutes (.github/workflows/audit-hill90-ui-client.yml).
+            A red run is already emailed the same day by the separate workflow_run watchdog
+            (h#712/#714) — this metric means the schedule may have stopped dispatching the
+            workflow at all, not that a recent run failed.
+          action: >-
+            Check whether the schedule is still active: GitHub disables a workflow's schedule
+            after 60 days with no activity in the repository, and a `cron:` line can be edited
+            or removed. `gh workflow list` and `gh run list --workflow=audit-hill90-ui-client.yml
+            --limit 5` from a machine with repo access. If the schedule is fine but runs are not
+            reaching the heartbeat step, the SSH/Tailscale path to the VPS is the next suspect.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      # Cadence: every 4 hours (deploy-drift.yml's own cron, `37 */4 * * *`).
+      # 12h ≈ three missed runs, 8h of slack past the nominal 4h gap.
+      - alert: ScheduledWorkflowNotTriggering
+        expr: (time() - hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="deploy-drift"}) / 3600 > 12
+        for: 15m
+        labels:
+          severity: warning
+          workflow: deploy-drift
+        annotations:
+          summary: "deploy-drift has not reached a verdict in {{ $value | printf \"%.1f\" }} hours"
+          description: >-
+            This workflow is scheduled every 4 hours (.github/workflows/deploy-drift.yml). A red
+            run is already emailed the same day by the separate workflow_run watchdog
+            (h#712/#714) — this metric means the schedule may have stopped dispatching the
+            workflow at all, not that a recent run failed. The positive-control dispatch path
+            (deployed_sha_override) deliberately does NOT refresh this heartbeat, so repeated
+            manual testing cannot mask a genuinely silent schedule.
+          action: >-
+            Check whether the schedule is still active: GitHub disables a workflow's schedule
+            after 60 days with no activity in the repository, and a `cron:` line can be edited
+            or removed. `gh workflow list` and `gh run list --workflow=deploy-drift.yml --limit
+            5` from a machine with repo access. If the schedule is fine but runs are not reaching
+            the heartbeat step, the SSH/Tailscale path to the VPS is the next suspect.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      # Cadence: daily at 06:30 UTC. 30h ≈ one missed day, 6h of slack —
+      # matching backup-failure-signal.md's own 24h → 26h reasoning, with a
+      # slightly wider margin since this workflow's push trigger means its
+      # actual run history is less uniform than a pure cron.
+      - alert: ScheduledWorkflowNotTriggering
+        expr: (time() - hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="tenant-baseline-agreement"}) / 3600 > 30
+        for: 15m
+        labels:
+          severity: warning
+          workflow: tenant-baseline-agreement
+        annotations:
+          summary: "tenant-baseline-agreement has not reached a verdict in {{ $value | printf \"%.1f\" }} hours"
+          description: >-
+            This workflow is scheduled daily at 06:30 UTC, plus on any push touching
+            deploy/compose/prod/** (.github/workflows/tenant-baseline-agreement.yml). A red run
+            is already emailed the same day by the separate workflow_run watchdog (h#712/#714)
+            — this metric means the schedule may have stopped dispatching the workflow at all,
+            not that a recent run failed.
+          action: >-
+            Check whether the schedule is still active: GitHub disables a workflow's schedule
+            after 60 days with no activity in the repository, and a `cron:` line can be edited
+            or removed. `gh workflow list` and `gh run list --workflow=tenant-baseline-agreement.yml
+            --limit 5` from a machine with repo access. If the schedule is fine but runs are not
+            reaching the heartbeat step, the SSH/Tailscale path to the VPS is the next suspect —
+            this workflow only gained that path for the heartbeat itself (h#712), so a break
+            there is new territory for it specifically.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      # Cadence: weekly, Monday 06:00 UTC. 192h (8 days) ≈ one missed week
+      # plus a full day of slack — generous relative to the ~1-2 hours of
+      # scheduler lateness this exact workflow's own history showed
+      # (dead-mans-switch.md), so this fires on genuine multi-week silence,
+      # not on GitHub's ordinary scheduling imprecision.
+      - alert: ScheduledWorkflowNotTriggering
+        expr: (time() - hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="vault-sync-to-sops"}) / 3600 > 192
+        for: 15m
+        labels:
+          severity: warning
+          workflow: vault-sync-to-sops
+        annotations:
+          summary: "vault-sync-to-sops has not reached a verdict in {{ $value | printf \"%.1f\" }} hours"
+          description: >-
+            This workflow is scheduled weekly, Monday 06:00 UTC (.github/workflows/vault-sync-to-sops.yml).
+            A red run is already emailed the same day by the separate workflow_run watchdog
+            (h#712/#714) — this metric means the schedule may have stopped dispatching the
+            workflow at all, not that a recent run failed. h#711 was the OTHER shape (ran
+            weekly, failed weekly, for five months) — that case is closed; this one is about
+            the schedule going silent instead.
+          action: >-
+            Check whether the schedule is still active: GitHub disables a workflow's schedule
+            after 60 days with no activity in the repository, and a `cron:` line can be edited
+            or removed. `gh workflow list` and `gh run list --workflow=vault-sync-to-sops.yml
+            --limit 5` from a machine with repo access. If the schedule is fine but runs are not
+            reaching the heartbeat step, the SSH/Tailscale path to the VPS is the next suspect.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      # The watcher-watching case for this group, one per workflow — mirrors
+      # BackupSignalMissing exactly. If a heartbeat file is deleted, never
+      # written since the metric was introduced, or node-exporter loses the
+      # collector directory, `time() - <absent>` yields NO RESULT and the
+      # staleness rule above can never fire — silent about a metric that
+      # does not exist. This notices the alarm itself was removed.
+      - alert: ScheduledWorkflowSignalMissing
+        expr: absent(hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="audit-hill90-ui-client"})
+        for: 6h
+        labels:
+          severity: warning
+          workflow: audit-hill90-ui-client
+        annotations:
+          summary: "The audit-hill90-ui-client heartbeat metric has disappeared entirely"
+          description: >-
+            hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="audit-hill90-ui-client"}
+            is absent, so ScheduledWorkflowNotTriggering cannot fire at all for this workflow.
+          action: >-
+            Check the file exists and is fresh: `ls -l
+            /opt/hill90/metrics/textfile_collector/hill90_scheduled_workflow_audit-hill90-ui-client.prom`.
+            Then confirm node-exporter is reading that directory —
+            `node_textfile_mtime_seconds` should have a series. If the file is there but the
+            metric is not, the collector directory flag or the /rootfs mount is the fault, not
+            this workflow.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      - alert: ScheduledWorkflowSignalMissing
+        expr: absent(hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="deploy-drift"})
+        for: 6h
+        labels:
+          severity: warning
+          workflow: deploy-drift
+        annotations:
+          summary: "The deploy-drift heartbeat metric has disappeared entirely"
+          description: >-
+            hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="deploy-drift"} is
+            absent, so ScheduledWorkflowNotTriggering cannot fire at all for this workflow.
+          action: >-
+            Check the file exists and is fresh: `ls -l
+            /opt/hill90/metrics/textfile_collector/hill90_scheduled_workflow_deploy-drift.prom`.
+            Then confirm node-exporter is reading that directory —
+            `node_textfile_mtime_seconds` should have a series. If the file is there but the
+            metric is not, the collector directory flag or the /rootfs mount is the fault, not
+            this workflow.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      - alert: ScheduledWorkflowSignalMissing
+        expr: absent(hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="tenant-baseline-agreement"})
+        for: 6h
+        labels:
+          severity: warning
+          workflow: tenant-baseline-agreement
+        annotations:
+          summary: "The tenant-baseline-agreement heartbeat metric has disappeared entirely"
+          description: >-
+            hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="tenant-baseline-agreement"}
+            is absent, so ScheduledWorkflowNotTriggering cannot fire at all for this workflow.
+          action: >-
+            Check the file exists and is fresh: `ls -l
+            /opt/hill90/metrics/textfile_collector/hill90_scheduled_workflow_tenant-baseline-agreement.prom`.
+            Then confirm node-exporter is reading that directory —
+            `node_textfile_mtime_seconds` should have a series. If the file is there but the
+            metric is not, the collector directory flag or the /rootfs mount is the fault, not
+            this workflow.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      - alert: ScheduledWorkflowSignalMissing
+        expr: absent(hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="vault-sync-to-sops"})
+        for: 6h
+        labels:
+          severity: warning
+          workflow: vault-sync-to-sops
+        annotations:
+          summary: "The vault-sync-to-sops heartbeat metric has disappeared entirely"
+          description: >-
+            hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="vault-sync-to-sops"}
+            is absent, so ScheduledWorkflowNotTriggering cannot fire at all for this workflow.
+          action: >-
+            Check the file exists and is fresh: `ls -l
+            /opt/hill90/metrics/textfile_collector/hill90_scheduled_workflow_vault-sync-to-sops.prom`.
+            Then confirm node-exporter is reading that directory —
+            `node_textfile_mtime_seconds` should have a series. If the file is there but the
+            metric is not, the collector directory flag or the /rootfs mount is the fault, not
+            this workflow.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+  # ---------------------------------------------------------------------------
   # A deliberately inert facility for proving the notification chain end to end.
   #
   # WHY IT EXISTS. Every step of the path had been proven individually and the

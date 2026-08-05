@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Vault CLI — OpenBao secrets management lifecycle
-# Usage: vault.sh {init|unseal|auto-unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|setup-sync-token|bootstrap-approles|help}
+# Usage: vault.sh {init|unseal|auto-unseal|status|setup|seed|policy-apply|backup|export|sync-to-sops|setup-sync-token|setup-sync-approle|bootstrap-approles|help}
 
 set -e
 
@@ -17,7 +17,18 @@ SECRETS_FILE="${VAULT_SECRETS_FILE:-${PROJECT_ROOT}/infra/secrets/prod.enc.env}"
 POLICY_DIR="${PROJECT_ROOT}/platform/vault/policies"
 
 # Services that get their own AppRole
-VAULT_SERVICES="db auth infra observability"
+#
+# h#711 added "sync": the vault-to-SOPS sync workflow used to authenticate
+# with a periodic token (`setup-sync-token`, below) that had to be renewed
+# weekly. Renewal silently capped at config.hcl's max_lease_ttl=24h instead
+# of the token's own -period=768h, because periodic-token renewal only
+# honours its own period when the renewing identity holds `sudo` on
+# auth/token/renew-self — which policy-sync never granted, and which this
+# estate has never granted anywhere outside policy-admin's break-glass
+# capability. AppRole sidesteps the whole mismatch: each run logs in fresh
+# (see cmd_setup_sync_approle) for a token bounded by token_ttl/token_max_ttl
+# below, comfortably inside the 24h ceiling, needing no exemption ever.
+VAULT_SERVICES="db auth infra observability sync"
 
 # ---------------------------------------------------------------------------
 # Usage
@@ -45,7 +56,10 @@ Commands:
   auto-unseal         Wait for container + unseal (for systemd/deploy hooks)
   assert-unsealed     Exit non-zero if OpenBao is sealed OR not deployed (an assertion)
   sync-to-sops        Sync vault secrets back to SOPS backup (requires BAO_TOKEN)
-  setup-sync-token    Create a read-only sync token and store in SOPS (requires BAO_TOKEN)
+  setup-sync-token    SUPERSEDED for the sync workflow by setup-sync-approle (h#711).
+                      Left for vault-init.yml/vault-reinitialize.yml, which still call it.
+  setup-sync-approle  Create the sync AppRole and store role_id/secret_id in SOPS
+                      (requires BAO_TOKEN) — what the sync workflow actually uses now
   bootstrap-approles  Generate AppRole credentials for all services and store in SOPS
   help                Show this help message
 
@@ -543,6 +557,14 @@ cmd_setup() {
     cmd_policy_apply
 
     # Create AppRoles for each service
+    #
+    # token_max_ttl=4h, well inside config.hcl's max_lease_ttl=24h — every
+    # AppRole login mints a token that fits inside the system ceiling on
+    # its own, with no exemption of any kind. That is the property h#711's
+    # fix relies on for the "sync" member of this list: a periodic token
+    # needed `sudo` on auth/token/renew-self to renew past this ceiling and
+    # never had it, which is what left it dead for five months. A token
+    # this short never asks the ceiling to bend at all.
     echo ""
     echo "Creating AppRoles for each service..."
     for svc in $VAULT_SERVICES; do
@@ -949,6 +971,16 @@ for k, v in sorted(data.items()):
     echo "Backup saved: $backup_file"
 }
 
+# SUPERSEDED for vault-sync-to-sops.yml by cmd_setup_sync_approle (h#711) —
+# the workflow now authenticates via AppRole, not this periodic token.
+#
+# Left in place, unmodified, rather than removed: vault-init.yml and
+# vault-reinitialize.yml still call this as part of full-vault-bootstrap
+# automation, and retiring VAULT_SYNC_TOKEN from those workflows (plus the
+# several docs that still describe it) is a separate, larger change than
+# h#711 asked for. A periodic sync token that nothing renews it against is
+# inert, not dangerous — it simply goes unused once the workflow stops
+# reading VAULT_SYNC_TOKEN.
 cmd_setup_sync_token() {
     require_running
 
@@ -1005,6 +1037,85 @@ cmd_setup_sync_token() {
     echo "  git add infra/secrets/prod.enc.env"
     echo "  git commit -m 'chore: store vault sync token in SOPS'"
     echo "  git push"
+    echo ""
+}
+
+# h#711: the sync workflow's actual credential setup, replacing
+# cmd_setup_sync_token above. Scoped to the "sync" AppRole only — deliberately
+# NOT cmd_bootstrap_approles, which mints a fresh secret_id for EVERY service
+# in VAULT_SERVICES on every run (harmless — old secret_ids stay valid,
+# secret_id_ttl=0 — but noisy: it would touch db/auth/infra/observability's
+# credentials too for no reason connected to this fix).
+#
+# cmd_setup is safe to call unconditionally here: it is idempotent (the
+# AppRole loop is a `write` with the same arguments every time) and it is
+# what actually creates auth/approle/role/sync in the first place, now that
+# "sync" is a VAULT_SERVICES member. Running it is what makes this command
+# work on a vault that has never seen "sync" at all, not just one that
+# already has stale sync credentials.
+cmd_setup_sync_approle() {
+    require_running
+
+    echo "================================"
+    echo "Setup Vault Sync AppRole"
+    echo "================================"
+    echo ""
+
+    require_file "$SECRETS_FILE" "Secrets file"
+    ensure_age_key prod
+
+    echo "Running setup (idempotent) — creates/updates every VAULT_SERVICES role, including sync..."
+    cmd_setup
+
+    echo ""
+    echo "Minting a secret_id for sync only..."
+    local role_id
+    role_id=$(bao_exec_env read -format=json "auth/approle/role/sync/role-id" 2>/dev/null | \
+        python3 -c "import sys,json; print(json.load(sys.stdin)['data']['role_id'])")
+    if [ -z "$role_id" ]; then
+        die "Failed to read role_id for sync — did cmd_setup run against a reachable, unsealed vault?"
+    fi
+
+    local secret_id
+    secret_id=$(bao_exec_env write -f -format=json "auth/approle/role/sync/secret-id" 2>/dev/null | \
+        python3 -c "import sys,json; print(json.load(sys.stdin)['data']['secret_id'])")
+    if [ -z "$secret_id" ]; then
+        die "Failed to generate secret_id for sync"
+    fi
+
+    echo "Storing VAULT_SYNC_ROLE_ID / VAULT_SYNC_SECRET_ID in SOPS..."
+    local escaped_role_id escaped_secret_id
+    escaped_role_id=$(printf '%s' "$role_id" | jq -Rs .)
+    escaped_secret_id=$(printf '%s' "$secret_id" | jq -Rs .)
+
+    if ! sops --set "[\"VAULT_SYNC_ROLE_ID\"] ${escaped_role_id}" "$SECRETS_FILE"; then
+        die "Failed to store VAULT_SYNC_ROLE_ID in SOPS"
+    fi
+    if ! sops --set "[\"VAULT_SYNC_SECRET_ID\"] ${escaped_secret_id}" "$SECRETS_FILE"; then
+        die "Failed to store VAULT_SYNC_SECRET_ID in SOPS"
+    fi
+
+    unset role_id secret_id escaped_role_id escaped_secret_id
+
+    echo ""
+    success "Sync AppRole credentials created and stored in SOPS!"
+    echo ""
+    # Deliberately NOT printed — same reasoning as cmd_setup_sync_token: this
+    # runs in CI, and a printed secret_id would be a durable copy in the log.
+    echo "The old VAULT_SYNC_TOKEN key is left in SOPS, unused by the workflow"
+    echo "from this point on. Removing it is a separate, deliberate cleanup,"
+    echo "not automatic here."
+    echo ""
+    echo "IMPORTANT: Commit and push the updated SOPS file so GitHub Actions can read it:"
+    echo "  git add infra/secrets/prod.enc.env"
+    echo "  git commit -m 'chore: store vault sync AppRole credentials in SOPS (h#711)'"
+    echo "  git push"
+    echo ""
+    echo "The next scheduled vault-sync-to-sops run after this merges will be"
+    echo "the first to use these credentials. Until this command has been run"
+    echo "and its commit pushed, that run is EXPECTED to fail — no role_id/"
+    echo "secret_id in SOPS yet is the same shape as no VAULT_SYNC_TOKEN was"
+    echo "before it, and the workflow says so explicitly rather than guessing."
     echo ""
 }
 
@@ -1310,6 +1421,7 @@ main() {
         assert-unsealed)    cmd_assert_unsealed "$@" ;;
         sync-to-sops)       cmd_sync_to_sops "$@" ;;
         setup-sync-token)   cmd_setup_sync_token "$@" ;;
+        setup-sync-approle) cmd_setup_sync_approle "$@" ;;
         bootstrap-approles) cmd_bootstrap_approles "$@" ;;
         help|--help|-h) usage ;;
         *)

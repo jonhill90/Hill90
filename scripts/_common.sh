@@ -249,6 +249,15 @@ vault_paths_for_service() {
         auth)          echo "secret/shared/database secret/auth/config" ;;
         infra)         echo "secret/infra/traefik" ;;
         observability) echo "secret/observability/grafana" ;;
+        # h#711: "sync" is not a deployable stack — vault_load_secrets is
+        # never called with it (deploy.sh only ever passes an actual compose
+        # stack name), so this entry exists purely so
+        # vault-approle-real-read-test.sh exercises a genuine read for the
+        # sync AppRole too, instead of silently reporting "declares no vault
+        # paths — nothing to read" for the one role this issue is about.
+        # secret/shared/database is not sync-specific; it's simply a real,
+        # already-seeded path policy-sync's read-all-of-secret/* grant covers.
+        sync)          echo "secret/shared/database" ;;
         *)             echo "" ;;
     esac
 }
