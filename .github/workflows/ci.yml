@@ -147,6 +147,19 @@ jobs:
       - name: Assert no path revokes root before OIDC is enabled
         run: python3 scripts/checks/check_vault_revoke_order.py
 
+      # h#758 (found by h#736's fix): wired only to its own bats control
+      # since it was written. Fully hermetic — parses scripts/_common.sh and
+      # scripts/vault.sh statically, no vault, no host. Same shape as
+      # check_alert_counts_documented.py above: no design question about
+      # WHERE this can run, just a check that had never been asked to.
+      # Ties vault_paths_for_service() (what deploy time reads secrets from)
+      # to cmd_seed() (what actually writes them) — the drift underneath the
+      # 2026-08-03 auth outage (#495 removed a seed block, #531 restored the
+      # declaration but not the seed, and nothing compared the two for
+      # months).
+      - name: Assert every declared vault path is seeded
+        run: python3 scripts/checks/check_declared_paths_are_seeded.py
+
       # h#726: written to catch the exact regression in run 30791332461 (a
       # revoke step's `if:` ANDed with success() skipped it on failure and
       # left a live root token on production), then never invoked — the
