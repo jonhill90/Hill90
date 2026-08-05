@@ -31,6 +31,55 @@
 # Every change is then verified against `sshd -T`. An assertion nobody checks is
 # how the previous version survived a full rebuild.
 
+# ---------------------------------------------------------------------------
+# GATE: refuse to lock the door until we have proven there is a key that
+# opens it
+# ---------------------------------------------------------------------------
+#
+# 01-system-prep.yml copies /root/.ssh/authorized_keys to the deploy user
+# and is deliberately tolerant of that copy failing, because not every
+# provider puts the key there; some deliver it elsewhere or via cloud-init
+# user-data instead. That tolerance is correct for THAT task, but it means
+# nothing downstream of it can assume the copy worked.
+#
+# This play is what turns a missing key from "inconvenient" into
+# "unreachable": the tasks below disable PasswordAuthentication and
+# PermitRootLogin, and this host has no public SSH surface to fall back to
+# (firewalld already restricts SSH to the tailnet). If deploy_user has no
+# usable key when that lands, there is no way back in.
+#
+# So the check belongs HERE, not on the copy in 01. Gating here catches
+# every way the key could be missing or empty — a failed copy, a provider
+# that never put it there, cloud-init not having run yet, a future edit
+# that changes how it's provisioned — not just this one copy failing. It is
+# also the last point at which failing loudly is still safe: nothing below
+# this task has touched sshd yet.
+- name: Stat the deploy user's authorized_keys before disabling password/root login
+  stat:
+    path: "{{ deploy_home }}/.ssh/authorized_keys"
+  register: deploy_authorized_keys
+
+- name: Refuse to proceed without a usable key for the deploy user
+  assert:
+    that:
+      - deploy_authorized_keys.stat.exists
+      - deploy_authorized_keys.stat.isreg
+      - deploy_authorized_keys.stat.size > 0
+    fail_msg: |
+      {{ deploy_home }}/.ssh/authorized_keys is missing, not a regular file,
+      or empty.
+
+      This play is about to disable PasswordAuthentication and
+      PermitRootLogin, and SSH is already restricted to the tailnet with no
+      public fallback. If it continues without a verified key for
+      "{{ deploy_user }}", this host becomes UNREACHABLE over SSH the moment
+      sshd reloads — there is no route back in short of console/rescue
+      access from the provider.
+
+      Refusing to continue. Fix how the key reaches {{ deploy_user }}
+      (see 01-system-prep.yml's authorized_keys copy) and re-run.
+    success_msg: "Verified: {{ deploy_user }} has a non-empty authorized_keys — safe to lock down SSH"
+
 - name: Lock SSH to Tailscale network only (100.64.0.0/10)
   firewalld:
     rich_rule: 'rule family="ipv4" source address="100.64.0.0/10" service name="ssh" accept'

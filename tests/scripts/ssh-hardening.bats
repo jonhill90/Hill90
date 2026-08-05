@@ -96,6 +96,42 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
   [ "$status" -ne 0 ]
 }
 
+@test "THE ASSERTION THAT MATTERS: the key gate runs before any sshd-config-changing task, and stays there on reorder" {
+  # #786: 01-system-prep.yml copies authorized_keys with ignore_errors: yes
+  # (deliberately tolerant — not every provider puts the key there), which
+  # means nothing downstream can assume that copy worked. This role is what
+  # turns a missing key into an unreachable host, so it must refuse to
+  # proceed before it touches sshd at all. Line-number comparison, not a
+  # substring check, so a future reorder that puts the gate after the
+  # firewalld/sshd tasks fails this test even though every individual task
+  # still exists.
+  run bash -c "
+    gate=\$(grep -n 'name: Refuse to proceed without a usable key' $ROLE | head -1 | cut -d: -f1)
+    firewall=\$(grep -n 'name: Lock SSH to Tailscale network only' $ROLE | head -1 | cut -d: -f1)
+    dropin=\$(grep -n 'name: Deploy SSH hardening drop-in' $ROLE | head -1 | cut -d: -f1)
+    restart=\$(grep -n 'name: Restart sshd to apply the drop-in' $ROLE | head -1 | cut -d: -f1)
+    [ -n \"\$gate\" ] && [ -n \"\$firewall\" ] && [ -n \"\$dropin\" ] && [ -n \"\$restart\" ] \
+      && [ \"\$gate\" -lt \"\$firewall\" ] && [ \"\$gate\" -lt \"\$dropin\" ] && [ \"\$gate\" -lt \"\$restart\" ]
+  "
+  [ "$status" -eq 0 ]
+}
+
+@test "the key gate checks existence, regular-file-ness, and non-zero size — not just existence" {
+  # A zero-byte authorized_keys (truncated write, empty upload) passes an
+  # exists-only check but leaves the account with no usable key.
+  run bash -c "grep -A6 'name: Refuse to proceed without a usable key' $ROLE | grep -F 'deploy_authorized_keys.stat.exists'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A6 'name: Refuse to proceed without a usable key' $ROLE | grep -F 'deploy_authorized_keys.stat.isreg'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A6 'name: Refuse to proceed without a usable key' $ROLE | grep -F 'deploy_authorized_keys.stat.size > 0'"
+  [ "$status" -eq 0 ]
+}
+
+@test "the key gate's failure message names the actual consequence, not a generic error" {
+  run bash -c "grep -A20 'name: Refuse to proceed without a usable key' $ROLE | grep -iF 'UNREACHABLE'"
+  [ "$status" -eq 0 ]
+}
+
 @test "a standalone verifier exists and is read-only" {
   [ -x scripts/verify-ssh-hardening.sh ]
   run bash -n scripts/verify-ssh-hardening.sh
