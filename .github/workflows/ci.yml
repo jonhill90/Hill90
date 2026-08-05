@@ -42,10 +42,21 @@ jobs:
       - name: Assert no two deploy jobs can run at once
         run: python3 scripts/checks/check_deploy_jobs_serialized.py
 
-      - name: Install bats
+      # sops and age (age-keygen) are needed by tests/scripts/common-load-secrets-
+      # exit-status-control.bats, which forces a REAL sops decrypt failure
+      # against a genuine mismatched age key rather than a mocked sops binary
+      # — per review, that's a stronger control than a stub for the widest-
+      # reaching instance of this repo's pipeline-exit-status defect family.
+      - name: Install bats, sops and age
         run: |
           sudo apt-get update
-          sudo apt-get install -y bats
+          sudo apt-get install -y bats age
+
+          SOPS_VERSION="3.9.0"
+          curl -Lo /tmp/sops "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          sops --version
 
       - name: Run bats tests
         run: bats tests/scripts/
