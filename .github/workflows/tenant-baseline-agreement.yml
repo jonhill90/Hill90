@@ -8,11 +8,18 @@ name: Tenant Baseline Agreement
 # on a developer's machine against a sibling clone, or anywhere else. Nothing in
 # this repo depends on a particular directory existing.
 #
-# hill90-app is PRIVATE and this repo is PUBLIC, so the checkout needs a token
-# with read access to it: TENANT_BASELINE_TOKEN. Until that secret exists the
-# checkout fails and this job is RED — deliberately. A missing credential is a
-# reason this check cannot see, and a check that cannot see must not report
-# agreement.
+# hill90-app was PRIVATE when this was written, so the checkout used an
+# explicit token: TENANT_BASELINE_TOKEN. That secret was never created, and
+# every run since (six of six, 2026-08-03/04) failed identically at this
+# step with "Input required and not supplied: token" — an EXPLICIT empty
+# secret reference is rejected outright by actions/checkout, unlike an
+# OMITTED token, which falls back to the default github.token. hill90-app
+# is now PUBLIC (verified via the GitHub API), so no credential is needed
+# at all: dropping the token key lets that default fall-through do the
+# read. (hill90-app#177 tracks this workflow — the issue and the code
+# live in different repos, which is exactly how a workflow can go six
+# runs deep into failure before anyone reads the log instead of the
+# conclusion field.)
 #
 # NOT a pull_request trigger. Secrets are not available to fork pull requests,
 # so a PR gate would fail for a reason unrelated to its change. Catching drift
@@ -44,7 +51,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: jonhill90/hill90-app
-          token: ${{ secrets.TENANT_BASELINE_TOKEN }}
           path: tenant
           sparse-checkout: |
             scripts/checks/hill90-platform-baseline.txt
