@@ -42,11 +42,24 @@
 # user-data instead. That tolerance is correct for THAT task, but it means
 # nothing downstream of it can assume the copy worked.
 #
-# This play is what turns a missing key from "inconvenient" into
-# "unreachable": the tasks below disable PasswordAuthentication and
-# PermitRootLogin, and this host has no public SSH surface to fall back to
-# (firewalld already restricts SSH to the tailnet). If deploy_user has no
-# usable key when that lands, there is no way back in.
+# This is defence in depth, not the only door: 03-tailscale.yml runs before
+# this play (bootstrap.yml order is 01, 02, 03-tailscale, 04) and brings up
+# `tailscale up --ssh`, so Tailscale SSH is already answering connections
+# over the tailnet BEFORE this play touches anything — verified on the real
+# host: `ssh -v` over the tailnet reports "remote software version
+# Tailscale" and "Authenticated using none", and it authorises by tailnet
+# ACL, never by reading authorized_keys. A missing key here does NOT brick
+# the host through that path.
+#
+# What it does break, and why the gate still earns its place:
+#   - Tailscale SSH is later disabled, or RunSSH is turned off — both
+#     one-line changes in future config, neither reviewed against this play.
+#   - A connection over the host's public interface, where OpenSSH's own
+#     PermitRootLogin no (set below) is what applies, not Tailscale SSH.
+#   - An operator without tailnet access, who has only the OpenSSH path.
+# In every one of those, disabling PasswordAuthentication and
+# PermitRootLogin with no verified key for deploy_user turns "degraded" into
+# "no way in" for whoever hits it.
 #
 # So the check belongs HERE, not on the copy in 01. Gating here catches
 # every way the key could be missing or empty — a failed copy, a provider
@@ -70,11 +83,13 @@
       or empty.
 
       This play is about to disable PasswordAuthentication and
-      PermitRootLogin, and SSH is already restricted to the tailnet with no
-      public fallback. If it continues without a verified key for
-      "{{ deploy_user }}", this host becomes UNREACHABLE over SSH the moment
-      sshd reloads — there is no route back in short of console/rescue
-      access from the provider.
+      PermitRootLogin. Tailscale SSH (brought up in 03-tailscale.yml, before
+      this play) does not depend on this file and stays up regardless — but
+      OpenSSH access for "{{ deploy_user }}" becomes UNREACHABLE the moment
+      sshd reloads, with no route back short of console/rescue access from
+      the provider. That is the only path left for anyone connecting over
+      the public interface, without tailnet access, or if Tailscale SSH is
+      ever disabled or RunSSH turned off.
 
       Refusing to continue. Fix how the key reaches {{ deploy_user }}
       (see 01-system-prep.yml's authorized_keys copy) and re-run.
