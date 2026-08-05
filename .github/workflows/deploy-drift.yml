@@ -176,3 +176,39 @@ jobs:
             *) echo "::error::Unrecognised exit code $rc from check_deploy_drift.sh — a new state was added without a branch here. Treat as unverified." ;;
           esac
           exit $rc
+
+      # h#712 (narrowed): a dead-man's-switch for the SCHEDULE itself. Same
+      # reasoning as the equivalent step in audit-hill90-ui-client.yml —
+      # `if: always()` so a REAL drift finding (already emailed immediately
+      # by #714) doesn't also go stale on this metric and page a second time.
+      #
+      # EXCLUDED on the positive-control dispatch path
+      # (`deployed_sha_override`), and this exclusion is load-bearing, not
+      # cosmetic: that path never contacts the host (see "Ask the host which
+      # commit it is running" above), so `steps.get-ip.outputs.tailscale_ip`
+      # is unset and this step would just fail to connect — but more to the
+      # point, a synthetic test dispatch succeeding is not evidence the REAL
+      # scheduled path ran, and letting it refresh the heartbeat would let
+      # someone keep this metric artificially fresh by running the control
+      # repeatedly while the actual cron silently stopped firing — precisely
+      # the failure this alert exists to catch.
+      - name: Emit scheduled-workflow heartbeat
+        if: always() && inputs.deployed_sha_override == ''
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd ${VPS_APP_PATH} && bash -s" <<'REMOTE'
+          set -euo pipefail
+          DIR=/opt/hill90/metrics/textfile_collector
+          FILE="${DIR}/hill90_scheduled_workflow_deploy-drift.prom"
+          TMP="${DIR}/.hill90_scheduled_workflow_deploy-drift.prom.tmp"
+          mkdir -p "$DIR"
+          TS=$(date +%s)
+          {
+            echo "# HELP hill90_scheduled_workflow_last_run_timestamp_seconds Unix time this scheduled workflow last reached a verdict (success or failure), regardless of what it decided"
+            echo "# TYPE hill90_scheduled_workflow_last_run_timestamp_seconds gauge"
+            echo "hill90_scheduled_workflow_last_run_timestamp_seconds{workflow=\"deploy-drift\"} ${TS}"
+          } > "$TMP"
+          mv -f "$TMP" "$FILE"
+          chmod 644 "$FILE"
+          REMOTE

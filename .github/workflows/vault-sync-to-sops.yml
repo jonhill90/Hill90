@@ -227,3 +227,38 @@ jobs:
                 "text": "Vault-to-SOPS sync failed — check workflow logs"
               }' || echo "Warning: webhook notification failed (non-blocking)"
           fi
+
+      # h#712 (narrowed): a dead-man's-switch for the SCHEDULE itself, not
+      # for whether this run's sync found drift. `if: always()` — a real
+      # sync failure is already emailed the same day by #714's workflow_run
+      # watchdog; keying this metric on success too would just make it go
+      # stale hours after that email, for the same underlying event.
+      #
+      # This is precisely the mechanism h#711 was missing on the token side:
+      # the workflow could run and fail for five months with nothing
+      # noticing the PATTERN, only the noise. This metric doesn't care
+      # whether the run succeeded — only whether the schedule is still
+      # dispatching this workflow AT ALL, which #711's specific failure mode
+      # (a job that ran weekly and failed weekly) was never actually in
+      # doubt about. What this catches is different: the schedule itself
+      # going silent — GitHub's 60-day auto-disable, or a deleted cron line.
+      - name: Emit scheduled-workflow heartbeat
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd /opt/hill90/app && bash -s" <<'REMOTE'
+          set -euo pipefail
+          DIR=/opt/hill90/metrics/textfile_collector
+          FILE="${DIR}/hill90_scheduled_workflow_vault-sync-to-sops.prom"
+          TMP="${DIR}/.hill90_scheduled_workflow_vault-sync-to-sops.prom.tmp"
+          mkdir -p "$DIR"
+          TS=$(date +%s)
+          {
+            echo "# HELP hill90_scheduled_workflow_last_run_timestamp_seconds Unix time this scheduled workflow last reached a verdict (success or failure), regardless of what it decided"
+            echo "# TYPE hill90_scheduled_workflow_last_run_timestamp_seconds gauge"
+            echo "hill90_scheduled_workflow_last_run_timestamp_seconds{workflow=\"vault-sync-to-sops\"} ${TS}"
+          } > "$TMP"
+          mv -f "$TMP" "$FILE"
+          chmod 644 "$FILE"
+          REMOTE

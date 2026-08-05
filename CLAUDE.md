@@ -337,8 +337,10 @@ gh workflow run deploy.yml -f service=all
 
 - **Alerts reach a human.** `Verified 2026-08-03 13:45 UTC` by firing two real alerts and
   reading Alertmanager's own counters: `notifications_total{integration="email"}`
-  incremented and every `notifications_failed_total` stayed at 0. **18 rules in 9
-  groups** — this entry said 16 and 8, counted before #617 and never re-counted.
+  incremented and every `notifications_failed_total` stayed at 0. **26 rules in 10
+  groups** — h#712's `scheduled-workflows` group (8 rules) landed since this was
+  last counted at 18/9; this entry previously said 16 and 8, counted before #617
+  and never re-counted.
   Delivered over email to `ACME_EMAIL` via the SMTP account the estate already
   had. Delivery is proven end to end, not assumed — but note the boundary: this
   proves Alertmanager handed the message to the mail server, not that it reached

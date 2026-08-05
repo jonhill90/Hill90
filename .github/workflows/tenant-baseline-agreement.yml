@@ -43,6 +43,11 @@ jobs:
   agree:
     name: tenant baseline agrees
     runs-on: ubuntu-latest
+    # h#712 (narrowed): added for the heartbeat steps below, which are the
+    # only reason this job now needs Tailscale/SSH/SOPS secrets at all — the
+    # comparison itself never did and still doesn't. Same environment the
+    # other three scheduled workflows already declare for the same secrets.
+    environment: production
     steps:
       - name: Checkout this platform
         uses: actions/checkout@v4
@@ -60,3 +65,82 @@ jobs:
         run: |
           python3 scripts/checks/check_tenant_baseline_agrees.py \
             tenant/scripts/checks/hill90-platform-baseline.txt
+
+      # h#712 (narrowed): a dead-man's-switch for the SCHEDULE itself, not
+      # for what the comparison finds — same reasoning as the equivalent
+      # step in the other three scheduled workflows, `if: always()` so a
+      # real disagreement (already emailed same-day by #714) doesn't also
+      # go stale on this metric hours later.
+      #
+      # UNLIKE THE OTHER THREE, this job had no VPS access at all before
+      # this — it's a pure GitHub-side comparison between two checkouts.
+      # These four steps ARE the entire reason it now needs Tailscale, an
+      # SSH key and SOPS/age: reused verbatim from vault-sync-to-sops.yml,
+      # not new plumbing invented for this file. That asymmetry — three
+      # workflows extending existing VPS access, one gaining it from
+      # scratch — was checked file-by-file before building this, not
+      # assumed uniform across all four.
+      - name: Setup Tailscale
+        if: always()
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        if: always()
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+
+      - name: Setup SOPS/age
+        if: always()
+        env:
+          SOPS_VERSION: '3.9.4'
+        run: |
+          SOPS_URL="https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          curl -fsSL -o /tmp/sops "$SOPS_URL"
+          if file /tmp/sops | grep -q "HTML"; then
+            echo "::error::SOPS download returned HTML instead of binary — check URL: $SOPS_URL"
+            exit 1
+          fi
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Get Tailscale IP from secrets
+        id: get-ip
+        if: always()
+        run: |
+          TAILSCALE_IP=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env)
+          if [ -z "$TAILSCALE_IP" ]; then
+            echo "::error::TAILSCALE_IP is empty or absent in infra/secrets/prod.enc.env"
+            exit 1
+          fi
+          echo "::add-mask::$TAILSCALE_IP"
+          echo "tailscale_ip=$TAILSCALE_IP" >> $GITHUB_OUTPUT
+
+      - name: Emit scheduled-workflow heartbeat
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "bash -s" <<'REMOTE'
+          set -euo pipefail
+          DIR=/opt/hill90/metrics/textfile_collector
+          FILE="${DIR}/hill90_scheduled_workflow_tenant-baseline-agreement.prom"
+          TMP="${DIR}/.hill90_scheduled_workflow_tenant-baseline-agreement.prom.tmp"
+          mkdir -p "$DIR"
+          TS=$(date +%s)
+          {
+            echo "# HELP hill90_scheduled_workflow_last_run_timestamp_seconds Unix time this scheduled workflow last reached a verdict (success or failure), regardless of what it decided"
+            echo "# TYPE hill90_scheduled_workflow_last_run_timestamp_seconds gauge"
+            echo "hill90_scheduled_workflow_last_run_timestamp_seconds{workflow=\"tenant-baseline-agreement\"} ${TS}"
+          } > "$TMP"
+          mv -f "$TMP" "$FILE"
+          chmod 644 "$FILE"
+          REMOTE
