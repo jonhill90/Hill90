@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Do the four platform AppRoles still authenticate against OpenBao?
+# Do the platform AppRoles still authenticate against OpenBao?
 #
 # WHY THIS IS A SEPARATE CHECK
 # ============================
@@ -16,8 +16,16 @@
 # outcome and the policies attached; no role_id, secret_id or token value ever
 # reaches stdout, a log, or argv.
 #
+# h#711: the role list used to be a literal default here, duplicating
+# scripts/vault.sh's own VAULT_SERVICES — two lists that could silently
+# drift apart, the exact shape vault-approle-real-read-test.sh was already
+# written to avoid for the same reason. Now reads the canonical list out of
+# vault.sh instead, the same way that script does, so a role added there
+# (like "sync") is covered here automatically rather than needing a second
+# edit someone can forget.
+#
 # Usage: bash scripts/checks/vault-approle-login-test.sh
-# Exit:  0 all four authenticate | 1 any failure
+# Exit:  0 every role authenticates | 1 any failure
 
 set -uo pipefail
 
@@ -26,7 +34,13 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 CONTAINER="${VAULT_CONTAINER:-openbao}"
 SECRETS_FILE="${VAULT_SECRETS_FILE:-${PROJECT_ROOT}/infra/secrets/prod.enc.env}"
-SERVICES="${VAULT_SERVICES:-db auth infra observability}"
+
+if [ -n "${VAULT_SERVICES:-}" ]; then
+    SERVICES="$VAULT_SERVICES"
+else
+    SERVICES="$(grep -m1 '^VAULT_SERVICES=' "$PROJECT_ROOT/scripts/vault.sh" | cut -d'"' -f2)"
+    [ -n "$SERVICES" ] || { echo "could not read VAULT_SERVICES from scripts/vault.sh" >&2; exit 1; }
+fi
 
 command -v sops >/dev/null 2>&1 || { echo "sops is required" >&2; exit 1; }
 [ -f "$SECRETS_FILE" ] || { echo "Secrets file not found: $SECRETS_FILE" >&2; exit 1; }
@@ -38,8 +52,8 @@ PLAIN="$(sops -d "$SECRETS_FILE" 2>/dev/null)" || { echo "Could not decrypt $SEC
 
 field() { printf '%s\n' "$PLAIN" | grep "^${1}=" | cut -d= -f2- | head -1; }
 
-echo "OpenBao AppRole login — the four platform roles"
-echo "==============================================="
+echo "OpenBao AppRole login — the platform roles (${SERVICES})"
+echo "==========================================================="
 
 FAIL=0
 for svc in $SERVICES; do
