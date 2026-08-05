@@ -23,11 +23,11 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ../../../platform/data/postgres/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
     environment:
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_USER=${DB_USER:?DB_USER must be set}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - POSTGRES_DB=hill90
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:?DB_USER must be set}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,8 +41,8 @@ services:
       - internal
     environment:
       - DATA_SOURCE_URI=postgres:5432/hill90?sslmode=disable
-      - DATA_SOURCE_USER=${DB_USER}
-      - DATA_SOURCE_PASS=${DB_PASSWORD}
+      - DATA_SOURCE_USER=${DB_USER:?DB_USER must be set}
+      - DATA_SOURCE_PASS=${DB_PASSWORD:?DB_PASSWORD must be set}
     depends_on:
       postgres:
         condition: service_healthy
