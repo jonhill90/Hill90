@@ -104,3 +104,15 @@ setup() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"gone blind"* ]]
 }
+
+# WIRING, not logic (h#736/h#758): every test above proves the check's LOGIC
+# is correct. None of them prove anything ever RUNS it — before this fix, this
+# check's only caller anywhere was this bats file, exactly the TEST-ONLY
+# outcome h#736 taught check_checks_are_wired.py to catch. Fully hermetic (no
+# live Keycloak — see the check's own docstring), so unlike h#738 there was no
+# design question about WHERE it could run: ci.yml, on every PR.
+@test "h#758: ci.yml genuinely invokes this check, not just mentions it" {
+  run grep -n "run: python3 scripts/checks/check_role_mappings_repointed.py" \
+    "$ROOT/.github/workflows/ci.yml"
+  [ "$status" -eq 0 ]
+}
