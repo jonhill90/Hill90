@@ -100,7 +100,6 @@ TEST_SOURCES = ("bats", "pytest")
 # an acknowledgment of a known gap, not a decision that it is acceptable
 # forever.
 ALLOWLIST: dict[str, str] = {
-    "check_alert_counts_documented.py": "test-only, found by h#736 — tracked in h#758",
     "check_declared_paths_are_seeded.py": "test-only, found by h#736 — tracked in h#758",
     "check_realm_tenant_clients.py": "test-only, found by h#736 — tracked in h#758",
     "check_role_mappings_repointed.py": "test-only, found by h#736 — tracked in h#758",
