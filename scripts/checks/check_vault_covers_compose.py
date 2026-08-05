@@ -98,6 +98,8 @@ def required_vars() -> dict[str, set[str]]:
 def declared() -> dict[str, list[str]]:
     body = COMMON.read_text()
     m = re.search(r"vault_paths_for_service\(\)\s*\{(.*?)\n\}", body, re.S)
+    if not m:
+        sys.exit("could not find vault_paths_for_service() in scripts/_common.sh")
     out: dict[str, list[str]] = {}
     for arm in re.finditer(r"^\s*([a-z0-9_|]+)\)\s*echo\s+\"([^\"]*)\"", m.group(1), re.M):
         service, paths = arm.group(1), arm.group(2).split()
@@ -150,6 +152,26 @@ def main() -> int:
     decl = declared()
     seeded = seeded_keys_by_path()
     required = required_vars()
+
+    # declared()/required_vars() returning empty is indistinguishable from
+    # every case arm in vault_paths_for_service()/vault_required_vars_for_
+    # service() having rotted out of the regex, and would pass vacuously —
+    # every real service reads as "declares no vault paths -> SOPS path,
+    # which has all keys" and gets skipped before ever being compared,
+    # printing PASS having checked nothing. Same guard as the sibling this
+    # check shares its regex with, check_declared_paths_are_seeded.py (h#730),
+    # which was hardened after this exact drift happened for real once.
+    if not decl:
+        print("FAIL — no declared vault paths found at all. The pattern no longer "
+              "matches anything in vault_paths_for_service(), which is a broken "
+              "check, not a clean estate.", file=sys.stderr)
+        return 1
+    if not required:
+        print("FAIL — no required-vars entries found at all. The pattern no longer "
+              "matches anything in vault_required_vars_for_service(), which is a "
+              "broken check, not a clean estate.", file=sys.stderr)
+        return 1
+
     problems: list[str] = []
 
     print("Vault must carry every secret the compose file needs")
