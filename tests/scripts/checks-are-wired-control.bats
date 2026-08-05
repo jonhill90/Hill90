@@ -47,10 +47,10 @@ setup() {
   CHECK="$CTL/scripts/checks/check_checks_are_wired.py"
 }
 
-@test "CONTROL: passes on the real tree — every check is invoked" {
+@test "CONTROL: passes on the real tree — every check has a real caller" {
   run python3 "$CHECK"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no check is invoked by nothing"* ]]
+  [[ "$output" == *"every check has a real caller"* ]]
 }
 
 @test "CONTROL: it examines a real number of checks, not zero" {
@@ -58,7 +58,7 @@ setup() {
   [ "$status" -eq 0 ]
   # A run over an empty set would pass while measuring nothing.
   [[ "$output" != *"0 checks,"* ]]
-  [[ "$output" == *"invoked,"* ]]
+  [[ "$output" == *"invoked for real,"* ]]
 }
 
 @test "a new check that nobody wires is caught" {
@@ -107,10 +107,21 @@ SH
   [ "$status" -eq 0 ]
 }
 
-# BATS IS DIFFERENT — a control copies the check and runs it through a variable,
-# so the name never appears on the invocation line. Requiring an invocation
-# pattern here reported every bats-gated check as an orphan.
-@test "a check exercised only by a bats control counts as wired" {
+# BATS IS DIFFERENT, FOR HOW IT MATCHES — a control copies the check and runs
+# it through a variable, so the name never appears on the invocation line.
+# Requiring an invocation pattern there reported every bats-gated check as an
+# orphan. A mention in a .bats file IS the evidence a control exists.
+#
+# BUT A CONTROL IS NOT REAL WIRING (h#736). A bats control proves the check
+# behaves correctly when invoked against a fabricated fixture. It does not
+# prove anything in CI or a deploy path ever runs it against real state —
+# which is the exact blind spot this classifier exists to catch, one level
+# up. Before h#736, a check exercised ONLY by its own bats control was
+# reported "ok" — indistinguishable from a check with a genuine caller. This
+# is the two-directions positive control that fix requires: the SAME
+# scenario must now go red (below), and a check with a genuine caller must
+# stay green (the test after it).
+@test "a check exercised ONLY by a bats control is TEST-ONLY, not wired — and FAILS" {
   cat > "$CTL/scripts/checks/check_bats_gated_only.py" <<'PY'
 #!/usr/bin/env python3
 import sys
@@ -126,7 +137,62 @@ setup() { CHECK="$BATS_TEST_DIRNAME/../../scripts/checks/check_bats_gated_only.p
 BATS
 
   run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"check_bats_gated_only.py"* ]]
+  [[ "$output" == *"proven correct by a test but never run for real"* ]]
+}
+
+# THE OTHER DIRECTION. A check with a genuine caller — a workflow step here,
+# but the Makefile or another script prove identically, since REAL_SOURCES
+# treats the three the same — must stay green. Without this test, a
+# classifier that marked EVERYTHING test-only (over-correcting h#736 the
+# other way) would also pass the test above.
+@test "the SAME check, ALSO invoked by a real workflow step, is wired — stays green" {
+  cat > "$CTL/scripts/checks/check_bats_gated_only.py" <<'PY'
+#!/usr/bin/env python3
+import sys
+sys.exit(0)
+PY
+  cat > "$CTL/tests/scripts/bats-gated-only-control.bats" <<'BATS'
+#!/usr/bin/env bats
+setup() { CHECK="$BATS_TEST_DIRNAME/../../scripts/checks/check_bats_gated_only.py"; }
+BATS
+  cat > "$CTL/.github/workflows/pretend-ci.yml" <<'YML'
+name: pretend
+on: push
+jobs:
+  test:
+    steps:
+      - run: python3 scripts/checks/check_bats_gated_only.py
+YML
+
+  run python3 "$CHECK"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+# PYTEST HAS THE SAME BLIND SPOT AS BATS, for the same reason: every check's
+# pytest file in this repo subprocess-invokes the check as a CLI under a
+# fabricated fixture — a control, not a production caller. Proven separately
+# from the bats case above, since TEST_SOURCES is a tuple of two categories
+# and either one alone must produce the same TEST-ONLY outcome.
+@test "a check exercised ONLY by a pytest test is ALSO test-only, not wired" {
+  cat > "$CTL/scripts/checks/check_pytest_gated_only.py" <<'PY'
+#!/usr/bin/env python3
+import sys
+sys.exit(0)
+PY
+  cat > "$CTL/tests/checks/test_pytest_gated_only.py" <<'PY'
+import subprocess
+SCRIPT = "scripts/checks/check_pytest_gated_only.py"
+def test_it():
+    subprocess.run(["python3", SCRIPT])
+PY
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"check_pytest_gated_only.py"* ]]
+  [[ "$output" == *"proven correct by a test but never run for real"* ]]
 }
 
 @test "an empty checks directory fails rather than reporting success" {

@@ -160,6 +160,44 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/minio-policy-names-test.sh'
 
+      # PROVE NO RETIRED ROLE IS GRANTED ANYTHING, ON THE LIVE ESTATE.
+      #
+      # ci.yml already runs this check statically on every PR (no --live) — that
+      # half catches a retired role named in keycloak.sh, MinIO's policy list,
+      # Grafana's role_attribute_path, or OpenBao's bound_claims. It cannot see
+      # HOLDERS: a role removed from keycloak.sh but never actually deleted from
+      # the live realm, or a MinIO policy created out-of-band with `mc`. Only
+      # --live measures those, and --live had no caller anywhere (h#738) —
+      # `live_checks()` shelled out via `ssh vps <cmd>`, a literal SSH CONFIG
+      # ALIAS that only resolves on a workstation with `Host vps` in its own
+      # ~/.ssh/config. No workflow in this repo ever establishes that alias,
+      # which is the actual reason nothing could wire it in: not a missing
+      # step, a transport this repo's workflows do not use.
+      #
+      # --local (h#738) is the fix: it runs the same measurement directly, no
+      # extra SSH hop, once this step has already SSH'd onto the VPS — the
+      # exact shape the MinIO check immediately above already relies on.
+      #
+      # GATED ON auth OR minio, not every deploy: those are the two services
+      # that can move a role's grants (Keycloak realm roles themselves, and the
+      # MinIO policies a role's claim can now collide with). observability and
+      # db deploys cannot change either.
+      #
+      # exit 2 (CANNOT DETERMINE) fails this step same as exit 1 — `run:` fails
+      # on any non-zero exit — which is deliberate: an unreachable host must
+      # never be read as "no retired role is granted", the null result that
+      # agrees with what everyone hopes is true. See h#727.
+      #
+      # success(), same reasoning as the MinIO check above it: verifying a
+      # deploy that did not happen proves nothing. Cleanup needs always();
+      # verification needs success().
+      - name: Prove no retired role is granted anything, on the live estate
+        if: success() && (inputs.service == 'auth' || inputs.service == 'minio')
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && python3 scripts/checks/check_retired_roles_ungranted.py --live --local'
+
       # PROVE EVERY ALERT RULE CAN ACTUALLY MATCH A SERIES.
       #
       # A rule can be health=ok and still never fire, if its selector names a
