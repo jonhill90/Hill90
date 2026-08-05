@@ -253,6 +253,26 @@ jobs:
       - name: MinIO readiness regression test
         run: bash scripts/checks/minio-readiness-test.sh
 
+      # h#758 (found by h#736's fix): this script's only caller was
+      # tests/checks/test_realm_tenant_serves.py, a pytest wrapper — and
+      # `pytest tests/checks/` running in CI is still not this SCRIPT being
+      # invoked for real, only the wrapper's own assertions about it (see
+      # check_checks_are_wired.py's docstring on why TEST_SOURCES never
+      # counts). No design question about placement, unlike
+      # check_vault_covers_compose.py (h#758 6/8): this builds and destroys
+      # its OWN throwaway Keycloak container — it never touches a running
+      # stack, the VPS, or any live secret. The only credentials involved are
+      # literal throwaways the script defines itself (see its own argv-ok
+      # comments). It needs only Docker, already used elsewhere in this same
+      # job (promtool above, minio-readiness-test.sh right above this step).
+      # Proves what check_realm_tenant_clients.py (h#758 3/8) cannot: that
+      # file shows platform-realm.json is SHAPED correctly, this shows
+      # Keycloak actually EMITS the claim the app reads —
+      # resource_access.hill90-ui.roles — which depends on built-in client
+      # scopes this repo does not define, so only a real Keycloak can answer.
+      - name: Prove the platform realm actually serves the tenant
+        run: bash scripts/checks/realm-tenant-serves-test.sh
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
