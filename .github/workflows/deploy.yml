@@ -40,8 +40,22 @@ jobs:
       observability: ${{ steps.filter.outputs.observability }}
     steps:
       - uses: actions/checkout@v4
+      # Change detection is for `push` only. On a workflow_dispatch the event
+      # payload carries no `before`, so paths-filter falls back to "changes in
+      # the last commit" — and actions/checkout's default `fetch-depth: 1`
+      # leaves that commit parentless, so `git log --name-status -n 1` lists
+      # the ENTIRE repository as added. Run 31040415190 detected "272 changed
+      # files" and set all five filters true, which is why `-f service=auth`
+      # deployed all five services and restarted Keycloak underneath the
+      # observability job's login check.
+      #
+      # Skipping the step leaves every output empty, so the `== 'true'` arms
+      # below are all false and only the explicit `inputs.service` arms decide.
+      # Deepening the checkout would NOT fix this: the fallback is triggered by
+      # the missing `before` field, not by the clone depth.
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             db:
