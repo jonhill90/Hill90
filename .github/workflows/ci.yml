@@ -90,6 +90,29 @@ jobs:
       - name: Assert every referenced OIDC client is created on the deploy path
         run: python3 scripts/checks/check_oidc_clients_reconciled.py
 
+      # h#727: static mode (no --live) is explicitly documented in the
+      # script's own module docstring as "static, CI" — this wires that
+      # documented, secrets-free half in. It cannot see holders (needs the
+      # live realm), so it cannot replace --live; it catches the config-file
+      # half of the same property on every PR: a retired role must not be
+      # (re)created in keycloak.sh, or named in MinIO's policy list,
+      # Grafana's role_attribute_path, or OpenBao's bound_claims.
+      #
+      # --live is NOT wired here, or anywhere yet, and that is a deliberate
+      # stop rather than an oversight: it hardcodes `ssh vps <cmd>` — an SSH
+      # config alias literal — and no workflow in this repo defines a "vps"
+      # host alias; every other workflow reaches the VPS via
+      # `ssh -i ~/.ssh/vps_key ... deploy@$TAILSCALE_IP` directly, with no
+      # alias at all. Wiring --live needs either a new alias-setup step here
+      # (a real design decision, not obviously the right one — it duplicates
+      # what every other workflow already does differently) or refactoring
+      # the script to accept an explicit SSH target instead of a hardcoded
+      # alias, and validating either path end-to-end needs a real run against
+      # production Keycloak/MinIO with decrypted secrets, out of scope for
+      # this change. See h#738 for what's left.
+      - name: Assert no retired role is granted anything (static)
+        run: python3 scripts/checks/check_retired_roles_ungranted.py
+
       - name: Assert no path revokes root before OIDC is enabled
         run: python3 scripts/checks/check_vault_revoke_order.py
 
