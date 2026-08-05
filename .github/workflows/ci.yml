@@ -261,6 +261,21 @@ jobs:
       - name: Run check script tests
         run: pip install pytest pyyaml && pytest tests/checks/ -v
 
+      # h#758 (found by h#736's fix): wired only to its own bats control
+      # since it was written. Fully hermetic — parses scripts/*.sh and
+      # .github/workflows/*.yml statically for the two machine-detectable
+      # silent-success shapes (a fallback subshell swallowing a failed call;
+      # a cleanup/assertion step's `if:` skipping on failure), no live host
+      # needed. Placed after the pyyaml install above because it imports
+      # `yaml` to parse workflow files. No design question about WHERE it
+      # can run — just a check that had never been asked to. This is the
+      # same script used throughout h#758's own investigation as the
+      # regression detector for new `if:` conditions on other steps; wiring
+      # its own execution here is a separate question from using it as a
+      # tool, and was open until now.
+      - name: Sweep for operations that fail and report success
+        run: python3 scripts/checks/check_silent_success.py
+
       # Hill90#736: this checker's own bats control
       # (tests/scripts/checks-are-wired-control.bats) used to be its only
       # caller — which, after that fix, is exactly the TEST-ONLY outcome
