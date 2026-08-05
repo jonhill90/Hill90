@@ -71,6 +71,36 @@ def main() -> int:
             for rm in role_re.finditer(m.group(0)):
                 roles += [r.strip().strip('"\'') for r in rm.group(1).split(",") if r.strip()]
             if not roles:
+                # h#729: the outer regex matched a real mapping expression,
+                # but the inner one extracted zero role names from it — e.g.
+                # the expression's format drifted from what role_re expects.
+                # This used to `continue` silently: not counted toward
+                # `checked`, not printed as a MISS, and invisible to the
+                # `found_any` guard below (which only catches line_re
+                # matching NOTHING, not line_re matching something role_re
+                # then can't parse).
+                #
+                # A PER-SITE problem, not a whole-run CANNOT DETERMINE: this
+                # site's line WAS found and read — the failure is narrower
+                # (role_re couldn't parse it), and this repo's own sibling
+                # for the identical "regex over a checked-in file found
+                # nothing" shape (check_declared_paths_are_seeded.py, h#730)
+                # reports it as FAIL/exit 1 rather than a separate
+                # CANNOT-DETERMINE exit code, because the input WAS read
+                # successfully — unlike check_retired_roles_ungranted.py's
+                # --live mode (h#727) or check_destructive_commands.sh
+                # (h#735), where the defect is that NOTHING was read or
+                # examined at all. Reporting per-site also preserves more
+                # information than a whole-run refusal would: if only ONE
+                # of several sites goes blind, naming exactly which one and
+                # why is more actionable than declaring the whole run
+                # unmeasurable when the OTHER sites are genuinely fine.
+                problems.append(
+                    f"{rel}: {label} matched a mapping expression but no role "
+                    f"names could be extracted from it — the expression's format "
+                    f"may have drifted from what this check expects. "
+                    f"Matched text: {m.group(0)!r}"
+                )
                 continue
             checked += 1
             bad = sorted(set(roles) & LEGACY)

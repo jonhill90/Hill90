@@ -61,6 +61,38 @@ setup() {
   [[ "$output" == *"OpenBao admin-sso bound_claims"* ]]
 }
 
+# h#729: a NARROWER version of the same silent-pass class. The site's line IS
+# found (line_re matches), but the inner role_re can't extract any role names
+# from it — e.g. single quotes rewritten to double quotes. That used to
+# `continue` silently: not a MISS, not caught by the "gone blind" guard above
+# (which only fires when line_re matches nothing at all), invisible.
+@test "THE ASSERTION THAT MATTERS: a site whose role names become unparseable turns it red, not silently dropped" {
+  sed -i.bak "s/'platform-admin'/\"platform-admin\"/; s/'platform-editor'/\"platform-editor\"/" \
+    "$CTL/deploy/compose/prod/docker-compose.observability.yml"
+  rm -f "$CTL/deploy/compose/prod/docker-compose.observability.yml.bak"
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL"* ]]
+  [[ "$output" == *"no role names could be extracted"* ]]
+  # Must not be silently indistinguishable from a genuine clean pass: the
+  # OTHER site (OpenBao) is still fine, so the run must not read as PASS.
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "CONTROL: an unparseable site does not block a genuinely legacy-named OTHER site from also being reported" {
+  sed -i.bak "s/'platform-admin'/\"platform-admin\"/; s/'platform-editor'/\"platform-editor\"/" \
+    "$CTL/deploy/compose/prod/docker-compose.observability.yml"
+  rm -f "$CTL/deploy/compose/prod/docker-compose.observability.yml.bak"
+  sed -i.bak 's/"realm_roles": \["platform-admin"\]/"realm_roles": ["admin"]/' "$CTL/scripts/vault.sh"
+  rm -f "$CTL/scripts/vault.sh.bak"
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no role names could be extracted"* ]]
+  [[ "$output" == *"OpenBao admin-sso bound_claims"* ]]
+}
+
 # A check that stops finding its target is a check that stopped checking, and it
 # would go green. That is the same silent-pass class as the defect itself.
 @test "a mapping site that disappears turns it red rather than green" {
