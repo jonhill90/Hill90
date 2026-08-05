@@ -58,10 +58,37 @@ except Exception:
 done
 echo
 
-vault_keys() {  # path -> key NAMES, one per line. Values never leave the pipe.
-    BAO_TOKEN="$BAO_TOKEN" docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN \
-        "$CONTAINER" bao read -format=json "secret/data/${1#secret/}" 2>/dev/null \
-      | python3 -c 'import sys,json
+# h#731: a docker-exec/connection failure used to read identically to a
+# genuinely absent path — `2>/dev/null` discarded the difference, and empty
+# stdout from EITHER cause printed the same "ABSENT" line. Verified against
+# a real ghcr.io/openbao/openbao:2.6.1 container (the pinned production
+# version) that a genuinely missing path and a real connection refusal
+# (the "openbao mid-restart" scenario this issue names) return the SAME
+# exit code, 2, from `bao` itself — only the stderr TEXT differs
+# ("No value found at ..." vs "dial tcp ... connection refused"), so text is
+# what this now checks, not the exit code. A docker exec failing outright
+# (container not running) is a third real case, distinguishable the same
+# way: empty stdout, a docker-daemon error on stderr containing neither.
+VAULT_KEYS_ERR="$(mktemp)"
+trap 'rm -f "$VAULT_KEYS_ERR"' EXIT
+
+vault_keys() {  # path -> key NAMES on stdout, one per line. Values never leave the pipe.
+    # Return: 0 = success (keys on stdout). 1 = GENUINELY ABSENT (bao's own
+    # distinct "No value found at" message). 2 = CANNOT DETERMINE — anything
+    # else (docker exec failing outright, a connection refusal, or any other
+    # error) — must not be reported the same as absent.
+    local raw
+    : > "$VAULT_KEYS_ERR"
+    raw="$(BAO_TOKEN="$BAO_TOKEN" docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN \
+        "$CONTAINER" bao read -format=json "secret/data/${1#secret/}" 2>"$VAULT_KEYS_ERR")"
+    if [ -z "$raw" ]; then
+        if grep -q "No value found at" "$VAULT_KEYS_ERR"; then
+            return 1
+        fi
+        return 2
+    fi
+    printf '%s' "$raw" | python3 -c '
+import sys,json
 try:
     print("\n".join(sorted(json.load(sys.stdin)["data"]["data"])))
 except Exception:
@@ -82,10 +109,20 @@ echo
 
 fail=0
 missing_paths=()
+undetermined_paths=()
 echo "${BOLD}Per-path key parity (names only)${OFF}"
 for p in $PATHS; do
     keys="$(vault_keys "$p")"
-    if [ -z "$keys" ]; then
+    rc=$?
+    if [ "$rc" -eq 2 ]; then
+        # CANNOT DETERMINE, not ABSENT — see vault_keys()'s own comment.
+        # Printed distinctly and counted separately so it can never be read
+        # as "checked and clean" OR silently folded into a real absence.
+        err="$(cat "$VAULT_KEYS_ERR" 2>/dev/null)"
+        printf '  %sCANNOT DETERMINE%s %-25s %s\n' "$YEL" "$OFF" "$p" "${err:-(no error output captured)}"
+        undetermined_paths+=("$p"); continue
+    fi
+    if [ "$rc" -eq 1 ] || [ -z "$keys" ]; then
         printf '  %sABSENT%s  %-34s not present on the vault\n' "$RED" "$OFF" "$p"
         missing_paths+=("$p"); fail=$((fail+1)); continue
     fi
@@ -105,8 +142,21 @@ if [ "${#missing_paths[@]}" -gt 0 ]; then
     printf '%s%d canonical path(s) absent from the vault:%s %s\n' \
         "$RED" "${#missing_paths[@]}" "$OFF" "${missing_paths[*]}"
 fi
+if [ "${#undetermined_paths[@]}" -gt 0 ]; then
+    printf '%s%d canonical path(s) could not be read at all:%s %s\n' \
+        "$YEL" "${#undetermined_paths[@]}" "$OFF" "${undetermined_paths[*]}"
+fi
 if [ "$fail" -gt 0 ]; then
     printf '%s%d parity problem(s).%s\n' "$RED" "$fail" "$OFF"
     exit 1
+fi
+if [ "${#undetermined_paths[@]}" -gt 0 ]; then
+    # NOT a pass. Some paths were never actually read — "every canonical
+    # path exists" would be a claim this run did not establish, exactly the
+    # h#731 hazard in the other direction: a transient failure must not
+    # silently disappear into a clean-looking result either.
+    printf '%sCANNOT DETERMINE: %d path(s) could not be read — this run does NOT confirm parity for them.%s\n' \
+        "$YEL" "${#undetermined_paths[@]}" "$OFF"
+    exit 2
 fi
 printf '%severy canonical path exists and every vault key name is backed by SOPS%s\n' "$GREEN" "$OFF"
