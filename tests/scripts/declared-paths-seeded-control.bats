@@ -143,6 +143,19 @@ PY
   [[ "$output" != *"PASS"* ]]
 }
 
+# WIRING, not logic (h#736/h#758): every test above proves the check's LOGIC
+# is correct. None of them prove anything ever RUNS it — before this fix,
+# this check's only caller anywhere was this bats file, exactly the
+# TEST-ONLY outcome h#736 taught check_checks_are_wired.py to catch. Fully
+# hermetic (no vault, no host — see its own docstring's design), so unlike
+# h#738 there was no design question about WHERE it could run: ci.yml, on
+# every PR.
+@test "h#758: ci.yml genuinely invokes this check, not just mentions it" {
+  run grep -n "run: python3 scripts/checks/check_declared_paths_are_seeded.py" \
+    "$ROOT/.github/workflows/ci.yml"
+  [ "$status" -eq 0 ]
+}
+
 # PROSE IS NOT AN ACTION — the same trap that made an earlier check read an
 # echoed command as a real one. A path named only in a comment is not seeded.
 @test "a path mentioned only in a comment does not count as seeded" {
