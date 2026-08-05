@@ -96,3 +96,18 @@ PY
   # implicit success() is unreachable. It must not appear as a finding.
   [[ "$output" != *"Refuse without the typed confirmation' reads as cleanup"* ]]
 }
+
+# WIRING, not logic (h#736/h#758): every test above proves the check's LOGIC
+# is correct. None of them prove anything ever RUNS it — before this fix, this
+# check's only caller anywhere was this bats file, exactly the TEST-ONLY
+# outcome h#736 taught check_checks_are_wired.py to catch. Fully hermetic (no
+# live host — see the check's own docstring), so unlike h#738 there was no
+# design question about WHERE it could run: ci.yml, on every PR. Note this is
+# a separate question from the check being USED throughout h#758's own
+# investigation as a regression detector for `if:` conditions on other new
+# steps — using it as a tool never proved anything ran it in CI.
+@test "h#758: ci.yml genuinely invokes this check, not just mentions it" {
+  run grep -n "run: python3 scripts/checks/check_silent_success.py" \
+    "$ROOT/.github/workflows/ci.yml"
+  [ "$status" -eq 0 ]
+}
