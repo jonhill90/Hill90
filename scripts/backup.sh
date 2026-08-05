@@ -748,8 +748,11 @@ cmd_prune() {
 
             if [ "$backup_epoch" -lt "$cutoff_epoch" ]; then
                 echo "  Removing: ${svc}/${ts}"
-                rm -rf "$backup_dir"
-                pruned=$((pruned + 1))
+                if rm -rf "$backup_dir"; then
+                    pruned=$((pruned + 1))
+                else
+                    warn "failed to remove ${svc}/${ts} — not counting it as pruned"
+                fi
             fi
         done
     done
