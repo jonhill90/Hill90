@@ -156,7 +156,86 @@ group either.
 
 ## Live verification — what this section proves, and what it does not
 
-<!-- Filled in after live verification, before merge. -->
+`Verified 2026-08-05, before merge, without deploying.` The requirement
+behind this section: `check_alert_series.py`'s own reason for existing is
+that a rule can be `health=ok` and still be structurally unable to fire —
+two rules shipped that way in this exact file before. A unit test cannot
+catch that, because the test author supplies the labels. Everything below
+was checked against the running production host and its real Prometheus,
+never simulated, and nothing here changed production Alertmanager or
+Prometheus configuration — no reload, no file swap on the live path.
+
+**1. The metric reaches live Prometheus.** Confirmed for three of the four
+workflows by dispatching the actual modified workflow file from this
+feature branch (`gh workflow run <name> --ref
+feat/scheduled-workflow-heartbeat-h712`) — real GitHub Actions runs, real
+SSH to the real VPS, real files written to
+`/opt/hill90/metrics/textfile_collector/`. Then queried the **real
+production Prometheus** directly (`docker exec prometheus wget -qO-
+'http://127.0.0.1:9090/api/v1/query?query=hill90_scheduled_workflow_last_run_timestamp_seconds'`)
+and got back all three series with correct values — not inferred from the
+file landing on disk, the actual scrape → storage → query path.
+
+`deploy-drift`'s real run is itself a useful data point beyond proving the
+metric: its check found genuine, real drift (3 unmerged-and-undeployed
+commits) and the job's `Compare deployed against main` step failed — and the
+heartbeat step still ran and wrote a fresh timestamp, exactly the `if:
+always()` property this design depends on, demonstrated by a real failure
+rather than argued from the YAML.
+
+**2. The rule can fire against that live Prometheus, checked with the tool
+built for exactly this.** Copied this PR's `alerts.yml` to the VPS
+(alongside the tool, not onto the path the real Prometheus reads from) and
+ran `scripts/checks/check_alert_series.py` there — the same check the rest
+of this file already depends on, which queries the **live production
+Prometheus's API** for whether each selector matches a real series. Result:
+`30 selectors checked`, all resolved — the three exercised workflow labels
+matched real series (`1 series`), and `vault-sync-to-sops`'s two selectors
+were declared absent in `alert-series-allowlist.txt` with the reason stated
+plainly: that workflow's real run reads and can rewrite the SOPS store, and
+this session was under an explicit standing constraint not to touch
+anything secrets-adjacent, following a separate, concurrent incident. The
+selector itself is syntactically identical to the other three and was not
+in doubt — only unexercised. **Remove that allowlist entry the first time
+`vault-sync-to-sops.yml` runs for real** (its natural Monday schedule, or a
+deliberate dispatch once that constraint lifts) and re-run this check to
+confirm.
+
+**3. Positive control — real firing, twice, from two different real
+conditions, not fabricated.** A scratch, throwaway Prometheus
+(`prom/prometheus:v3.3.1`, no published port, on the same internal Docker
+network as node-exporter, config `for:` durations shortened from 15m/6h to
+10s purely for iteration speed — the threshold comparisons themselves,
+which are what's actually novel here, were untouched) scraped the real
+node-exporter and evaluated this PR's real rules:
+
+- `ScheduledWorkflowSignalMissing{workflow="vault-sync-to-sops"}` was
+  **already firing for real** the moment the scratch instance scraped —
+  because that workflow genuinely was never dispatched this session. Not
+  staged: the honest consequence of the choice in point 2 above, caught
+  incidentally and reported as what it is.
+- `ScheduledWorkflowNotTriggering{workflow="audit-hill90-ui-client"}`: the
+  real, already-correct `.prom` file was backed up, overwritten with a
+  timestamp 4 hours old (its threshold is 3h), and within seconds the
+  scratch Prometheus reported it `firing`, value `4.07` hours, rendering the
+  exact annotation text this file specifies
+  (`"audit-hill90-ui-client has not reached a verdict in 4.1 hours"`). The
+  real file was then restored to its exact original value and confirmed the
+  alert cleared on the next scrape.
+
+The scratch container and its config were removed entirely afterward —
+`docker rm -f`, config files deleted — leaving no trace on the host beyond
+the two real `.prom` files this PR's own workflow runs wrote (which the next
+real scheduled run of each workflow overwrites anyway).
+
+**What this does NOT prove:** that these rules are loaded into the actual
+production Prometheus yet — they are not, until this PR merges and the host
+checkout picks up the change (a normal deploy, not part of this
+verification). Nor does it prove `vault-sync-to-sops.yml`'s heartbeat step
+specifically works, since that workflow was not dispatched — its code is
+identical in shape to the other three, reviewed and syntax/promtool-tested
+the same way, but genuinely unexercised live, named as such in the
+allowlist entry rather than assumed.
 
 ## What this does not cover
 
