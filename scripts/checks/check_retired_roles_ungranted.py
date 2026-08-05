@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A retired (zero-holder) role must not be granted a policy anywhere.
 
-    python3 scripts/checks/check_retired_roles_ungranted.py           # static, CI
-    python3 scripts/checks/check_retired_roles_ungranted.py --live    # + live estate
+    python3 scripts/checks/check_retired_roles_ungranted.py                  # static, CI
+    python3 scripts/checks/check_retired_roles_ungranted.py --live           # + live estate, from a workstation with `Host vps` in ~/.ssh/config
+    python3 scripts/checks/check_retired_roles_ungranted.py --live --local   # + live estate, run directly ON the target host
 
 Exit 0 = no retired role is granted anything (measured, clean). Exit 1 = a
 retired role IS granted something (measured, real problem). Exit 2 = --live
@@ -10,6 +11,22 @@ could not measure at all — SSH/the remote command chain failed, or its output
 could not be parsed. 2 is not 0: an unreachable host must never read as "no
 retired role is granted", which is the null result that happens to agree with
 what everyone hopes is true. See h#727.
+
+--local (h#738): --live's `docker exec` commands were always wrapped in
+`ssh vps <cmd>` — a literal SSH CONFIG ALIAS that only resolves on a
+workstation whose personal ~/.ssh/config defines `Host vps`. No workflow in
+this repo ever establishes that alias; every other live-estate check
+(minio-policy-names-test.sh, check_alert_series.py) instead runs its
+docker-exec commands DIRECTLY, relying on the CALLING workflow to have
+already SSH'd onto the VPS via the same `deploy@$TAILSCALE_IP` a
+gated post-deploy step in reusable-deploy-service.yml already resolves. That
+was the actual reason --live had no caller: not a missing workflow step, a
+transport the established pattern does not use. --local makes this check fit
+that same shape — the exact same measurement, run without the extra SSH hop,
+for when this process is already executing on the host being measured. The
+default (no --local) is UNCHANGED: still `ssh vps <cmd>`, still positive
+controlled the way h#727 verified it, for the workstation use case that
+already relies on it.
 
 WHY. Deleting the four zero-holder realm roles is only safe while nothing grants
 them anything. The danger is the reverse of the usual one: a grant attached to a
@@ -120,17 +137,26 @@ class LiveCheckUnreachable(Exception):
     """
 
 
-def live_checks(retired: set[str]) -> list[str]:
+def live_checks(retired: set[str], local: bool = False) -> list[str]:
     """Measure holders and read the live estate. Needs the VPS.
 
     Returns a normal problems list (possibly empty — clean) on a genuine
     measurement. Raises LiveCheckUnreachable if the estate could not be
     reached or a remote command failed, so a caller can never mistake
     "could not measure" for "measured and clean".
+
+    `local=True` (h#738) runs each remote command directly via `bash -c`
+    instead of `ssh vps <cmd>` — for when this process is already executing
+    on the host being measured, the same assumption minio-policy-names-test.sh
+    and check_alert_series.py already make. `local=False` (the default)
+    keeps the original `ssh vps <cmd>` behavior byte-for-byte, unchanged from
+    h#727, for the workstation use case that already relies on it.
     """
     problems: list[str] = []
 
     def ssh(cmd: str) -> subprocess.CompletedProcess:
+        if local:
+            return subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
         return subprocess.run(["ssh", "vps", cmd], capture_output=True, text=True)
 
     kc = (
@@ -198,6 +224,12 @@ def live_checks(retired: set[str]) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true", help="also query the live estate")
+    ap.add_argument(
+        "--local", action="store_true",
+        help="with --live, run remote commands directly (bash -c) instead of "
+             "`ssh vps <cmd>` — for when this process already runs on the "
+             "host being measured (h#738). Ignored without --live.",
+    )
     args = ap.parse_args()
 
     retired = set(shell_list(KEYCLOAK, "REALM_ROLES_REMOVED"))
@@ -214,7 +246,7 @@ def main() -> int:
     if args.live:
         print()
         try:
-            problems += live_checks(retired)
+            problems += live_checks(retired, local=args.local)
         except LiveCheckUnreachable as e:
             print(f"CANNOT DETERMINE — {e}")
             print(
