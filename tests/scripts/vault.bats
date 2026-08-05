@@ -325,9 +325,58 @@
   [ "$status" -eq 0 ]
 }
 
-@test "vault-sync-to-sops workflow reads VAULT_SYNC_TOKEN from SOPS" {
-  run grep "VAULT_SYNC_TOKEN" .github/workflows/vault-sync-to-sops.yml
+# h#711: VAULT_SYNC_TOKEN (a periodic token that had to be renewed weekly,
+# and silently could not — see the file's own comment) was replaced by
+# VAULT_SYNC_ROLE_ID/VAULT_SYNC_SECRET_ID, an AppRole login done fresh every
+# run. Asserting on the `=` makes this check on the FUNCTIONAL read, not
+# just the bare name — the bare string "VAULT_SYNC_TOKEN" still legitimately
+# appears in this file's own explanatory comments, and a check that can't
+# tell those apart would have kept passing throughout this exact migration
+# for the wrong reason, which is precisely what happened before this test
+# was corrected: it passed against the new file on a stale assumption.
+@test "vault-sync-to-sops workflow reads the sync AppRole credentials from SOPS, not VAULT_SYNC_TOKEN" {
+  run grep "VAULT_SYNC_ROLE_ID=" .github/workflows/vault-sync-to-sops.yml
   [ "$status" -eq 0 ]
+  run grep "VAULT_SYNC_SECRET_ID=" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -eq 0 ]
+  # The old FUNCTIONAL read is gone — `=` excludes the comment mentioning
+  # the old name by history, which is expected to remain.
+  run grep "VAULT_SYNC_TOKEN=" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -ne 0 ]
+}
+
+@test "vault-sync-to-sops workflow logs in via AppRole rather than renewing a token" {
+  run grep "auth/approle/login" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -eq 0 ]
+  run grep "bao token renew" .github/workflows/vault-sync-to-sops.yml
+  [ "$status" -ne 0 ]
+}
+
+# app-h#711's whole argument for AppRole over the alternatives: it never
+# needs `sudo` on anything. Pin it so a future edit can't quietly add the
+# one thing this design was chosen specifically to avoid.
+@test "the sync AppRole never needs sudo — policy-sync.hcl grants none" {
+  run grep -i "sudo" platform/vault/policies/policy-sync.hcl
+  [ "$status" -ne 0 ]
+}
+
+# "sync" is deliberately NOT a hand-written role definition — it goes
+# through the same VAULT_SERVICES loop as db/auth/infra/observability,
+# which is what gives it the same token_ttl=1h/token_max_ttl=4h bound
+# (well inside config.hcl's max_lease_ttl=24h) with no new code to keep
+# correct. This pins that it's on the list, not a special case.
+@test "sync is a VAULT_SERVICES member, not a hand-written AppRole" {
+  run grep '^VAULT_SERVICES=' scripts/vault.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"sync"* ]]
+}
+
+@test "the AppRole token bound (token_max_ttl) is inside OpenBao's max_lease_ttl" {
+  max_lease=$(grep 'max_lease_ttl' platform/vault/config.hcl | grep -oE '[0-9]+h' | head -1)
+  token_max=$(grep 'token_max_ttl=' scripts/vault.sh | grep -oE '[0-9]+h' | head -1)
+  [ -n "$max_lease" ]
+  [ -n "$token_max" ]
+  [ "${token_max%h}" -lt "${max_lease%h}" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -497,6 +546,41 @@
 @test "vault.sh usage lists bootstrap-approles command" {
   run bash scripts/vault.sh help
   [[ "$output" == *"bootstrap-approles"* ]]
+}
+
+@test "vault.sh has cmd_setup_sync_approle function (h#711)" {
+  run grep "^cmd_setup_sync_approle()" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh setup-sync-approle is in the dispatcher" {
+  run grep "setup-sync-approle)" scripts/vault.sh
+  [ "$status" -eq 0 ]
+}
+
+@test "vault.sh usage lists setup-sync-approle command" {
+  run bash scripts/vault.sh help
+  [[ "$output" == *"setup-sync-approle"* ]]
+}
+
+@test "cmd_setup_sync_approle stores VAULT_SYNC_ROLE_ID and VAULT_SYNC_SECRET_ID, not a token" {
+  run sed -n '/^cmd_setup_sync_approle()/,/^}/p' scripts/vault.sh
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"VAULT_SYNC_ROLE_ID"* ]]
+  [[ "$output" == *"VAULT_SYNC_SECRET_ID"* ]]
+  [[ "$output" != *"token create"* ]]
+  [[ "$output" != *"-period="* ]]
+}
+
+# The old cmd_setup_sync_token is left in place (vault-init.yml and
+# vault-reinitialize.yml still call it) but must no longer be what the sync
+# workflow actually depends on for its own credentials — that's
+# cmd_setup_sync_approle now.
+@test "cmd_setup_sync_token still exists, unmodified in shape, for the other workflows that call it" {
+  run grep "^cmd_setup_sync_token()" scripts/vault.sh
+  [ "$status" -eq 0 ]
+  run grep "setup-sync-token)" scripts/vault.sh
+  [ "$status" -eq 0 ]
 }
 
 @test "cmd_bootstrap_approles generates root token and revokes it" {
