@@ -78,16 +78,31 @@ jobs:
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
 
-      - name: Read sync token from SOPS
-        id: sync-token
+      # h#711: replaces the old "Read sync token from SOPS" step.
+      # VAULT_SYNC_TOKEN was a periodic token that had to be RENEWED weekly —
+      # and renewal silently capped at OpenBao's config.hcl max_lease_ttl=24h
+      # instead of the token's own -period=768h, because periodic-token
+      # renewal only exceeds the system ceiling when the renewing identity
+      # holds `sudo` on auth/token/renew-self, which policy-sync never
+      # granted. The token was dead most weeks; see #711.
+      #
+      # VAULT_SYNC_ROLE_ID/VAULT_SYNC_SECRET_ID replace it. They are AppRole
+      # credentials, not a token — this step only reads them; the next step
+      # logs in fresh every run instead of renewing anything.
+      - name: Read sync AppRole credentials from SOPS
+        id: sync-creds
         run: |
-          VAULT_SYNC_TOKEN=$(sops -d infra/secrets/prod.enc.env | grep '^VAULT_SYNC_TOKEN=' | cut -d= -f2-)
-          if [ -z "$VAULT_SYNC_TOKEN" ]; then
-            echo "::error::VAULT_SYNC_TOKEN not found in SOPS. Run 'vault.sh setup-sync-token' first."
+          PLAIN=$(sops -d infra/secrets/prod.enc.env)
+          ROLE_ID=$(printf '%s\n' "$PLAIN" | grep '^VAULT_SYNC_ROLE_ID=' | cut -d= -f2-)
+          SECRET_ID=$(printf '%s\n' "$PLAIN" | grep '^VAULT_SYNC_SECRET_ID=' | cut -d= -f2-)
+          if [ -z "$ROLE_ID" ] || [ -z "$SECRET_ID" ]; then
+            echo "::error::VAULT_SYNC_ROLE_ID/VAULT_SYNC_SECRET_ID not found in SOPS. Run 'vault.sh setup-sync-approle' first (h#711) — this is expected to fail on the first scheduled run after that migration lands, until the one-time credential mint has happened and been pushed."
             exit 1
           fi
-          echo "::add-mask::$VAULT_SYNC_TOKEN"
-          echo "token=$VAULT_SYNC_TOKEN" >> $GITHUB_OUTPUT
+          echo "::add-mask::$ROLE_ID"
+          echo "::add-mask::$SECRET_ID"
+          echo "role_id=$ROLE_ID" >> $GITHUB_OUTPUT
+          echo "secret_id=$SECRET_ID" >> $GITHUB_OUTPUT
 
       - name: Check script drift
         run: |
@@ -107,30 +122,46 @@ jobs:
             'export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && sops -d /opt/hill90/app/infra/secrets/prod.enc.env | sha256sum | cut -d" " -f1')
           echo "hash=$BEFORE_HASH" >> $GITHUB_OUTPUT
 
-      - name: Renew sync token
+      # h#711: replaces "Renew sync token". There is nothing to renew — a
+      # fresh AppRole login every run mints a token bounded by
+      # token_ttl=1h/token_max_ttl=4h (scripts/vault.sh's AppRole loop),
+      # comfortably inside config.hcl's max_lease_ttl=24h. That bound is the
+      # whole point: this can never need the sudo exemption periodic-token
+      # renewal required and never had, so this step either succeeds with a
+      # working token or fails here, loudly, every single run — there is no
+      # multi-week gap between cause and symptom left for this class of bug
+      # to hide in.
+      - name: AppRole login — mint a fresh token for this run
+        id: approle-login
         env:
-          SYNC_TOKEN: ${{ steps.sync-token.outputs.token }}
+          ROLE_ID: ${{ steps.sync-creds.outputs.role_id }}
+          SECRET_ID: ${{ steps.sync-creds.outputs.secret_id }}
         run: |
-          # The token goes over STDIN, never into a command line.
-          #
-          # Interpolating it into the ssh command string put it in argv of the
-          # remote shell AND of `docker exec` on the VPS, where `ps -Ao args`
-          # shows it to any local user. It is masked in the Actions log, which is
-          # what made this easy to miss: the leak is on the host, not here.
-          printf '%s' "$SYNC_TOKEN" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          # Both credentials and the minted token travel over stdin/env,
+          # never argv — same discipline the old renew step used, for the
+          # same reason: interpolated into the ssh/docker-exec command line,
+          # they'd sit in `ps -Ao args` on the VPS, visible to any local
+          # user there, regardless of Actions log masking.
+          TOKEN=$(printf '%s\n%s' "$ROLE_ID" "$SECRET_ID" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
-            'read -r BAO_TOKEN; export BAO_TOKEN; \
-             docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN \
-               openbao bao token renew' || {
-            echo "::error::Token renewal failed — token may be expired or revoked. Re-run 'vault.sh setup-sync-token'."
+            'read -r ROLE_ID; read -r SECRET_ID; export ROLE_ID SECRET_ID; \
+             docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e ROLE_ID -e SECRET_ID openbao \
+               sh -c '"'"'bao write -field=token auth/approle/login role_id="$ROLE_ID" secret_id="$SECRET_ID"'"'"'') || {
+            echo "::error::AppRole login failed — role_id/secret_id may be stale, or the sync role may not exist yet. Run 'vault.sh setup-sync-approle' to (re)mint (h#711)."
             exit 1
           }
+          if [ -z "$TOKEN" ]; then
+            echo "::error::AppRole login reported success but returned no token — treating as a failure rather than proceeding with nothing to authenticate the sync step."
+            exit 1
+          fi
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
 
       - name: Run sync on VPS
         env:
-          SYNC_TOKEN: ${{ steps.sync-token.outputs.token }}
+          SYNC_TOKEN: ${{ steps.approle-login.outputs.token }}
         run: |
-          # Same reasoning as the renew step: stdin, not argv.
+          # Same reasoning as the login step: stdin, not argv.
           printf '%s' "$SYNC_TOKEN" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'read -r BAO_TOKEN; export BAO_TOKEN; \
