@@ -36,6 +36,12 @@ jobs:
       - name: Assert a manual deploy targets one service
         run: python3 scripts/checks/check_dispatch_targets_one_service.py
 
+      # #778: deploy-db and deploy-observability started at the same second and
+      # raced on /opt/hill90/app; an hour later deploy-auth restarted Keycloak
+      # underneath observability's login check. Hermetic — reads deploy.yml.
+      - name: Assert no two deploy jobs can run at once
+        run: python3 scripts/checks/check_deploy_jobs_serialized.py
+
       - name: Install bats
         run: |
           sudo apt-get update
