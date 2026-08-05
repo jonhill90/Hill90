@@ -177,3 +177,38 @@ jobs:
         run: |
           bash scripts/checks/check_hill90_ui_secret_agreement.sh \
             "${{ steps.read.outputs.kc_hash }}" "${{ steps.read.outputs.ui_hash }}"
+
+      # h#712 (narrowed): a dead-man's-switch for the SCHEDULE itself, not for
+      # what the check finds. `if: always()` — this must write regardless of
+      # the assertion above, on purpose: it answers "did the scheduler
+      # dispatch this and did it reach a verdict at all", not "did the check
+      # pass". Keying it on success only would mean a REAL disagreement
+      # (already emailed immediately by #714's workflow_run watchdog) also
+      # goes stale on THIS metric hours later — a second, redundant page for
+      # the same event. The two are orthogonal by construction: #714 answers
+      # "was the result good", this answers "did a result happen at all".
+      #
+      # Reuses the SSH session already open for the read step above — one
+      # more command, not new plumbing.
+      - name: Emit scheduled-workflow heartbeat
+        if: always()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "cd ${VPS_APP_PATH} && bash -s" <<'REMOTE'
+          set -euo pipefail
+          DIR=/opt/hill90/metrics/textfile_collector
+          FILE="${DIR}/hill90_scheduled_workflow_audit-hill90-ui-client.prom"
+          TMP="${DIR}/.hill90_scheduled_workflow_audit-hill90-ui-client.prom.tmp"
+          mkdir -p "$DIR"
+          TS=$(date +%s)
+          {
+            echo "# HELP hill90_scheduled_workflow_last_run_timestamp_seconds Unix time this scheduled workflow last reached a verdict (success or failure), regardless of what it decided"
+            echo "# TYPE hill90_scheduled_workflow_last_run_timestamp_seconds gauge"
+            echo "hill90_scheduled_workflow_last_run_timestamp_seconds{workflow=\"audit-hill90-ui-client\"} ${TS}"
+          } > "$TMP"
+          # Atomic rename — node-exporter reads this directory on every scrape,
+          # and a half-written file flips node_textfile_scrape_error to 1.
+          mv -f "$TMP" "$FILE"
+          chmod 644 "$FILE"
+          REMOTE
