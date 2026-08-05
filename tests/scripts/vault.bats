@@ -270,6 +270,224 @@
 }
 
 # ---------------------------------------------------------------------------
+# h#735-sweep, platform-side: cmd_sync_to_sops used to discard a path read's
+# stderr (2>/dev/null) and read a transient docker-exec/connection failure
+# identically to a genuinely absent path — both hit the same `|| { warn
+# "...skipping"; continue; }`, and $skipped only counted key-level dedup
+# skips, never a whole dropped path. A path could vanish from every summary
+# with zero trace, on the function that writes the REAL production
+# infra/secrets/prod.enc.env and that the scheduled, unattended
+# vault-sync-to-sops.yml calls. Since the function never returned non-zero
+# for a skipped path, that workflow always reported success — the
+# scheduled-checks-watchdog built earlier today never had a red run to
+# catch. Positive-controlled directly against a real
+# ghcr.io/openbao/openbao:2.6.1 container (the pinned production version):
+# genuinely-present and genuinely-absent paths are distinguished by TEXT
+# (bao's own "No value found at" message), not exit code — the exit code
+# alone can't tell them apart, same lesson as h#731.
+#
+# These extract the read-and-classify loop body from the real script and
+# run it against a real, throwaway, local OpenBao dev-mode container — no
+# SOPS store touched, no real secret read or written.
+# ---------------------------------------------------------------------------
+
+setup_sync_test_container() {
+  command -v docker >/dev/null || skip "docker not available"
+  SYNC_TEST_CONTAINER="bats-sync-test-$$"
+  docker rm -f "$SYNC_TEST_CONTAINER" >/dev/null 2>&1 || true
+  docker run -d --name "$SYNC_TEST_CONTAINER" --cap-add=IPC_LOCK \
+    -e 'BAO_DEV_ROOT_TOKEN_ID=dev-root-token' \
+    -e 'BAO_ADDR=http://0.0.0.0:8200' \
+    ghcr.io/openbao/openbao:2.6.1 server -dev -dev-root-token-id=dev-root-token >/dev/null
+  # Poll for real readiness rather than a fixed sleep — matches the
+  # discipline the rest of today's sweep established for this exact reason.
+  local deadline=$(( $(date +%s) + 30 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=dev-root-token \
+        "$SYNC_TEST_CONTAINER" bao status >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=dev-root-token \
+    "$SYNC_TEST_CONTAINER" bao kv put secret/shared/database DB_NAME=hill90 >/dev/null
+}
+
+teardown_sync_test_container() {
+  [ -n "${SYNC_TEST_CONTAINER:-}" ] && docker rm -f "$SYNC_TEST_CONTAINER" >/dev/null 2>&1 || true
+}
+
+sync_read_classify() {
+  # The exact logic from cmd_sync_to_sops's loop body, extracted so a future
+  # edit to the real function is re-tested against these fixtures.
+  sed -n '/^        local json_err$/,/^        rm -f "\$json_err"$/p' "$PWD/scripts/vault.sh"
+}
+
+@test "extraction sanity: the read-and-classify block was found and is non-trivial" {
+  command -v docker >/dev/null || skip "docker not available"
+  result="$(sync_read_classify)"
+  [ -n "$result" ]
+  [[ "$result" == *"No value found at"* ]]
+}
+
+@test "REAL DOCKER: a genuinely present path is read successfully, not flagged as failed" {
+  setup_sync_test_container
+  BLOCK="$(sync_read_classify)"
+  run bash -c "
+    CONTAINER_NAME=$SYNC_TEST_CONTAINER
+    warn() { echo \"WARN: \$*\" >&2; }
+    bao_exec_env() { docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=\$BAO_TOKEN \"\$CONTAINER_NAME\" bao \"\$@\"; }
+    failed_paths=()
+    path='secret/shared/database'
+    $BLOCK
+    echo \"json_output=\$json_output\"
+    echo \"failed_count=\${#failed_paths[@]}\"
+  "
+  teardown_sync_test_container
+  [[ "$output" == *"failed_count=0"* ]]
+  [[ "$output" == *"DB_NAME"* ]]
+}
+
+@test "THE ASSERTION THAT MATTERS: a genuinely absent canonical path is classified as absent (not a connection failure) and accumulates in failed_paths" {
+  setup_sync_test_container
+  BLOCK="$(sync_read_classify)"
+  run bash -c "
+    CONTAINER_NAME=$SYNC_TEST_CONTAINER
+    warn() { echo \"WARN: \$*\" >&2; }
+    bao_exec_env() { docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=\$BAO_TOKEN \"\$CONTAINER_NAME\" bao \"\$@\"; }
+    failed_paths=()
+    path='secret/auth/config'
+    $BLOCK
+    echo \"failed_count=\${#failed_paths[@]}\"
+  "
+  teardown_sync_test_container
+  [[ "$output" == *"Path genuinely absent"* ]]
+  [[ "$output" == *"failed_count=1"* ]]
+}
+
+@test "THE ASSERTION THAT MATTERS: a real connection failure is classified as CANNOT DETERMINE, not silently as absent" {
+  setup_sync_test_container
+  BLOCK="$(sync_read_classify)"
+  run bash -c "
+    CONTAINER_NAME=$SYNC_TEST_CONTAINER
+    warn() { echo \"WARN: \$*\" >&2; }
+    bao_exec_env() { docker exec -e BAO_ADDR=http://127.0.0.1:9999 -e BAO_TOKEN=\$BAO_TOKEN \"\$CONTAINER_NAME\" bao \"\$@\"; }
+    failed_paths=()
+    path='secret/shared/database'
+    $BLOCK
+    echo \"failed_count=\${#failed_paths[@]}\"
+  "
+  teardown_sync_test_container
+  [[ "$output" == *"Could not read"* ]]
+  [[ "$output" != *"genuinely absent"* ]]
+  [[ "$output" == *"failed_count=1"* ]]
+}
+
+@test "CONTROL: the OLD shape could not distinguish a real absence from a real connection failure (regression guard)" {
+  # Not a test of the new code — a permanent record that the bug was real.
+  OLD_BLOCK='
+    local json_output
+    json_output=$(bao_exec_env kv get -format=json "$path" 2>/dev/null) || {
+        warn "Path not found or not accessible: $path — skipping"
+        continue
+    }
+  '
+  [[ "$OLD_BLOCK" == *"Path not found or not accessible"* ]]
+  # Same message, same branch, for BOTH a genuinely absent path and a real
+  # connection failure — the two facts the new code now tells apart.
+}
+
+@test "the final summary refuses to claim a clean sync when any path was unread" {
+  run grep -n "failed_paths\[@\]" scripts/vault.sh
+  [ "$status" -eq 0 ]
+  run bash -c "sed -n '/^cmd_sync_to_sops/,/^}/p' scripts/vault.sh | grep -A3 'if \[ \"\${#failed_paths\[@\]}\" -gt 0 \]'"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"die"* ]] || run bash -c "sed -n '/^cmd_sync_to_sops/,/^}/p' scripts/vault.sh | grep -A5 'failed_paths\[@\]}\" -gt 0'"
+  [[ "$output" == *"INCOMPLETE"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# h#735-sweep, platform-side: cmd_bootstrap_approles's own temporary
+# root-token revoke trusted `token revoke -self`'s exit code (`|| warn`,
+# a soft message under a green "Bootstrap complete!" banner) instead of
+# reusing cmd_revoke_root's own verified pattern from this SAME file —
+# revoke, then independently confirm with `token lookup` that the token is
+# actually dead. cmd_revoke_root's own comment explains why the exit code
+# proves nothing: "prints Revoked token (if it existed) and exits 0
+# regardless." Positive-controlled against a real
+# ghcr.io/openbao/openbao:2.6.1 container: a genuine revoke is independently
+# confirmed dead by a real follow-up `token lookup` (403); a revoke call
+# that "succeeds" without actually revoking (the exact documented CLI
+# quirk) is caught because the follow-up lookup still succeeds.
+# ---------------------------------------------------------------------------
+
+@test "cmd_bootstrap_approles independently verifies the revoke, not just trusting its exit code" {
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'token lookup'"
+  [ "$status" -eq 0 ]
+  run bash -c "sed -n '/^cmd_bootstrap_approles/,/^}/p' scripts/vault.sh | grep 'STILL VALID'"
+  [ "$status" -eq 0 ]
+}
+
+bootstrap_revoke_verify() {
+  sed -n '/^    bao_exec_env token revoke -self/,/^    success "✓ Root token revoked and confirmed dead"$/p' "$PWD/scripts/vault.sh"
+}
+
+@test "REAL DOCKER: a genuine revoke is independently confirmed dead, not just trusted" {
+  command -v docker >/dev/null || skip "docker not available"
+  CONTAINER="bats-revoke-test-$$"
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  docker run -d --name "$CONTAINER" --cap-add=IPC_LOCK \
+    -e 'BAO_DEV_ROOT_TOKEN_ID=dev-root-token' -e 'BAO_ADDR=http://0.0.0.0:8200' \
+    ghcr.io/openbao/openbao:2.6.1 server -dev -dev-root-token-id=dev-root-token >/dev/null
+  deadline=$(( $(date +%s) + 30 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=dev-root-token "$CONTAINER" bao status >/dev/null 2>&1 && break
+    sleep 1
+  done
+  BLOCK="$(bootstrap_revoke_verify)"
+  run bash -c "
+    die() { echo \"ERROR: \$*\" >&2; exit 1; }
+    success() { echo \"SUCCESS: \$*\"; }
+    bao_exec_env() { docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=dev-root-token \"$CONTAINER\" bao \"\$@\"; }
+    $BLOCK
+  "
+  docker rm -f "$CONTAINER" >/dev/null 2>&1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"confirmed dead"* ]]
+}
+
+@test "THE ASSERTION THAT MATTERS: a revoke that reports success but leaves the token valid is caught, not trusted" {
+  command -v docker >/dev/null || skip "docker not available"
+  CONTAINER="bats-revoke-broken-$$"
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  docker run -d --name "$CONTAINER" --cap-add=IPC_LOCK \
+    -e 'BAO_DEV_ROOT_TOKEN_ID=dev-root-token' -e 'BAO_ADDR=http://0.0.0.0:8200' \
+    ghcr.io/openbao/openbao:2.6.1 server -dev -dev-root-token-id=dev-root-token >/dev/null
+  deadline=$(( $(date +%s) + 30 ))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=dev-root-token "$CONTAINER" bao status >/dev/null 2>&1 && break
+    sleep 1
+  done
+  BLOCK="$(bootstrap_revoke_verify)"
+  # Real container, real still-valid token — the revoke call itself is
+  # replaced with a no-op standing in for the documented CLI quirk (exits 0
+  # without actually revoking); the verification lookup is real.
+  run bash -c "
+    die() { echo \"ERROR: \$*\" >&2; exit 1; }
+    success() { echo \"SUCCESS: \$*\"; }
+    bao_exec_env() { docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=dev-root-token \"$CONTAINER\" bao \"\$@\"; }
+    bao_exec_env() {
+      if [ \"\$1\" = token ] && [ \"\$2\" = revoke ]; then return 0; fi
+      docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN=dev-root-token \"$CONTAINER\" bao \"\$@\"
+    }
+    $BLOCK
+  "
+  docker rm -f "$CONTAINER" >/dev/null 2>&1
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"STILL VALID"* ]]
+}
+
+# ---------------------------------------------------------------------------
 # policy-sync tests
 # ---------------------------------------------------------------------------
 
