@@ -116,6 +116,19 @@ PY
   [[ "$output" == *"no '**N rules in M groups**' sentence"* ]]
 }
 
+# WIRING, not logic (h#736/h#758): every test above proves the check's LOGIC
+# is correct. None of them prove anything ever RUNS it — before this fix,
+# this check's only caller anywhere was this bats file, which is exactly the
+# TEST-ONLY outcome h#736 taught check_checks_are_wired.py to catch. This
+# check is fully hermetic (no network, no live host — see its own
+# docstring), so unlike h#738 there was no design question about WHERE it
+# could run: ci.yml, on every PR, same as check_md_links.py right above it.
+@test "h#758: ci.yml genuinely invokes this check, not just mentions it" {
+  run grep -n "run: python3 scripts/checks/check_alert_counts_documented.py" \
+    "$ROOT/.github/workflows/ci.yml"
+  [ "$status" -eq 0 ]
+}
+
 @test "an alerts file with no groups fails rather than reporting 0 == 0" {
   python3 - "$CTL/platform/observability/prometheus/alerts.yml" <<'PY'
 import sys, yaml

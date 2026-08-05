@@ -20,6 +20,16 @@ jobs:
       - name: Validate markdown links
         run: python3 scripts/checks/check_md_links.py
 
+      # h#758 (found by h#736's fix): wired only to its own bats control
+      # since it was written. Genuinely hermetic — it counts rules in
+      # platform/observability/prometheus/alerts.yml against the sentence in
+      # CLAUDE.md, no network or live Prometheus needed (see its own
+      # docstring, which explicitly designed it this way FOR CI). There was
+      # no design question here, unlike h#738 — just a check that had never
+      # been asked to run.
+      - name: Assert CLAUDE.md's alert counts match the rules that ship
+        run: python3 scripts/checks/check_alert_counts_documented.py
+
       - name: Install bats
         run: |
           sudo apt-get update
