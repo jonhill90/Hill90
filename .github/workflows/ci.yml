@@ -71,13 +71,44 @@ jobs:
       - name: Lint scripts
         run: shellcheck --severity=error scripts/*.sh
 
+      # h#732 found the dormant 0==0 trap on the second check below (if
+      # deploy.sh's invocation style is ever renamed, the grep for "docker
+      # compose" matches zero lines and the check finds nothing to complain
+      # about — an unchecked invariant, not an upheld one). Fixing it
+      # surfaced something more severe in the SAME lines: GitHub Actions
+      # runs `run:` blocks under `bash -eo pipefail`, and bash's `set -e`
+      # explicitly EXEMPTS a `!`-negated command from triggering abort, even
+      # when the negated result is failure. `! (pipeline)` never aborted
+      # this step on a real violation — it just fell through to the next
+      # line, and the step always ended on the final `echo`'s exit 0.
+      # Verified directly, not by reasoning about bash semantics alone:
+      # injected a real `docker compose ... ` call with no -p flag into a
+      # copy of deploy.sh and ran this exact step, byte for byte, under
+      # `bash -eo pipefail` — it printed "All safety checks passed." and
+      # exited 0. Both checks are rewritten with an explicit if/exit so a
+      # real violation actually fails the step, which the `!`-negated form
+      # could not do regardless of the 0==0 trap.
       - name: Assert deploy safety invariants
         run: |
           echo "Checking: no --remove-orphans..."
-          ! (grep -- "--remove-orphans" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#")
+          if grep -- "--remove-orphans" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -q .; then
+            echo "::error::scripts/deploy.sh contains --remove-orphans"
+            grep -n -- "--remove-orphans" scripts/deploy.sh | grep -v "^#"
+            exit 1
+          fi
 
           echo "Checking: all docker compose calls use -p..."
-          ! (grep "docker compose" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#" | grep -v -- "-p ")
+          DC_LINES=$(grep "docker compose" scripts/deploy.sh | grep -v "^#" | grep -v "^[[:space:]]*#" || true)
+          if [ -z "$DC_LINES" ]; then
+            echo "::error::CANNOT DETERMINE — zero 'docker compose' invocations found in scripts/deploy.sh. Either the invocation pattern changed (renamed, wrapped, hyphenated) and this check is no longer looking at anything real, or deploy.sh itself changed shape. Fix this check before trusting a green run here."
+            exit 1
+          fi
+          if printf '%s\n' "$DC_LINES" | grep -v -- "-p " > /dev/null; then
+            echo "::error::a docker compose invocation in scripts/deploy.sh is missing -p"
+            printf '%s\n' "$DC_LINES" | grep -v -- "-p "
+            exit 1
+          fi
+          echo "  ok — $(printf '%s\n' "$DC_LINES" | grep -c .) docker compose invocation(s), all use -p"
 
           echo "All safety checks passed."
 
