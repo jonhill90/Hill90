@@ -63,3 +63,19 @@ def test_the_realm_serves_the_tenant(capsys):
         "the platform realm does not serve the tenant correctly:\n"
         f"{result.stdout}\n{result.stderr}"
     )
+
+
+# WIRING, not logic (h#736/h#758): the test above proves the SCRIPT's logic is
+# correct when invoked. It does not prove anything outside this pytest file
+# ever runs it — `pytest tests/checks/` running in CI is still not this
+# script being invoked for real, only this wrapper's own assertions about it
+# (see check_checks_are_wired.py's docstring on why a pytest caller is
+# TEST-ONLY, not REAL). Fully self-contained (builds and destroys its own
+# throwaway Keycloak, no live secret, no VPS), so unlike
+# check_vault_covers_compose.py (h#758 6/8) there was no design question
+# about WHERE it could run: ci.yml, directly, next to
+# minio-readiness-test.sh which needs the same thing (a reachable Docker
+# daemon) and already runs there the same way.
+def test_h758_ci_yml_genuinely_invokes_this_script_directly():
+    ci_yml = (ROOT / ".github/workflows/ci.yml").read_text()
+    assert "run: bash scripts/checks/realm-tenant-serves-test.sh" in ci_yml
