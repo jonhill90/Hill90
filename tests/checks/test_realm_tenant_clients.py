@@ -161,3 +161,16 @@ def test_fails_when_vaults_realm_roles_mapper_is_lost(realm):
     r = run(realm)
     assert r.returncode == 1
     assert "realm_roles" in r.stderr
+
+
+# ---- wiring, not logic (h#736/h#758) ----------------------------------------
+#
+# Every test above proves the check's LOGIC is correct. None of them prove
+# anything ever RUNS it — before this fix, this check's only caller anywhere
+# was this pytest file and its own bats mention, exactly the TEST-ONLY
+# outcome h#736 taught check_checks_are_wired.py to catch. Fully hermetic (no
+# live Keycloak — see the check's own docstring), so unlike h#738 there was
+# no design question about WHERE it could run: ci.yml, on every PR.
+def test_h758_ci_yml_genuinely_invokes_this_check():
+    ci_yml = (ROOT / ".github/workflows/ci.yml").read_text()
+    assert "run: python3 scripts/checks/check_realm_tenant_clients.py" in ci_yml
