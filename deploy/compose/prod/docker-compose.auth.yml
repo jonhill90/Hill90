@@ -27,8 +27,8 @@ services:
     environment:
       - KC_DB=postgres
       - KC_DB_URL=jdbc:postgresql://postgres:5432/keycloak
-      - KC_DB_USERNAME=${DB_USER}
-      - KC_DB_PASSWORD=${DB_PASSWORD}
+      - KC_DB_USERNAME=${DB_USER:?DB_USER must be set}
+      - KC_DB_PASSWORD=${DB_PASSWORD:?DB_PASSWORD must be set}
       - KC_HOSTNAME=${KC_HOSTNAME:-https://auth.hill90.com}
       - KC_PROXY_HEADERS=xforwarded
       - KC_HTTP_ENABLED=true
@@ -38,7 +38,7 @@ services:
       # Substituted into platform-realm.json at import. Without it the client
       # secret is randomly generated and can never match the value setup-oidc
       # reads from SOPS, so OIDC login fails with invalid_client.
-      - VAULT_OIDC_CLIENT_SECRET=${VAULT_OIDC_CLIENT_SECRET}
+      - VAULT_OIDC_CLIENT_SECRET=${VAULT_OIDC_CLIENT_SECRET:?VAULT_OIDC_CLIENT_SECRET must be set}
       # The tenant's hill90-ui client secret, same mechanism as the vault one
       # above. Matters only on a FIRST import: the live realm already has the
       # client, and `start --import-realm` ignores an existing realm. This is
@@ -49,8 +49,8 @@ services:
       # appends its callback to the running client, the same delta local.sh
       # already applies to hill90-vault.
       - HILL90_UI_CLIENT_SECRET=${HILL90_UI_CLIENT_SECRET}
-      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_ADMIN_USERNAME}
-      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KC_ADMIN_USERNAME:?KC_ADMIN_USERNAME must be set}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD:?KC_ADMIN_PASSWORD must be set}
       - JAVA_OPTS_APPEND=-Xms256m -Xmx768m
       - KC_TRACING_ENABLED=true
       - KC_TRACING_ENDPOINT=http://tempo:4317

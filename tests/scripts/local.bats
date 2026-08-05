@@ -54,7 +54,14 @@
 }
 
 @test "observability resolves to production names with no environment set" {
-  run docker compose -f deploy/compose/prod/docker-compose.observability.yml config
+  # GRAFANA_ADMIN_PASSWORD/GRAFANA_OIDC_CLIENT_SECRET are ${VAR:?...}-guarded
+  # (sibling-drift sweep, matching minio.yml's own pattern) and have no
+  # default by design, so "no environment set" for THOSE two specifically
+  # would only prove the guard fires, not that names resolve to production
+  # defaults. Supplied as placeholders; every other var here is still unset,
+  # which is what this test is actually about.
+  run env GRAFANA_ADMIN_PASSWORD=placeholder GRAFANA_OIDC_CLIENT_SECRET=placeholder \
+    docker compose -f deploy/compose/prod/docker-compose.observability.yml config
   [ "$status" -eq 0 ]
   [[ "$output" == *"container_name: grafana"* ]]
   [[ "$output" == *"grafana.hill90.com"* ]]
@@ -117,7 +124,9 @@
 
 @test "prometheus is routed locally but NOT in production" {
   # Production reaches Prometheus through Grafana; it has no router there.
-  run docker compose -f deploy/compose/prod/docker-compose.observability.yml config
+  # Placeholders for the same two ${VAR:?...}-guarded vars as the test above.
+  run env GRAFANA_ADMIN_PASSWORD=placeholder GRAFANA_OIDC_CLIENT_SECRET=placeholder \
+    docker compose -f deploy/compose/prod/docker-compose.observability.yml config
   [ "$status" -eq 0 ]
   [[ "$output" != *"routers.prometheus"* ]]
 

@@ -44,10 +44,26 @@ jobs:
         # an empty MinIO root password silently starts the server on
         # minioadmin/minioadmin with only a WARN. Supply throwaway values here —
         # this step validates STRUCTURE, not secrets.
+        #
+        # Sibling-drift sweep: minio.yml was the only prod compose file using
+        # this pattern; auth.yml, db.yml and observability.yml had the
+        # identical bare-${VAR} shape for equally sensitive values (Keycloak's
+        # own admin bootstrap credential among them) with no guard at all.
+        # Extended to match — see those files' own :? messages for the full
+        # list. Every var below is verified populated in the current SOPS
+        # store before this landed, so this only changes what happens on a
+        # FUTURE missing secret, not today's deploy.
         env:
           MINIO_ROOT_USER: placeholder
           MINIO_ROOT_PASSWORD: placeholder
           MINIO_OIDC_CLIENT_SECRET: placeholder
+          DB_USER: placeholder
+          DB_PASSWORD: placeholder
+          KC_ADMIN_USERNAME: placeholder
+          KC_ADMIN_PASSWORD: placeholder
+          VAULT_OIDC_CLIENT_SECRET: placeholder
+          GRAFANA_ADMIN_PASSWORD: placeholder
+          GRAFANA_OIDC_CLIENT_SECRET: placeholder
         run: |
           for f in deploy/compose/prod/docker-compose*.yml; do
             echo "Validating $f..."
