@@ -30,6 +30,18 @@ jobs:
       - name: Assert CLAUDE.md's alert counts match the rules that ship
         run: python3 scripts/checks/check_alert_counts_documented.py
 
+      # `-f service=auth` deployed all five services, because on a
+      # workflow_dispatch paths-filter falls back to a parentless last commit
+      # and reports the whole repo as changed. Hermetic — reads deploy.yml.
+      - name: Assert a manual deploy targets one service
+        run: python3 scripts/checks/check_dispatch_targets_one_service.py
+
+      # #778: deploy-db and deploy-observability started at the same second and
+      # raced on /opt/hill90/app; an hour later deploy-auth restarted Keycloak
+      # underneath observability's login check. Hermetic — reads deploy.yml.
+      - name: Assert no two deploy jobs can run at once
+        run: python3 scripts/checks/check_deploy_jobs_serialized.py
+
       - name: Install bats
         run: |
           sudo apt-get update

@@ -40,8 +40,22 @@ jobs:
       observability: ${{ steps.filter.outputs.observability }}
     steps:
       - uses: actions/checkout@v4
+      # Change detection is for `push` only. On a workflow_dispatch the event
+      # payload carries no `before`, so paths-filter falls back to "changes in
+      # the last commit" — and actions/checkout's default `fetch-depth: 1`
+      # leaves that commit parentless, so `git log --name-status -n 1` lists
+      # the ENTIRE repository as added. Run 31040415190 detected "272 changed
+      # files" and set all five filters true, which is why `-f service=auth`
+      # deployed all five services and restarted Keycloak underneath the
+      # observability job's login check.
+      #
+      # Skipping the step leaves every output empty, so the `== 'true'` arms
+      # below are all false and only the explicit `inputs.service` arms decide.
+      # Deepening the checkout would NOT fix this: the fallback is triggered by
+      # the missing `before` field, not by the clone depth.
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             db:
@@ -90,17 +104,31 @@ jobs:
       service: minio
     secrets: inherit
 
+  # SERIALISED, and this is load-bearing rather than tidiness. Every deploy
+  # job SSHes to the same VPS, works in the same checkout (/opt/hill90/app)
+  # and deploys onto the same running estate. On 2026-08-05 two jobs in
+  # parallel broke twice in an hour: run 31039334078 raced on the git
+  # checkout ("incorrect old value provided") and left a PARTIAL deploy
+  # reported as a single failed job; run 31040415190 restarted Keycloak
+  # underneath the observability job's Grafana login check, which then
+  # blamed the wrong service. See #778.
+  #
+  # deploy-observability is deliberately LAST: its post-deploy checks assert
+  # against the other services, so it must not start until they have settled.
+  #
+  # The cost is real and accepted — a five-service deploy is now serial, not
+  # parallel. scripts/checks/check_deploy_jobs_serialized.py holds the line.
   deploy-vault:
-    needs: [changes]
-    if: needs.changes.outputs.vault == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'vault'
+    needs: [changes, deploy-minio]
+    if: always() && (needs.changes.outputs.vault == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'vault') && !failure() && !cancelled()
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: vault
     secrets: inherit
 
   deploy-observability:
-    needs: [changes]
-    if: needs.changes.outputs.observability == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'observability'
+    needs: [changes, deploy-vault]
+    if: always() && (needs.changes.outputs.observability == 'true' || github.event.inputs.service == 'all' || github.event.inputs.service == 'observability') && !failure() && !cancelled()
     uses: ./.github/workflows/reusable-deploy-service.yml
     with:
       service: observability
