@@ -61,9 +61,42 @@ docs/                   runbooks, reference, architecture, decisions
    original text above omits entirely. `git log -S` traces `scripts/minio.sh`'s
    addition to #593 — old enough that a prior sweep (#685) should have caught
    it and didn't. Check the workflow's own `on.push.paths`, not this list.
-2. **`--remove-orphans` is banned globally**, in every script and workflow, and
-   CI enforces it. It will delete containers belonging to another stack that
+2. **`--remove-orphans` is banned in `scripts/deploy.sh`**, and CI enforces
+   it there. It will delete containers belonging to another stack that
    shares a Compose project name.
+   **"CI enforces it" was false from the day this line was written, and had
+   been false since before that — `Verified 2026-08-05` against the actual
+   git history, not assumed from the check existing.** The assertion step
+   (`.github/workflows/ci.yml`, "Assert deploy safety invariants") wrote its
+   guard as `! (pipeline)`. GitHub Actions runs `run:` blocks under
+   `bash -eo pipefail`, and bash's `set -e` explicitly exempts a
+   `!`-negated command from triggering abort even when the negated result is
+   failure — so a real violation never aborted the step; execution fell
+   through to the final `echo` and the step always exited 0. This was true
+   of the check from its first commit (`3685dcb8`, 2026-02-22, in the
+   then-separate `ci-deploy-scripts.yml`, folded into `ci.yml` by `220d28f0`
+   the next day) straight through to this file's own claim being written
+   (`a5685cf3`, 2026-07-29) and beyond — the claim was never true at any
+   point it existed, not something that quietly broke later. Fixed h#732,
+   which rewrote both invariant checks in this step with an explicit
+   `if`/`exit`.
+   **Nothing exploited the five-and-a-half-month gap — checked, not
+   assumed.** `--remove-orphans` has not appeared in `scripts/deploy.sh`,
+   the only file this check has ever examined, since `e72f93e3` removed it
+   on 2026-02-14 — eight days *before* the check was even introduced. The
+   guard was off the entire time it existed; nothing got through it,
+   because nothing tried.
+   **The scope was also narrower than "in every script and workflow" the
+   whole time, independent of the exit-code bug.** The check has only ever
+   grepped `scripts/deploy.sh` — never `scripts/local.sh`, never any
+   `.github/workflows/*.yml` file. `scripts/local.sh` uses `--remove-orphans`
+   in six places (added 2026-07-26), which is why this line no longer claims
+   "every script": that usage runs exclusively against Docker Desktop
+   compose projects prefixed `hill90-local-` (the same local-only scope
+   `check_destructive_commands.sh`'s volume-destruction exemption already
+   documents for this file), so it does not carry the cross-stack-teardown
+   risk this invariant exists to prevent — but it is real, current, checked-
+   in usage of the banned flag that "banned globally" did not account for.
 3. **Production Traefik sets no provider `constraints`.** Every container on the
    socket with `traefik.enable=true` and a `Host` rule is live on the public
    internet the moment it starts. There is no staging state. Bring services up
