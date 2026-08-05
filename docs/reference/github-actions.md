@@ -140,8 +140,11 @@ Policy Gate (Advisory) uses `gate-${{ github.head_ref }}` with `cancel-in-progre
 **Status:** Operational (consolidated single workflow)
 
 **Triggers:**
-- Push to `main` branch (auto)
-- Manual workflow dispatch
+- Push to `main` branch, scoped to specific platform paths (auth, db, minio,
+  vault, observability compose/config files — see `deploy.yml`'s own
+  `paths:` list)
+- Manual workflow dispatch, `service` input: `all | db | auth | minio |
+  vault | observability`
 
 **Certificates:**
 - Let's Encrypt PRODUCTION environment by default
@@ -149,7 +152,14 @@ Policy Gate (Advisory) uses `gate-${{ github.head_ref }}` with `cancel-in-progre
 - **Rate limits:** 50 certificates/week, 5 failures/hour
 
 **What it does:**
-- Deploys application services (api, ai, mcp, auth, ui)
+- Deploys the **platform's own stacks** — db, auth, minio, vault,
+  observability. **Does NOT deploy `api`, `ai`, `mcp`, or `ui`** — those are
+  the `hill90-app` tenant's own three services (`api`/`ai`/`mcp`; `ui` is
+  the fourth), deployed by that repo's own separate pipeline against this
+  VPS, never by this workflow. (This section previously claimed the
+  opposite — see `docs/reference/deployment.md`'s "Three stacks" framing,
+  which is accurate and was the correction this file was supposed to
+  receive too.)
 - Uses production Let's Encrypt certificates
 - Validates infrastructure before deployment
 - Health check validation
@@ -232,12 +242,16 @@ Uses the Hostinger API and Tailscale API directly.
 
 ### 3. Deploy Workflow
 
-**`.github/workflows/deploy.yml`** - Application Deployment
-- **Trigger:** Push to `main` branch (auto), manual dispatch
+**`.github/workflows/deploy.yml`** - Platform Stack Deployment
+- **Trigger:** Push to `main` (scoped to platform paths), manual dispatch
+  (`service`: `all | db | auth | minio | vault | observability`)
 - **Certificates:** Let's Encrypt PRODUCTION (trusted, rate-limited: 50/week)
 - **Features:**
   - Validates infrastructure before deployment
-  - Deploys application services (api, ai, mcp, auth, ui)
+  - Deploys the platform's own stacks — db, auth, minio, vault,
+    observability. Does NOT deploy `api`, `ai`, `mcp`, or `ui` — those
+    belong to the `hill90-app` tenant and are deployed by its own separate
+    pipeline (see `docs/runbooks/tenant-app-deployment.md`)
   - Uses production Let's Encrypt certificates
   - Health check validation
   - Deploys via SSH over Tailscale
@@ -491,27 +505,36 @@ After setup, you should have these **5 secrets** configured:
 - DNS records updated
 - Application services NOT deployed yet
 
-#### Step 3: Deploy Application (~2-3 minutes - Manual)
+#### Step 3: Deploy Platform Stacks (~2-3 minutes - Manual)
+
+**This step deploys the PLATFORM's own stacks — not `hill90-app`.** `api`,
+`ai`, `mcp` and `ui` are the tenant's three services (plus `ui`) and are
+deployed entirely by that repo's own separate pipeline
+(`docs/runbooks/tenant-app-deployment.md`), never by this workflow. This
+section previously claimed the opposite.
 
 **When to use:**
 - After VPS rebuild (Step 2) completes
-- Application code changes
-- Configuration updates
+- Platform configuration changes (db, auth, minio, vault, observability)
 
 **How to trigger manually:**
 1. Go to repository → **Actions** → **Deploy**
 2. Click **"Run workflow"**
-3. Click **"Run workflow"** button
+3. Choose `service`: `all | db | auth | minio | vault | observability`
 
 **Auto-trigger:**
-- Push to `main` branch (if files changed in `src/**`, `deploy/**`, `scripts/**`)
+- Push to `main`, scoped to the specific platform paths declared in
+  `deploy.yml`'s own `paths:` list (keycloak, postgres, observability
+  configs, and the `db`/`minio`/`auth`/`vault`/`observability` prod compose
+  files) — not a blanket `src/**`/`deploy/**` trigger, and never triggered
+  by application code changes in the tenant repo.
 
 **What happens:**
 1. Validates Docker Compose files and scripts
 2. Sets up Tailscale, SSH, and SOPS on runner
 3. Gets Tailscale IP from encrypted secrets
 4. Verifies SSH connectivity
-5. Deploys application services via SSH (production certificates)
+5. Deploys the selected platform stack(s) via SSH (production certificates)
 6. Runs health checks
 
 **Certificate details:**
@@ -520,7 +543,9 @@ After setup, you should have these **5 secrets** configured:
 - **Rate limited:** 50 certificates/week, 5 validation failures/hour
 
 **After completion:**
-- All services running (api, ai, mcp, auth, ui, traefik, portainer)
+- Platform stacks running (db, auth, minio, vault, observability, traefik,
+  portainer). `api`, `ai`, `mcp`, `ui` are not affected by this workflow —
+  see `hill90-app`'s own deploy pipeline for their status.
 - Production certificates active
 - Services health-checked
 
