@@ -101,3 +101,20 @@ PY
   run bash -c "python3 '$CHECK' | grep -c 'pre-up hook'"
   [ "$output" -eq 1 ]
 }
+
+# WIRING, not logic (h#736/h#758): every test above proves the check's LOGIC
+# is correct. None of them prove anything ever RUNS it — before this fix, this
+# check's only caller anywhere was this bats file, exactly the TEST-ONLY
+# outcome h#736 taught check_checks_are_wired.py to catch. UNLIKE checks 1-5/8
+# in this series, this one is genuinely NOT hermetic — it needs `sops -d` on
+# the real store, which ci.yml never sets up and this file's own setup()
+# above SKIPS without. It runs on the VPS during a deploy instead, where
+# /opt/hill90/secrets/keys/keys.txt already exists — the same h#738 shape.
+# This test does NOT require the age key itself; it only greps the workflow
+# file, which is always present in the checkout regardless of setup()'s skip.
+@test "h#758: reusable-deploy-service.yml genuinely invokes this check, not just mentions it" {
+  ROOT="$BATS_TEST_DIRNAME/../.."
+  run grep -n "python3 scripts/checks/check_vault_covers_compose.py" \
+    "$ROOT/.github/workflows/reusable-deploy-service.yml"
+  [ "$status" -eq 0 ]
+}
