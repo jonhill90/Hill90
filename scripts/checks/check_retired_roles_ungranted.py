@@ -4,6 +4,13 @@
     python3 scripts/checks/check_retired_roles_ungranted.py           # static, CI
     python3 scripts/checks/check_retired_roles_ungranted.py --live    # + live estate
 
+Exit 0 = no retired role is granted anything (measured, clean). Exit 1 = a
+retired role IS granted something (measured, real problem). Exit 2 = --live
+could not measure at all — SSH/the remote command chain failed, or its output
+could not be parsed. 2 is not 0: an unreachable host must never read as "no
+retired role is granted", which is the null result that happens to agree with
+what everyone hopes is true. See h#727.
+
 WHY. Deleting the four zero-holder realm roles is only safe while nothing grants
 them anything. The danger is the reverse of the usual one: a grant attached to a
 role with no holders costs nothing today and everything the moment someone is
@@ -98,12 +105,33 @@ def static_checks(retired: set[str]) -> list[str]:
     return problems
 
 
+class LiveCheckUnreachable(Exception):
+    """The live estate could not be measured at all.
+
+    Must never be folded into `problems` and reported through the same exit
+    code as a genuine PASS or FAIL. An SSH failure (VPS unreachable, tailscale
+    down, the remote command chain itself failing) is the dangerous null
+    here: it agrees with what everyone hopes is true ("no retired role is
+    granted"), which is exactly backwards from a check whose entire job is to
+    notice a silent grant. See h#727 — `ssh(cmd) or "[]"` used to turn "the
+    connection failed and stdout is empty" into "valid JSON for an empty
+    list", so the surrounding except never fired and this printed a PASS
+    having measured nothing.
+    """
+
+
 def live_checks(retired: set[str]) -> list[str]:
-    """Measure holders and read the live estate. Needs the VPS."""
+    """Measure holders and read the live estate. Needs the VPS.
+
+    Returns a normal problems list (possibly empty — clean) on a genuine
+    measurement. Raises LiveCheckUnreachable if the estate could not be
+    reached or a remote command failed, so a caller can never mistake
+    "could not measure" for "measured and clean".
+    """
     problems: list[str] = []
 
-    def ssh(cmd: str) -> str:
-        return subprocess.run(["ssh", "vps", cmd], capture_output=True, text=True).stdout
+    def ssh(cmd: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["ssh", "vps", cmd], capture_output=True, text=True)
 
     kc = (
         "cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && "
@@ -114,11 +142,22 @@ def live_checks(retired: set[str]) -> list[str]:
         "--realm master --user \"$U\" >/dev/null 2>&1; "
         "docker exec keycloak /opt/keycloak/bin/kcadm.sh get roles -r platform --fields name 2>/dev/null"
     )
+    kc_result = ssh(kc)
+    # The remote command is a `;`-chained sequence ending in the kcadm read, so
+    # its exit code — whether the failure is ssh itself refusing to connect,
+    # or the docker exec/kcadm call inside failing — is the last command's,
+    # which is the one we actually need to have succeeded.
+    if kc_result.returncode != 0:
+        raise LiveCheckUnreachable(
+            f"could not read live realm roles — ssh/remote command exited "
+            f"{kc_result.returncode}: {kc_result.stderr.strip() or '(no stderr)'}"
+        )
     try:
-        live_roles = {x["name"] for x in json.loads(ssh(kc) or "[]")}
+        live_roles = {x["name"] for x in json.loads(kc_result.stdout)}
     except Exception as e:  # noqa: BLE001
-        problems.append(f"could not read live realm roles, so holders are UNMEASURED: {e}")
-        return problems
+        raise LiveCheckUnreachable(
+            f"ssh succeeded but the realm-roles output could not be parsed as JSON: {e}"
+        ) from e
 
     still = sorted(retired & live_roles)
     print(f"  {'MISS' if still else 'ok  '}  live realm roles: retired ones still present = {', '.join(still) or 'none'}")
@@ -129,8 +168,25 @@ def live_checks(retired: set[str]) -> list[str]:
         "cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && "
         "bash scripts/checks/minio-policy-names-test.sh 2>/dev/null | grep 'MinIO policies:'"
     )
-    line = ssh(pol_cmd)
-    live_pol = set(line.split(":", 1)[1].split()) if ":" in line else set()
+    pol_result = ssh(pol_cmd)
+    # minio-policy-names-test.sh never prints "MinIO policies:" on a failure
+    # (it exits 1 with a distinct stderr message instead — see its own
+    # `[ -n "$POLICIES" ] || { echo "Could not list MinIO policies" >&2; exit
+    # 1; }`), so grep finding nothing to match propagates as this ssh
+    # command's own non-zero exit — no pipefail needed for that half. A
+    # connection failure that never reaches the remote script at all behaves
+    # identically: grep sees no input, matches nothing, exits 1.
+    if pol_result.returncode != 0:
+        raise LiveCheckUnreachable(
+            f"could not read live MinIO policies — ssh/remote command exited "
+            f"{pol_result.returncode}: {pol_result.stderr.strip() or '(no stderr)'}"
+        )
+    line = pol_result.stdout
+    if ":" not in line:
+        raise LiveCheckUnreachable(
+            f"ssh succeeded but the MinIO policy line could not be parsed: {line!r}"
+        )
+    live_pol = set(line.split(":", 1)[1].split())
     bad = sorted(retired & live_pol)
     print(f"  {'MISS' if bad else 'ok  '}  live MinIO policies: retired ones still present = {', '.join(bad) or 'none'}")
     for r in bad:
@@ -157,7 +213,18 @@ def main() -> int:
     problems = static_checks(retired)
     if args.live:
         print()
-        problems += live_checks(retired)
+        try:
+            problems += live_checks(retired)
+        except LiveCheckUnreachable as e:
+            print(f"CANNOT DETERMINE — {e}")
+            print(
+                "\nThis is NOT a pass. An unreachable host must never be read as "
+                "'no retired role is granted' — that is the answer that agrees "
+                "with what everyone hopes, which is exactly the wrong direction "
+                "for this check to fail in. Fix connectivity to the VPS and "
+                "re-run, or check the failure above by hand."
+            )
+            return 2
 
     print()
     if problems:
