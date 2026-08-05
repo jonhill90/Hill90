@@ -220,12 +220,36 @@ bookkeeping; no agents, no chats, no user records. Nothing to preserve — every
 is created by a migration and every `created_at` falls inside the 960 ms window of
 the migration run — but say "nothing worth preserving", not "empty".
 
-**Still true today, on the LIVE (post-cutover) database, re-read directly rather
-than assumed forward from the paragraph above.** `Verified 2026-08-04`: `agents`,
-`chat_threads` and `provider_connections` are all **zero** rows on the live
-`hill90_api`. The estate still has no agents, no chats and no provider
-connections. Several claims elsewhere in this file and in hill90-app's are sized
-on that fact — re-check it before trusting anything that assumes activity.
+**This said all three tables were empty, and that stopped being true the same
+day.** It read: *"`Verified 2026-08-04`: `agents`, `chat_threads` and
+`provider_connections` are all **zero** rows on the live `hill90_api`. The estate
+still has no agents, no chats and no provider connections."* True when written;
+false a few hours later.
+
+`Verified 2026-08-05 01:05 UTC`, read from the live database:
+
+- **`agents` — 1 row.** `platform-guide` / "Platform Guide", `status=stopped`,
+  on the `default` model policy and the `standard` container profile, owned by
+  `jon`. Seeded for QA, **not created through `POST /agents`** — direct access
+  grants are off on every client in the realm and I was not going to enable
+  password grant on the client fronting hill90.com to insert a demo row. The
+  INSERT mirrors the route's own statement column for column, so the row is
+  shaped like a real one; the **create path itself remains unexercised**, and a
+  human clicking "Create Agent" is what would prove it.
+- **`provider_connections` — 1 row.** "Platform OpenAI", `created_by IS NULL`
+  so it is platform-wide rather than anyone's BYOK. It holds the OpenAI key the
+  estate already gives LiteLLM, encrypted with the api's own
+  `encryptProviderKey`. The stored value was decrypted and compared back to the
+  input in the same script — the create route validates nothing against the
+  provider, so an unreadable blob would have stored as happily as a good key.
+- **`chat_threads` — still 0.** No chat has happened.
+
+Knowledge is no longer near-empty either: **3 collections, 7 sources, 7 chunks**
+in `hill90_akm`, all owned by `jon`, six of them seeded through the knowledge
+service's real ingestion path rather than by SQL.
+
+Claims elsewhere in this file and in hill90-app's that are sized on "no
+activity" should be re-checked against these numbers rather than the old ones.
 
 ## Still not done — do not let these read as finished
 
