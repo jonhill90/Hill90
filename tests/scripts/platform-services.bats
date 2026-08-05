@@ -259,8 +259,15 @@ c = [x for x in r['clients'] if x['clientId'] == 'hill90-vault'][0]
 assert c.get('secret') == '\${VAULT_OIDC_CLIENT_SECRET}', c.get('secret')
 "
   [ "$status" -eq 0 ]
-  # ...and the compose stack must actually pass that variable in.
-  run grep -F 'VAULT_OIDC_CLIENT_SECRET=${VAULT_OIDC_CLIENT_SECRET}' deploy/compose/prod/docker-compose.auth.yml
+  # ...and the compose stack must actually pass that variable in. Not an
+  # exact-string match: the sibling-drift sweep added a ${VAR:?...} required
+  # guard to this line (matching minio.yml's own pattern), which a literal
+  # grep for the old bare form would break on every subsequent legitimate
+  # change to the guard's message — the same "grep for a literal a legitimate
+  # change can reformat" lesson as chat-sse-reconnect-cursor.test.ts's own
+  # comment in the sibling hill90-app repo.
+  run grep -E 'VAULT_OIDC_CLIENT_SECRET=\$\{VAULT_OIDC_CLIENT_SECRET(:[?-][^}]*)?\}' \
+    deploy/compose/prod/docker-compose.auth.yml
   [ "$status" -eq 0 ]
 }
 

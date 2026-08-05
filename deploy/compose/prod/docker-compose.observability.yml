@@ -176,7 +176,7 @@ services:
       - ../../../platform/observability/grafana/provisioning:/etc/grafana/provisioning:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-https://grafana.hill90.com}
       # --- Keycloak SSO (issue #530) ---------------------------------------
       # THE LOCAL ADMIN LOGIN STAYS. disable_login_form defaults to false and is
@@ -188,7 +188,7 @@ services:
       - GF_AUTH_GENERIC_OAUTH_ENABLED=${GRAFANA_OIDC_ENABLED:-true}
       - GF_AUTH_GENERIC_OAUTH_NAME=Keycloak
       - GF_AUTH_GENERIC_OAUTH_CLIENT_ID=grafana
-      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET}
+      - GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET=${GRAFANA_OIDC_CLIENT_SECRET:?GRAFANA_OIDC_CLIENT_SECRET must be set}
       - GF_AUTH_GENERIC_OAUTH_SCOPES=openid email profile
       # Explicit endpoints rather than OIDC discovery, deliberately: discovery
       # would make Grafana fetch from Keycloak, and a slow or absent IdP should

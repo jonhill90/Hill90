@@ -23,10 +23,22 @@ ROOT = Path(__file__).resolve().parents[2]
 # Stateful compose files that must have explicit volume names.
 # Variables declared with ${VAR:?...} in the compose files above. They have no
 # default by design; `compose config` refuses to render without them.
+#
+# Sibling-drift sweep: db.yml and observability.yml gained the same ${VAR:?}
+# guard minio.yml already had (auth.yml too, but it is not in TARGET_FILES
+# below, so its own vars — KC_ADMIN_USERNAME/PASSWORD, VAULT_OIDC_CLIENT_SECRET —
+# are not needed here). This list must stay in sync with every :?-guarded var
+# in a TARGET_FILES entry, the same way ci.yml's own "Validate compose files"
+# step does — this is what broke when the guard was added and this list was
+# not updated in the same change.
 REQUIRED_PLACEHOLDERS = [
     "MINIO_ROOT_USER",
     "MINIO_ROOT_PASSWORD",
     "MINIO_OIDC_CLIENT_SECRET",
+    "DB_USER",
+    "DB_PASSWORD",
+    "GRAFANA_ADMIN_PASSWORD",
+    "GRAFANA_OIDC_CLIENT_SECRET",
 ]
 
 TARGET_FILES = [
