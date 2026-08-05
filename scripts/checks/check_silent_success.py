@@ -82,6 +82,12 @@ ALLOWLIST_B = {
         "the FIRST step of the job — nothing can have failed before it, so the "
         "implicit success() is unreachable. Matched on the word 'Refuse'."
     ),
+    ("reusable-deploy-service.yml", "Prove no retired role is granted anything, on the live estate"): (
+        "a VERIFICATION, not a cleanup — same reasoning as the MinIO and "
+        "Grafana entries above (h#738). success() is correct: verifying a "
+        "deploy that did not happen proves nothing. Matched on the word "
+        "'Prove'."
+    ),
 }
 
 CLEANUP_WORDS = re.compile(

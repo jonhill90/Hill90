@@ -176,3 +176,45 @@ STUB
   [ "$found_status" -eq 1 ]
   [ "$unreachable_status" -eq 2 ]
 }
+
+# --------------------------------------------------------------- --local ----
+#
+# h#738: --live had no caller anywhere. `ssh vps <cmd>` is a literal SSH
+# CONFIG ALIAS that only resolves on a workstation whose personal
+# ~/.ssh/config defines `Host vps` — no workflow in this repo ever
+# establishes it, which is the actual reason --live was unwireable, not a
+# missing workflow step. --local runs the same commands directly instead,
+# matching the shape minio-policy-names-test.sh and check_alert_series.py
+# already use once a workflow has SSH'd onto the VPS.
+#
+# THE ASSERTION THAT MATTERS, proven without any stub: this sandbox has no
+# /opt/hill90/app, so the remote command's own `cd /opt/hill90/app` fails
+# immediately if run as a literal local command. That failure message is
+# categorically different from what an accidental `ssh vps <cmd>` call would
+# produce (a hostname-resolution or connection failure, not a `cd` error) —
+# so which message appears proves which transport actually ran, without
+# needing to stub ssh, docker, or anything else.
+
+@test "--live --local runs the command directly (bash -c), not via ssh vps" {
+  run python3 "$CHECK" --live --local
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"CANNOT DETERMINE"* ]]
+  # Proves bash -c actually ran the command string locally: a `cd` failure,
+  # not an ssh/hostname-resolution failure.
+  [[ "$output" == *"No such file or directory"* ]]
+  [[ "$output" != *"Could not resolve hostname"* ]]
+}
+
+@test "--local is a no-op without --live — static mode is unaffected" {
+  run python3 "$CHECK" --local
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+  [[ "$output" != *"CANNOT DETERMINE"* ]]
+}
+
+@test "default --live (no --local) still goes through ssh vps, unchanged from h#727" {
+  setup_ssh_stub clean
+  run env PATH="$STUB_DIR:$PATH" python3 "$CHECK" --live
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
