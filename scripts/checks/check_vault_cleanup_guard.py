@@ -62,10 +62,23 @@ COPYBACK_INVOCATION = re.compile(
     r"scp\s.*deploy@.*:/opt/hill90/app/infra/secrets/prod\.enc\.env\s+.*infra/secrets/prod\.enc\.env",
     re.DOTALL,
 )
-# Accepts `steps.<id>.outcome == 'success'` or `!= 'failure'`, in any
-# combination with `always()` (e.g. `always() && steps.copy.outcome != 'failure'`).
+# Accepts ONLY `steps.<id>.outcome == 'success'`, in any combination with
+# always() or another OR'd clause (e.g. `always() && steps.copy.outcome ==
+# 'success'`, or vault-sync-to-sops.yml's `always() && (steps.compare.
+# outputs.changed != 'true' || steps.copy-back.outcome == 'success')`).
+#
+# `!= 'failure'` used to be accepted too, and that was the actual gap: a
+# copy-back step with no `if:` of its own is skipped whenever an EARLIER step
+# in the same job already failed — its outcome is 'skipped', not 'failure',
+# so `!= 'failure'` is true and the revert runs anyway. Reachable for real:
+# cmd_store_unseal_key writes the key into the host's checkout BEFORE its own
+# round-trip verification runs, so a failure there — the verification's own
+# anticipated case — leaves copy-back skipped, not failed, and the old
+# pattern let the revert through in exactly that window. Only `== 'success'`
+# closes it; `.search()` still finds it fine inside a larger OR expression
+# like vault-sync-to-sops.yml's, so no per-file special-casing is needed here.
 GATED_ON_OUTCOME = re.compile(
-    r"steps\.([A-Za-z0-9_.\-]+)\.outcome\s*(==\s*'success'|!=\s*'failure')"
+    r"steps\.([A-Za-z0-9_.\-]+)\.outcome\s*==\s*'success'"
 )
 
 

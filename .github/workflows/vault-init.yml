@@ -174,16 +174,25 @@ jobs:
           echo "OPENBAO_UNSEAL_KEY decrypts to $LEN bytes"
           [ "$LEN" -gt 0 ] || { echo "::error::OPENBAO_UNSEAL_KEY missing after copy-back"; exit 1; }
 
-      # Gated on copy-back having actually captured the new unseal key, not a
-      # bare always(). This step only exists to clean the host's local
-      # checkout NOW THAT the key is safely in git — if copy-back failed
-      # (network blip mid-scp, or the decrypt check above), the host's copy
-      # is the only place that key existed. Reverting it anyway would discard
-      # the one thing this whole run existed to produce, during exactly the
-      # disaster-recovery scenario this workflow is for. See
-      # scripts/checks/check_vault_cleanup_guard.py.
+      # Gated on copy-back having actually SUCCEEDED, not merely "not
+      # failure". copy-back has no if: of its own, so it is only skipped
+      # when an earlier step already failed — and cmd_store_unseal_key
+      # writes the key into the host's checkout BEFORE its own round-trip
+      # verification runs, so a failure there (the write producing something
+      # unreadable — the verification's own anticipated case) leaves
+      # copy-back SKIPPED, not failed. `!= 'failure'` let the revert through
+      # in exactly that window; only `== 'success'` closes it. skipped is
+      # never legitimate here, unlike vault-sync-to-sops.yml below, where
+      # copy-back is deliberately conditional on there being drift to sync.
+      #
+      # What is actually at risk is a RE-RUN, not the key itself:
+      # cmd_store_unseal_key reads the key from the host's own persistent
+      # /opt/hill90/secrets/openbao-unseal.key, which this revert step never
+      # touches. What reverting early would discard is this attempt's
+      # mutated checkout — the thing worth inspecting or retrying from — not
+      # the key's only copy. See scripts/checks/check_vault_cleanup_guard.py.
       - name: Restore host checkout
-        if: always() && steps.copy-back.outcome != 'failure'
+        if: always() && steps.copy-back.outcome == 'success'
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \

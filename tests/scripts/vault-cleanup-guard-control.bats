@@ -56,7 +56,7 @@ import sys
 p = sys.argv[1]
 t = open(p).read()
 t = t.replace(
-    "if: always() && steps.copy-back.outcome != 'failure'",
+    "if: always() && steps.copy-back.outcome == 'success'",
     "if: always()",
     1,
 )
@@ -68,18 +68,48 @@ PY
   [[ "$output" == *"does not reference"* ]]
 }
 
+# THE ASSERTION THAT MATTERS, per the reviewer's own finding: `!= 'failure'`
+# was the check's own accepted pattern until this fix, and it is unsound —
+# copy-back has no `if:` of its own in vault-init.yml/vault-reinitialize.yml,
+# so it is SKIPPED (not failed) whenever an earlier step in the job already
+# failed, and `!= 'failure'` is true for a skipped outcome too. Reachable for
+# real: cmd_store_unseal_key writes the key into the host's checkout BEFORE
+# its own round-trip verification runs, so a failure in that verification —
+# its own anticipated case — left copy-back skipped, and the old pattern let
+# the revert through in exactly that window.
+@test "THE ASSERTION THAT MATTERS: a revert gated on != 'failure' (admits a SKIPPED copy-back) turns it red" {
+  local wf="$CTL/.github/workflows/vault-init.yml"
+  python3 - "$wf" <<'PY'
+import sys
+p = sys.argv[1]
+t = open(p).read()
+t2 = t.replace(
+    "if: always() && steps.copy-back.outcome == 'success'",
+    "if: always() && steps.copy-back.outcome != 'failure'",
+    1,
+)
+assert t2 != t, "mutation did not apply"
+open(p, "w").write(t2)
+PY
+  run run_check
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"vault-init.yml"* ]]
+  [[ "$output" == *"does not reference"* ]]
+}
+
 @test "removing the revert step's if: condition entirely turns it red" {
   local wf="$CTL/.github/workflows/vault-sync-to-sops.yml"
   python3 - "$wf" <<'PY'
 import sys
 p = sys.argv[1]
 t = open(p).read()
-t = t.replace(
-    "        if: always() && steps.copy-back.outcome != 'failure'\n        run: |\n          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \\\n            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \\\n            \"cd /opt/hill90/app && \\\n             git checkout -- infra/secrets/prod.enc.env",
+t2 = t.replace(
+    "        if: always() && (steps.compare.outputs.changed != 'true' || steps.copy-back.outcome == 'success')\n        run: |\n          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \\\n            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \\\n            \"cd /opt/hill90/app && \\\n             git checkout -- infra/secrets/prod.enc.env",
     "        run: |\n          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \\\n            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \\\n            \"cd /opt/hill90/app && \\\n             git checkout -- infra/secrets/prod.enc.env",
     1,
 )
-open(p, "w").write(t)
+assert t2 != t, "mutation did not apply"
+open(p, "w").write(t2)
 PY
   run run_check
   [ "$status" -eq 1 ]
