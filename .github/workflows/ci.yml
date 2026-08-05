@@ -211,3 +211,12 @@ jobs:
 
       - name: Run check script tests
         run: pip install pytest pyyaml && pytest tests/checks/ -v
+
+      # Hill90#736: this checker's own bats control
+      # (tests/scripts/checks-are-wired-control.bats) used to be its only
+      # caller — which, after that fix, is exactly the TEST-ONLY outcome
+      # this file exists to catch. A bats control proves the checker's
+      # LOGIC works against a fabricated fixture; it does not prove
+      # anything runs the checker for real. This step is that real caller.
+      - name: Every check must be invoked by something real
+        run: python3 scripts/checks/check_checks_are_wired.py
