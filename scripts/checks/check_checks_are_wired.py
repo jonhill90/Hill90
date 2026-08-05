@@ -100,7 +100,57 @@ TEST_SOURCES = ("bats", "pytest")
 # an acknowledgment of a known gap, not a decision that it is acceptable
 # forever.
 ALLOWLIST: dict[str, str] = {
-    "tenant-login-local-test.sh": "test-only, found by h#736 — tracked in h#758",
+    # h#758 8/8, closed as FILED rather than wired — the only one of the eight
+    # that did not end in a real caller. It needs a RUNNING LOCAL PLATFORM
+    # STACK (docker inspect on a Keycloak container named from
+    # $CONTAINER_PREFIX, plus .env.local for host/port/secret config) — its
+    # own pytest wrapper's docstring already said so before this entry was
+    # written: "the only check in the suite that needs a RUNNING local
+    # platform stack, so it skips rather than fails when there isn't one —
+    # including in CI... Run it locally after `bash scripts/local.sh up`."
+    # Verified directly: the property IS true right now, run against a real
+    # local stack (all 9 assertions passed) — this is not a stale check, just
+    # one CI structurally cannot reach.
+    #
+    # Checked against all three places h#758 asks a check to run before
+    # calling it unreachable:
+    #   CI (ci.yml)      — no local platform stack exists on a GitHub-hosted
+    #                       runner, and none of the other 7 checks in this
+    #                       series needed one; realm-tenant-serves-test.sh
+    #                       (h#758 7/8) proves Keycloak emits the same claim
+    #                       without needing this stack, by building its own
+    #                       throwaway Keycloak instead of a full local.sh
+    #                       stack.
+    #   VPS deploy step   — reusable-deploy-service.yml deploys PRODUCTION;
+    #                       this script tests the LOCAL platform, a different
+    #                       Keycloak instance with different container names,
+    #                       hosts and a separate local secrets store
+    #                       (scripts/local.sh's own $LOCAL_VAULT_DIR, kept
+    #                       deliberately isolated from
+    #                       infra/secrets/prod.enc.env — see cmd_sso's
+    #                       comment on that isolation). There is no VPS
+    #                       concept this maps to.
+    #   scheduled workflow — none of the four existing scheduled workflows
+    #                       (audit-hill90-ui-client, deploy-drift,
+    #                       tenant-baseline-agreement, vault-sync-to-sops)
+    #                       stand up an ephemeral local dev stack; all four
+    #                       check the live production estate directly.
+    #                       Building one from scratch — full docker compose
+    #                       orchestration matching compose/local.yml plus
+    #                       overrides, hostname/DNS resolution for
+    #                       $AUTH_HOST.$BASE_DOMAIN, generating a fresh local
+    #                       age key and secrets — is new infrastructure this
+    #                       change does not add, and a decision for Jon, not
+    #                       an agent improvising inside "wire the check."
+    #
+    # If that infrastructure is ever built for another reason, this check
+    # should be the first thing pointed at it.
+    "tenant-login-local-test.sh": (
+        "genuinely cannot run in CI, a VPS deploy step, or any existing "
+        "scheduled workflow — needs a full local platform stack with no "
+        "current home in this pipeline. See the block comment above this "
+        "entry. Filed, not wired: h#758 8/8."
+    ),
 }
 
 
