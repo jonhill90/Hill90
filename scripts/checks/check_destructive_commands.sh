@@ -33,8 +33,22 @@ PAT_PRUNE="docker system prune"
 ALLOW_VOLUME_DESTRUCTION="scripts/local.sh
 .github/workflows/vault-reinitialize.yml"
 
+# Guards the 0==0 trap: `for f in scripts/*.sh .github/workflows/*.yml` with
+# neither glob matching leaves the pattern unexpanded as a literal string,
+# `[ -f "$f" ]` false, `continue` past it — FAIL never leaves 0, and the
+# script prints "No destructive volume commands found" having scanned
+# nothing. Reproduced: `cd /tmp/empty && bash check_destructive_commands.sh`
+# exits 0 with that message. check_alert_counts_documented.py already
+# refuses to treat two independently-empty derivations as agreement for this
+# exact reason; this script had no equivalent guard. The only thing that
+# makes this latent rather than live today is that its sole caller
+# (ci.yml's "Assert no destructive volume commands" step) runs via
+# actions/checkout@v4 with no working-directory override, so cwd is always
+# the repo root — one workflow edit away from silently scanning zero files.
+SCANNED=0
 for f in scripts/*.sh .github/workflows/*.yml; do
   [ -f "$f" ] || continue
+  SCANNED=$((SCANNED + 1))
 
   # Strip comment and blank lines before checking
   STRIPPED=$(grep -v '^[[:space:]]*#' "$f" 2>/dev/null | grep -v '^[[:space:]]*$') || true
@@ -55,7 +69,12 @@ for f in scripts/*.sh .github/workflows/*.yml; do
   fi
 done
 
+if [ "$SCANNED" -eq 0 ]; then
+  echo "CANNOT DETERMINE: scripts/*.sh and .github/workflows/*.yml matched zero files — nothing was scanned. Run this from the repository root."
+  exit 2
+fi
+
 if [ "$FAIL" -eq 0 ]; then
-  echo "No destructive volume commands found."
+  echo "No destructive volume commands found (${SCANNED} files scanned)."
 fi
 exit $FAIL
