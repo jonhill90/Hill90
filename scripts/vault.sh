@@ -909,17 +909,41 @@ cmd_sync_to_sops() {
 
     local synced=0
     local skipped=0
+    local failed_paths=()
 
     for path in "${SYNC_PATHS[@]}"; do
         echo "Reading ${path}..."
 
         # Read raw JSON from vault — do NOT use vault_read_kv() which
         # shell-escapes values via shlex.quote(), breaking multiline secrets.
+        #
+        # h#735-sweep, platform-side: a docker-exec/connection failure used
+        # to read identically to a genuinely absent path — `2>/dev/null`
+        # discarded the difference, "Path not found or not accessible" was
+        # printed either way, and the loop `continue`d silently. $skipped
+        # only counts key-level DEDUP skips, never a whole dropped path, so
+        # up to 3 keys could vanish from every summary with zero trace — and
+        # this function writes the REAL production infra/secrets/prod.enc.env,
+        # and is what the scheduled, unattended vault-sync-to-sops.yml calls.
+        # Because this never returned non-zero for a skipped path, that
+        # workflow always reported success, which means the
+        # scheduled-checks-watchdog built earlier today to catch a red
+        # scheduled run never had a red run to catch.
+        local json_err
+        json_err="$(mktemp)"
         local json_output
-        json_output=$(bao_exec_env kv get -format=json "$path" 2>/dev/null) || {
-            warn "Path not found or not accessible: $path — skipping"
+        json_output=$(bao_exec_env kv get -format=json "$path" 2>"$json_err")
+        if [ -z "$json_output" ]; then
+            if grep -q "No value found at" "$json_err"; then
+                warn "Path genuinely absent: $path — this is a canonical path and is expected to exist. Skipping it, but this run is NOT clean."
+            else
+                warn "Could not read $path — $(cat "$json_err") — skipping it, but this run is NOT clean."
+            fi
+            failed_paths+=("$path")
+            rm -f "$json_err"
             continue
-        }
+        fi
+        rm -f "$json_err"
 
         # Parse JSON to KEY=VALUE lines (raw values, no shell escaping)
         echo "$json_output" | python3 -c "
@@ -967,6 +991,11 @@ for k, v in sorted(data.items()):
     trap - RETURN
 
     echo ""
+    if [ "${#failed_paths[@]}" -gt 0 ]; then
+        echo "$synced keys synced, $skipped duplicates skipped, ${#failed_paths[@]} path(s) UNREAD: ${failed_paths[*]}"
+        echo "Backup saved: $backup_file"
+        die "Sync INCOMPLETE — not every canonical path was read. The SOPS file was updated with what WAS read, which is not the same as being current. See the warnings above for which path(s) and why."
+    fi
     success "Sync complete! $synced keys synced, $skipped duplicates skipped."
     echo "Backup saved: $backup_file"
 }
@@ -1258,7 +1287,22 @@ existing root token instead:
     echo ""
     echo "Revoking temporary root token..."
     assert_safe_to_revoke
-    bao_exec_env token revoke -self 2>/dev/null || warn "Failed to revoke root token (may have already expired)"
+    # `token revoke -self` prints "Revoked token (if it existed)" and exits 0
+    # regardless of whether it actually revoked anything — cmd_revoke_root's
+    # own comment on this exact call says so. This used to trust that exit
+    # code (`|| warn`, a soft, buried message under a green "Bootstrap
+    # complete!" banner) instead of reusing cmd_revoke_root's own verified
+    # pattern from this same file: revoke, then independently confirm with
+    # `token lookup` that the token is actually dead, and refuse to report
+    # success if it is not. A live, unconstrained, non-expiring root token
+    # surviving this function is the same risk category h#726 closed for the
+    # workflow-level revoke steps, on the one root-minting path that mints
+    # and revokes its own token entirely inside a single local run.
+    bao_exec_env token revoke -self >/dev/null 2>&1 || true
+    if bao_exec_env token lookup >/dev/null 2>&1; then
+        die "Root token is STILL VALID after the revoke call. Do NOT leave this host until it is revoked — a live root token is unconstrained access to every secret. Run: bash scripts/vault.sh revoke-root"
+    fi
+    success "✓ Root token revoked and confirmed dead"
     unset BAO_TOKEN
 
     echo ""
