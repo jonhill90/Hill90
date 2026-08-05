@@ -60,7 +60,21 @@ secret_for() {
     if [ -z "$value" ]; then
         require_file "$SECRETS_FILE" "Secrets file"
         ensure_age_key prod
-        value=$(sops -d "$SECRETS_FILE" 2>/dev/null | grep "^${var}=" | cut -d= -f2- || true)
+        # Split declaration from assignment on purpose: `local decrypted=$(...)`
+        # would discard sops's own exit status — `local` returns its own status,
+        # and set -e does not see the command substitution's failure inside it.
+        # That is exactly the shape this fix exists to close, so writing it the
+        # natural way would reintroduce the defect while fixing it.
+        local decrypted
+        if ! decrypted=$(sops -d "$SECRETS_FILE" 2>/dev/null); then
+            die "could not decrypt ${SECRETS_FILE} — check the age key for prod"
+        fi
+        # A decrypt failure and a genuinely-absent key used to produce the
+        # identical "not set and was not found" message, sending an operator
+        # debugging the wrong file instead of their age key. Never echo
+        # $decrypted itself — only pipe it, so the file's contents never reach
+        # stdout/stderr regardless of which branch below fires.
+        value=$(printf '%s' "$decrypted" | grep "^${var}=" | cut -d= -f2- || true)
     fi
     [ -n "$value" ] || die "${var} is not set and was not found in ${SECRETS_FILE}"
     printf '%s' "$value"
