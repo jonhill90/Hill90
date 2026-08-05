@@ -89,6 +89,19 @@ def seeded_keys(path: str) -> set[str]:
 
 def main() -> int:
     declared = declared_paths()
+
+    # h#730: declared_paths() returning empty is indistinguishable from every
+    # case arm in vault_paths_for_service() having rotted out of the regex,
+    # and would pass vacuously — "every declared path is seeded" having
+    # checked zero of them. Refuse instead, matching the sibling check this
+    # one is modelled on: check_oidc_clients_reconciled.py's identical guard
+    # on `refs` a few lines into its own main().
+    if not declared:
+        print("FAIL — no declared paths found at all. The pattern no longer matches "
+              "anything in vault_paths_for_service(), which is a broken check, not a "
+              "clean estate.", file=sys.stderr)
+        return 1
+
     seeded = seeded_paths()
     required = required_keys()
 

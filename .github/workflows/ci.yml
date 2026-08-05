@@ -160,9 +160,25 @@ jobs:
       - name: Assert a root-minting workflow revokes and confirms on failure
         run: python3 scripts/checks/check_root_revoke_fails_closed.py
 
+      # h#728: this ran advisory-only (STRICT=0) since it was added — real
+      # warnings were printed but never failed the build. Flipped to strict
+      # after establishing, not assuming, that it costs nothing today: ran
+      # in strict mode against the real repo (zero findings, and confirmed
+      # that's a genuine clean by checking the comparison counts — 43
+      # compose refs, 38 SOPS keys, 22+4+2+5 schema entries — not an
+      # empty-input vacuous pass), confirmed strict and non-strict report
+      # IDENTICAL warning content and differ ONLY in the trailing "Strict
+      # mode: failing" line and exit code (diffed both against a real
+      # injected violation), and positive-controlled the flip itself against
+      # a real compose-file mutation: an undeclared ${VAR} added to
+      # docker-compose.infra.yml turned this red, reverting it turned this
+      # green. See h#728's PR and issue comment for the full inventory. Does
+      # NOT cover drift between infra/secrets/prod.enc.env and its own
+      # .example template — this check reads only the checked-in example,
+      # never the encrypted store.
       - name: Validate secrets schema consistency
         env:
-          SECRETS_SCHEMA_STRICT: "0"
+          SECRETS_SCHEMA_STRICT: "1"
         run: python3 scripts/checks/check_secrets_schema.py
 
       - name: Assert no destructive volume commands
