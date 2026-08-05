@@ -394,12 +394,30 @@ teardown_real_volume() {
   setup_real_volume
   FUNCS="$BATS_TEST_TMPDIR/funcs.sh"
   BACKUP_VOLUME_FUNCS "$PWD/scripts/backup.sh" > "$FUNCS"
+  # NOT chmod 555 on the parent — that denies a normal user, but
+  # backup_volume writes via `docker run` as root inside the container, and
+  # root ignores directory permission bits. Verified directly (not assumed):
+  # a container writing into a bind-mounted, chmod-555 host directory
+  # succeeds when run as root on real Linux (GitHub Actions' own runner —
+  # macOS Docker Desktop's bind-mount layer masked this locally, which is
+  # exactly how this got past local testing). CI caught this: the test
+  # passed 555 as "unwritable," root wrote through it anyway, and the
+  # assertion that the write must fail was the thing that was wrong.
+  #
+  # A destination that is ALREADY A DIRECTORY denies the write regardless of
+  # uid — `tar czf` on an existing directory fails EISDIR for root exactly
+  # as it does for anyone else. Verified against the real alpine image this
+  # function uses, as root: `tar: can't open '...': Is a directory`, exit 1.
   ro_dir="$BATS_TEST_TMPDIR/readonly"
   mkdir -p "$ro_dir"
-  chmod 555 "$ro_dir"
   dest="$ro_dir/vol.tar.gz"
+  mkdir -p "$dest"
+  # Evidence, not assumption: what uid actually performs the write, on
+  # THIS run, in THIS environment. Printed unconditionally so it's in every
+  # CI log next to the assertion it explains, not just asserted about here.
+  echo "# outer shell uid: $(id -u)" >&3
+  echo "# container write uid: $(docker run --rm alpine id -u)" >&3
   run bash -c "warn() { echo \"WARN: \$*\" >&2; }; source '$FUNCS'; backup_volume '$TEST_VOL' '$dest'"
-  chmod 755 "$ro_dir"
   teardown_real_volume
   [ "$status" -ne 0 ]
   [[ "$output" != *"✓ Saved"* ]]
@@ -409,12 +427,17 @@ teardown_real_volume() {
 @test "CONTROL: the OLD backup_volume shape would have reported success on the same real failure (regression guard)" {
   # Not a test of the new function — a permanent record that the bug was
   # real, using the exact real failure the fixed version now catches.
+  #
+  # Same fix as the assertion test above, same reason: chmod 555 does not
+  # stop root, and this container writes as root. A pre-existing directory
+  # at the destination path denies the write for root just as it does for
+  # anyone else.
   command -v docker >/dev/null || skip "docker not available"
   setup_real_volume
   ro_dir="$BATS_TEST_TMPDIR/readonly-old"
   mkdir -p "$ro_dir"
-  chmod 555 "$ro_dir"
   dest="$ro_dir/vol.tar.gz"
+  mkdir -p "$dest"
   OLD_FUNC="$BATS_TEST_TMPDIR/old_backup_volume.sh"
   cat > "$OLD_FUNC" <<'OLD'
 backup_volume_old() {
@@ -425,11 +448,10 @@ backup_volume_old() {
 }
 OLD
   run bash -c "source '$OLD_FUNC'; backup_volume_old '$TEST_VOL' '$dest'"
-  chmod 755 "$ro_dir"
   teardown_real_volume
   [ "$status" -eq 0 ]
   [[ "$output" == *"✓ Saved"* ]]
-  # The tar genuinely failed (readonly destination) — this is the false pass.
+  # The tar genuinely failed (EISDIR) — this is the false pass.
 }
 
 @test "REAL DOCKER: restore_volume FAILS loud (not '✓ Restored') on a genuinely corrupt archive" {
