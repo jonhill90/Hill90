@@ -155,6 +155,13 @@ jobs:
       # ========================================
       # 6. CLEANUP
       # ========================================
+      # Vestigial: workflow-silent-success sweep (2026-08-05) traced this and
+      # found no step in THIS file that ever creates a *.backup.* under
+      # infra/secrets — the pattern only comes from scripts/secrets.sh and
+      # scripts/vault.sh, neither of which this workflow calls. `find` here
+      # matches nothing on every run. Left in place rather than deleted
+      # (harmless, `|| true`), and noted so the next sweep doesn't
+      # re-investigate it as a live always()-after-failure candidate.
       - name: Cleanup backup files
         if: always()
         run: |
