@@ -113,9 +113,22 @@ cmd_init() {
     echo "================================"
     echo ""
 
-    # Check if already initialized
+    # Check if already initialized. `bao status` exits 0 unsealed, 2 sealed —
+    # both mean it actually answered and the JSON is usable — or 1 on error
+    # (unreachable, container broken). The old form piped straight into
+    # grep/tr with no pipefail, so a genuine "sealed: false" and an
+    # unreachable OpenBao both collapsed to the same empty string, and the
+    # code proceeded down the "not initialized" branch either way. Use the
+    # exit code, which distinguishes them, instead of inferring from output
+    # that looks the same in both cases.
+    local status_json rc=0
+    status_json=$(bao_exec status -format=json 2>&1) || rc=$?
+    case "$rc" in
+        0|2) ;;
+        *) die "could not determine OpenBao's status (bao status exited ${rc}) — is the container reachable? ${status_json}" ;;
+    esac
     local init_status
-    init_status=$(bao_exec status -format=json 2>/dev/null | grep '"initialized"' | tr -d ' ,"' || echo "")
+    init_status=$(printf '%s' "$status_json" | grep '"initialized"' | tr -d ' ,"')
     if [[ "$init_status" == *"true"* ]]; then
         warn "OpenBao is already initialized"
         echo "Use 'vault.sh unseal' if it is sealed, or 'vault.sh status' to check."
@@ -487,9 +500,20 @@ cmd_unseal() {
 
     echo "Unsealing OpenBao..."
 
-    # Check if already unsealed
+    # Check if already unsealed. Same exit-code distinction as cmd_init: 0/2
+    # mean bao answered (unsealed/sealed) and the JSON is usable, 1 means it
+    # could not be reached at all. The old form treated both an unreachable
+    # OpenBao and a genuinely-sealed one as "not confirmed unsealed" and fell
+    # through to attempt a real unseal either way — die early instead, with a
+    # message that names the actual problem.
+    local status_json rc=0
+    status_json=$(bao_exec status -format=json 2>&1) || rc=$?
+    case "$rc" in
+        0|2) ;;
+        *) die "could not determine OpenBao's status (bao status exited ${rc}) — is the container reachable? ${status_json}" ;;
+    esac
     local sealed_status
-    sealed_status=$(bao_exec status -format=json 2>/dev/null | grep '"sealed"' | tr -d ' ,"' || echo "")
+    sealed_status=$(printf '%s' "$status_json" | grep '"sealed"' | tr -d ' ,"')
     if [[ "$sealed_status" == *"false"* ]]; then
         success "OpenBao is already unsealed"
         return 0
@@ -1159,9 +1183,20 @@ cmd_bootstrap_approles() {
     require_file "$SECRETS_FILE" "Secrets file"
     ensure_age_key prod
 
-    # Ensure vault is unsealed
+    # Ensure vault is unsealed. Same exit-code distinction as cmd_init and
+    # cmd_unseal: die on rc 1 (unreachable) rather than letting an empty
+    # status silently fall through to "assume sealed, call cmd_unseal" —
+    # cmd_unseal now dies with the same reachability message anyway, but
+    # this gives the operator the answer one call earlier and for the
+    # right reason.
+    local status_json rc=0
+    status_json=$(bao_exec status -format=json 2>&1) || rc=$?
+    case "$rc" in
+        0|2) ;;
+        *) die "could not determine OpenBao's status (bao status exited ${rc}) — is the container reachable? ${status_json}" ;;
+    esac
     local sealed_status
-    sealed_status=$(bao_exec status -format=json 2>/dev/null | grep '"sealed"' | tr -d ' ,"' || echo "")
+    sealed_status=$(printf '%s' "$status_json" | grep '"sealed"' | tr -d ' ,"')
     if [[ "$sealed_status" != *"false"* ]]; then
         echo "Vault is sealed — unsealing first..."
         cmd_unseal
