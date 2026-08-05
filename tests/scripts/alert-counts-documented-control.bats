@@ -15,6 +15,22 @@ setup() {
   cp "$ROOT/platform/observability/prometheus/alerts.yml" "$CTL/platform/observability/prometheus/"
   cp "$ROOT/CLAUDE.md" "$CTL/"
   CHECK="$CTL/scripts/checks/check_alert_counts_documented.py"
+
+  # Today's real counts, measured here rather than written in as literals.
+  #
+  # They used to be hardcoded as 18 and 9, which meant every alert rule added
+  # to the estate turned this control red — h#712 added a group of eight and
+  # four tests failed on numbers that were never the thing under test. A
+  # control that has to be edited whenever the subject changes teaches people
+  # to edit controls.
+  #
+  # Deliberately measured with grep, not by parsing YAML: the check under test
+  # parses YAML, and a control that re-derives its expectation the same way the
+  # subject does is comparing a method against itself. Two methods against one
+  # file is a real second opinion; the same method twice is one measurement.
+  ALERTS="$ROOT/platform/observability/prometheus/alerts.yml"
+  REAL_RULES=$(grep -c '^[[:space:]]*- alert:' "$ALERTS")
+  REAL_GROUPS=$(grep -c '^[[:space:]]*- name:' "$ALERTS")
 }
 
 @test "CONTROL: passes on the real tree" {
@@ -28,7 +44,7 @@ setup() {
   [ "$status" -eq 0 ]
   # A 0/0 == 0/0 agreement would pass while measuring nothing.
   [[ "$output" != *"0 rules in 0 groups"* ]]
-  [[ "$output" == *"18 rules in 9 groups"* ]]
+  [[ "$output" == *"$REAL_RULES rules in $REAL_GROUPS groups"* ]]
 }
 
 # THE ACTUAL 2026-08-03 DEFECT, replayed: the document lags the rules.
@@ -46,8 +62,8 @@ PY
 
   run python3 "$CHECK"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"file has 18, CLAUDE.md claims 16"* ]]
-  [[ "$output" == *"file has 9, CLAUDE.md claims 8"* ]]
+  [[ "$output" == *"file has $REAL_RULES, CLAUDE.md claims 16"* ]]
+  [[ "$output" == *"file has $REAL_GROUPS, CLAUDE.md claims 8"* ]]
 }
 
 # The other direction: someone adds a rule and does not touch the sentence.
@@ -64,7 +80,7 @@ PY
 
   run python3 "$CHECK"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"file has 19, CLAUDE.md claims 18"* ]]
+  [[ "$output" == *"file has $((REAL_RULES + 1)), CLAUDE.md claims $REAL_RULES"* ]]
 }
 
 # Adding a GROUP too, so both dimensions are exercised rather than just one.
@@ -80,7 +96,7 @@ PY
 
   run python3 "$CHECK"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"file has 10, CLAUDE.md claims 9"* ]]
+  [[ "$output" == *"file has $((REAL_GROUPS + 1)), CLAUDE.md claims $REAL_GROUPS"* ]]
 }
 
 # A check that cannot find its target must FAIL, not pass. Otherwise deleting the
