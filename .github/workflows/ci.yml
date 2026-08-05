@@ -116,6 +116,19 @@ jobs:
       - name: Assert no path revokes root before OIDC is enabled
         run: python3 scripts/checks/check_vault_revoke_order.py
 
+      # h#726: written to catch the exact regression in run 30791332461 (a
+      # revoke step's `if:` ANDed with success() skipped it on failure and
+      # left a live root token on production), then never invoked — the
+      # detection logic was proven only against synthetic bats fixtures,
+      # never against this repo's real workflow files. Static and read-only:
+      # parses .github/workflows/*.yml from the checkout, no vault, no SSH,
+      # no secret. Verified before wiring, against a mutated copy of the
+      # real vault-regain-root.yml with the exact historical condition
+      # reintroduced: goes red, correctly, on both the revoke-step and the
+      # confirm-step half of the property.
+      - name: Assert a root-minting workflow revokes and confirms on failure
+        run: python3 scripts/checks/check_root_revoke_fails_closed.py
+
       - name: Validate secrets schema consistency
         env:
           SECRETS_SCHEMA_STRICT: "0"
