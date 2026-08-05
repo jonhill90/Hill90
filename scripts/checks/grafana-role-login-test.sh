@@ -84,9 +84,46 @@ unset PASSWORD
 
 J="$TMP/jar"
 
+# --- 0. wait for Grafana itself, not the flow ------------------------------
+# A Grafana just recreated by this same deploy can answer before its OAuth
+# routes are wired — the process is up, but generic_oauth is not yet
+# registered. A single curl to /login/generic_oauth at that moment gets an
+# empty (or otherwise non-Keycloak) redirect, which step 1 below reads as
+# "generic_oauth is disabled". It is not disabled; it is not ready yet. #724.
+#
+# Polled, not slept: a fixed sleep either races on a slow start or wastes
+# time on a fast one. /api/health is Grafana's own readiness endpoint — the
+# same one its container healthcheck already uses (docker-compose.observability.yml)
+# — and empirically (see #724's fix commit) its 200 lands at or fractionally
+# before generic_oauth's own route becomes reachable, never meaningfully
+# after, across repeated trials against a real container. Bounded so a
+# Grafana that never comes up fails with a clear, specific message instead of
+# hanging the deploy.
+GRAFANA_READY_DEADLINE="${GRAFANA_READY_DEADLINE_SECONDS:-60}"
+GRAFANA_READY_INTERVAL="${GRAFANA_READY_INTERVAL_SECONDS:-1}"
+ready_deadline=$(( $(date +%s) + GRAFANA_READY_DEADLINE ))
+grafana_ready=""
+while [ "$(date +%s)" -lt "$ready_deadline" ]; do
+    if [ "$(curl -sS -o /dev/null -w '%{http_code}' "${GRAFANA_URL}/api/health")" = "200" ]; then
+        grafana_ready=1
+        break
+    fi
+    sleep "$GRAFANA_READY_INTERVAL"
+done
+if [ -z "$grafana_ready" ]; then
+    bad "Grafana never reported healthy at ${GRAFANA_URL}/api/health within ${GRAFANA_READY_DEADLINE}s — not a generic_oauth question, Grafana itself is not up"
+    exit 1
+fi
+ok "Grafana is serving (/api/health)"
+
 # --- 1. start the flow at Grafana -------------------------------------------
 # Grafana mints an oauth state cookie here; without carrying it the callback is
 # rejected as a CSRF failure, which reads like a broken IdP.
+#
+# Readiness is now established (step 0), so an empty or unexpected redirect
+# here is a REAL condition this check exists to catch — generic_oauth
+# silently off, or misdirected at something other than this realm's Keycloak
+# — not a race with Grafana's own startup.
 AUTH_URL="$(curl -sS -c "$J" -o /dev/null -w '%{redirect_url}' "${GRAFANA_URL}/login/generic_oauth")"
 case "$AUTH_URL" in
     "${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/auth"*)
