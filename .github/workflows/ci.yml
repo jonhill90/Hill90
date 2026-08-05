@@ -131,6 +131,19 @@ jobs:
       - name: Assert every referenced OIDC client is created on the deploy path
         run: python3 scripts/checks/check_oidc_clients_reconciled.py
 
+      # h#758 (found by h#736's fix): wired only to its own bats/pytest
+      # control since it was written. Fully hermetic — parses
+      # platform/auth/keycloak/platform-realm.json statically, no live
+      # Keycloak needed, no design question about WHERE it can run. Pins
+      # the tenant's authorization shape against exactly the regression
+      # class that produced hill90-app#306/#704: hill90-ui losing its
+      # `basic` client scope (no `sub` claim, every login refused) or its
+      # `roles` scope (every permission check silently empty), or gaining a
+      # realm-roles mapper it must never have (a client-admin inheriting
+      # infrastructure-admin).
+      - name: Assert the realm's tenant clients match the shape production runs
+        run: python3 scripts/checks/check_realm_tenant_clients.py
+
       # h#727: static mode (no --live) is explicitly documented in the
       # script's own module docstring as "static, CI" — this wires that
       # documented, secrets-free half in. It cannot see holders (needs the
