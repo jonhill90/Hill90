@@ -80,6 +80,35 @@ jobs:
       # workflows extending existing VPS access, one gaining it from
       # scratch — was checked file-by-file before building this, not
       # assumed uniform across all four.
+      # Added by the sibling-drift sweep, which found the other three
+      # scheduled workflows guarding these same four secrets before use and
+      # this one not. Placed HERE, not before "Compare the two lists" like
+      # its siblings' guards precede their primary check: this job's actual
+      # comparison needs none of these four secrets at all — only the
+      # heartbeat below does, per the comment at the top of this job — so an
+      # unconditional preflight up front would block a check that does not
+      # need it. `if: always()`, matching every other step in this VPS-access
+      # block, so a missing secret is still caught (and fails the job
+      # loudly, distinct from a real baseline disagreement, which already
+      # failed the earlier step) even when the comparison itself has already
+      # succeeded or failed on its own terms.
+      - name: Preflight — required secrets are present, for the heartbeat below
+        if: always()
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          missing=()
+          for name in TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET VPS_SSH_PRIVATE_KEY SOPS_AGE_KEY; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Scheduled-workflow heartbeat cannot run: missing secret(s) ${missing[*]}. The baseline comparison above is unaffected; this is the dead-man's-switch metric failing to record, not the comparison."
+            exit 1
+          fi
+
       - name: Setup Tailscale
         if: always()
         uses: tailscale/github-action@v2

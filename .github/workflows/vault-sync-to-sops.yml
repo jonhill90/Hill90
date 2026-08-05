@@ -35,6 +35,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Same guard as deploy-drift.yml's — added by the sibling-drift sweep
+      # that found this workflow, audit-hill90-ui-client.yml and
+      # tenant-baseline-agreement.yml using the identical four secrets
+      # without it. Unlike tenant-baseline-agreement.yml, this job's entire
+      # purpose depends on VPS/vault access from the start, so this belongs
+      # up front like its other two siblings, not scoped to a later step.
+      - name: Preflight — required secrets are present
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          missing=()
+          for name in TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET VPS_SSH_PRIVATE_KEY SOPS_AGE_KEY; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Vault-to-SOPS sync cannot run: missing secret(s) ${missing[*]}. This is not a pass — nothing was synced."
+            exit 1
+          fi
+
       - name: Setup Tailscale
         uses: tailscale/github-action@v2
         with:
@@ -75,7 +97,7 @@ jobs:
 
       - name: Verify SSH connectivity
         run: |
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} 'echo "SSH connection successful"'
 
       # h#711: replaces the old "Read sync token from SOPS" step.
@@ -107,7 +129,7 @@ jobs:
       - name: Check script drift
         run: |
           LOCAL_HASH=$(sha256sum scripts/vault.sh | cut -d' ' -f1)
-          REMOTE_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          REMOTE_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'sha256sum /opt/hill90/app/scripts/vault.sh | cut -d" " -f1')
           if [ "$LOCAL_HASH" != "$REMOTE_HASH" ]; then
@@ -117,7 +139,7 @@ jobs:
       - name: Hash SOPS before sync
         id: before
         run: |
-          BEFORE_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          BEFORE_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && sops -d /opt/hill90/app/infra/secrets/prod.enc.env | sha256sum | cut -d" " -f1')
           echo "hash=$BEFORE_HASH" >> $GITHUB_OUTPUT
@@ -142,7 +164,7 @@ jobs:
           # same reason: interpolated into the ssh/docker-exec command line,
           # they'd sit in `ps -Ao args` on the VPS, visible to any local
           # user there, regardless of Actions log masking.
-          TOKEN=$(printf '%s\n%s' "$ROLE_ID" "$SECRET_ID" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          TOKEN=$(printf '%s\n%s' "$ROLE_ID" "$SECRET_ID" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'read -r ROLE_ID; read -r SECRET_ID; export ROLE_ID SECRET_ID; \
              docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e ROLE_ID -e SECRET_ID openbao \
@@ -162,7 +184,7 @@ jobs:
           SYNC_TOKEN: ${{ steps.approle-login.outputs.token }}
         run: |
           # Same reasoning as the login step: stdin, not argv.
-          printf '%s' "$SYNC_TOKEN" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          printf '%s' "$SYNC_TOKEN" | ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'read -r BAO_TOKEN; export BAO_TOKEN; \
              export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt; \
@@ -171,7 +193,7 @@ jobs:
       - name: Hash SOPS after sync
         id: after
         run: |
-          AFTER_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          AFTER_HASH=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && sops -d /opt/hill90/app/infra/secrets/prod.enc.env | sha256sum | cut -d" " -f1')
           echo "hash=$AFTER_HASH" >> $GITHUB_OUTPUT
@@ -190,14 +212,14 @@ jobs:
       - name: Copy updated SOPS from VPS
         if: steps.compare.outputs.changed == 'true'
         run: |
-          scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/opt/hill90/app/infra/secrets/prod.enc.env \
             infra/secrets/prod.enc.env
 
       - name: Cleanup VPS
         if: always()
         run: |
-          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && \
              git checkout -- infra/secrets/prod.enc.env && \
