@@ -177,3 +177,25 @@ PY
   [ "$status" -eq 0 ]
   [[ "$output" == *"PASS"* ]]
 }
+
+# THE ASSERTION THAT MATTERS: MINT's invocation strings going blind (a renamed
+# or reshaped vault.sh subcommand) must refuse rather than reporting PASS
+# having audited zero workflows. vault-regain-root.yml and vault-init.yml are
+# known, current root-minting workflows — a run that finds none is a check
+# that stopped looking, not an estate that stopped minting root tokens. Same
+# shape as check_vault_covers_compose.py's declared()/required_vars() guards.
+@test "THE ASSERTION THAT MATTERS: no root-minting workflow found at all refuses rather than passing vacuously" {
+  for f in "$CTL"/.github/workflows/*.yml; do
+    sed -i.bak \
+      -e 's/vault\.sh regain-root/vault.sh reclaim-root/g' \
+      -e 's/vault\.sh init/vault.sh bootstrap-root/g' \
+      "$f"
+    rm -f "$f.bak"
+  done
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL"* ]]
+  [[ "$output" == *"no root-minting workflow found at all"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
