@@ -90,7 +90,9 @@ docs/                   runbooks, reference, architecture, decisions
    whole time, independent of the exit-code bug.** The check has only ever
    grepped `scripts/deploy.sh` — never `scripts/local.sh`, never any
    `.github/workflows/*.yml` file. `scripts/local.sh` uses `--remove-orphans`
-   in six places (added 2026-07-26), which is why this line no longer claims
+   in **twelve** places (added 2026-07-26) — six services across two teardown
+   paths, `down` (lines 444, 446, 448, 450, 452, 454) and `down -v` (lines
+   495, 496, 497, 498, 500, 501) — which is why this line no longer claims
    "every script": that usage runs exclusively against Docker Desktop
    compose projects prefixed `hill90-local-` (the same local-only scope
    `check_destructive_commands.sh`'s volume-destruction exemption already
