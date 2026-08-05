@@ -210,14 +210,24 @@ jobs:
           fi
 
       - name: Copy updated SOPS from VPS
+        id: copy-back
         if: steps.compare.outputs.changed == 'true'
         run: |
           scp -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }}:/opt/hill90/app/infra/secrets/prod.enc.env \
             infra/secrets/prod.enc.env
 
+      # Gated on EITHER there being no drift to sync (copy-back's own if:
+      # legitimately skipped it, and sync-to-sops may have re-encrypted the
+      # file with no content change to preserve — still fine to clean up) OR
+      # copy-back having actually SUCCEEDED. NOT `!= 'failure'`: that also
+      # passes when copy-back never ran because an EARLIER step in this same
+      # conditional chain died, which is a different skip than "no drift" —
+      # an upstream death with unsynced secret material never captured off
+      # the host, exactly the case vault-init.yml's identical fix closes.
+      # See scripts/checks/check_vault_cleanup_guard.py.
       - name: Cleanup VPS
-        if: always()
+        if: always() && (steps.compare.outputs.changed != 'true' || steps.copy-back.outcome == 'success')
         run: |
           ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
