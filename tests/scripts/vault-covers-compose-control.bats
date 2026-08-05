@@ -118,3 +118,63 @@ PY
     "$ROOT/.github/workflows/reusable-deploy-service.yml"
   [ "$status" -eq 0 ]
 }
+
+# THE ASSERTION THAT MATTERS: declared() parses the SAME vault_paths_for_
+# service() function, with the identical regex, as check_declared_paths_are_
+# seeded.py's declared_paths() — which was hardened after exactly this drift
+# happened for real (h#730): `echo "..."` becoming `printf '%s' "..."` drops
+# every case arm from the parse while the outer function-body regex still
+# matches, and every real service then reads as "declares no vault paths ->
+# SOPS path, which has all keys" and is skipped before ever being compared —
+# a run that checked zero services printing PASS. This check shared the exact
+# same unguarded regex until this fix; the sibling's own control
+# (declared-paths-seeded-control.bats) exercises the identical mutation.
+@test "THE ASSERTION THAT MATTERS: every case arm losing its echo shape refuses rather than passing vacuously" {
+  python3 - "$CTL/scripts/_common.sh" <<'PY'
+import re, sys
+p = sys.argv[1]
+t = open(p).read()
+m = re.search(r"vault_paths_for_service\(\)\s*\{(.*?)\n\}", t, re.S)
+assert m, "fixture setup broken: could not find the function to mutate"
+body = m.group(1)
+mutated_body = re.sub(r'echo\s+"', 'printf \'%s\' "', body)
+assert mutated_body != body, "mutation did not apply"
+t2 = t[:m.start(1)] + mutated_body + t[m.end(1):]
+open(p, "w").write(t2)
+PY
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL"* ]]
+  [[ "$output" == *"no declared vault paths found at all"* ]]
+  # Must not be silently indistinguishable from a genuine clean pass, and must
+  # not read as every service legitimately declaring nothing.
+  [[ "$output" != *"PASS"* ]]
+  [[ "$output" != *"declares no vault paths"* ]]
+}
+
+# The other function sharing this shape: vault_required_vars_for_service()
+# going blind must also refuse rather than silently reporting every compose
+# variable as missing from the runtime guard's manifest (a noisy false
+# positive) OR, worse, silently reporting nothing wrong if the under-coverage
+# check happens to short-circuit first.
+@test "vault_required_vars_for_service() losing its echo shape also refuses rather than passing vacuously" {
+  python3 - "$CTL/scripts/_common.sh" <<'PY'
+import re, sys
+p = sys.argv[1]
+t = open(p).read()
+m = re.search(r"vault_required_vars_for_service\(\)\s*\{(.*?)\n\}", t, re.S)
+assert m, "fixture setup broken: could not find the function to mutate"
+body = m.group(1)
+mutated_body = re.sub(r'echo\s+"', 'printf \'%s\' "', body)
+assert mutated_body != body, "mutation did not apply"
+t2 = t[:m.start(1)] + mutated_body + t[m.end(1):]
+open(p, "w").write(t2)
+PY
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL"* ]]
+  [[ "$output" == *"no required-vars entries found at all"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
