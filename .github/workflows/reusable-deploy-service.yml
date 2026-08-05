@@ -108,6 +108,46 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             "cd /opt/hill90/app && bash scripts/deploy.sh verify ${{ inputs.service }}"
 
+      # PROVE VAULT ACTUALLY CARRIES EVERY SECRET THE COMPOSE FILE NEEDS.
+      #
+      # h#758 (found by h#736's fix): wired only to its own bats/pytest control
+      # since it was written. Genuinely NOT hermetic, unlike checks 1-5/8 in
+      # this same series — it calls `sops -d` on the real encrypted store to
+      # read SOPS key NAMES (never values), which is the same distinction the
+      # rest of this series draws between "no design question" and "needed a
+      # real one" (h#727/h#738). ci.yml has no age key anywhere (confirmed: no
+      # `sops`/`SOPS_AGE_KEY` reference exists in it at all), and the check's
+      # own bats control (tests/scripts/vault-covers-compose-control.bats)
+      # already SKIPS rather than fails when no key is present — proof this
+      # cannot run there. It CAN run here: /opt/hill90/secrets/keys/keys.txt
+      # already exists on the VPS for every deploy, and is the check's own
+      # second candidate key path (see sops_key_names() in the check itself) —
+      # no new secret, no new access, the exact shape --live --local took in
+      # h#738.
+      #
+      # AFTER the deploy, not before, so the checkout this reads from is the
+      # one `git reset --hard origin/main` just made current — same reason
+      # "Checkout preflight" above stopped running the host's stale copy.
+      # Placing it earlier would mean checking the PREVIOUS deploy's files.
+      # This means it detects the #665 outage class immediately after a bad
+      # deploy rather than preventing it outright; blocking it beforehand
+      # would mean rewriting the single SSH command in "Deploy
+      # ${{ inputs.service }}" above, which is deploy-mechanics work, not
+      # wiring a check, and is out of scope here.
+      #
+      # UNGATED BY inputs.service, unlike the checks below: this one examines
+      # every prod compose file in one pass regardless of which service
+      # triggered the run, so it runs on every deploy.
+      #
+      # success(), same reasoning as every "Prove ..." step below: verifying a
+      # deploy that did not happen proves nothing.
+      - name: Prove vault carries every secret the compose files need
+        if: success()
+        run: |
+          ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && python3 scripts/checks/check_vault_covers_compose.py'
+
       # PROVE SSO STILL WORKS, not just that the container is healthy.
       #
       # On 2026-08-03 an observability deploy started Grafana with an empty

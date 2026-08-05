@@ -88,6 +88,12 @@ ALLOWLIST_B = {
         "deploy that did not happen proves nothing. Matched on the word "
         "'Prove'."
     ),
+    ("reusable-deploy-service.yml", "Prove vault carries every secret the compose files need"): (
+        "a VERIFICATION, not a cleanup — same reasoning as the other four "
+        "'Prove ...' entries above (h#758 6/8). success() is correct: "
+        "verifying a deploy that did not happen proves nothing. Matched on "
+        "the word 'Prove'."
+    ),
 }
 
 CLEANUP_WORDS = re.compile(
