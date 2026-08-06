@@ -509,7 +509,19 @@ cmd_service() {
         # saying why) keeps this permanent, structural non-event from
         # reading like a real, transient AppRole failure on some other
         # service, which is the whole reason this file's warnings exist.
-        info "vault stack always uses SOPS — authenticating to OpenBao to deploy OpenBao would be circular (h#844)"
+        #
+        # h#850 review: the skip above was unconditional on $service and
+        # never checked whether the premise it assumes was still true. Kept
+        # the skip — a vault-self login stays circular regardless of whether
+        # credentials for it exist — but the silence is now conditional on
+        # VAULT_VAULT_ROLE_ID/_SECRET_ID actually being absent, so the
+        # assumption announces itself the day someone bootstraps one rather
+        # than this silently doing nothing forever.
+        if vault_approle_credentials_present "vault" "$secrets_file"; then
+            warn "VAULT_VAULT_ROLE_ID/_SECRET_ID now exist in the store — this stack still will not use them, because authenticating to OpenBao to deploy OpenBao is circular regardless of whether credentials exist for it. Investigate why a vault-self AppRole was created; it is unused by this path and always will be (h#850)."
+        else
+            info "vault stack always uses SOPS — authenticating to OpenBao to deploy OpenBao would be circular (h#844)"
+        fi
     elif vault_available; then
         # h#815: see the identical capture on the infra path above for why the
         # stream order matters here — stdout (a bare token on success) must

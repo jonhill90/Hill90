@@ -360,28 +360,65 @@ EOF
 # rather than left indistinguishable from OpenBao's generic rejection text.
 # ---------------------------------------------------------------------------
 
-@test "h#844: the vault stack never calls vault_login at all — sops is never even invoked" {
-  # If vault_login somehow ran, this sops stub would explode loudly and the
-  # probe's output would carry the failure. It must not appear.
-  cat > "$STUB/sops" <<'EOF'
-#!/usr/bin/env bash
-echo "sops should NEVER be invoked for the vault stack" >&2
-exit 99
-EOF
-  chmod +x "$STUB/sops"
+@test "h#850, ARM 1 (credentials absent): the vault stack never calls vault_login — sops is checked, not skipped, but the login attempt never happens" {
+  # h#850 review: the skip used to be unconditional on $service, never
+  # checking whether VAULT_VAULT_ROLE_ID/_SECRET_ID actually existed —
+  # reproduced empirically by the reviewing lane with a stub handing out a
+  # real-looking role_id/secret_id pair and showing the login was never
+  # attempted regardless. sops IS now invoked (vault_approle_credentials_present
+  # reads the store to check), so this arm stubs it to report absence
+  # honestly rather than asserting sops is never called at all.
+  stub_sops_no_credentials_for vault
 
   run run_service_probe vault
-  [[ "$output" != *"should NEVER be invoked"* ]]
   [[ "$output" != *"vault_login:"* ]]
+  [[ "$output" != *"docker"* ]]
+  [[ "$output" == *"vault stack always uses SOPS"* ]]
   [[ "$output" == *"circular"* ]]
+  [[ "$output" != *"now exist in the store"* ]]
   [[ "$output" == *"VAULT_OK=false"* ]]
 }
 
-@test "h#844: the vault stack's message says why, not just that it failed" {
+@test "h#850, ARM 2 (credentials present): the skip stays, but a loud warning fires instead of silence" {
+  # The premise (no VAULT_VAULT_ROLE_ID/_SECRET_ID could sensibly exist) is
+  # now DETECTABLE rather than merely assumed. This is the arm that did not
+  # exist before the review found the gap — a conditional never seen to take
+  # its other branch is not a conditional.
+  stub_sops_credentials_for vault "some-role-id" "some-secret-id"
+
   run run_service_probe vault
-  [[ "$output" == *"vault stack always uses SOPS"* ]]
-  [[ "$output" != *"OpenBao login failed"* ]]
-  [[ "$output" != *"falling back to SOPS"* ]]
+  # Still never attempts the login itself — the skip is kept, only its
+  # silence is now conditional.
+  [[ "$output" != *"vault_login:"* ]]
+  [[ "$output" != *"OpenBao authenticated for vault"* ]]
+  [[ "$output" == *"VAULT_VAULT_ROLE_ID/_SECRET_ID now exist in the store"* ]]
+  [[ "$output" == *"Investigate why a vault-self AppRole was created"* ]]
+  [[ "$output" == *"VAULT_OK=false"* ]]
+  # Distinguishable from minio's structural-absence warning — opposite
+  # polarity (unexpected presence, not expected absence), must not read as
+  # the same "ignore this" shape.
+  [[ "$output" != *"No AppRole exists"* ]]
+  [[ "$output" != *"(see #720)"* ]]
+}
+
+@test "h#850: vault's unexpected-credentials warning is distinguishable from minio's structural-absence warning" {
+  stub_sops_credentials_for vault "some-role-id" "some-secret-id"
+  run run_service_probe vault
+  vault_out="$output"
+
+  stub_sops_credentials_for minio "r" "s"
+  stub_docker_rejects_login
+  run run_service_probe minio
+  minio_out="$output"
+
+  [ "$vault_out" != "$minio_out" ]
+  # An operator must not be able to read one as the other: vault's says
+  # "this showed up and should not have — go find out why"; minio's says
+  # "this is known and tracked, ignore it". Opposite instructions.
+  [[ "$vault_out" == *"Investigate why"* ]]
+  [[ "$minio_out" != *"Investigate why"* ]]
+  [[ "$minio_out" == *"see #720"* ]]
+  [[ "$vault_out" != *"see #720"* ]]
 }
 
 @test "h#844: minio's AppRole rejection is labeled structural and points at #720" {
