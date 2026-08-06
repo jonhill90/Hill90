@@ -248,7 +248,32 @@ Bootstrap all AppRole credentials automatically:
 bash scripts/vault.sh bootstrap-approles
 ```
 
-This generates role_id + secret_id for all 9 services and stores them in SOPS. It temporarily generates a root token (via unseal key), runs setup, creates credentials, then revokes the root token.
+This generates role_id + secret_id for the services in `VAULT_SERVICES` and stores
+them in SOPS. It temporarily generates a root token (via unseal key), runs setup,
+creates credentials, then revokes the root token.
+
+> **There are FIVE, not nine.** `Verified 2026-08-05` against `scripts/vault.sh:31`,
+> which is the source of truth:
+>
+> ```sh
+> VAULT_SERVICES="db auth infra observability sync"
+> ```
+>
+> This line previously said "all 9 services". It was wrong, and wrong in the
+> document someone follows while rebuilding from nothing — expecting nine and
+> finding five during a rebuild is exactly the wrong moment to discover a count
+> is fictional.
+>
+> **`minio` and `vault` deliberately have no AppRole.** They are not in
+> `VAULT_SERVICES` and never have been, so their deploys legitimately fall back
+> to SOPS. A deploy log line reading `WARNING: OpenBao available but login failed
+> for minio, falling back to SOPS` is the **designed** behaviour for those two,
+> not a fault — see #791, where that warning was first read as credential decay.
+>
+> Corroborated independently: the root-level enumeration in
+> [`auth-outage-2026-08-03.md`](../decisions/auth-outage-2026-08-03.md) lists the
+> AppRoles that actually exist in the vault as `db`, `auth`, `infra`,
+> `observability`.
 
 ### 9. Deploy Database
 
