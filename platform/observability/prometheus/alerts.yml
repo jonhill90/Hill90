@@ -83,6 +83,13 @@ groups:
 
   - name: service-health
     rules:
+      # This rule is itself comparison-shaped, so it cannot fire if `up` has no
+      # series for a target at all — but that is not a silent gap the way it is
+      # elsewhere in this file: Prometheus synthesises `up` for every configured
+      # scrape target on its own, so total absence means the target was removed
+      # from scrape_configs, a deliberate edit, not a service failing quietly.
+      # Recorded here so the absence-blindness sweep (h#789) is not rediscovered
+      # as a finding against this rule specifically.
       - alert: ServiceDown
         expr: up == 0
         for: 5m
@@ -295,9 +302,17 @@ groups:
       # three quarters of an hour of silence before this pages, which is right for
       # "you have lost observability" rather than "the estate is down".
       #
-      # If Loki itself is down the series goes stale and this does NOT fire —
-      # ServiceDown covers that case. This one catches Loki healthy and receiving
-      # nothing, which is the case nothing else sees.
+      # If Loki itself is down long enough to trip ServiceDown (`up{job="loki"}`,
+      # 5m), that rule covers it — REAL coverage is container-down. It does NOT
+      # cover Loki running and answering scrapes while this specific series is
+      # renamed or relabeled away, e.g. by a version bump: `up` would stay 1 and
+      # ServiceDown would never fire, while this rule's own series would vanish
+      # with it. That gap is what LokiIngestionSignalMissing below closes — h#789's
+      # absence-blindness sweep flagged this comment for previously claiming
+      # ServiceDown as full coverage, which it was not.
+      #
+      # This one catches Loki healthy and receiving nothing, which is the case
+      # nothing else sees.
       - alert: LokiIngestionStalled
         expr: rate(loki_distributor_lines_received_total[15m]) == 0
         for: 30m
@@ -317,6 +332,37 @@ groups:
             target, so this alert is the only signal that it has stopped. If promtail
             is healthy, `docker logs --tail 50 loki` and confirm the push endpoint
             with `docker exec loki wget -qO- http://localhost:3100/ready`.
+          runbook: docs/runbooks/observability.md
+
+      # The watcher-watching case for LokiIngestionStalled — mirrors
+      # BackupSignalMissing/ScheduledWorkflowSignalMissing. If
+      # loki_distributor_lines_received_total is renamed, relabeled away, or
+      # simply never emitted by a future Loki version, `rate(<absent>[15m]) == 0`
+      # yields NO RESULT and LokiIngestionStalled can never fire — a stalled-
+      # ingestion alert silent about the metric it depends on not existing. `for`
+      # is short relative to the Backup/ScheduledWorkflow SignalMissing rules'
+      # 6h: those watch a once-nightly textfile heartbeat, where hours of gap are
+      # normal; this watches a continuously-scraped metric, where the standard
+      # ~5m staleness window already accounts for a single missed scrape, so 10m
+      # is margin, not tolerance for an expected gap.
+      - alert: LokiIngestionSignalMissing
+        expr: absent(loki_distributor_lines_received_total)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The Loki ingestion-rate metric has disappeared entirely"
+          description: >-
+            loki_distributor_lines_received_total is absent, so LokiIngestionStalled
+            cannot fire at all. If Loki is also down, ServiceDown should be firing
+            separately — check that first. If Loki is up and answering scrapes, the
+            metric was likely renamed or relabeled, most plausibly after a version
+            change.
+          action: >-
+            `docker ps --filter name=loki` to rule out the down case (ServiceDown
+            should already be firing if so). If Loki is running, `docker exec loki
+            wget -qO- http://localhost:3100/metrics | grep -i lines_received` to find
+            what the metric is now called, and update this rule's expr to match.
           runbook: docs/runbooks/observability.md
 
       # Logs actively rejected, as opposed to absent. 429 is rate-limiting or a
@@ -441,10 +487,25 @@ groups:
       # not double-report it. Verified that `offset 1h` has data (count 11 both
       # now and an hour ago), so the comparison evaluates rather than silently
       # returning an empty vector.
+      #
+      # `or vector(0)` ON BOTH SIDES, added after h#789's absence-blindness sweep:
+      # this rule exists specifically to catch certificates vanishing, but as
+      # originally written it could not see the total case. `count()` over zero
+      # matching series returns NO RESULT, not the number 0 — so if
+      # traefik_tls_certs_not_after disappeared ENTIRELY (not one host dropping
+      # out of eleven, but all eleven at once), both sides of the comparison went
+      # empty and the rule that exists to catch disappearance was itself blind to
+      # the total case. `or vector(0)` makes an empty side read as a real zero
+      # instead of dropping out of the comparison, so 0 < 11 correctly fires. It
+      # does NOT cover the metric never having existed at all (both sides
+      # legitimately 0 at once) — that state is outside what a before/after
+      # comparison can distinguish from "nothing to compare", and is the same
+      # boundary the certificates section's own header comment already assumes
+      # away by verifying the series exists before these rules were written.
       - alert: CertificateCountDropped
         expr: |
-          count(traefik_tls_certs_not_after)
-            < count(traefik_tls_certs_not_after offset 1h)
+          (count(traefik_tls_certs_not_after) or vector(0))
+            < (count(traefik_tls_certs_not_after offset 1h) or vector(0))
         for: 2h
         labels:
           severity: warning
