@@ -41,8 +41,22 @@ _tailscale_generate_key() {
 
     info "Generating Tailscale auth key..."
 
-    local response key
-    response=$(curl -s -X POST "https://api.tailscale.com/api/v2/tailnet/$TAILSCALE_TAILNET/keys" \
+    # Four genuinely different failure states used to collapse into one
+    # message ("Failed to generate auth key. Response: $response") — or
+    # worse, into nothing at all once cmd_recreate's own capture below
+    # discarded it. "The API rejected us", "the API answered something we
+    # could not parse", and "the API answered fine but with no key field"
+    # each point at a different fix; a run that never reached the API at
+    # all (DNS/TLS/connection failure) points at a fourth. Distinguished
+    # here so whichever one happens is nameable from the log, not
+    # re-diagnosed from scratch next time — which is what happened to the
+    # run that surfaced this (recreate-vps.yml, 2026-06-14): the log shows
+    # only a generic failure, and it is not possible to tell from it alone
+    # whether the cause was an expired credential or something else.
+    local http_code response_body response_file curl_exit=0
+    response_file=$(mktemp)
+    http_code=$(curl -sS -o "$response_file" -w '%{http_code}' -X POST \
+        "https://api.tailscale.com/api/v2/tailnet/$TAILSCALE_TAILNET/keys" \
         -H "Authorization: Bearer $TAILSCALE_API_KEY" \
         -H "Content-Type: application/json" \
         --data '{
@@ -56,10 +70,24 @@ _tailscale_generate_key() {
                 }
             },
             "expirySeconds": 7776000
-        }')
+        }') || curl_exit=$?
+    response_body=$(cat "$response_file" 2>/dev/null || true)
+    rm -f "$response_file"
 
-    key=$(echo "$response" | jq -r '.key // empty')
-    [[ -n "$key" ]] || die "Failed to generate auth key. Response: $response"
+    if [[ "$curl_exit" -ne 0 ]]; then
+        die "Could not reach the Tailscale API (curl exit ${curl_exit}) — DNS, TLS, or connection failure. No HTTP response was received, so this is not the API rejecting the request; the request never arrived."
+    fi
+
+    if [[ "$http_code" != "200" ]]; then
+        die "Tailscale API rejected the request (HTTP ${http_code}). Response: ${response_body}"
+    fi
+
+    local key
+    if ! key=$(printf '%s' "$response_body" | jq -r '.key // empty' 2>/dev/null); then
+        die "Tailscale API returned HTTP 200 with a body that could not be parsed as JSON. Response: ${response_body}"
+    fi
+
+    [[ -n "$key" ]] || die "Tailscale API returned HTTP 200 with valid JSON but no 'key' field. Response: ${response_body}"
 
     success "✓ Auth key generated"
     echo "$key"
@@ -76,9 +104,20 @@ cmd_recreate() {
     # Step 1: Rotate Tailscale auth key
     info "Step 1/3: Rotating Tailscale auth key..."
 
+    # Deliberately NOT `2>&1 | tail -1`. _tailscale_generate_key sends every
+    # info/success/die message to stderr and returns only the key on stdout,
+    # so capturing stdout alone is enough — and it stops this step from
+    # discarding _tailscale_generate_key's own specific failure message. The
+    # old pattern mixed stdout and stderr, kept only the last combined line
+    # in $auth_key, and then threw that value away on the failure branch in
+    # favor of the generic message below — so no matter how specific
+    # _tailscale_generate_key's own diagnosis was, only "Failed to generate
+    # Tailscale auth key" ever reached the log. It still runs first and is
+    # still visible above this line; this message is step-level context, not
+    # a replacement for it.
     local auth_key
-    if ! auth_key=$(_tailscale_generate_key 2>&1 | tail -1); then
-        die "Failed to generate Tailscale auth key"
+    if ! auth_key=$(_tailscale_generate_key); then
+        die "Failed to generate Tailscale auth key — see the specific cause above."
     fi
 
     success "✓ Auth key generated"
