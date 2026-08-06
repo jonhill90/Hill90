@@ -377,8 +377,11 @@ gh workflow run deploy.yml -f service=all
 
 - **Alerts reach a human.** `Verified 2026-08-03 13:45 UTC` by firing two real alerts and
   reading Alertmanager's own counters: `notifications_total{integration="email"}`
-  incremented and every `notifications_failed_total` stayed at 0. **27 rules in 10
-  groups** — h#789's absence-blindness sweep added `LokiIngestionSignalMissing` to the
+  incremented and every `notifications_failed_total` stayed at 0. **29 rules in 10
+  groups** — h#839 added the `shared-secret-agreement` pair
+  (`ScheduledWorkflowNotTriggering` + `ScheduledWorkflowSignalMissing`) to the
+  existing `scheduled-workflows` group, taking this from 27/10; before that,
+  h#789's absence-blindness sweep added `LokiIngestionSignalMissing` to the
   existing `loki` group, taking this from 26/10; before that, h#712's
   `scheduled-workflows` group (8 rules) landed since this was last counted at 18/9;
   this entry previously said 16 and 8, counted before #617 and never re-counted.
