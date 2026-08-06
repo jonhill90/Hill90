@@ -240,7 +240,33 @@ Push all secrets from the SOPS backup into vault KV v2 paths.
 bash scripts/vault.sh seed
 ```
 
-### 8. Generate and Store AppRole Credentials
+### 8. Configure OIDC (Keycloak)
+
+Enable and bind OpenBao's OIDC auth method against the platform Keycloak realm:
+
+```bash
+bash scripts/vault.sh setup-oidc
+```
+
+Reuses the `BAO_TOKEN` already exported for Step 6 — no need to export it again.
+Requires `VAULT_OIDC_CLIENT_SECRET` in SOPS (already present in the production
+store); the command refuses loudly rather than proceeding if it is missing.
+
+> **This step exists because `vault.sh revoke-root` — used in Step 13 below, and
+> called internally by `bootstrap-approles` in Step 9 — refuses to run without
+> it.** `assert_safe_to_revoke` (`scripts/vault.sh:244`) checks whether OIDC is
+> enabled before permitting a root-token revoke, because revoking root without
+> OIDC configured is **irreversible on OpenBao >= 2.5.3**: the unauthenticated
+> root-generation endpoints are disabled by default, so nothing can enable OIDC
+> afterward without redeploying on a recovery config, two vault restarts, and a
+> window in which an unseal key share alone mints root (`vault.sh regain-root`).
+>
+> Not a hypothetical — the guard's own comment names two prior occurrences of
+> exactly this: 2026-07-26, and again on 2026-08-02 by "the documented recovery"
+> this file describes. Skipping this step does not just skip OIDC; it reproduces
+> that failure a third time, at Step 9 or Step 13, in the middle of a recovery.
+
+### 9. Generate and Store AppRole Credentials
 
 Bootstrap all AppRole credentials automatically:
 
@@ -250,7 +276,9 @@ bash scripts/vault.sh bootstrap-approles
 
 This generates role_id + secret_id for the services in `VAULT_SERVICES` and stores
 them in SOPS. It temporarily generates a root token (via unseal key), runs setup,
-creates credentials, then revokes the root token.
+creates credentials, then revokes the root token — through the same
+`assert_safe_to_revoke` guard as Step 13, so it also depends on Step 8 above having
+run first.
 
 > **There are FIVE, not nine.** `Verified 2026-08-05` against `scripts/vault.sh:31`,
 > which is the source of truth:
@@ -275,7 +303,7 @@ creates credentials, then revokes the root token.
 > AppRoles that actually exist in the vault as `db`, `auth`, `infra`,
 > `observability`.
 
-### 9. Deploy Database
+### 10. Deploy Database
 
 ```bash
 bash scripts/deploy.sh db prod
@@ -328,13 +356,13 @@ bash scripts/backup.sh restore db /path/to/backup
 > is a convenience, not a step. Full evidence in
 > [`backup-consistency-options.md`](../decisions/backup-consistency-options.md).
 
-### 10. Deploy All Services
+### 11. Deploy All Services
 
 ```bash
 bash scripts/deploy.sh all prod
 ```
 
-### 11. Verify Health
+### 12. Verify Health
 
 ```bash
 bash scripts/ops.sh health
@@ -342,13 +370,26 @@ bash scripts/ops.sh health
 
 Check each service endpoint responds correctly.
 
-### 12. Revoke Root Token
+### 13. Revoke Root Token
 
 ```bash
-docker exec -e BAO_ADDR=http://127.0.0.1:8200 -e BAO_TOKEN="<root-token>" openbao bao token revoke -self
+bash scripts/vault.sh revoke-root
 ```
 
-### 13. Post-Recovery: Sync Vault to SOPS
+> **Not the raw `docker exec ... bao token revoke -self` this step used to
+> document.** That call went straight to the OpenBao API with no safety check.
+> `vault.sh revoke-root` runs the identical revoke through `assert_safe_to_revoke`
+> first (see Step 8 above), which refuses rather than leaving a permanently
+> unconfigurable vault if OIDC somehow isn't enabled by this point. It also reads
+> the root token from `$ROOT_TOKEN_PATH` on the host instead of requiring it typed
+> into a command, and independently confirms the token is dead afterward rather
+> than trusting the API's own always-0 exit code.
+>
+> If Step 9 (`bootstrap-approles`) already completed, it will have revoked this
+> same root token itself. `vault.sh revoke-root` reports "nothing to revoke" and
+> exits 0 in that case — expected, not an error.
+
+### 14. Post-Recovery: Sync Vault to SOPS
 
 Confirm the SOPS backup reflects the current vault state:
 
@@ -361,7 +402,7 @@ bash scripts/vault.sh sync-to-sops
 
 ```
 VPS recreate -> VPS config -> infra -> vault (deploy+init+unseal+setup+seed)
-  -> AppRole creds -> db (+ restore) -> all services -> health check
+  -> OIDC config -> AppRole creds -> db (+ restore) -> all services -> health check
   -> revoke root token -> sync vault to SOPS
 ```
 
