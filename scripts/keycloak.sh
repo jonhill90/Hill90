@@ -511,6 +511,65 @@ print(json.dumps({
     ensure_realm_roles_mapper "$uuid" "$claim"
 }
 
+# h#835: platform-realm.json declares hill90-vault's and hill90-ui's secrets
+# as ${VAULT_OIDC_CLIENT_SECRET} / ${HILL90_UI_CLIENT_SECRET}, substituted by
+# `start --import-realm` from the container's environment. VAULT_OIDC_CLIENT_SECRET
+# is guarded at the compose level (${VAR:?...}); HILL90_UI_CLIENT_SECRET
+# deliberately is NOT (fad9fefa) — it is legitimately unset on every routine
+# `auth` deploy after the first import, so a compose-level guard would refuse
+# every one of those. An import that runs with it unset (a VPS rebuild) succeeds
+# silently, and hill90-ui's client secret becomes the literal, unsubstituted
+# string "${HILL90_UI_CLIENT_SECRET}" — readable in this PUBLIC repo's own
+# platform-realm.json, no guessing required.
+#
+# This asks the LIVE realm, not the committed file: platform-realm.json always
+# contains the literal ${...} placeholder, correctly. The defect only exists in
+# what Keycloak actually installed at import time.
+#
+# Reuses the kc() session kc_login already established — no separate
+# credentials, matching kc_login's own reason for keeping the real admin
+# password out of argv/a second auth path entirely.
+#
+# "Could not check" must never read as "no placeholder found": an empty or
+# unparseable client list is its own failure, not a pass — the same class of
+# trap check_container_profile_ceilings.py (Hill90#845) and
+# check_realm_secret_not_literal.sh's own CANNOT-DETERMINE arms exist to catch.
+#
+# Deliberately narrow: this checks exactly one shape — a ${...}-looking literal
+# landing as a CLIENT SECRET after an import — not a general realm validator.
+verify_realm_secrets_substituted() {
+    local clients_raw
+    clients_raw=$(kc get clients -r "$KC_REALM" --fields id,clientId,publicClient --format csv --noquotes 2>/dev/null | tr -d '\r')
+    if [ -z "$clients_raw" ]; then
+        warn "  ! Could not verify client secrets are substituted — the client list for realm '${KC_REALM}' came back empty. Not proven clean; treating as a failure, not a pass."
+        return 1
+    fi
+
+    local found=0 checked=0
+    while IFS=, read -r id client_id public; do
+        [ -n "$id" ] || continue
+        [ "$public" = "true" ] && continue
+        local secret_raw
+        secret_raw=$(kc get "clients/${id}/client-secret" -r "$KC_REALM" --fields value --format csv --noquotes 2>/dev/null | tr -d '\r')
+        [ -n "$secret_raw" ] || continue
+        checked=$((checked + 1))
+        if [[ "$secret_raw" =~ ^\$\{[A-Za-z0-9_]+\}$ ]]; then
+            warn "  ! client '${client_id}' secret is the literal unsubstituted string '${secret_raw}' — the import ran with the backing variable unset or empty. This is now a public template value, readable in this repo's own platform-realm.json."
+            found=1
+        fi
+    done <<< "$clients_raw"
+
+    if [ "$checked" -eq 0 ]; then
+        warn "  ! Could not verify client secrets are substituted — no confidential client in realm '${KC_REALM}' returned a secret to check at all. Not proven clean; treating as a failure, not a pass."
+        return 1
+    fi
+    if [ "$found" -eq 1 ]; then
+        return 1
+    fi
+    echo "  = checked ${checked} confidential client secret(s) — none is an unsubstituted \${...} literal"
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -518,6 +577,20 @@ print(json.dumps({
 cmd_apply() {
     require_running
     kc_login
+
+    # h#749: individual warn() calls inside remove_realm_roles and
+    # ensure_platform_admins used to be logged and then forgotten — this
+    # function ended with an unconditional "Realm configured." regardless of
+    # how many of them fired, e.g. one of five per-user role grants failing
+    # partway through. `apply_failed` aggregates both, matching the
+    # accumulator shape local.sh's cmd_health already uses for its own
+    # per-check loop. Declared before the h#835 check below so that check
+    # folds into the same accumulator rather than inventing a second one.
+    local apply_failed=0
+
+    echo ""
+    echo "Verifying realm-import substitution..."
+    verify_realm_secrets_substituted || apply_failed=1
 
     echo "================================"
     echo "Keycloak SSO — realm '${KC_REALM}'"
@@ -537,15 +610,6 @@ cmd_apply() {
     local minio_secret
     minio_secret=$(secret_for MINIO_OIDC_CLIENT_SECRET) \
         || die "Cannot resolve MINIO_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
-
-    # h#749: individual warn() calls inside remove_realm_roles and
-    # ensure_platform_admins used to be logged and then forgotten — this
-    # function ended with an unconditional "Realm configured." regardless of
-    # how many of them fired, e.g. one of five per-user role grants failing
-    # partway through. `apply_failed` aggregates both, matching the
-    # accumulator shape local.sh's cmd_health already uses for its own
-    # per-check loop.
-    local apply_failed=0
 
     ensure_realm_roles
     # AFTER creating the replacements, never before: a run that deleted the old
