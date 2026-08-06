@@ -148,6 +148,32 @@ vault_available() {
         python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if not d.get('sealed',True) else 1)" 2>/dev/null
 }
 
+# Three failure modes used to `return 1` indistinguishably — h#791 sat
+# undiagnosable for days because of it. deploy.sh's call sites redirected this
+# function's entire output (both streams) to /dev/null, so whichever of the
+# three fired, the operator saw the same sentence: "OpenBao available but
+# login failed... falling back to SOPS". For the decrypt case that sentence is
+# actively wrong — it names OpenBao when OpenBao was never contacted.
+#
+# Fix: a short, credential-free reason on stderr, and a DISTINCT return code
+# per cause, so a caller that wants to tell them apart can. Stdout carries
+# ONLY the token on success, exactly as before — callers that do
+# `token=$(vault_login ...)` are unaffected.
+#
+#   2 = sops decrypt failed                  — nothing to do with OpenBao
+#   3 = AppRole credentials missing/empty    — permanent/structural, no request sent
+#   4 = OpenBao rejected the login, or the response could not be parsed
+#
+# CREDENTIAL SAFETY, checked rather than assumed. OpenBao's own rejection text
+# for a bad AppRole login is the fixed string "invalid role or secret ID" —
+# confirmed against a real rejection captured in
+# docs/decisions/approle-rejection-2026-08-01.md, not a submitted value
+# interpolated into a template — so surfacing OpenBao's own error line cannot
+# echo role_id/secret_id back. role_id and secret_id themselves are never
+# printed by this function on any path, and neither is the token except on
+# genuine success, on stdout, exactly as it always was.
+# tests/scripts/vault-login-diagnostics.bats asserts this directly rather than
+# trusting the reasoning above.
 vault_login() {
     local service="$1"
     local secrets_file="${2:-$PROJECT_ROOT/infra/secrets/prod.enc.env}"
@@ -161,7 +187,11 @@ vault_login() {
     # shellcheck disable=SC2064
     trap "rm -f '$temp_file'" RETURN
 
-    sops -d "$secrets_file" > "$temp_file" 2>/dev/null || { rm -f "$temp_file"; trap - RETURN; return 1; }
+    if ! sops -d "$secrets_file" > "$temp_file" 2>/dev/null; then
+        rm -f "$temp_file"; trap - RETURN
+        echo "vault_login: sops decrypt failed for ${secrets_file} — check the age key, not OpenBao" >&2
+        return 2
+    fi
 
     local role_id secret_id
     role_id=$(grep "^${role_id_var}=" "$temp_file" | cut -d= -f2-)
@@ -170,13 +200,28 @@ vault_login() {
     rm -f "$temp_file"
     trap - RETURN
 
-    [ -z "$role_id" ] && return 1
-    [ -z "$secret_id" ] && return 1
+    if [ -z "$role_id" ] || [ -z "$secret_id" ]; then
+        echo "vault_login: AppRole credentials missing for ${service} (${role_id_var}/${secret_id_var} not set in ${secrets_file}) — no request was sent" >&2
+        return 3
+    fi
 
-    docker exec -e "BAO_ADDR=http://127.0.0.1:8200" \
+    local response rc
+    response=$(docker exec -e "BAO_ADDR=http://127.0.0.1:8200" \
         -e "ROLE_ID=$role_id" -e "SECRET_ID=$secret_id" openbao \
-        sh -c 'bao write -format=json auth/approle/login role_id="$ROLE_ID" secret_id="$SECRET_ID"' | \
-        python3 -c "import sys,json; print(json.load(sys.stdin)['auth']['client_token'])"
+        sh -c 'bao write -format=json auth/approle/login role_id="$ROLE_ID" secret_id="$SECRET_ID"' 2>&1)
+    rc=$?
+
+    if [ "$rc" -ne 0 ]; then
+        local reason
+        reason=$(printf '%s' "$response" | grep -oE '\* .*' | head -1)
+        echo "vault_login: OpenBao rejected login for ${service}: ${reason:-request failed (exit ${rc})}" >&2
+        return 4
+    fi
+
+    printf '%s' "$response" | python3 -c "import sys,json; print(json.load(sys.stdin)['auth']['client_token'])" 2>/dev/null || {
+        echo "vault_login: OpenBao login for ${service} succeeded but the response could not be parsed" >&2
+        return 4
+    }
 }
 
 # Read one KV v2 path. NON-ZERO if the path cannot be read for ANY reason.
