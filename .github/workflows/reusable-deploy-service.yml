@@ -346,3 +346,17 @@ jobs:
               "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
               "text": "'"$EMOJI"' Deploy **${{ inputs.service }}** — '"$STATUS"' ('"${{ github.sha }}"')"
             }' || echo "Warning: webhook notification failed (non-blocking)"
+
+      # h#816: the same shape as "Warn that the post-deploy signal is
+      # unwired" above, for the same reason — an optional notification that
+      # is unconfigured skipped in total silence, indistinguishable in the
+      # run log from a deploy that genuinely had nothing to report. That
+      # silence cost three days on 2026-08-03: vault-sync-to-sops failed and
+      # nobody knew until h#712's Prometheus rule shipped two days later
+      # (#789). Copying the established pattern rather than inventing one.
+      - name: Warn that deploy result notification is unwired
+        if: always() && env.DEPLOY_WEBHOOK_URL == ''
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+        run: |
+          echo "::warning::DEPLOY_WEBHOOK_URL is not set on this repository — the deploy result for ${{ inputs.service }} was NOT sent anywhere. See Hill90#816."
