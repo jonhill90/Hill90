@@ -67,6 +67,7 @@ on:
     workflows:
       - "Audit hill90-ui Client Secret Agreement"
       - "Deploy Drift Alarm"
+      - "Shared Secret Agreement"
       - "Tenant Baseline Agreement"
       - "Vault Sync to SOPS"
     types: [completed]

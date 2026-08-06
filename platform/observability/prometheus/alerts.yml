@@ -814,6 +814,34 @@ groups:
             the heartbeat step, the SSH/Tailscale path to the VPS is the next suspect.
           runbook: docs/decisions/scheduled-workflow-heartbeat.md
 
+      # Cadence: daily at 07:00 UTC (h#839). 30h ≈ one missed day, 6h of
+      # slack — same reasoning and same margin as tenant-baseline-agreement's
+      # rule just below, which shares this workflow's shape: daily schedule
+      # plus a push trigger on the file that can move the number.
+      - alert: ScheduledWorkflowNotTriggering
+        expr: (time() - hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="shared-secret-agreement"}) / 3600 > 30
+        for: 15m
+        labels:
+          severity: warning
+          workflow: shared-secret-agreement
+        annotations:
+          summary: "shared-secret-agreement has not reached a verdict in {{ $value | printf \"%.1f\" }} hours"
+          description: >-
+            This workflow is scheduled daily at 07:00 UTC, plus on any push touching
+            infra/secrets/prod.enc.env or scripts/checks/check_shared_secret_agrees.py
+            (.github/workflows/shared-secret-agreement.yml). A red run is already emailed
+            the same day by the separate workflow_run watchdog (h#712/#714) — this metric
+            means the schedule may have stopped dispatching the workflow at all, not that
+            a recent run failed.
+          action: >-
+            Check whether the schedule is still active: GitHub disables a workflow's schedule
+            after 60 days with no activity in the repository, and a `cron:` line can be edited
+            or removed. `gh workflow list` and `gh run list --workflow=shared-secret-agreement.yml
+            --limit 5` from a machine with repo access. If the schedule is fine but runs are not
+            reaching the heartbeat step, the SSH/Tailscale path to the VPS is the next suspect —
+            the comparison itself needs no VPS access at all, only the heartbeat does.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
       # Cadence: daily at 06:30 UTC. 30h ≈ one missed day, 6h of slack —
       # matching backup-failure-signal.md's own 24h → 26h reasoning, with a
       # slightly wider margin since this workflow's push trigger means its
@@ -910,6 +938,26 @@ groups:
           action: >-
             Check the file exists and is fresh: `ls -l
             /opt/hill90/metrics/textfile_collector/hill90_scheduled_workflow_deploy-drift.prom`.
+            Then confirm node-exporter is reading that directory —
+            `node_textfile_mtime_seconds` should have a series. If the file is there but the
+            metric is not, the collector directory flag or the /rootfs mount is the fault, not
+            this workflow.
+          runbook: docs/decisions/scheduled-workflow-heartbeat.md
+
+      - alert: ScheduledWorkflowSignalMissing
+        expr: absent(hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="shared-secret-agreement"})
+        for: 6h
+        labels:
+          severity: warning
+          workflow: shared-secret-agreement
+        annotations:
+          summary: "The shared-secret-agreement heartbeat metric has disappeared entirely"
+          description: >-
+            hill90_scheduled_workflow_last_run_timestamp_seconds{workflow="shared-secret-agreement"}
+            is absent, so ScheduledWorkflowNotTriggering cannot fire at all for this workflow.
+          action: >-
+            Check the file exists and is fresh: `ls -l
+            /opt/hill90/metrics/textfile_collector/hill90_scheduled_workflow_shared-secret-agreement.prom`.
             Then confirm node-exporter is reading that directory —
             `node_textfile_mtime_seconds` should have a series. If the file is there but the
             metric is not, the collector directory flag or the /rootfs mount is the fault, not
