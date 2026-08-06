@@ -551,22 +551,17 @@ tests:
 
   # --- certificates -----------------------------------------------------------
   #
-  # CertificateCountDropped's own `for: 2h` cannot be exercised by a promtool
-  # alert_rule_test here: with `offset 1h` on the right-hand side, any single,
-  # permanent count change (partial or total) is only visible to the
-  # comparison for exactly one hour — after that, the offset side has also
-  # rolled forward past the change and reads the same post-change value,
-  # so the comparison goes false again on its own. A `for: 2h` threshold can
-  # therefore never be satisfied by one step change, which is a separate,
-  # pre-existing property of this rule's for/offset pairing, not something
-  # introduced or fixed here — flagged, not touched, out of scope for the
-  # absence-blindness sweep this test file is otherwise for.
-  #
-  # So these use promql_expr_test instead, which evaluates the raw expression
-  # at one instant with no `for:` involved — the right tool for proving what
-  # the absence fix actually changed: whether the guard's expression produces
-  # a matching result at all when the metric is gone, not whether the alert
-  # would go on to fire after two hours.
+  # CertificateCountDropped's `for:` USED TO BE 2h, which meant this rule could
+  # never fire at all — not on a total wipeout, not on the single-cert drop it
+  # was written for. `offset 1h` on the right-hand side means the comparison is
+  # true for AT MOST one hour after any single, permanent count change: past
+  # that, the offset side has rolled forward past the change too and reads the
+  # same post-change value as the left, so the condition self-resolves before
+  # a 2-hour `for:` could ever complete. Caught while positive-controlling the
+  # absence fix below, and fixed alongside it — see alerts.yml's own comment on
+  # the rule for the full reasoning. `for: 15m` is comfortably inside the one
+  # hour the comparison can actually sustain, which is also what makes a real
+  # alert_rule_test possible here now — it was not, against the old `for: 2h`.
 
   # h#789's absence-blindness sweep: this rule exists specifically to catch
   # certificates vanishing, but as originally written (`count(x) <
@@ -575,27 +570,38 @@ tests:
   # every series vanished at once, both sides of the comparison went empty
   # and produced nothing. The `or vector(0)` fix makes an empty side read as
   # a real zero instead of dropping out of the comparison.
-  - name: "THE ASSERTION THAT MATTERS: the guard evaluates true on a TOTAL wipeout, not just a partial one"
+  - name: "THE ASSERTION THAT MATTERS: CertificateCountDropped fires on a TOTAL wipeout, not just a partial one"
     # Two certificate series present for the first 69 minutes, then nothing —
-    # not a smaller count, no series left at all. At eval_time 100m: the
-    # un-offset side sees nothing (69m + 5m staleness is long past), the
-    # offset-1h side looks back to the 40m mark, where both series still had
-    # real samples.
+    # not a smaller count, no series left at all. The un-offset side goes
+    # absent once 69m + 5m staleness has passed (~74m); the offset-1h side
+    # stays real until 74m further on (~134m), since it is still reading the
+    # pre-wipeout sample through then. `for: 15m` inside that ~60m window means
+    # firing begins around 89m and holds until the offset side goes absent too.
     interval: 1m
     input_series:
       - series: 'traefik_tls_certs_not_after{cn="a.example.com", instance="traefik:8082", job="traefik", sans="a.example.com", serial="1"}'
         values: "1x69"
       - series: 'traefik_tls_certs_not_after{cn="b.example.com", instance="traefik:8082", job="traefik", sans="b.example.com", serial="2"}'
         values: "1x69"
-    promql_expr_test:
-      - expr: |
-          (count(traefik_tls_certs_not_after) or vector(0))
-            < (count(traefik_tls_certs_not_after offset 1h) or vector(0))
-        eval_time: 100m
-        exp_samples:
-          - value: 0
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: CertificateCountDropped
+        exp_alerts: []          # true since ~74m, but `for: 15m` not yet satisfied
+      - eval_time: 100m
+        alertname: CertificateCountDropped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Traefik is serving fewer certificates than it was an hour ago"
+              description: "The number of certificates Traefik holds has dropped and stayed down for at least 15 minutes. An expiry alert cannot see this: a certificate that disappears has no series left to be near expiry. Traefik being down is a different alert, though a Traefik outage long enough to still be dropping certs 15 minutes in will likely also be tripping ServiceDown."
+              action: "`docker exec traefik wget -qO- http://localhost:8082/metrics | grep -c '^traefik_tls_certs_not_after'` and compare with the router list. A host removed on purpose explains it; otherwise suspect the ACME store. Do NOT delete acme-dns.json — it holds the account key and every DNS-01 certificate, and re-issuance runs straight into rate limits."
+              runbook: docs/runbooks/certificate-renewal.md
+      - eval_time: 150m
+        alertname: CertificateCountDropped
+        exp_alerts: []          # self-resolved: past ~134m the offset side is absent too
 
-  - name: "CONTROL: the guard still catches an ordinary partial drop (regression guard for the fix)"
+  - name: "CONTROL: CertificateCountDropped still catches an ordinary partial drop (regression guard for the fix)"
     # Two series for the first 69 minutes, then only one — the realistic
     # failure mode (one host's DNS token revoked), unchanged by the fix.
     interval: 1m
@@ -604,27 +610,29 @@ tests:
         values: "1x120"
       - series: 'traefik_tls_certs_not_after{cn="b.example.com", instance="traefik:8082", job="traefik", sans="b.example.com", serial="2"}'
         values: "1x69"
-    promql_expr_test:
-      - expr: |
-          (count(traefik_tls_certs_not_after) or vector(0))
-            < (count(traefik_tls_certs_not_after offset 1h) or vector(0))
-        eval_time: 100m
-        exp_samples:
-          - value: 1
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: CertificateCountDropped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Traefik is serving fewer certificates than it was an hour ago"
+              description: "The number of certificates Traefik holds has dropped and stayed down for at least 15 minutes. An expiry alert cannot see this: a certificate that disappears has no series left to be near expiry. Traefik being down is a different alert, though a Traefik outage long enough to still be dropping certs 15 minutes in will likely also be tripping ServiceDown."
+              action: "`docker exec traefik wget -qO- http://localhost:8082/metrics | grep -c '^traefik_tls_certs_not_after'` and compare with the router list. A host removed on purpose explains it; otherwise suspect the ACME store. Do NOT delete acme-dns.json — it holds the account key and every DNS-01 certificate, and re-issuance runs straight into rate limits."
+              runbook: docs/runbooks/certificate-renewal.md
 
-  - name: "CONTROL: the guard stays quiet when the count has not changed"
+  - name: "CONTROL: CertificateCountDropped stays quiet when the count has not changed"
     interval: 1m
     input_series:
       - series: 'traefik_tls_certs_not_after{cn="a.example.com", instance="traefik:8082", job="traefik", sans="a.example.com", serial="1"}'
         values: "1x120"
       - series: 'traefik_tls_certs_not_after{cn="b.example.com", instance="traefik:8082", job="traefik", sans="b.example.com", serial="2"}'
         values: "1x120"
-    promql_expr_test:
-      - expr: |
-          (count(traefik_tls_certs_not_after) or vector(0))
-            < (count(traefik_tls_certs_not_after offset 1h) or vector(0))
-        eval_time: 100m
-        exp_samples: []
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: CertificateCountDropped
+        exp_alerts: []
 
   # --- delivery test facility -----------------------------------------------
 

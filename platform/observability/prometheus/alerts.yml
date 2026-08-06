@@ -482,11 +482,30 @@ groups:
       # certificate that VANISHED rather than aged. Self-adjusting, so adding or
       # retiring a host needs no edit here.
       #
-      # for: 2h is load-bearing. A Traefik restart makes every series disappear
-      # briefly, and ServiceDown already reports Traefik being down — this must
-      # not double-report it. Verified that `offset 1h` has data (count 11 both
-      # now and an hour ago), so the comparison evaluates rather than silently
-      # returning an empty vector.
+      # `for:` WAS 2h, AND THAT MEANT THIS RULE COULD NEVER FIRE AT ALL — not on
+      # a total wipeout, not on the single-cert drop it was written for. Caught
+      # while positive-controlling h#789's absence fix, and worth stating
+      # plainly: `offset 1h` means the comparison is true for AT MOST one hour
+      # after any single, permanent count change. Once elapsed time since the
+      # change exceeds the offset duration, the right-hand side has rolled
+      # forward past the change too and reads the same post-change value as the
+      # left, so the condition goes false again on its own — self-resolving,
+      # not sustained. `for: 2h` demanded two continuous hours from a condition
+      # that is structurally incapable of holding true for more than one. This
+      # rule had been decoration since the day it was written: a change that
+      # only made its expression absence-safe, without also fixing this, would
+      # have reported success while leaving it exactly as unable to fire as
+      # before — the same defect family this rule exists to catch, applied to
+      # the fix itself.
+      #
+      # for: 15m is comfortably inside the one-hour window the comparison can
+      # actually sustain, and long enough to absorb an ordinary fast Traefik
+      # restart, which makes every series disappear for a few seconds and
+      # self-heals well under 15m once scraping resumes. A restart slow enough
+      # to still be dropping this 15 minutes in is also slow enough that
+      # ServiceDown (for: 5m) is already firing — overlap there is accepted
+      # deliberately, the same as BackupSignalMissing's overlap with ServiceDown
+      # above.
       #
       # `or vector(0)` ON BOTH SIDES, added after h#789's absence-blindness sweep:
       # this rule exists specifically to catch certificates vanishing, but as
@@ -502,19 +521,33 @@ groups:
       # comparison can distinguish from "nothing to compare", and is the same
       # boundary the certificates section's own header comment already assumes
       # away by verifying the series exists before these rules were written.
+      #
+      # DELIBERATE ASYMMETRY WITH LokiIngestionSignalMissing, stated so two
+      # different mechanisms in one PR read as a choice rather than
+      # inconsistency: Loki's absence guard is a LEVEL detector — absent()
+      # stays true and keeps firing for as long as the metric is genuinely
+      # gone, so its for: only needs to filter out one missed scrape. This
+      # rule's guard is an EDGE detector bounded by `offset 1h` — it can only
+      # ever see a change, not a state, and stops firing on its own once the
+      # offset window rolls past it. Two different absence shapes, two
+      # different detectors; `absent()` was not used here because there is
+      # nothing to alias it to that would preserve the before/after comparison
+      # a partial drop needs.
       - alert: CertificateCountDropped
         expr: |
           (count(traefik_tls_certs_not_after) or vector(0))
             < (count(traefik_tls_certs_not_after offset 1h) or vector(0))
-        for: 2h
+        for: 15m
         labels:
           severity: warning
         annotations:
           summary: "Traefik is serving fewer certificates than it was an hour ago"
           description: >-
-            The number of certificates Traefik holds has dropped and stayed down for two
-            hours. An expiry alert cannot see this: a certificate that disappears has no
-            series left to be near expiry. Traefik being down is a different alert.
+            The number of certificates Traefik holds has dropped and stayed down for at
+            least 15 minutes. An expiry alert cannot see this: a certificate that
+            disappears has no series left to be near expiry. Traefik being down is a
+            different alert, though a Traefik outage long enough to still be dropping
+            certs 15 minutes in will likely also be tripping ServiceDown.
           action: >-
             `docker exec traefik wget -qO- http://localhost:8082/metrics | grep -c
             '^traefik_tls_certs_not_after'` and compare with the router list. A host
