@@ -400,20 +400,86 @@ groups:
 
   - name: tempo
     rules:
+      # h#836, 2026-08-06: `> 0` measured what it says, and what it says is not
+      # what the rule's own description claims. Over the 24h investigated,
+      # append_failures_total ran at a STEADY ~1.1% of appends
+      # (rate(failures[5m])=0.0035/s against rate(appends[5m])=0.305/s) —
+      # ALERTS showed 636 pending + 78 firing samples, i.e. on almost the
+      # entire window. "Traces are being LOST while this fires" was TRUE at
+      # that rate; the problem was that `> 0` over a 5m window alarms on any
+      # nonzero rate forever, so a permanent low background rate reads
+      # identically to a real incident and both get the same "warning,
+      # ignore" treatment.
+      #
+      # THE TRAFFIC BEHIND THAT 1.1%, established before retuning rather than
+      # assumed: docker logs against app-api/app-ai/app-knowledge/app-mcp
+      # over the same window showed essentially nothing but periodic health
+      # probes (~30s cadence) — 431 of 437 app-knowledge log lines were
+      # `GET /health`, and app-api/app-ai/app-mcp were the same shape. Chat
+      # has carried zero production traffic to date (README), so this is not
+      # real user traffic being dropped.
+      #
+      # Tempo's own metrics carry no per-service label (single-tenant mode:
+      # tempo_distributor_spans_received_total{tenant="single-tenant"} is the
+      # only tenant dimension that exists), and its logs
+      # ("pusher failed to consume trace data: context canceled") name no
+      # caller either — so per-trace attribution to one service is not
+      # possible from anything Tempo exposes today. Tempo's SEARCH API does
+      # carry service.name, and trace volume by service over a 1h sample
+      # (api 809, knowledge 431, keycloak 272, mcp 130, ai 118) shows api
+      # sending roughly double the next-highest service, not one service
+      # sending everything and the rest sending nothing — consistent with
+      # loss spread across senders roughly by how much each sends, not with
+      # one broken client. Deploy churn was independently ruled out already
+      # (the issue's own evidence: the rate is nonzero with no deploy
+      # running), and no service's own logs show a client-side abort at any
+      # failure timestamp checked.
+      #
+      # DECISION: ~1% loss of low-value, non-production-traffic diagnostic
+      # spans is accepted rather than chased further — the candidate
+      # mechanism (a background export batch occasionally racing Tempo's own
+      # periodic ingest work against the SDK's default ~10s OTLP timeout) is
+      # not a defect in any one service, and "isolate and fix the client"
+      # has no single client to point at on this evidence. What was NOT
+      # accepted is the rule staying permanently on for that: retuned from
+      # "any nonzero failure rate for 5m" to "the failure RATIO exceeds 5%
+      # for 15m" — roughly 4-5x today's measured background rate, so this
+      # stays quiet on the noise actually measured but still fires well
+      # inside the window of a genuine incident (the rule's own history: a
+      # prior occurrence ran for ~1.3 cumulative hours in the week to
+      # 2026-07-31 unwatched). A ratio, not a raw rate, so the threshold
+      # means the same thing regardless of how much total trace volume the
+      # tenant is sending on a given day.
+      #
+      # tests/prometheus/alerts_test.yml has both directions: a genuine
+      # ingestion failure (loss well above 5%, sustained) still fires, and a
+      # background rate matching what was actually measured (~1.1%) does not.
       - alert: TempoIngestionErrors
-        expr: rate(tempo_distributor_ingester_append_failures_total[5m]) > 0
-        for: 5m
+        expr: |
+          (
+            rate(tempo_distributor_ingester_append_failures_total[5m])
+            /
+            (
+              rate(tempo_distributor_ingester_append_failures_total[5m])
+              + rate(tempo_distributor_ingester_appends_total[5m])
+            )
+          ) > 0.05
+        for: 15m
         labels:
           severity: warning
         annotations:
           summary: "Tempo ingestion errors detected"
           description: >-
-            Tempo is failing to append traces at {{ $value }}/sec on {{ $labels.instance }}.
-            Traces are being LOST while this fires.
+            Tempo has failed to append {{ $value | humanizePercentage }} of trace
+            appends on {{ $labels.instance }} for 15+ minutes. Traces are being
+            LOST while this fires, at a rate well above the ~1% background this
+            threshold was set against (h#836).
           action: >-
             `docker logs --tail 50 tempo`. This fired for ~1.3 cumulative hours in the
             week to 2026-07-31 with nobody watching, so treat a first delivery as
-            possibly long-standing rather than new.
+            possibly long-standing rather than new. A background rate around 1%
+            no longer fires this rule — see h#836 if this alert appears to have
+            gone quiet; that was deliberate, not a regression.
           runbook: docs/runbooks/observability.md
 
   # ---------------------------------------------------------------------------
