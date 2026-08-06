@@ -89,6 +89,59 @@ extract_deploy_with_sops() {
     sed -n '/^    _deploy_with_sops() {$/,/^    }$/p' "$DEPLOY"
 }
 
+# PINNED FIXTURE, not a git reference. The three arms below used to
+# reconstruct "pre-fix" via `git -C "$ROOT" show HEAD:scripts/deploy.sh` —
+# which stops meaning "pre-fix" the instant this fix is committed, because
+# HEAD then IS the fix. One arm (the control) started failing outright;
+# the other two (the no-op and untouched-sibling claims) started diffing
+# the fixed code against itself and passing vacuously, which is worse,
+# because a green test that cannot fail reads as coverage.
+#
+# This is the literal body of `_deploy_with_sops` from the commit
+# immediately before this fix (c522ffb1, the parent of 1fbf204a) — byte
+# for byte, confirmed via `git show c522ffb1:scripts/deploy.sh | sed -n
+# '/^    _deploy_with_sops() {$/,/^    }$/p'`. It cannot drift with the
+# branch because nothing here reads git state at test time.
+pre_fix_deploy_with_sops_body() {
+    cat <<'PRE_FIX_FIXTURE'
+    _deploy_with_sops() {
+        local mode="$1"  # "stateful" or "stateless"
+        if [ "$mode" = "stateful" ]; then
+            sops exec-env "$secrets_file" '
+                set -e
+                if [ -n "'"$pre_up_hook"'" ]; then
+                    # ALERT_EMAIL_TO falls back to ACME_EMAIL: both are addresses
+                    # already configured in the store, and ACME_EMAIL is already
+                    # where certificate-expiry notices go. The fallback is to
+                    # another explicit value, never to a hardcoded guess — the
+                    # render script still refuses if both are empty.
+                    export ALERT_EMAIL_TO="${ALERT_EMAIL_TO:-$ACME_EMAIL}"
+                    bash "'"$SCRIPT_DIR"'/'"$pre_up_hook"'"
+                fi
+                echo "Stopping existing '"$service"' containers..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' down || true
+                for container in '"$containers"'; do
+                    docker rm -f "$container" 2>/dev/null || true
+                done
+                echo "Building and pulling images..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel --no-cache
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
+                echo "Deploying '"$service"' service..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d
+            '
+        else
+            sops exec-env "$secrets_file" '
+                echo "Building and pulling images..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel --no-cache
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
+                echo "Deploying '"$service"' service..."
+                docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d --force-recreate --no-deps
+            '
+        fi
+    }
+PRE_FIX_FIXTURE
+}
+
 build_harness() {
     local out="$1"
     {
@@ -153,7 +206,7 @@ build_harness() {
     {
         echo "#!/usr/bin/env bash"
         echo "$HARNESS_VARS"
-        git -C "$ROOT" show HEAD:scripts/deploy.sh | sed -n '/^    _deploy_with_sops() {$/,/^    }$/p'
+        pre_fix_deploy_with_sops_body
     } > "$BATS_TEST_TMPDIR/harness_old.sh"
 
     run bash -c '
@@ -175,7 +228,7 @@ build_harness() {
     {
         echo "#!/usr/bin/env bash"
         echo "$HARNESS_VARS"
-        git -C "$ROOT" show HEAD:scripts/deploy.sh | sed -n '/^    _deploy_with_sops() {$/,/^    }$/p'
+        pre_fix_deploy_with_sops_body
     } > "$BATS_TEST_TMPDIR/harness_pre.sh"
 
     bash -c '
@@ -201,7 +254,7 @@ build_harness() {
     # line it executes. Confirmed by diffing the stateful branch's body
     # specifically between pre-fix and this file.
     local pre post
-    pre=$(git -C "$ROOT" show HEAD:scripts/deploy.sh | sed -n '/^        if \[ "\$mode" = "stateful" \]; then$/,/^        else$/p')
+    pre=$(pre_fix_deploy_with_sops_body | sed -n '/^        if \[ "\$mode" = "stateful" \]; then$/,/^        else$/p')
     post=$(sed -n '/^        if \[ "\$mode" = "stateful" \]; then$/,/^        else$/p' "$DEPLOY")
     [ "$pre" = "$post" ]
 }
