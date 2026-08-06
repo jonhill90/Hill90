@@ -538,35 +538,126 @@ print(json.dumps({
 # Deliberately narrow: this checks exactly one shape — a ${...}-looking literal
 # landing as a CLIENT SECRET after an import — not a general realm validator.
 verify_realm_secrets_substituted() {
-    local clients_raw
-    clients_raw=$(kc get clients -r "$KC_REALM" --fields id,clientId,publicClient --format csv --noquotes 2>/dev/null | tr -d '\r')
-    if [ -z "$clients_raw" ]; then
-        warn "  ! Could not verify client secrets are substituted — the client list for realm '${KC_REALM}' came back empty. Not proven clean; treating as a failure, not a pass."
+    # h#849 review of h#835: the original version queried each confidential
+    # client's secret via the /client-secret sub-endpoint with
+    # `--format csv --noquotes` and treated ANY empty result as "no secret,
+    # skip" — `[ -n "$secret_raw" ] || continue`, discarding the query's own
+    # exit status via `2>/dev/null`. Verified live against a real disposable
+    # Keycloak: HILL90_UI_CLIENT_SECRET="" (set but EMPTY, not unset)
+    # produces exit 0 with EMPTY stdout from that endpoint — byte-identical
+    # to a client that genuinely has no secret credential at all (broker,
+    # hill90-api, realm-management, verified the same way). The check ran
+    # against that exact case and returned PASS. An empty secret is a broken
+    # auth state — this function's own warning text already claimed to cover
+    # "unset OR EMPTY"; the code could not reach the EMPTY half at all.
+    #
+    # Fixed by querying the client LIST once, in JSON (not CSV, not the
+    # per-client /client-secret sub-endpoint), and using PRESENCE of the
+    # `secret` key — not its value — as the discriminator. Verified live:
+    # clients Keycloak never assigned a secret to (broker, hill90-api,
+    # realm-management) have NO `secret` key in their JSON at all; clients
+    # platform-realm.json explicitly gives a `secret` field to (hill90-ui,
+    # hill90-vault) always have the key, whether its value is a real secret,
+    # an empty string, or a literal ${...} placeholder. Key-presence
+    # distinguishes "nothing to check" from "something to check that turned
+    # out empty" — value-emptiness cannot, because both look identical.
+    #
+    # This also fixes the query-failure question the CSV form could not
+    # answer either: `kc get clients` is now a single call whose own exit
+    # status is checked directly (`if !`), not discarded — a failed query
+    # (bad realm, auth session dropped, network fault) is CANNOT DETERMINE,
+    # never silently zero clients checked.
+    local clients_json
+    if ! clients_json=$(kc get clients -r "$KC_REALM" 2>/dev/null); then
+        warn "  ! Could not verify client secrets are substituted — the client list query for realm '${KC_REALM}' failed. Not proven clean; treating as a failure, not a pass."
         return 1
     fi
 
-    local found=0 checked=0
-    while IFS=, read -r id client_id public; do
-        [ -n "$id" ] || continue
-        [ "$public" = "true" ] && continue
-        local secret_raw
-        secret_raw=$(kc get "clients/${id}/client-secret" -r "$KC_REALM" --fields value --format csv --noquotes 2>/dev/null | tr -d '\r')
-        [ -n "$secret_raw" ] || continue
-        checked=$((checked + 1))
-        if [[ "$secret_raw" =~ ^\$\{[A-Za-z0-9_]+\}$ ]]; then
-            warn "  ! client '${client_id}' secret is the literal unsubstituted string '${secret_raw}' — the import ran with the backing variable unset or empty. This is now a public template value, readable in this repo's own platform-realm.json."
-            found=1
-        fi
-    done <<< "$clients_raw"
+    local classification py_status
+    # CLIENTS_JSON via the environment, not a pipe: `python3 <<'PYEOF'` uses
+    # the heredoc as the SCRIPT source (python3 with no filename argument
+    # reads its program from stdin), so stdin isn't free to also carry the
+    # data — piping `clients_json` in would silently starve sys.stdin.read()
+    # instead of feeding it. Caught by testing this against real output
+    # before trusting it, not by inspection.
+    #
+    # `if classification=$(...); then` — NOT a bare `classification=$(...)`
+    # assignment — for the same reason h#746's fix uses `if ! X=$(...); then`
+    # elsewhere in this file: this function's whole POINT is to observe a
+    # non-zero exit (1 = found a problem, 3 = cannot determine) without
+    # aborting. A bare assignment's exit status is the substitution's own,
+    # and under this file's `set -e` that non-zero status kills the script
+    # right there, before py_status=$? is ever reached — caught by actually
+    # running this against the EMPTY-secret case, not by inspection; the
+    # first version of this fix died silently at exactly this line.
+    if classification=$(CLIENTS_JSON="$clients_json" python3 <<'PYEOF'
+import sys, json, os, re
 
-    if [ "$checked" -eq 0 ]; then
-        warn "  ! Could not verify client secrets are substituted — no confidential client in realm '${KC_REALM}' returned a secret to check at all. Not proven clean; treating as a failure, not a pass."
+PLACEHOLDER_RE = re.compile(r'^\$\{[A-Za-z0-9_]+\}$')
+
+try:
+    clients = json.loads(os.environ["CLIENTS_JSON"])
+except Exception:
+    print("CANNOT_DETERMINE unparseable JSON")
+    sys.exit(3)
+
+if not isinstance(clients, list):
+    print("CANNOT_DETERMINE not a JSON array")
+    sys.exit(3)
+
+checked = 0
+failures = []
+for c in clients:
+    if c.get("publicClient") is True:
+        continue
+    if "secret" not in c:
+        continue
+    checked += 1
+    value = c.get("secret")
+    client_id = c.get("clientId")
+    if not value:
+        failures.append(f"EMPTY {client_id}")
+    elif PLACEHOLDER_RE.match(value):
+        failures.append(f"PLACEHOLDER {client_id} {value}")
+
+if checked == 0:
+    print("CANNOT_DETERMINE no confidential client has a secret key at all")
+    sys.exit(3)
+
+if failures:
+    for line in failures:
+        print(line)
+    sys.exit(1)
+
+print(f"PASS {checked}")
+sys.exit(0)
+PYEOF
+    ); then
+        py_status=0
+    else
+        py_status=$?
+    fi
+
+    if [ "$py_status" -eq 3 ]; then
+        warn "  ! Could not verify client secrets are substituted — ${classification#CANNOT_DETERMINE }. Not proven clean; treating as a failure, not a pass."
         return 1
     fi
-    if [ "$found" -eq 1 ]; then
+
+    if [ "$py_status" -eq 1 ]; then
+        local kind client_id detail
+        while IFS=' ' read -r kind client_id detail; do
+            [ -n "$kind" ] || continue
+            if [ "$kind" = "EMPTY" ]; then
+                warn "  ! client '${client_id}' secret is EMPTY — the import ran with the backing variable set but empty. A confidential client with an empty secret is a broken auth state, not a substitution success."
+            else
+                warn "  ! client '${client_id}' secret is the literal unsubstituted string '${detail}' — the import ran with the backing variable unset. This is now a public template value, readable in this repo's own platform-realm.json."
+            fi
+        done <<< "$classification"
         return 1
     fi
-    echo "  = checked ${checked} confidential client secret(s) — none is an unsubstituted \${...} literal"
+
+    local checked_count="${classification#PASS }"
+    echo "  = checked ${checked_count} confidential client secret(s) — none empty, none an unsubstituted \${...} literal"
     return 0
 }
 

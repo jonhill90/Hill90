@@ -26,8 +26,9 @@ ok()  { echo -e "  ${GREEN}✓${NC} $1"; pass=$((pass+1)); }
 bad() { echo -e "  ${RED}✗${NC} $1"; fail=$((fail+1)); }
 
 FAIL_KC="h835test-fail-kc"
+EMPTY_KC="h849test-empty-kc"
 PASS_KC="h835test-pass-kc"
-cleanup() { docker rm -f "$FAIL_KC" "$PASS_KC" >/dev/null 2>&1 || true; }
+cleanup() { docker rm -f "$FAIL_KC" "$EMPTY_KC" "$PASS_KC" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup
 
@@ -46,6 +47,9 @@ start_kc() {
 wait_ready() {
     local name="$1"
     for _ in $(seq 1 60); do
+        # argv-ok: ADMIN_PW is the literal throwaway on line 21, in a
+        # container this script creates and destroys — same pattern as
+        # realm-tenant-serves-test.sh's own kcadm login.
         docker exec "$name" /opt/keycloak/bin/kcadm.sh config credentials \
             --server http://127.0.0.1:8080 --realm master \
             --user "$ADMIN" --password "$ADMIN_PW" >/dev/null 2>&1 && return 0
@@ -67,6 +71,27 @@ else
     bad "fail-arm Keycloak never became ready — could not run this arm at all"
 fi
 docker rm -f "$FAIL_KC" >/dev/null 2>&1
+
+echo ""
+echo -e "${BOLD}Arm 1b (h#849, THE CASE THE ORIGINAL CHECK MISSED): import with HILL90_UI_CLIENT_SECRET SET TO EMPTY STRING${NC}"
+# Empty and unset are NOT the same failure at the Keycloak API level, verified
+# live: an EMPTY value produces exit 0 with empty output from the
+# /client-secret endpoint — byte-identical to a client that genuinely has no
+# secret credential at all. The first version of this check treated both as
+# "nothing to check" and returned PASS against this exact case, even though
+# its own message already claimed to cover "unset OR EMPTY".
+start_kc "$EMPTY_KC" -e HILL90_UI_CLIENT_SECRET=
+if wait_ready "$EMPTY_KC"; then
+    out=$(bash "$CHECK" "$EMPTY_KC" platform "$ADMIN" "$ADMIN_PW" 2>&1); code=$?
+    if [ "$code" -eq 1 ] && echo "$out" | grep -q "EMPTY SECRET: client 'hill90-ui'"; then
+        ok "refused: exit 1, named hill90-ui and EMPTY (not the placeholder message)"
+    else
+        bad "expected exit 1 naming hill90-ui's empty secret, got exit ${code}: $out"
+    fi
+else
+    bad "empty-arm Keycloak never became ready — could not run this arm at all"
+fi
+docker rm -f "$EMPTY_KC" >/dev/null 2>&1
 
 echo ""
 echo -e "${BOLD}Arm 2: import with HILL90_UI_CLIENT_SECRET SET — must pass, and for the RIGHT reason${NC}"
@@ -97,9 +122,14 @@ out=$(bash "$CHECK" "$PASS_KC" platform "$ADMIN" "wrong-password" 2>&1); code=$?
 
 docker exec "$PASS_KC" /opt/keycloak/bin/kcadm.sh create realms -s realm=h835test-empty -s enabled=true >/dev/null 2>&1
 out=$(bash "$CHECK" "$PASS_KC" h835test-empty "$ADMIN" "$ADMIN_PW" 2>&1); code=$?
-[ "$code" -eq 2 ] && echo "$out" | grep -q "no confidential client returned a secret" \
+[ "$code" -eq 2 ] && echo "$out" | grep -q "no confidential client has a secret key at all" \
     && ok "a realm with no real client secret to check: exit 2 (THE TRAP — this must never read as a pass)" \
     || bad "an empty/no-secret realm did not produce CANNOT DETERMINE: exit ${code}: $out"
+
+out=$(bash "$CHECK" "$PASS_KC" nonexistent-realm-xyz "$ADMIN" "$ADMIN_PW" 2>&1); code=$?
+[ "$code" -eq 2 ] && echo "$out" | grep -q "client list query for realm 'nonexistent-realm-xyz' failed" \
+    && ok "a failed client-list query (bad realm): exit 2, not exit 0" \
+    || bad "a failed client-list query did not produce CANNOT DETERMINE: exit ${code}: $out"
 
 echo ""
 if [ "$fail" -eq 0 ]; then
