@@ -179,6 +179,45 @@ two runbooks drifting out of sync with each other the way this gap itself happen
 5. Configure OIDC (Keycloak) — `bash scripts/vault.sh setup-oidc`
 6. Generate and store AppRole credentials — `bash scripts/vault.sh bootstrap-approles`
 
+> **Step 6 (`bootstrap-approles`) depends on a credential that only exists for a
+> narrow window, and this sequence has to stay unbroken for it to work.**
+> `Verified 2026-08-06` by reading `cmd_bootstrap_approles` in `scripts/vault.sh`
+> directly. It needs a root token, and gets one one of two ways:
+>
+> - **An already-exported `BAO_TOKEN`, used as-is if valid.** In this sequence, that's
+>   the SAME root token Step 1's `vault.sh init` just wrote to
+>   `/opt/hill90/secrets/openbao-root.token` — reused the same way Steps 3-5 above
+>   already do (`BAO_TOKEN="$(cat /opt/hill90/secrets/openbao-root.token)"`). Followed
+>   in order, with nothing in between that revokes it, this step works.
+> - **Otherwise, it tries to generate a temporary one — and this fallback is
+>   currently dead, unconditionally, not just sometimes.** `cmd_bootstrap_approles`'s
+>   own `die` message says so: the `bao operator generate-root` CLI command it calls
+>   "targets a LEGACY endpoint and returns 403 on 2.6.1 **whatever the
+>   configuration** — it cannot mint one here." The message names the real fallback
+>   as `vault-regain-root.yml` (a deliberate recovery-config redeploy with two vault
+>   restarts, not a routine step) or supplying an existing root token by hand.
+>
+> **This entangles with Hill90#832, found the same day this runbook was corrected.**
+> #832 established that OUTSIDE a fresh-init window like this one — i.e. on the
+> normal, already-configured, already-running production vault, where root is
+> deliberately revoked as standing policy — there is currently **no automation
+> credential able to write to vault at all**. The only path #832 identifies is a
+> **human** logging into `vault.hill90.com` via Keycloak SSO (`platform-admin` role →
+> `policy-oidc-admin`, which grants full `create/read/update/delete/list` on
+> `secret/*`) — and #832 is explicit that even that path "has not been exercised
+> recently" for an actual write.
+>
+> **What this means for this step specifically:** if you run Steps 1-6 above in order,
+> without interruption, on a truly fresh vault, `bootstrap-approles` rides the
+> just-minted root token and should work — this is the scenario this runbook
+> documents. If this sequence is ever interrupted **after** root is revoked (Step 13
+> in `disaster-recovery.md`, or any other point root is deliberately dropped) and
+> `bootstrap-approles` needs to be re-run later, **there is currently no known
+> automatable way to get it a valid credential** — the generate-root fallback is
+> dead by the script's own admission, and the human OIDC path is unexercised. That
+> is a real gap, stated here rather than written around; see #832 for the credential
+> problem itself, which this runbook does not attempt to resolve.
+
 **Not verified here** whether `vault.sh auto-unseal` against a truly fresh,
 never-initialized `openbao-data` volume errors cleanly, hangs, or silently no-ops —
 what's stated above is the intended sequence from `disaster-recovery.md`, not a
