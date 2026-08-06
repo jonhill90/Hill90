@@ -122,6 +122,43 @@ Two independent mechanisms rewrote the source address to that same gateway. Both
 are fixed; the reasoning is recorded here because the failure mode is invisible
 in normal operation and easy to reintroduce.
 
+**Verified externally, `Verified 2026-08-06`.** The section above records that the
+fix was made; this records that the control now demonstrably works when exercised
+from off the tailnet, which is the only place the question can actually be
+answered. Public DNS is the first layer — the four private hostnames resolve to
+`100.88.29.112`, a `100.64.0.0/10` address that is not routable on the internet,
+so an ordinary client cannot reach them at all. But DNS is not the control: a
+request sent straight to the public address with the right `Host` header and SNI
+bypasses DNS entirely, and that is what the allowlist has to refuse.
+
+It does. Forcing resolution to the public address:
+
+```
+grafana.hill90.com     -> 403
+portainer.hill90.com   -> 403
+vault.hill90.com       -> 403
+traefik.hill90.com     -> 403
+hill90.com             -> 200   (control: a genuinely public host, same path)
+```
+
+The control line matters. Four 403s alone would also be produced by a broken
+route, a wrong SNI or a firewall drop — the 200 on the same public address, over
+the same request path, is what shows Traefik is reachable and answering, and is
+refusing these four specifically.
+
+Re-run it with, for each host:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  --resolve "<host>:443:<public-ip>" "https://<host>/"
+```
+
+Run it from a machine that is **not** routing through the tailnet for that
+address. A Tailscale client is fine as long as the request goes to the public
+address over the ordinary internet path, which `--resolve` forces; what would
+invalidate the test is an exit node or a route that carries it back onto the
+tailnet, in which case a 200 would mean nothing.
+
 ### Tailscale masqueraded forwarded tailnet traffic
 
 Tailscale installs two netfilter rules. Anything **forwarded** from `tailscale0`
