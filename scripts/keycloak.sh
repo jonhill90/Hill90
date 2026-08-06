@@ -287,11 +287,40 @@ remove_realm_roles() {
             continue
         fi
 
-        local users groups parents
-        users=$(kc get "roles/${role}/users"  -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -c . || true)
-        groups=$(kc get "roles/${role}/groups" -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | grep -c . || true)
-        # Composite parents: any role whose composites include this one.
-        parents=$(kc get roles -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r' | while read -r other; do
+        # h#746: `... | grep -c . || true` used to make a transient read
+        # failure indistinguishable from a genuine "zero holders" result —
+        # grep -c on empty stdin (whether because kc get legitimately found
+        # nothing, or because it failed and produced no output at all)
+        # prints the literal string "0" and exits 1, and `|| true` swallowed
+        # that. Whichever of the three checks failed, the role proceeded
+        # toward deletion as if the holder-count had genuinely been
+        # verified. Extends this file's own existing pattern
+        # (ensure_event_logging's `|| die` on a load-bearing write) rather
+        # than inventing a new one: each read's own exit status is now
+        # checked BEFORE counting, so a failed read refuses the retirement
+        # instead of silently counting as zero.
+        local users groups parents users_raw groups_raw roles_raw
+        if ! users_raw=$(kc get "roles/${role}/users" -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r'); then
+            warn "  ! ${role} NOT deleted — could not read current USER holders (the query failed). A failed read is not the same as zero holders; retirement is blocked until it succeeds."
+            continue
+        fi
+        users=$(printf '%s' "$users_raw" | grep -c . || true)
+
+        if ! groups_raw=$(kc get "roles/${role}/groups" -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r'); then
+            warn "  ! ${role} NOT deleted — could not read current GROUP holders (the query failed). A failed read is not the same as zero holders; retirement is blocked until it succeeds."
+            continue
+        fi
+        groups=$(printf '%s' "$groups_raw" | grep -c . || true)
+
+        # Composite parents: any role whose composites include this one. The
+        # outer list of candidate roles is read explicitly for the same
+        # reason as users/groups above — its failure would otherwise zero
+        # out every composite-parent check at once, not just one role's.
+        if ! roles_raw=$(kc get roles -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r'); then
+            warn "  ! ${role} NOT deleted — could not read the realm's role list to check composite parents (the query failed). A failed read is not the same as zero holders; retirement is blocked until it succeeds."
+            continue
+        fi
+        parents=$(printf '%s' "$roles_raw" | while read -r other; do
             [ -n "$other" ] || continue
             [ "$other" = "$role" ] && continue
             kc get "roles/${other}/composites" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null \
