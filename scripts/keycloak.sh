@@ -279,7 +279,7 @@ ensure_realm_roles() {
 # must be empty.
 remove_realm_roles() {
     echo "Retired realm roles..."
-    local role existing
+    local role existing failed=0
     existing=$(kc get roles -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r')
     for role in $REALM_ROLES_REMOVED; do
         if ! echo "$existing" | grep -qx "$role"; then
@@ -302,12 +302,14 @@ remove_realm_roles() {
         local users groups parents users_raw groups_raw roles_raw
         if ! users_raw=$(kc get "roles/${role}/users" -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r'); then
             warn "  ! ${role} NOT deleted — could not read current USER holders (the query failed). A failed read is not the same as zero holders; retirement is blocked until it succeeds."
+            failed=1
             continue
         fi
         users=$(printf '%s' "$users_raw" | grep -c . || true)
 
         if ! groups_raw=$(kc get "roles/${role}/groups" -r "$KC_REALM" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r'); then
             warn "  ! ${role} NOT deleted — could not read current GROUP holders (the query failed). A failed read is not the same as zero holders; retirement is blocked until it succeeds."
+            failed=1
             continue
         fi
         groups=$(printf '%s' "$groups_raw" | grep -c . || true)
@@ -318,6 +320,7 @@ remove_realm_roles() {
         # out every composite-parent check at once, not just one role's.
         if ! roles_raw=$(kc get roles -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r'); then
             warn "  ! ${role} NOT deleted — could not read the realm's role list to check composite parents (the query failed). A failed read is not the same as zero holders; retirement is blocked until it succeeds."
+            failed=1
             continue
         fi
         parents=$(printf '%s' "$roles_raw" | while read -r other; do
@@ -329,13 +332,20 @@ remove_realm_roles() {
 
         if [ "$users" -ne 0 ] || [ "$groups" -ne 0 ] || [ "$parents" -ne 0 ]; then
             warn "  ! ${role} NOT deleted — holders found (users=${users} groups=${groups} composite-parents=${parents}). Retirement is blocked until it has none; do not force it."
+            failed=1
             continue
         fi
 
         kc delete "roles/${role}" -r "$KC_REALM" >/dev/null 2>&1 \
             && echo "  - ${role} deleted (0 users, 0 groups, 0 composite parents)" \
-            || warn "  ! ${role} could not be deleted"
+            || { warn "  ! ${role} could not be deleted"; failed=1; }
     done
+    # h#749: every warn above used to be logged and then forgotten — cmd_apply
+    # printed an unconditional "Realm configured." regardless of how many of
+    # these fired. Returning the accumulated status is what lets the caller
+    # actually gate its own final message on it, the same accumulator shape
+    # local.sh's cmd_health already uses for its own per-check loop.
+    return "$failed"
 }
 
 # Grant the platform administrators their roles, idempotently.
@@ -361,7 +371,14 @@ remove_realm_roles() {
 # meant to close, so it warns.
 ensure_platform_admins() {
     echo "Platform administrators..."
-    local user uuid missing=0
+    # h#749: `missing` and `grant_failed` are tracked SEPARATELY on purpose.
+    # A missing user on a fresh realm is documented above as an EXPECTED
+    # no-op ("ON A FRESH REALM THIS IS A NO-OP, AND IT SAYS SO LOUDLY"), not
+    # a failure — folding it into the same signal a real grant failure uses
+    # would make cmd_apply warn on every normal fresh-realm bootstrap. Only
+    # grant_failed feeds this function's return status; missing stays
+    # informational, exactly as it already was.
+    local user uuid missing=0 grant_failed=0
     for user in $PLATFORM_ADMIN_USERS; do
         uuid=$(kc get users -r "$KC_REALM" -q "username=${user}" --fields id --format csv --noquotes 2>/dev/null | tr -d '\r' | head -1)
         if [ -z "$uuid" ]; then
@@ -372,7 +389,7 @@ ensure_platform_admins() {
         # add-roles is idempotent in kcadm: re-adding an existing mapping is a no-op.
         kc add-roles -r "$KC_REALM" --uusername "$user" --rolename platform-admin >/dev/null 2>&1 \
             && echo "  = ${user}: platform-admin" \
-            || warn "  ! ${user}: could not grant platform-admin"
+            || { warn "  ! ${user}: could not grant platform-admin"; grant_failed=1; }
         local rmrole
         # view-events added 2026-08-02. Event storage was deliberately enabled so
         # that "has anyone logged in, and when" is answerable — and it is not
@@ -381,10 +398,11 @@ ensure_platform_admins() {
         for rmrole in manage-users view-clients view-realm view-events; do
             kc add-roles -r "$KC_REALM" --uusername "$user" --cclientid realm-management --rolename "$rmrole" >/dev/null 2>&1 \
                 && echo "  = ${user}: realm-management:${rmrole}" \
-                || warn "  ! ${user}: could not grant realm-management:${rmrole}"
+                || { warn "  ! ${user}: could not grant realm-management:${rmrole}"; grant_failed=1; }
         done
     done
     [ "$missing" -eq 0 ] || warn "  ${missing} administrator(s) not present. On a rebuilt realm this is expected until the accounts are recreated — the realm import ships no users."
+    return "$grant_failed"
 }
 
 # ---------------------------------------------------------------------------
@@ -520,11 +538,20 @@ cmd_apply() {
     minio_secret=$(secret_for MINIO_OIDC_CLIENT_SECRET) \
         || die "Cannot resolve MINIO_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
 
+    # h#749: individual warn() calls inside remove_realm_roles and
+    # ensure_platform_admins used to be logged and then forgotten — this
+    # function ended with an unconditional "Realm configured." regardless of
+    # how many of them fired, e.g. one of five per-user role grants failing
+    # partway through. `apply_failed` aggregates both, matching the
+    # accumulator shape local.sh's cmd_health already uses for its own
+    # per-check loop.
+    local apply_failed=0
+
     ensure_realm_roles
     # AFTER creating the replacements, never before: a run that deleted the old
     # roles and then failed would leave the realm with neither.
-    remove_realm_roles
-    ensure_platform_admins
+    remove_realm_roles || apply_failed=1
+    ensure_platform_admins || apply_failed=1
 
     echo ""
     echo "Event logging..."
@@ -589,7 +616,11 @@ cmd_apply() {
         "${MINIO_OIDC_CLAIM_NAME:-minio_policy}"
 
     echo ""
-    success "Realm '${KC_REALM}' configured."
+    if [ "$apply_failed" -eq 0 ]; then
+        success "Realm '${KC_REALM}' configured."
+    else
+        warn "Realm '${KC_REALM}' configured with warnings above — some role retirements or admin grants did not complete. Re-run 'bash scripts/keycloak.sh apply' after addressing them."
+    fi
     echo ""
     echo "  Grant a user access by assigning a realm role:"
     echo "    docker exec ${KC_CONTAINER} /opt/keycloak/bin/kcadm.sh add-roles \\"
@@ -597,6 +628,8 @@ cmd_apply() {
     echo ""
     echo "  Every service keeps its local admin login. If Keycloak is down, see"
     echo "  docs/runbooks/sso-fallback.md."
+
+    [ "$apply_failed" -eq 0 ] || return 1
 }
 
 cmd_status() {
@@ -647,7 +680,7 @@ for c in json.load(sys.stdin):
 
 ensure_client_roles() {
     local uuid="$1"; shift
-    local existing role
+    local existing role failed=0
     existing=$(kc get "clients/${uuid}/roles" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r')
     for role in "$@"; do
         if echo "$existing" | grep -qx "$role"; then
@@ -655,9 +688,12 @@ ensure_client_roles() {
         else
             kc create "clients/${uuid}/roles" -r "$KC_REALM" -s "name=${role}" >/dev/null 2>&1 \
                 && echo "    + client role ${role}" \
-                || warn "could not create client role ${role}"
+                || { warn "could not create client role ${role}"; failed=1; }
         fi
     done
+    # h#749: same accumulator shape as remove_realm_roles/ensure_platform_admins
+    # — a per-role warn used to be logged and then forgotten by cmd_tenant_clients.
+    return "$failed"
 }
 
 ensure_audience_mapper() {
@@ -803,13 +839,23 @@ print(json.dumps({
         echo "  = hill90-ui (URLs and flags reconciled; secret untouched)"
     fi
 
-    ensure_client_roles "$ui_uuid" user admin
+    # h#749: a per-role warn inside ensure_client_roles used to be logged and
+    # then forgotten — this function ended unconditionally with "reconciled"
+    # regardless of whether every client role actually got created.
+    local tenant_failed=0
+    ensure_client_roles "$ui_uuid" user admin || tenant_failed=1
     ensure_audience_mapper "$ui_uuid" "hill90-api"
     remove_realm_roles_mapper "$ui_uuid" "hill90-ui"
     remove_realm_roles_mapper "$api_uuid" "hill90-api"
 
     echo ""
-    success "Tenant clients reconciled in realm '${KC_REALM}'."
+    if [ "$tenant_failed" -eq 0 ]; then
+        success "Tenant clients reconciled in realm '${KC_REALM}'."
+    else
+        warn "Tenant clients reconciled in realm '${KC_REALM}' with warnings above — not every client role could be created. Re-run 'bash scripts/keycloak.sh tenant-clients' after addressing them."
+    fi
+
+    [ "$tenant_failed" -eq 0 ] || return 1
 }
 
 cmd_client_secret() {
