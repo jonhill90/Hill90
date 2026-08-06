@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-vault deploy-observability test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
+.PHONY: help build deploy-infra deploy-infra-production deploy-vault deploy-observability test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps harden-ssh harden-ssh-check validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
 
 # Environment
 ENV ?= prod
@@ -91,10 +91,12 @@ config-vps: ## Configure VPS OS only (no containers deployed)
 	bash scripts/vps.sh config $(VPS_IP)
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ VPS configured!$(COLOR_RESET)"
-	@echo ""
-	@echo "$(COLOR_YELLOW)Next: Deploy infrastructure and services$(COLOR_RESET)"
-	@echo "  make deploy-infra    # Traefik, Portainer"
-	@echo ""
+
+harden-ssh-check: ## Dry run of harden-ssh — reports what would change, changes nothing
+	bash scripts/vps.sh harden-ssh --check
+
+harden-ssh: ## Re-apply firewall + SSH hardening only (02+04), against the known TAILSCALE_IP — h#681/h#786
+	bash scripts/vps.sh harden-ssh
 
 # ============================================================================
 # Development

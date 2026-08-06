@@ -30,6 +30,21 @@
 #
 # Every change is then verified against `sshd -T`. An assertion nobody checks is
 # how the previous version survived a full rebuild.
+#
+# h#786 addendum: this fix was correct and has been in `main` since #545
+# (2026-07-26) — it was simply never RUN. `Config VPS` last executed
+# 2026-02-02, months before #545 existed, and nothing has invoked it since
+# (h#681). Confirmed live 2026-08-05/06: `00-hill90-hardening.conf` is absent
+# from `/etc/ssh/sshd_config.d/` on the running host, `sshd -T` still reports
+# `passwordauthentication yes`. Applying this (unchanged) fix is `make
+# harden-ssh` / `infra/ansible/playbooks/ssh-harden.yml` — a narrow re-run of
+# just this file and 02-firewall.yml, not the full bootstrap, because
+# bootstrap's other plays (03-tailscale, 05-docker) have a blast radius this
+# fix does not need. That review also asked whether sorting BEFORE cloud-init's
+# drop-in is a fix that works "by construction" or by luck of filename
+# ordering — see the task immediately below "SSH hardening, written where it
+# wins" for the answer: 50-cloud-init.conf's own PasswordAuthentication line is
+# now corrected directly, so this keyword no longer depends on ordering at all.
 
 # ---------------------------------------------------------------------------
 # GATE: refuse to lock the door until we have proven there is a key that
@@ -217,6 +232,25 @@
 # ---------------------------------------------------------------------------
 # SSH hardening, written where it wins
 # ---------------------------------------------------------------------------
+#
+# h#786 review: the 00- drop-in below wins by lexical sort order ahead of
+# cloud-init's 50-cloud-init.conf — correct, but a fix that works because
+# "00" sorts before "50" is a fix that works by luck of filename ordering,
+# not by construction. The task immediately below instead corrects
+# 50-cloud-init.conf's OWN content directly, so PasswordAuthentication is
+# right at its actual source and there is no ordering dependency left for
+# this specific keyword at all. The 00- drop-in stays — it is still the
+# only place PermitRootLogin, KbdInteractiveAuthentication and the rest are
+# set, none of which cloud-init's drop-in touches — this is a correction to
+# the one setting that actually conflicted, not a replacement for it.
+- name: Correct PasswordAuthentication directly in cloud-init's own drop-in, at its source
+  lineinfile:
+    path: /etc/ssh/sshd_config.d/50-cloud-init.conf
+    regexp: '^\s*PasswordAuthentication\s+'
+    line: 'PasswordAuthentication no'
+    create: no
+  failed_when: false   # the file may not exist on every image; absence is not an error, it just means there is nothing here to correct
+  register: cloud_init_dropin_corrected
 
 - name: Deploy SSH hardening drop-in (sorts before cloud-init's)
   copy:
@@ -245,14 +279,19 @@
 
 # `sshd -t` validates the FULL effective configuration, includes and all, which
 # is the only way to know the drop-in composes correctly with what is already
-# there. It runs BEFORE any restart, and a bad file is removed rather than left
-# in place — otherwise the next restart by anything at all would fail, and the
+# there. It runs BEFORE any reload, and a bad file is removed rather than left
+# in place — otherwise the next reload by anything at all would fail, and the
 # only route in is the tailnet.
+#
+# check_mode: no — this is a read-only validation of whatever is ALREADY on
+# disk. Under `--check` it still runs, so a dry-run reports the current,
+# real syntax state rather than being skipped as "would validate something".
 - name: Validate the effective sshd configuration
   command: /usr/sbin/sshd -t
   register: sshd_validate
   changed_when: false
   failed_when: false
+  check_mode: no
 
 - name: Remove the drop-in if it produced an invalid configuration
   file:
@@ -264,17 +303,30 @@
   fail:
     msg: |
       The SSH hardening drop-in produced an invalid sshd configuration and has
-      been removed. sshd was NOT restarted, so access is unaffected.
+      been removed. sshd was NOT reloaded, so access is unaffected.
 
       sshd -t said:
       {{ sshd_validate.stderr | default('(no output)') }}
   when: sshd_validate.rc != 0
 
-- name: Restart sshd to apply the drop-in
+# RELOAD, not restart. None of the keywords this play sets — PasswordAuthentication,
+# PermitRootLogin, PubkeyAuthentication, KbdInteractiveAuthentication,
+# PermitEmptyPasswords, MaxAuthTries, ClientAliveInterval/CountMax — require a
+# full restart; sshd re-reads its config on SIGHUP (systemd `reloaded`) without
+# dropping already-established sessions. A restart would drop the very
+# connection this playbook is running over if it happens to be a plain-sshd one
+# rather than Tailscale SSH.
+#
+# OPERATOR NOTE, belongs here and not just in a PR description: after this task
+# runs, keep your current session open and verify access from a SECOND, fresh
+# session before disconnecting the first. A reload that produced an effective
+# configuration nobody can authenticate against would otherwise be discovered
+# only by losing access.
+- name: Reload sshd to apply the drop-in and the corrected cloud-init file
   systemd:
     name: sshd
-    state: restarted
-  when: sshd_dropin.changed
+    state: reloaded
+  when: sshd_dropin.changed or cloud_init_dropin_corrected.changed | default(false)
 
 # Stop cloud-init reasserting PasswordAuthentication on rebuild. The 00- drop-in
 # already wins, but leaving cloud-init writing the opposite value means the host
@@ -304,6 +356,7 @@
   command: /usr/sbin/sshd -T
   register: sshd_effective
   changed_when: false
+  check_mode: no
 
 - name: Assert SSH hardening actually applied
   assert:

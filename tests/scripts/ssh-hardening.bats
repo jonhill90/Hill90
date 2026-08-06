@@ -14,9 +14,28 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
   # A value written into sshd_config is read AFTER the Include and loses.
   run grep -F 'dest: /etc/ssh/sshd_config.d/00-hill90-hardening.conf' "$ROLE"
   [ "$status" -eq 0 ]
-  # No lineinfile against the main config file.
-  run bash -c "grep -A3 'lineinfile:' $ROLE | grep -F 'path: /etc/ssh/sshd_config'"
+  # No lineinfile against the MAIN config file specifically — anchored to
+  # end-of-line so this does not also match a legitimate lineinfile against
+  # a *drop-in* (sshd_config.d/50-cloud-init.conf), which h#786 deliberately
+  # added and is a different file entirely from the main config.
+  run bash -c "grep -A3 'lineinfile:' $ROLE | grep -E 'path: /etc/ssh/sshd_config\$'"
   [ "$status" -ne 0 ]
+}
+
+@test "h#786: cloud-init's own drop-in is corrected at its source, not just out-ranked by sort order" {
+  # The 00- drop-in winning by lexical order is real but was flagged in
+  # review as a fix that works by luck of filename ordering rather than by
+  # construction. This pins the stronger fix alongside it: a lineinfile task
+  # that corrects PasswordAuthentication directly inside
+  # /etc/ssh/sshd_config.d/50-cloud-init.conf, so this keyword no longer
+  # depends on which file sorts first at all.
+  run bash -c "grep -A6 'name: Correct PasswordAuthentication directly in cloud' $ROLE | grep -F 'path: /etc/ssh/sshd_config.d/50-cloud-init.conf'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A6 'name: Correct PasswordAuthentication directly in cloud' $ROLE | grep -F 'line: '\''PasswordAuthentication no'\'''"
+  [ "$status" -eq 0 ]
+  # Absence of the file must not be an error — not every image ships it.
+  run bash -c "grep -A8 'name: Correct PasswordAuthentication directly in cloud' $ROLE | grep -F 'failed_when: false'"
+  [ "$status" -eq 0 ]
 }
 
 @test "the drop-in name sorts before cloud-init's" {
@@ -47,13 +66,29 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
   [ "$status" -eq 0 ]
 }
 
-@test "the config is validated before sshd is restarted" {
-  # Writing a bad drop-in and restarting would break the only route in.
+@test "the config is validated before sshd is reloaded" {
+  # Writing a bad drop-in and reloading would break the only route in.
   run bash -c "
     v=\$(grep -n 'sshd -t' $ROLE | head -1 | cut -d: -f1)
-    r=\$(grep -n 'name: Restart sshd' $ROLE | head -1 | cut -d: -f1)
+    r=\$(grep -n 'name: Reload sshd' $ROLE | head -1 | cut -d: -f1)
     [ -n \"\$v\" ] && [ -n \"\$r\" ] && [ \"\$v\" -lt \"\$r\" ]
   "
+  [ "$status" -eq 0 ]
+}
+
+@test "h#786: sshd is reloaded, not restarted — none of these keywords need a full restart" {
+  # A restart would drop the very connection this playbook might be running
+  # over, if it happens to be a plain-sshd session rather than Tailscale SSH.
+  # Reload (SIGHUP) re-reads config without dropping established sessions,
+  # and every keyword this role sets supports it.
+  run grep -F 'name: Reload sshd to apply the drop-in' "$ROLE"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A3 'name: Reload sshd to apply the drop-in' $ROLE | grep -F 'state: reloaded'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A3 'name: Reload sshd to apply the drop-in' $ROLE | grep -F 'state: restarted'"
+  [ "$status" -ne 0 ]
+  # The operator note belongs in the file, not only in a PR description.
+  run grep -iF 'keep your current session open' "$ROLE"
   [ "$status" -eq 0 ]
 }
 
@@ -109,7 +144,7 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
     gate=\$(grep -n 'name: Refuse to proceed without a usable key' $ROLE | head -1 | cut -d: -f1)
     firewall=\$(grep -n 'name: Lock SSH to Tailscale network only' $ROLE | head -1 | cut -d: -f1)
     dropin=\$(grep -n 'name: Deploy SSH hardening drop-in' $ROLE | head -1 | cut -d: -f1)
-    restart=\$(grep -n 'name: Restart sshd to apply the drop-in' $ROLE | head -1 | cut -d: -f1)
+    restart=\$(grep -n 'name: Reload sshd to apply the drop-in' $ROLE | head -1 | cut -d: -f1)
     [ -n \"\$gate\" ] && [ -n \"\$firewall\" ] && [ -n \"\$dropin\" ] && [ -n \"\$restart\" ] \
       && [ \"\$gate\" -lt \"\$firewall\" ] && [ \"\$gate\" -lt \"\$dropin\" ] && [ \"\$gate\" -lt \"\$restart\" ]
   "
