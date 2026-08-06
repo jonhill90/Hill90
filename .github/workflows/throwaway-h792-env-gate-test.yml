@@ -1,0 +1,38 @@
+name: THROWAWAY h792 env-gate diagnostic (delete after Jon confirms)
+
+# Deploys nothing. Answers one question for h#792/h#816: does a step's
+# `if:` expression see that SAME step's own `env:` block? The real code in
+# reusable-deploy-service.yml (`if: ... && env.DISPATCH_TOKEN != ''`, with
+# `env: DISPATCH_TOKEN: ${{ secrets.HILL90_APP_DISPATCH_TOKEN }}` on the
+# same step) depends on the answer being yes. Uses a repo VARIABLE
+# (H792_ENV_GATE_TEST), not a secret, deliberately visible in logs and not
+# sensitive. No real secret is referenced anywhere in this file.
+#
+# Left in place deliberately after this run so it can be verified
+# independently. Do not delete the branch, the variable, or this run
+# until confirmed.
+
+on: workflow_dispatch
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POSITIVE - gated on env.SET_VAR, which IS set via this step's own env block
+        if: env.SET_VAR != ''
+        env:
+          SET_VAR: ${{ vars.H792_ENV_GATE_TEST }}
+        run: |
+          echo "RAN - env.SET_VAR was seen as non-empty by this step's own if condition"
+
+      - name: NEGATIVE CONTROL - gated on env.UNSET_VAR, which resolves to empty
+        if: env.UNSET_VAR != ''
+        env:
+          UNSET_VAR: ${{ vars.H792_ENV_GATE_TEST_DOES_NOT_EXIST }}
+        run: |
+          echo "RAN - this should never print, UNSET_VAR should be empty"
+
+      - name: Unconditional marker, always runs
+        if: always()
+        run: |
+          echo "marker step ran - job executed end to end"
