@@ -468,6 +468,41 @@ tests:
         alertname: LokiIngestionStalled
         exp_alerts: []
 
+  # h#789's absence-blindness sweep: LokiIngestionStalled's own comment used to
+  # claim ServiceDown covered the case where this metric disappears entirely
+  # (renamed/relabeled, Loki still up). ServiceDown watches `up`, a different
+  # metric, so it does not. LokiIngestionSignalMissing is the actual partner.
+  - name: "THE ASSERTION THAT MATTERS: LokiIngestionSignalMissing fires when the ingestion metric never appears at all"
+    # No input_series for loki_distributor_lines_received_total at all — this is
+    # what the metric being renamed away or never emitted by a future Loki
+    # version looks like: not stale, not old, absent from the very first eval.
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: LokiIngestionSignalMissing
+        exp_alerts: []          # `for: 10m` not yet satisfied
+      - eval_time: 15m
+        alertname: LokiIngestionSignalMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The Loki ingestion-rate metric has disappeared entirely"
+              description: "loki_distributor_lines_received_total is absent, so LokiIngestionStalled cannot fire at all. If Loki is also down, ServiceDown should be firing separately — check that first. If Loki is up and answering scrapes, the metric was likely renamed or relabeled, most plausibly after a version change."
+              action: "`docker ps --filter name=loki` to rule out the down case (ServiceDown should already be firing if so). If Loki is running, `docker exec loki wget -qO- http://localhost:3100/metrics | grep -i lines_received` to find what the metric is now called, and update this rule's expr to match."
+              runbook: docs/runbooks/observability.md
+
+  - name: "CONTROL: LokiIngestionSignalMissing stays silent while the ingestion metric is present"
+    interval: 1m
+    input_series:
+      - series: 'loki_distributor_lines_received_total{instance="loki:3100", job="loki", tenant="fake", aggregated_metric="false"}'
+        values: '0+600x60'
+    alert_rule_test:
+      - eval_time: 50m
+        alertname: LokiIngestionSignalMissing
+        exp_alerts: []
+
   - name: LokiPushRejected fires on 429 and names the status code
     # Rate-limited pushes. The old rule tried to express this condition and
     # selected a label that does not exist; this selects status_code, which does.
@@ -512,6 +547,91 @@ tests:
     alert_rule_test:
       - eval_time: 12m
         alertname: LokiPushRejected
+        exp_alerts: []
+
+  # --- certificates -----------------------------------------------------------
+  #
+  # CertificateCountDropped's `for:` USED TO BE 2h, which meant this rule could
+  # never fire at all — not on a total wipeout, not on the single-cert drop it
+  # was written for. `offset 1h` on the right-hand side means the comparison is
+  # true for AT MOST one hour after any single, permanent count change: past
+  # that, the offset side has rolled forward past the change too and reads the
+  # same post-change value as the left, so the condition self-resolves before
+  # a 2-hour `for:` could ever complete. Caught while positive-controlling the
+  # absence fix below, and fixed alongside it — see alerts.yml's own comment on
+  # the rule for the full reasoning. `for: 15m` is comfortably inside the one
+  # hour the comparison can actually sustain, which is also what makes a real
+  # alert_rule_test possible here now — it was not, against the old `for: 2h`.
+
+  # h#789's absence-blindness sweep: this rule exists specifically to catch
+  # certificates vanishing, but as originally written (`count(x) <
+  # count(x offset 1h)`, no fallback) it could not see the TOTAL case —
+  # count() over zero matching series is no result, not the number 0, so if
+  # every series vanished at once, both sides of the comparison went empty
+  # and produced nothing. The `or vector(0)` fix makes an empty side read as
+  # a real zero instead of dropping out of the comparison.
+  - name: "THE ASSERTION THAT MATTERS: CertificateCountDropped fires on a TOTAL wipeout, not just a partial one"
+    # Two certificate series present for the first 69 minutes, then nothing —
+    # not a smaller count, no series left at all. The un-offset side goes
+    # absent once 69m + 5m staleness has passed (~74m); the offset-1h side
+    # stays real until 74m further on (~134m), since it is still reading the
+    # pre-wipeout sample through then. `for: 15m` inside that ~60m window means
+    # firing begins around 89m and holds until the offset side goes absent too.
+    interval: 1m
+    input_series:
+      - series: 'traefik_tls_certs_not_after{cn="a.example.com", instance="traefik:8082", job="traefik", sans="a.example.com", serial="1"}'
+        values: "1x69"
+      - series: 'traefik_tls_certs_not_after{cn="b.example.com", instance="traefik:8082", job="traefik", sans="b.example.com", serial="2"}'
+        values: "1x69"
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: CertificateCountDropped
+        exp_alerts: []          # true since ~74m, but `for: 15m` not yet satisfied
+      - eval_time: 100m
+        alertname: CertificateCountDropped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Traefik is serving fewer certificates than it was an hour ago"
+              description: "The number of certificates Traefik holds has dropped and stayed down for at least 15 minutes. An expiry alert cannot see this: a certificate that disappears has no series left to be near expiry. Traefik being down is a different alert, though a Traefik outage long enough to still be dropping certs 15 minutes in will likely also be tripping ServiceDown."
+              action: "`docker exec traefik wget -qO- http://localhost:8082/metrics | grep -c '^traefik_tls_certs_not_after'` and compare with the router list. A host removed on purpose explains it; otherwise suspect the ACME store. Do NOT delete acme-dns.json — it holds the account key and every DNS-01 certificate, and re-issuance runs straight into rate limits."
+              runbook: docs/runbooks/certificate-renewal.md
+      - eval_time: 150m
+        alertname: CertificateCountDropped
+        exp_alerts: []          # self-resolved: past ~134m the offset side is absent too
+
+  - name: "CONTROL: CertificateCountDropped still catches an ordinary partial drop (regression guard for the fix)"
+    # Two series for the first 69 minutes, then only one — the realistic
+    # failure mode (one host's DNS token revoked), unchanged by the fix.
+    interval: 1m
+    input_series:
+      - series: 'traefik_tls_certs_not_after{cn="a.example.com", instance="traefik:8082", job="traefik", sans="a.example.com", serial="1"}'
+        values: "1x120"
+      - series: 'traefik_tls_certs_not_after{cn="b.example.com", instance="traefik:8082", job="traefik", sans="b.example.com", serial="2"}'
+        values: "1x69"
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: CertificateCountDropped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Traefik is serving fewer certificates than it was an hour ago"
+              description: "The number of certificates Traefik holds has dropped and stayed down for at least 15 minutes. An expiry alert cannot see this: a certificate that disappears has no series left to be near expiry. Traefik being down is a different alert, though a Traefik outage long enough to still be dropping certs 15 minutes in will likely also be tripping ServiceDown."
+              action: "`docker exec traefik wget -qO- http://localhost:8082/metrics | grep -c '^traefik_tls_certs_not_after'` and compare with the router list. A host removed on purpose explains it; otherwise suspect the ACME store. Do NOT delete acme-dns.json — it holds the account key and every DNS-01 certificate, and re-issuance runs straight into rate limits."
+              runbook: docs/runbooks/certificate-renewal.md
+
+  - name: "CONTROL: CertificateCountDropped stays quiet when the count has not changed"
+    interval: 1m
+    input_series:
+      - series: 'traefik_tls_certs_not_after{cn="a.example.com", instance="traefik:8082", job="traefik", sans="a.example.com", serial="1"}'
+        values: "1x120"
+      - series: 'traefik_tls_certs_not_after{cn="b.example.com", instance="traefik:8082", job="traefik", sans="b.example.com", serial="2"}'
+        values: "1x120"
+    alert_rule_test:
+      - eval_time: 100m
+        alertname: CertificateCountDropped
         exp_alerts: []
 
   # --- delivery test facility -----------------------------------------------
