@@ -396,14 +396,34 @@ tests:
         exp_alerts: []
 
   # --- tempo ----------------------------------------------------------------
+  #
+  # h#836, 2026-08-06: retuned from "any nonzero failure rate for 5m" to
+  # "failure ratio > 5% for 15m", against a MEASURED production baseline of
+  # ~1.1% (rate(failures[5m])=0.0035/s, rate(appends[5m])=0.305/s — see
+  # alerts.yml's own comment for how that number and the traffic behind it
+  # were established). Both directions matter equally here: a rule that only
+  # proves it CAN still fire is not the same claim as one that also proves it
+  # STOPPED firing on the exact background rate that used to make it
+  # permanent. Neither test alone would have caught the original defect —
+  # `> 0` also "fires on a rising counter" in a test exactly like the first
+  # one below.
 
-  - name: TempoIngestionErrors fires on a rising append-failure counter
+  - name: TempoIngestionErrors fires on a genuine ingestion failure (well above background)
     interval: 1m
     input_series:
+      # 2/min failures against 8/min appends = 20% loss — four times the 5%
+      # threshold and roughly eighteen times the ~1.1% background this
+      # threshold was set against, so this is unambiguously an incident, not
+      # noise on a busy day.
       - series: 'tempo_distributor_ingester_append_failures_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
-        values: '0+2x15'
+        values: '0+2x25'
+      - series: 'tempo_distributor_ingester_appends_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
+        values: '0+8x25'
     alert_rule_test:
-      - eval_time: 12m
+      - eval_time: 10m
+        alertname: TempoIngestionErrors
+        exp_alerts: []          # `for: 15m` not yet satisfied
+      - eval_time: 24m
         alertname: TempoIngestionErrors
         exp_alerts:
           - exp_labels:
@@ -413,17 +433,39 @@ tests:
               ingester: 127.0.0.1:9095
             exp_annotations:
               summary: "Tempo ingestion errors detected"
-              description: "Tempo is failing to append traces at 0.03333333333333333/sec on tempo:3200. Traces are being LOST while this fires."
-              action: "`docker logs --tail 50 tempo`. This fired for ~1.3 cumulative hours in the week to 2026-07-31 with nobody watching, so treat a first delivery as possibly long-standing rather than new."
+              description: "Tempo has failed to append 20% of trace appends on tempo:3200 for 15+ minutes. Traces are being LOST while this fires, at a rate well above the ~1% background this threshold was set against (h#836)."
+              action: "`docker logs --tail 50 tempo`. This fired for ~1.3 cumulative hours in the week to 2026-07-31 with nobody watching, so treat a first delivery as possibly long-standing rather than new. A background rate around 1% no longer fires this rule — see h#836 if this alert appears to have gone quiet; that was deliberate, not a regression."
               runbook: docs/runbooks/observability.md
 
-  - name: TempoIngestionErrors is silent on a flat counter
+  - name: TempoIngestionErrors is silent on the measured production background rate (~1.1%)
     interval: 1m
     input_series:
+      # 1/min failures against 90/min appends = 1/91 ≈ 1.10% — matches the
+      # investigated baseline almost exactly, not an arbitrary "small" number.
+      # This is the case the old `> 0` rule got wrong: pending or firing on
+      # 636+78 of a possible ~1440 samples in 24h, for traffic that was
+      # entirely health-check polling with zero production chat traffic.
       - series: 'tempo_distributor_ingester_append_failures_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
-        values: '30x15'
+        values: '0+1x25'
+      - series: 'tempo_distributor_ingester_appends_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
+        values: '0+90x25'
     alert_rule_test:
-      - eval_time: 12m
+      - eval_time: 24m
+        alertname: TempoIngestionErrors
+        exp_alerts: []
+
+  - name: TempoIngestionErrors is silent when nothing is being pushed at all (0/0)
+    interval: 1m
+    input_series:
+      # Both counters flat: rate/rate is 0/0 = NaN in PromQL, and NaN > 0.05
+      # is false — this must stay a non-match, not an error or a false fire,
+      # since a quiet tenant is not the same claim as a failing one.
+      - series: 'tempo_distributor_ingester_append_failures_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
+        values: '0x25'
+      - series: 'tempo_distributor_ingester_appends_total{instance="tempo:3200", job="tempo", ingester="127.0.0.1:9095"}'
+        values: '0x25'
+    alert_rule_test:
+      - eval_time: 24m
         alertname: TempoIngestionErrors
         exp_alerts: []
 
