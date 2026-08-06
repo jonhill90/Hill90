@@ -4,11 +4,16 @@ Complete automated rebuild of the Hill90 VPS from catastrophic failure.
 
 ## Overview
 
-The VPS rebuild is fully automated and requires **zero manual intervention**. The process takes ~8-13 minutes and consists of 4 steps:
+The host-level rebuild (VPS OS, Ansible bootstrap, Traefik/Portainer, observability)
+is fully automated. **Vault is not** — initializing, configuring, seeding and
+generating AppRole credentials for a freshly-deployed OpenBao are manual steps this
+runbook does not itself walk through (see Step 3b, h#807). The process takes
+~8-13 minutes for the automated portion and consists of 4 steps, plus vault setup:
 
 1. **Recreate VPS** (~3-5 minutes) - OS rebuild via Hostinger API
 2. **Config VPS** (~3-5 minutes) - Infrastructure bootstrap via Ansible
 3. **Deploy Infra** (~1-2 minutes) - Infrastructure service deployment (Traefik, Portainer)
+3b. **Deploy AND configure Vault** (manual — not on the automated clock) - see Step 3b
 4. **Deploy All** (~2-3 minutes) - Application service deployment
 
 ## Prerequisites
@@ -122,13 +127,44 @@ make deploy-infra
 
 ---
 
-### Step 3b: Deploy Vault
+### Step 3b: Deploy AND Configure Vault
 
 ```bash
 make deploy-vault
 ```
 
 Deploys OpenBao and calls `vault.sh auto-unseal` automatically after compose up.
+
+**This alone is not enough (h#807).** `Verified 2026-08-06` by diffing this step
+against `disaster-recovery.md`'s: `make deploy-vault` deploys OpenBao and auto-unseals
+it against whatever volume already exists, but on a truly fresh rebuild that volume is
+empty — there is nothing to unseal yet, and `auto-unseal` exits 0 gracefully in that
+case rather than failing. Deploying alone does **not** initialize, configure, or seed
+the vault, and does not generate AppRole credentials. Following only this step leaves
+a vault that is deployed and answering `bao status`, but has no KV v2 mount, no
+AppRole roles, no secrets loaded, and no service credentials — and because every
+service that authenticates against vault already has a SOPS fallback, `make health`
+would plausibly still report clean while everything silently runs on SOPS instead
+(the same shape as Hill90#791, but a documentation gap here rather than a runtime
+one).
+
+**Do the following instead, in order** — this is [`disaster-recovery.md`](disaster-recovery.md)'s
+[Step 4](disaster-recovery.md#step-4) through Step 9, not repeated here to avoid the
+two runbooks drifting out of sync with each other the way this gap itself happened:
+
+1. [Initialize](disaster-recovery.md#step-4) — `bash scripts/vault.sh init`
+2. Unseal — `bash scripts/vault.sh unseal`
+3. Setup (KV v2, AppRole auth, audit logging, policies, service roles) — `bash scripts/vault.sh setup`
+4. Seed from SOPS — `bash scripts/vault.sh seed`
+5. Configure OIDC (Keycloak) — `bash scripts/vault.sh setup-oidc`
+6. Generate and store AppRole credentials — `bash scripts/vault.sh bootstrap-approles`
+
+**Not verified here** whether `vault.sh auto-unseal` against a truly fresh,
+never-initialized `openbao-data` volume errors cleanly, hangs, or silently no-ops —
+what's stated above is the intended sequence from `disaster-recovery.md`, not a
+rebuild that was run to confirm it. What would settle it: running `make deploy-vault`
+alone against a disposable vault instance and observing what `auto-unseal` actually
+does when there is nothing to unseal.
 
 ---
 
@@ -141,13 +177,21 @@ make deploy-observability   # or: bash scripts/deploy.sh observability prod
 **What happens automatically:**
 1. Validates configuration
 2. Decrypts secrets with SOPS
-3. Deploys Prometheus, Grafana, Loki, Tempo, Promtail, node-exporter and cAdvisor
+3. Deploys Prometheus, Alertmanager, Blackbox Exporter, Grafana, Loki, Tempo, Promtail,
+   node-exporter and cAdvisor — nine services (h#808: `Verified 2026-08-06` against
+   `docker-compose.observability.yml` directly; this list previously omitted
+   Alertmanager and Blackbox Exporter, both real and already deployed)
 4. Waits for containers to become healthy
 
 **Result:**
-- ✅ Ten containers running
+- ✅ Nine observability containers running (infra 2 + vault 1 + observability 9 = 12
+  platform containers total, not ten — h#808)
 - ✅ Grafana at https://grafana.hill90.com (Tailscale-only)
 - ✅ Prometheus scrape targets healthy
+
+**Not verified against the live host** — this correction is against the compose file
+and `scripts/ops.sh` (see the code-side fix, h#808), not a container count taken from
+a running rebuild.
 
 ---
 
@@ -172,7 +216,7 @@ make health
 ```
 
 **Checks performed:**
-- ✅ All ten Docker containers running
+- ✅ All twelve Docker containers running (infra 2 + vault 1 + observability 9 — h#808)
 - ✅ Traefik dashboard accessible (https://traefik.hill90.com via Tailscale)
 - ✅ Portainer accessible (https://portainer.hill90.com via Tailscale)
 - ✅ Grafana accessible (https://grafana.hill90.com via Tailscale)
@@ -321,7 +365,10 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 3. Bootstrap infrastructure: `make config-vps VPS_IP=<ip>`
 4. Deploy infrastructure: `make deploy-infra`
 5. Deploy vault: `make deploy-vault`
-6. Deploy observability: `make deploy-observability`
+6. Initialize, unseal, configure, seed and generate AppRole credentials for vault —
+   see [Step 3b](#step-3b-deploy-and-configure-vault) above; **not automated**, and
+   not optional (h#807)
+7. Deploy observability: `make deploy-observability`
 8. Verify health: `make health`
 
 **Fully automated (no intervention):**
