@@ -274,7 +274,16 @@ cmd_tag_unmerged() {
     if [ "$YES" = true ] && [ "$made" -gt 0 ]; then
         echo ""
         echo "Pushing ${made} tag(s)..."
-        git push "$REMOTE" --tags
+        # h#747: this file uses only `set -uo pipefail`, not `-e` — every
+        # write here has to check its own exit status explicitly. Without
+        # this, a failed push (network blip, permission error, a rejected
+        # ref) fell straight through to the unconditional "Done... safe" —
+        # telling the operator delete-unmerged is safe to run when the
+        # remote tag it depends on never landed.
+        if ! git push "$REMOTE" --tags; then
+            echo "${RED}Failed to push ${made} tag(s) to ${REMOTE}.${NC} Category C branches are NOT yet reversible via a remote tag — do NOT run delete-unmerged until a retry of tag-unmerged succeeds." >&2
+            return 1
+        fi
         echo "${GREEN}Done.${NC} Category C is now reversible; delete-unmerged is safe."
     else
         confirm_or_dry || true
@@ -298,16 +307,31 @@ delete_batch() {
     # Batched: one push, not N round trips.
     local -a refs=()
     for b in "${present[@]}"; do refs+=(":refs/heads/${b}"); done
-    git push "$REMOTE" "${refs[@]}"
+    # h#747: same reasoning as the tag push above — this is the one
+    # write-shaped, irreversible operation in this file, and it was the
+    # least error-checked. A rejected ref or a network failure used to fall
+    # straight through to "Deleted N branch(es)." with no way to tell that
+    # from a real success.
+    if ! git push "$REMOTE" "${refs[@]}"; then
+        echo "${RED}git push failed.${NC} Some or all of these ${#present[@]} branch(es) may NOT have been deleted — check the error above before assuming this batch is gone:" >&2
+        printf '  %s\n' "${present[@]}" >&2
+        return 1
+    fi
     echo "${GREEN}Deleted ${#present[@]} branch(es).${NC}"
 }
 
 cmd_delete_safe() {
     echo "Categories A and B only. Category C is left alone — use delete-unmerged."
     echo ""
-    delete_batch "A — fully preserved" "${CATEGORY_A[@]}"
+    # h#747: two independent delete_batch calls used to run one after the
+    # other with no status check — if A's push failed and B's succeeded,
+    # cmd_delete_safe's own exit code was B's alone, reporting overall
+    # success while A silently was not deleted.
+    local failed=0
+    delete_batch "A — fully preserved" "${CATEGORY_A[@]}" || failed=1
     echo ""
-    delete_batch "B — superseded drafts only" "${CATEGORY_B[@]}"
+    delete_batch "B — superseded drafts only" "${CATEGORY_B[@]}" || failed=1
+    return "$failed"
 }
 
 cmd_delete_unmerged() {
