@@ -273,6 +273,15 @@ jobs:
             -f context="Run Tests" \
             -f description="Skipped — sync PR only changes encrypted secrets file"
 
+      # h#816: the in-script guard below used to be silent on an unset
+      # secret — a run log with no webhook call and no explanation for it,
+      # indistinguishable from one where the notification code was never
+      # written at all. That silence is exactly what let this workflow's
+      # 2026-08-03 failure go unnoticed for three days, until h#712's
+      # Prometheus rule shipped two days later (#789). The else branch below
+      # is the same `::warning::` shape reusable-deploy-service.yml already
+      # uses for its own optional-secret checks (HILL90_APP_DISPATCH_TOKEN,
+      # and — as of the same fix — DEPLOY_WEBHOOK_URL there too).
       - name: Notify sync result
         if: failure()
         env:
@@ -289,6 +298,8 @@ jobs:
                 "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
                 "text": "Vault-to-SOPS sync failed — check workflow logs"
               }' || echo "Warning: webhook notification failed (non-blocking)"
+          else
+            echo "::warning::DEPLOY_WEBHOOK_URL is not set on this repository — this sync FAILURE was NOT sent anywhere. See Hill90#816."
           fi
 
       # h#712 (narrowed): a dead-man's-switch for the SCHEDULE itself, not
