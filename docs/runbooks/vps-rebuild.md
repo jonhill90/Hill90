@@ -25,6 +25,26 @@ runbook does not itself walk through (see Step 3b, h#807). The process takes
   [`disaster-recovery.md`](disaster-recovery.md#step-0)
 - **SSH key:** `~/.ssh/remote.hill90.com` configured
 - **Secrets:** `infra/secrets/prod.enc.env` with VPS credentials
+- **`HILL90_UI_CLIENT_SECRET` set in the store — check this BEFORE starting, not after
+  login breaks.** h#809, `Verified 2026-08-06` against a real
+  `quay.io/keycloak/keycloak:26.4.0` importing the actual `platform-realm.json` with
+  this variable deliberately unset: the import completes with **no warning or error**
+  ("Realm 'platform' imported" / "Import finished successfully"), and the `hill90-ui`
+  client's resulting secret is the **literal, unsubstituted string
+  `${HILL90_UI_CLIENT_SECRET}`** — not empty, and not random. That exact string is
+  sitting in plaintext in `platform-realm.json` in this repository, so an unconfigured
+  rebuild installs a client secret, for the client fronting `hill90.com`, that anyone
+  reading this file already knows. This bites **only** on a first realm import — the
+  case a rebuild is — and nothing in the automated rebuild path checks for it; a
+  compose-level `${VAR:?...}` guard was considered and is deliberately **not** the fix,
+  because `HILL90_UI_CLIENT_SECRET` is legitimately unset on every *routine* auth
+  deploy after the first import (`start --import-realm` no-ops once the realm exists),
+  so a blanket guard would refuse every normal deploy, not just protect this case (see
+  `fad9fefa`, which rejected exactly that for exactly this reason). Confirm the value is
+  present — `grep -c '^HILL90_UI_CLIENT_SECRET=' infra/secrets/prod.enc.env` should
+  print `1` — before running Step 1. If it prints `0`, get the value from Jon first;
+  it must equal what hill90-app's own store holds for `AUTH_KEYCLOAK_SECRET`, or the
+  tenant app cannot sign in against the freshly-imported realm.
 
 ## Rebuild Workflow
 
