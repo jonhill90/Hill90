@@ -21,18 +21,28 @@
 # are never otherwise compared.
 #
 # It also WARNS about policies named after realm roles that exist with zero
-# holders (admin, editor, viewer — the Stage-0 names). Those are unreachable
-# today and become an over-grant the moment someone is granted the role.
+# holders — the Stage-0 legacy names, read from keycloak.sh's own
+# REALM_ROLES_REMOVED (h#776) rather than restated here, for the same reason
+# check_retired_roles_ungranted.py already reads it that way: hardcoding a
+# second copy of that list is how it goes stale the next time a role is
+# retired. It already had: this loop was `admin editor viewer`, silently
+# missing `user` after REALM_ROLES_REMOVED grew a fourth name — found by
+# sibling-comparing this file against check_retired_roles_ungranted.py,
+# which sources the same list correctly and so never missed it.
 #
 # Reads names only. No policy body, no secret, no token is printed.
 #
 # Usage: bash scripts/checks/minio-policy-names-test.sh
-# Exit:  0 no universal-role collisions | 1 collision found
+# Exit:  0 no universal-role collisions | 1 collision found | 2 could not
+#        determine (MinIO/Keycloak unreachable, credentials unavailable, or
+#        the policy list could not be read) — h#776: previously exit 1,
+#        indistinguishable from a genuine collision on exit code alone.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+KEYCLOAK_SH="${SCRIPT_DIR}/../keycloak.sh"
 
 MINIO_CONTAINER="${MINIO_CONTAINER:-minio}"
 KC_CONTAINER="${KC_CONTAINER:-keycloak}"
@@ -46,15 +56,15 @@ UNIVERSAL_ROLES="offline_access uma_authorization default-roles-${KC_REALM}"
 echo "MinIO policy names vs Keycloak realm roles"
 echo "=========================================="
 
-docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1 || { echo "MinIO container not running" >&2; exit 1; }
+docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1 || { echo "MinIO container not running — cannot determine, not proven clean" >&2; exit 2; }
 
 ROOT_USER=$(sops -d "$SECRETS_FILE" 2>/dev/null | sed -n 's/^MINIO_ROOT_USER=//p' | head -1)
 ROOT_PASS=$(sops -d "$SECRETS_FILE" 2>/dev/null | sed -n 's/^MINIO_ROOT_PASSWORD=//p' | head -1)
-[ -n "$ROOT_USER" ] && [ -n "$ROOT_PASS" ] || { echo "MinIO root credentials unavailable" >&2; exit 1; }
+[ -n "$ROOT_USER" ] && [ -n "$ROOT_PASS" ] || { echo "MinIO root credentials unavailable — cannot determine, not proven clean" >&2; exit 2; }
 
 POLICIES=$(MC_HOST_local="http://${ROOT_USER}:${ROOT_PASS}@127.0.0.1:9000" \
     docker exec -e MC_HOST_local "$MINIO_CONTAINER" mc admin policy ls local 2>/dev/null | tr -d '\r')
-[ -n "$POLICIES" ] || { echo "Could not list MinIO policies" >&2; exit 1; }
+[ -n "$POLICIES" ] || { echo "Could not list MinIO policies — cannot determine, not proven clean" >&2; exit 2; }
 
 echo "  MinIO policies: $(printf '%s' "$POLICIES" | tr '\n' ' ')"
 echo
@@ -76,10 +86,15 @@ done
 echo
 echo "Legacy role-named policies (over-grant if the role is ever assigned):"
 if docker inspect "$KC_CONTAINER" >/dev/null 2>&1; then
-    for legacy in admin editor viewer; do
-        printf '%s\n' "$POLICIES" | grep -qx "$legacy" \
-            && echo "  ! policy '${legacy}' exists and is named after a realm role — unreachable only while that role has zero holders"
-    done
+    LEGACY_ROLES=$(sed -n 's/^REALM_ROLES_REMOVED="\([^"]*\)"/\1/p' "$KEYCLOAK_SH" | head -1)
+    if [ -z "$LEGACY_ROLES" ]; then
+        echo "  (REALM_ROLES_REMOVED could not be read from ${KEYCLOAK_SH} — not checked, which is not the same as clear)"
+    else
+        for legacy in $LEGACY_ROLES; do
+            printf '%s\n' "$POLICIES" | grep -qx "$legacy" \
+                && echo "  ! policy '${legacy}' exists and is named after a realm role — unreachable only while that role has zero holders"
+        done
+    fi
 else
     echo "  (Keycloak container absent — not checked, which is not the same as clear)"
 fi
