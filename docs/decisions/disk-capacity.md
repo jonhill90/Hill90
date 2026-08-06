@@ -1,13 +1,62 @@
 # Disk: what consumes it, what is bounded, and when it matters
 
-**Answer first: note it, do not act.** The disk is **13% full** with 173 GiB free.
-Nothing is close to anything.
+**SUPERSEDED 2026-08-06 (h#811) — "note it, do not act" no longer holds.**
+Everything below this notice, up to "Growth, and why the obvious projection is
+wrong", is kept as the historical record of the 2026-07-31 measurement — the
+per-store breakdown, the bounded-stores table and the "prune 7 is days not
+snapshots" verification are all still accurate today and worth reading. What
+changed is the ONE number the top-line conclusion rested on, and the
+conclusion does not survive it:
 
-Two things are genuinely unbounded — the Docker build cache and container logs —
-and both are cheap to bound. Neither is urgent, and the reason is quantified
-below rather than asserted.
+| | 2026-07-31 (this doc) | 2026-08-06 (h#811, re-measured) | 2026-08-06 (re-measured again, same day) |
+|---|---|---|---|
+| Build cache total | 9.264 GB | 41.87 GB | **49.7 GB** |
+| Free space | 173.21 GiB | 144 GB | **139 GiB (`df`), 148.83 GiB (Prometheus)** |
 
-`Measured 2026-07-31 ~10:15 UTC, read-only. Nothing was pruned, deleted or changed.`
+**The re-measurement that matters is not either point figure — it's the
+7-day trend, read from Prometheus's own history rather than compared across
+two ad hoc snapshots taken days apart:**
+
+| Period | Free space | Daily rate |
+|---|---|---|
+| 2026-07-30 → 2026-08-02 (3 d) | 187.94 → 182.86 GiB | ~1.7 GiB/day |
+| 2026-08-03 → 2026-08-06 (3 d) | 180.97 → 148.83 GiB | **~10.7 GiB/day** |
+| Full 7 days | 187.94 → 148.83 GiB | 5.59 GiB/day (average) |
+
+**The trend is accelerating, not flat, and it has not plateaued** — the most
+recent 3 days ran at roughly double the 7-day average and nearly 6× the rate
+this doc's own original 7-day measurement found (1.11 GiB/day, itself already
+flagged there as atypically high). At the ~10.7 GiB/day rate actually
+observed in the most recent window, 149 GiB of headroom is on the order of
+**two weeks**, not the "a year of plausible growth" this doc's original
+conclusion claimed — that claim was explicitly built on the 2026-07-31
+figure of 9.264 GB and does not survive being re-evaluated against what
+actually happened next.
+
+**What shipped in response, in h#811's PR:** `prune_builder_cache()` in
+`scripts/_common.sh`, called at the end of every `cmd_service` deploy in
+`scripts/deploy.sh` — `docker builder prune --keep-storage 15GB --force`,
+never fatal to the deploy it runs inside. Hooked to the build paths
+themselves rather than a new schedule, because (as this doc's own Growth
+section already established for a different store) consumption here is
+proportional to build/deploy activity, not to time — see that function's own
+comment in `_common.sh` for the full reasoning, including why a size ceiling
+was chosen over this doc's own original `--filter until=168h` suggestion
+(an age filter would have let cache keep growing for up to a week before the
+oldest entries qualified for removal — exactly the shape that let this reach
+49.7GB unnoticed).
+
+**Not covered by this fix, stated rather than hidden:** hill90-app builds on
+this same host (its own `scripts/deploy.sh`, and
+`build-agentbox-images.yml`'s agentbox/knowledge image builds) write to the
+same shared Docker builder cache and are NOT pruned by this change — only
+Hill90's own deploys trigger it. If growth continues after this ships, that
+is the next place to look; it was left out here because it is a change to a
+different repository's build path, not because it was ruled out as a
+contributor.
+
+`Original measurement: 2026-07-31 ~10:15 UTC, read-only. Nothing was pruned,
+deleted or changed at that time.`
 
 ---
 
@@ -153,6 +202,11 @@ That is the argument for "note it": the unbounded stores grow slowly relative to
 143 GiB of headroom, and the remedy is one command whose effect exceeds a year of
 plausible growth.
 
+*(Superseded 2026-08-06, h#811 — see the notice at the top of this document.
+"Grow slowly" was true of the 9.264 GB figure this paragraph was written
+against; it was not true six days later, and the resulting effort-to-defer
+math does not hold once the real rate is substituted in.)*
+
 ## What this says about the existing advice
 
 [alert-response.md](../runbooks/alert-response.md) tells the reader **not** to
@@ -169,9 +223,13 @@ build cache is 2.5× the size of every backup combined and costs nothing to lose
    only item where the current small number is an artifact rather than a measure.
    Requires a Docker daemon restart, so it belongs with other host work rather
    than on its own.
-2. **Schedule a build-cache prune.** `docker builder prune -f --filter until=168h`
-   weekly would hold ~7 GiB. Deliberately narrower than `docker system prune -a`,
-   which would also remove images that are merely not running and force re-pulls.
+2. **DONE, 2026-08-06 (h#811) — but not as originally proposed.** Rather than a
+   weekly age-filtered prune, `prune_builder_cache()` (`scripts/_common.sh`) runs
+   a size-capped `docker builder prune --keep-storage 15GB --force` at the end of
+   every `cmd_service` deploy — see the notice at the top of this document for
+   why the trigger and the filter type both changed from what is proposed here.
+   Still deliberately narrower than `docker system prune -a`, for the same reason
+   stated below.
 3. **Rotate `cron.log`**, already noted elsewhere and still trivial.
 
 ## What was not done
