@@ -286,10 +286,29 @@ cmd_config() {
     # Step 3: Update TAILSCALE_IP in secrets
     echo -e "${CYAN}[3/3] Updating TAILSCALE_IP and VPS_HOST in encrypted secrets...${NC}"
     cd "$PROJECT_ROOT"
+
+    # h#751: `set -e` protects against `make`/`sops --set` returning non-zero,
+    # but a write that exits 0 is not proof the value actually landed as
+    # intended — the same distinction the rest of this sweep draws elsewhere.
+    # Read each value back with the same `sops -d --extract` mechanism
+    # secrets.sh's own `get` command uses (and this function already uses a
+    # few lines above, for TRAEFIK_ADMIN_PASSWORD_HASH/HOSTINGER_API_KEY/
+    # TAILSCALE_IP) and compare it against what was just written, matching
+    # the verification discipline provision-tenant-db.sh already applies to
+    # its own writes.
     make secrets-update KEY=TAILSCALE_IP VALUE="$tailscale_ip" > /dev/null 2>&1
-    success "   ✓ TAILSCALE_IP updated"
+    local readback_ts
+    readback_ts=$(sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env 2>/dev/null || echo "")
+    [ "$readback_ts" = "$tailscale_ip" ] \
+        || die "TAILSCALE_IP update did not take: wrote '${tailscale_ip}', read back '${readback_ts}'. The secrets store may be inconsistent — check infra/secrets/prod.enc.env by hand before continuing."
+    success "   ✓ TAILSCALE_IP updated (verified)"
+
     make secrets-update KEY=VPS_HOST VALUE="$tailscale_ip" > /dev/null 2>&1
-    success "   ✓ VPS_HOST updated (SSH via Tailscale)"
+    local readback_host
+    readback_host=$(sops -d --extract '["VPS_HOST"]' infra/secrets/prod.enc.env 2>/dev/null || echo "")
+    [ "$readback_host" = "$tailscale_ip" ] \
+        || die "VPS_HOST update did not take: wrote '${tailscale_ip}', read back '${readback_host}'. The secrets store may be inconsistent — check infra/secrets/prod.enc.env by hand before continuing."
+    success "   ✓ VPS_HOST updated (verified, SSH via Tailscale)"
     echo ""
 
     echo ""
