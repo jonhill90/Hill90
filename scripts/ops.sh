@@ -85,7 +85,11 @@ cmd_health() {
 
     echo ""
     echo "Checking observability services..."
-    local obs_containers=("prometheus" "grafana" "loki" "tempo" "promtail" "node-exporter" "cadvisor")
+    # h#808: alertmanager and blackbox-exporter are real services defined in
+    # docker-compose.observability.yml (9 total) and were simply absent from
+    # this list (7) — a rebuild could come up with either silently missing or
+    # unhealthy and `ops.sh health` would report clean regardless.
+    local obs_containers=("prometheus" "alertmanager" "blackbox-exporter" "grafana" "loki" "tempo" "promtail" "node-exporter" "cadvisor")
     for container in "${obs_containers[@]}"; do
         echo -n "Checking $container... "
         if docker container inspect "$container" > /dev/null 2>&1; then
