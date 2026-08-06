@@ -315,6 +315,18 @@ cmd_infra() {
     sops exec-env "$secrets_file" 'bash scripts/portainer.sh apply' \
         || warn "portainer.sh apply failed — Portainer SSO may be unconfigured. The local admin login is unaffected; see docs/runbooks/sso-fallback.md"
 
+    # h#752. "Complete!" used to print the instant `docker compose up -d`
+    # returned, which proves containers STARTED, not that they are healthy —
+    # the estate's own defining defect, worn by this file. The real
+    # production path (deploy-infra.yml) already runs its own separate
+    # container/log/TLS checks after this script exits, so this was
+    # mitigated in CI — but never for a human or another script invoking
+    # `deploy.sh infra` directly, and cmd_verify already knows how to check
+    # this exact service. `exit 1` inside cmd_verify on failure means this
+    # line is never reached and "Complete!" is never printed if the stack
+    # did not actually come up healthy.
+    cmd_verify "infra" "$env"
+
     echo ""
     echo "================================"
     echo "Edge Stack Deployment Complete!"
@@ -529,7 +541,23 @@ cmd_service() {
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' up -d
             '
         else
+            # h#752. Dormant, not live: `stateful` is `true` in every case arm
+            # above (db, minio, auth, vault, observability), so `deploy_mode`
+            # can never actually be "stateless" for any service this function
+            # currently dispatches — verified by running this exact branch
+            # directly with a failing `docker compose build`, which is the
+            # only way to observe it: the stateless call site itself is
+            # provably unreachable. Adding `set -e` here changes nothing for
+            # today's five services (this diff does not touch a single line
+            # the stateful branch runs), but the stateful sibling above
+            # carries the same restatement for the same reason — `sops
+            # exec-env` runs this string in a NEW shell that does not
+            # inherit deploy.sh's `set -e` — and without it here, a failed
+            # `build`/`pull` would not stop `up -d` from running anyway
+            # against stale or missing images the moment a stateless service
+            # is ever added.
             sops exec-env "$secrets_file" '
+                set -e
                 echo "Building and pulling images..."
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' build --parallel --no-cache
                 docker compose -p "'"$project_name"'" -f '"$compose_file"' pull --ignore-buildable
@@ -656,6 +684,21 @@ cmd_service() {
         bash "$SCRIPT_DIR/keycloak.sh" apply \
             || warn "keycloak.sh apply failed — SSO clients may be missing. Local admin logins are unaffected; see docs/runbooks/sso-fallback.md"
     fi
+
+    # h#752. "Complete!" used to print the instant `docker compose up -d`
+    # returned — proof containers STARTED, not that they are healthy. The
+    # real production path (reusable-deploy-service.yml) already runs
+    # `deploy.sh verify <service>` as a separate mandatory workflow step
+    # afterward, so this was mitigated for every CI-driven deploy — but
+    # never for a human or another script invoking `deploy.sh <service>`
+    # directly, which the docs do reference. cmd_verify already covers
+    # every service this function handles; calling it here makes the
+    # standalone path honest too, at the cost of running the same check
+    # twice on the CI path (cheap — a health check that is already passing
+    # returns on its first attempt). `exit 1` inside cmd_verify on failure
+    # means this line is never reached and "Complete!" is never printed for
+    # a service that did not actually come up healthy.
+    cmd_verify "$service" "$env"
 
     echo ""
     echo "================================"
