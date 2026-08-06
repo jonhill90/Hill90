@@ -381,6 +381,109 @@
     success_msg: "SSH hardening verified against sshd -T (password auth off, root login off, key auth on)"
 
 # ---------------------------------------------------------------------------
+# GATE 3: sshd -T agreeing with intent is an assertion, not a connection
+# (h#852 review)
+# ---------------------------------------------------------------------------
+#
+# GATE 2, above, proves an authenticated connection works BEFORE this play
+# touches sshd — but nothing after the reload proves one still works AFTER.
+# The assert immediately above this compares `sshd -T`'s reported
+# configuration against what was intended; it never opens a socket. That is
+# a real gap specifically here, because this is the one change in this
+# playbook whose failure mode is losing the access needed to fix it — every
+# other assert in this file is checking a state that, if wrong, is at worst
+# inconvenient, not a lockout.
+#
+# Same method as GATE 2 and the same reason: there is no real private key on
+# this host to test with, so this generates a second throwaway keypair,
+# appends it to the SAME authorized_keys the reload just changed sshd's
+# handling of, and attempts a real authenticated connection over loopback —
+# proving the MECHANISM survives the reload, not just that the config text
+# reads as expected. A listening port is not this proof: `wait_for: port=22`
+# would pass whether or not authentication itself still works, which is
+# exactly the property this reload changes.
+#
+# block/rescue/always, identical reasoning to GATE 2: the throwaway key must
+# be removed whether the probe succeeds, fails, or the play is interrupted.
+- name: Prove an authenticated SSH connection still works AFTER the reload
+  block:
+    - name: Generate a second throwaway keypair to probe post-reload sshd
+      command: >
+        ssh-keygen -t ed25519 -N '' -q
+        -f /tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}
+        -C hill90-ssh-postreload-gate-probe
+      register: postreload_gate_keygen
+      changed_when: false
+
+    - name: Read the post-reload probe's public key
+      slurp:
+        src: "/tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}.pub"
+      register: postreload_gate_pubkey_raw
+
+    - name: Append the post-reload probe's public key to the deploy user's authorized_keys
+      lineinfile:
+        path: "{{ deploy_home }}/.ssh/authorized_keys"
+        line: "{{ (postreload_gate_pubkey_raw.content | b64decode).strip() }}"
+        create: no
+
+    - name: Attempt a FRESH authenticated SSH connection as the deploy user, over loopback, after the reload
+      command: >
+        ssh -i /tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}
+        -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        -o ConnectTimeout=5 -o PreferredAuthentications=publickey
+        {{ deploy_user }}@127.0.0.1 true
+      register: postreload_gate_connection
+      changed_when: false
+      failed_when: false
+
+  always:
+    - name: Remove the post-reload probe's line from authorized_keys
+      lineinfile:
+        path: "{{ deploy_home }}/.ssh/authorized_keys"
+        line: "{{ (postreload_gate_pubkey_raw.content | b64decode).strip() }}"
+        state: absent
+      when: postreload_gate_pubkey_raw is defined and postreload_gate_pubkey_raw.content is defined
+
+    - name: Remove the post-reload probe keypair files
+      file:
+        path: "/tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}{{ item }}"
+        state: absent
+      loop:
+        - ""
+        - ".pub"
+
+- name: Fail the play if the post-reload connection did not actually authenticate
+  assert:
+    that:
+      - postreload_gate_connection.rc == 0
+    fail_msg: |
+      sshd -T reports the intended configuration (verified above), but a
+      FRESH authenticated connection as {{ deploy_user }} — using a new
+      throwaway key appended after the reload, over loopback — failed (exit
+      {{ postreload_gate_connection.rc | default('?') }}).
+
+      This is the failure this gate exists to catch before anyone
+      disconnects: the effective configuration reading correctly is not the
+      same claim as a new connection actually succeeding against it. Do NOT
+      close your current session. Investigate from THIS session — likely
+      causes: an interaction between the corrected cloud-init drop-in and
+      the 00- hardening drop-in that "sshd -t" validated as syntactically
+      fine but that behaves differently than intended, or a reload that did
+      not actually take effect despite systemd reporting success.
+
+      stderr from the post-reload probe connection:
+      {{ postreload_gate_connection.stderr | default('(no output)') }}
+    success_msg: "Verified: a FRESH authenticated SSH connection as {{ deploy_user }} succeeds AFTER the reload — the mechanism survived the change, not just the config text"
+
+# Human verification stays required alongside the machine gate above, not
+# instead of it — they are different assurances. The gate proves the
+# mechanism works for a key ansible controls, generated and destroyed within
+# this same play run; it cannot prove YOUR session, from YOUR terminal, with
+# YOUR actual key, still works. Keep this session open regardless of the
+# gate passing, and verify access from a second, fresh session before
+# disconnecting the first.
+
+# ---------------------------------------------------------------------------
 # NOTE ON fail2ban
 # ---------------------------------------------------------------------------
 #
