@@ -187,9 +187,12 @@ Recovery means deleting the stored certificates so Traefik requests new ones:
 
 - The ACME stores live in the `traefik-certs` Docker volume, **root-owned**
   inside the container.
-- `acme-dns.json` holds **all four DNS-01 certificates in one file** — traefik,
-  portainer, grafana, vault. There is no way to clear one host's certificate
-  without clearing the others; every one of them is reissued.
+- `acme-dns.json` holds **six DNS-01 certificates in one file**, `Verified
+  2026-08-06` — grafana, litellm, portainer, storage, traefik, vault. There is
+  no way to clear one host's certificate without clearing the others; every one
+  of them is reissued. *(Said "all four ... traefik, portainer, grafana, vault"
+  until `litellm` and `storage` joined the DNS-01 resolver; found while
+  investigating h#802.)*
 - `acme.json` separately holds the HTTP-01 certificate for `auth`.
 - The stored ACME **account registrations** are production registrations, which
   is a further mismatch when the resolver has been pointed at staging.

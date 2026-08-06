@@ -107,7 +107,12 @@ docs/                   runbooks, reference, architecture, decisions
    refuses to render without it, and `ACME_REQUIRE_PRODUCTION=1` guards the
    opposite mistake. Switching CAs means Traefik will not reissue certificates it
    considers valid, so returning to production requires clearing the ACME
-   stores — and `acme-dns.json` holds all four DNS-01 certificates in one file.
+   stores — and `acme-dns.json` holds **six** DNS-01 certificates in one file,
+   `Verified 2026-08-06` directly against the live store (`grafana`, `litellm`,
+   `portainer`, `storage`, `traefik`, `vault`). *(This line said "four" — true
+   when written, and stale by the time `litellm` and `storage` joined the DNS-01
+   resolver; found while investigating h#802, corrected here rather than left to
+   mislead the next person reading it as current.)*
    Read [`docs/architecture/certificates.md`](docs/architecture/certificates.md)
    first.
 5. **This repo owns the shared networks.** `docker-compose.infra.yml` and
