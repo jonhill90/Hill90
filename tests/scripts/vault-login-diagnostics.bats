@@ -60,6 +60,20 @@ EOF
   chmod +x "$STUB/sops"
 }
 
+# $1 = service, $2 = role_id, $3 = secret_id — the parameterized twin of
+# stub_sops_credentials, needed for h#844's minio case where the service
+# under test isn't "auth".
+stub_sops_credentials_for() {
+  local svc_upper
+  svc_upper=$(echo "$1" | tr '[:lower:]' '[:upper:]')
+  cat > "$STUB/sops" <<EOF
+#!/usr/bin/env bash
+echo "VAULT_${svc_upper}_ROLE_ID=$2"
+echo "VAULT_${svc_upper}_SECRET_ID=$3"
+EOF
+  chmod +x "$STUB/sops"
+}
+
 stub_docker_rejects_login() {
   cat > "$STUB/docker" <<'EOF'
 #!/usr/bin/env bash
@@ -331,4 +345,63 @@ EOF
   run grep -c 'vault_login .* 2>&1 >/dev/null' "$ROOT/scripts/deploy.sh"
   [ "$status" -eq 0 ]
   [ "$output" -eq 2 ]
+}
+
+# ---------------------------------------------------------------------------
+# h#844: two structurally-permanent AppRole gaps (vault, minio) fired the
+# SAME generic warning as a real, transient failure on every single deploy,
+# forever. The point of h#815's distinct modes was undermined by this: a
+# reader still could not tell "expected, permanent, ignore" from "a real
+# credential just broke" without knowing VAULT_SERVICES and the SOPS layout
+# by heart. These tests pin the two fixes named in the issue: the vault
+# stack skips the login attempt entirely (it would be circular — vault_login
+# "vault" can never succeed, no VAULT_VAULT_ROLE_ID could sensibly exist),
+# and minio's failure is labeled as the structural, #720-tracked gap it is
+# rather than left indistinguishable from OpenBao's generic rejection text.
+# ---------------------------------------------------------------------------
+
+@test "h#844: the vault stack never calls vault_login at all — sops is never even invoked" {
+  # If vault_login somehow ran, this sops stub would explode loudly and the
+  # probe's output would carry the failure. It must not appear.
+  cat > "$STUB/sops" <<'EOF'
+#!/usr/bin/env bash
+echo "sops should NEVER be invoked for the vault stack" >&2
+exit 99
+EOF
+  chmod +x "$STUB/sops"
+
+  run run_service_probe vault
+  [[ "$output" != *"should NEVER be invoked"* ]]
+  [[ "$output" != *"vault_login:"* ]]
+  [[ "$output" == *"circular"* ]]
+  [[ "$output" == *"VAULT_OK=false"* ]]
+}
+
+@test "h#844: the vault stack's message says why, not just that it failed" {
+  run run_service_probe vault
+  [[ "$output" == *"vault stack always uses SOPS"* ]]
+  [[ "$output" != *"OpenBao login failed"* ]]
+  [[ "$output" != *"falling back to SOPS"* ]]
+}
+
+@test "h#844: minio's AppRole rejection is labeled structural and points at #720" {
+  stub_sops_credentials_for minio "r" "s"
+  stub_docker_rejects_login
+  run run_service_probe minio
+  [[ "$output" == *"No AppRole exists for minio yet (see #720)"* ]]
+  # OpenBao's own reason still travels with it — this replaces the generic
+  # wrapper sentence, not the underlying diagnostic detail.
+  [[ "$output" == *"invalid role or secret ID"* ]]
+  [[ "$output" == *"VAULT_OK=false"* ]]
+}
+
+@test "h#844: a real, transient AppRole failure on another service still reads generically, not as #720" {
+  # The whole point: minio's structural label must not leak onto a service
+  # whose AppRole genuinely exists and could genuinely, transiently fail.
+  stub_sops_credentials "r" "s"
+  stub_docker_rejects_login
+  run run_service_probe auth
+  [[ "$output" == *"OpenBao login failed for auth"* ]]
+  [[ "$output" != *"#720"* ]]
+  [[ "$output" != *"No AppRole exists"* ]]
 }

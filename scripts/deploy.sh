@@ -499,7 +499,18 @@ cmd_service() {
 
     # Vault-first, SOPS-fallback for service secrets
     local vault_ok=false
-    if vault_available; then
+    if [ "$service" = "vault" ]; then
+        # h#844: authenticating to OpenBao in order to deploy OpenBao is
+        # circular — no VAULT_VAULT_ROLE_ID/_SECRET_ID has ever existed in the
+        # store, and structurally none sensibly could (the thing that would
+        # grant the login is the thing not yet up). vault_login "vault" was
+        # attempted here on every deploy and failed on every one, forever,
+        # by design — not a gap to bootstrap. Skipping the attempt (and
+        # saying why) keeps this permanent, structural non-event from
+        # reading like a real, transient AppRole failure on some other
+        # service, which is the whole reason this file's warnings exist.
+        info "vault stack always uses SOPS — authenticating to OpenBao to deploy OpenBao would be circular (h#844)"
+    elif vault_available; then
         # h#815: see the identical capture on the infra path above for why the
         # stream order matters here — stdout (a bare token on success) must
         # never reach a log; only vault_login's stderr reason is captured.
@@ -507,6 +518,16 @@ cmd_service() {
         if login_reason=$(vault_login "$service" "$secrets_file" 2>&1 >/dev/null); then
             vault_ok=true
             info "OpenBao authenticated for ${service}"
+        elif [ "$service" = "minio" ]; then
+            # h#844: VAULT_MINIO_ROLE_ID/_SECRET_ID exist in SOPS but no
+            # matching AppRole has ever been created in OpenBao (#720 covers
+            # bootstrapping it or removing the stale entry). That is also
+            # permanent and structural until #720 lands, and OpenBao's own
+            # "invalid role or secret ID" reads exactly like a real, fixable
+            # credential problem if not named as what it actually is.
+            # ${login_reason} still carries OpenBao's own text for anyone
+            # who wants to double-check it hasn't changed shape.
+            warn "No AppRole exists for minio yet (see #720): ${login_reason:-no reason given} — falling back to SOPS"
         else
             warn "OpenBao login failed for ${service}: ${login_reason:-no reason given} — falling back to SOPS"
         fi
