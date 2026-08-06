@@ -226,6 +226,14 @@ cmd_up() {
     require_env
 
     local domain; domain=$(base_domain)
+    # h#749: the sslRequired relax, vault redirect URIs, and tenant-clients
+    # reconcile below each already log their own warn() on failure — visible
+    # to a developer watching the terminal, which is why this was ranked
+    # lower than the same shape in keycloak.sh's CI-facing commands — but
+    # none of it was ever aggregated into the final banner, so "Local stack
+    # is up." printed identically whether all three succeeded or all three
+    # failed. Same accumulator shape as cmd_health's own `failed` var below.
+    local up_failed=0
 
     echo "================================"
     echo "Hill90 local bring-up"
@@ -338,6 +346,7 @@ cmd_up() {
         success "Relaxed sslRequired on the local platform realm"
     else
         warn "Could not relax sslRequired on the platform realm — http://auth.$(base_domain):$(http_port)/realms/platform will return 403 until it is set to NONE"
+        up_failed=1
     fi
 
     # Same shape, second delta: hill90-vault ships production redirect URIs, so
@@ -368,6 +377,7 @@ print(json.dumps([
         success "Added local OIDC callbacks to the hill90-vault client"
     else
         warn "Could not add local OIDC callbacks to hill90-vault — 'local.sh vault setup-oidc' logins will fail with 'Invalid parameter: redirect_uri'"
+        up_failed=1
     fi
 
     # The tenant's clients need more than a URL delta: platform-realm.json is
@@ -392,6 +402,7 @@ print(json.dumps([
         success "Tenant clients reconciled on the local platform realm (callback ${ui_local})"
     else
         warn "Could not reconcile the tenant clients — pointing the tenant's local stack at this Keycloak will fail. Run: bash scripts/keycloak.sh tenant-clients"
+        up_failed=1
     fi
     info "Starting the object store (minio)..."
     compose_minio up -d || die "Object store failed to start"
@@ -444,7 +455,13 @@ print(json.dumps([
     echo ""
     cmd_urls
     echo ""
-    success "Local stack is up. Run 'bash scripts/local.sh health' to verify."
+    if [ "$up_failed" -eq 0 ]; then
+        success "Local stack is up. Run 'bash scripts/local.sh health' to verify."
+    else
+        warn "Local stack is up, but with warnings above (sslRequired / vault OIDC / tenant clients) — see the messages higher up before assuming SSO works locally."
+    fi
+
+    [ "$up_failed" -eq 0 ] || return 1
 }
 
 cmd_down() {
