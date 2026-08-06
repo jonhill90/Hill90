@@ -317,11 +317,24 @@ cmd_backup() {
     echo "Backup directory: $backup_dir"
     echo ""
 
+    # h#748: `set -e` already catches `docker run`/`tar` itself returning
+    # non-zero, but that is not the failure this checks for. It cannot catch
+    # a CLEAN exit that produced an empty or truncated archive — an empty
+    # volume, a race with something still writing to it, or a host out of
+    # disk mid-write can all exit 0 with a useless file. `backup.sh`'s own
+    # `verify_artifacts` treats an empty required artifact as `die`-worthy,
+    # not a soft warning — matching that severity here, since an empty
+    # backup file is not a partial success, it is a failure of the one
+    # thing this function exists to do. This file previously had NO check
+    # beyond `set -e`'s implicit protection, and ended unconditionally at
+    # "Backup Complete!" regardless of what the archives actually contained.
     echo "Backing up Docker volumes..."
     docker run --rm \
         -v traefik-certs:/data \
         -v "$(pwd)/$backup_dir":/backup \
         alpine tar czf /backup/traefik-certs.tar.gz -C /data .
+    [ -s "$backup_dir/traefik-certs.tar.gz" ] \
+        || die "Backup produced an empty archive: $backup_dir/traefik-certs.tar.gz — nothing was actually backed up"
 
     if docker volume inspect prometheus-data > /dev/null 2>&1; then
         echo "Backing up Prometheus data..."
@@ -329,6 +342,8 @@ cmd_backup() {
             -v prometheus-data:/data \
             -v "$(pwd)/$backup_dir":/backup \
             alpine tar czf /backup/prometheus-data.tar.gz -C /data .
+        [ -s "$backup_dir/prometheus-data.tar.gz" ] \
+            || die "Backup produced an empty archive: $backup_dir/prometheus-data.tar.gz — nothing was actually backed up"
     else
         echo "Skipping Prometheus backup (volume not found)"
     fi
@@ -339,6 +354,8 @@ cmd_backup() {
             -v grafana-data:/data \
             -v "$(pwd)/$backup_dir":/backup \
             alpine tar czf /backup/grafana-data.tar.gz -C /data .
+        [ -s "$backup_dir/grafana-data.tar.gz" ] \
+            || die "Backup produced an empty archive: $backup_dir/grafana-data.tar.gz — nothing was actually backed up"
     else
         echo "Skipping Grafana backup (volume not found)"
     fi
@@ -348,6 +365,13 @@ cmd_backup() {
     echo "Backup Complete!"
     echo "================================"
     echo "Location: $backup_dir"
+    # h#748: this is materially incomplete versus scripts/backup.sh — no
+    # database dump at all. An operator invoking this expecting parity with
+    # the real tool (easily done: same "Hill90 Backup"/"Backup Complete!"
+    # message shape) previously had no indication of the gap. Said out loud
+    # rather than left implicit; not attempting to add database backup here,
+    # which is a feature decision, not this bug fix's scope.
+    warn "This is a legacy, volume-only backup — it does NOT back up any database. For a complete backup, use: bash scripts/backup.sh backup-all"
 }
 
 # ---------------------------------------------------------------------------
