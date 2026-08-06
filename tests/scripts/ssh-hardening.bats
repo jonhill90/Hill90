@@ -147,3 +147,92 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
   run bash -c "grep -c '^check ' scripts/verify-ssh-hardening.sh"
   [ "$output" -ge 6 ]
 }
+
+# ---------------------------------------------------------------------------
+# GATE 2 (h#787): a file existing is not proof sshd will accept it.
+#
+# The original gate (#786/#539, tested above) only proves authorized_keys is
+# a non-empty regular file. Wrong ownership, wrong permissions, an SELinux
+# context mismatch, or sshd config pointing elsewhere can each leave a
+# correctly-copied, non-empty key file completely unusable — exactly the
+# case a file-existence check waves through. GATE 2 proves the ACCESS
+# MECHANISM itself: it appends a throwaway keypair to the same file at the
+# same path, attempts a real authenticated SSH connection as the deploy
+# user over loopback, and refuses to proceed if that connection fails.
+#
+# These are structural/static checks, same reasoning and same limits as the
+# tests above — they cannot exercise a real sshd from bats. That exercise
+# was done separately, manually, against a disposable AlmaLinux container
+# with a real sshd (never the production VPS, per h#787's explicit
+# instruction): the real extracted task block from this file authenticated
+# successfully against a correctly-owned key, and correctly REFUSED against
+# a file that existed, was a regular file, and was non-empty, but was owned
+# by root instead of deploy — the exact case GATE 1 alone would wave
+# through. See the PR description for the full commands and captured
+# output.
+# ---------------------------------------------------------------------------
+
+@test "GATE 2 exists and runs before GATE 1's sibling firewalld/sshd tasks" {
+  run bash -c "
+    gate2=\$(grep -n 'name: Prove an authenticated SSH connection as the deploy user actually works' $ROLE | head -1 | cut -d: -f1)
+    refuse2=\$(grep -n 'name: Refuse to proceed unless the probe connection actually authenticated' $ROLE | head -1 | cut -d: -f1)
+    firewall=\$(grep -n 'name: Lock SSH to Tailscale network only' $ROLE | head -1 | cut -d: -f1)
+    dropin=\$(grep -n 'name: Deploy SSH hardening drop-in' $ROLE | head -1 | cut -d: -f1)
+    [ -n \"\$gate2\" ] && [ -n \"\$refuse2\" ] && [ -n \"\$firewall\" ] && [ -n \"\$dropin\" ] \
+      && [ \"\$gate2\" -lt \"\$refuse2\" ] && [ \"\$refuse2\" -lt \"\$firewall\" ] && [ \"\$refuse2\" -lt \"\$dropin\" ]
+  "
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 2 attempts a REAL ssh connection, not another stat" {
+  run bash -c "grep -A40 'name: Prove an authenticated SSH connection' $ROLE | grep -E '^\s+ssh -i '"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A40 'name: Prove an authenticated SSH connection' $ROLE | grep -F 'BatchMode=yes'"
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 2 targets loopback, never the tailnet — Tailscale SSH must not be able to mask a broken key" {
+  # If this probed over the tailnet, Tailscale SSH (up since 03-tailscale.yml,
+  # authorises by tailnet ACL, never reads authorized_keys) could answer the
+  # connection and the gate would pass regardless of whether OpenSSH's own
+  # key path works at all — silently proving nothing.
+  run bash -c "grep -A40 'name: Prove an authenticated SSH connection' $ROLE | grep -F '127.0.0.1'"
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 2's probe key is generated fresh, never uses a real operator key" {
+  # There is no private key on the host to test with — only the public half
+  # was ever copied there. A throwaway keypair is the only way to test the
+  # mechanism without needing operator secrets.
+  run bash -c "grep -A10 'name: Generate a throwaway keypair' $ROLE | grep -F 'ssh-keygen -t ed25519'"
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 2 cleans up the probe key unconditionally, via block/always — not two independent tasks" {
+  # A bare task pair would leave the throwaway key behind on any failure
+  # between appending it and removing it — a self-inflicted extra
+  # authorized key on a host this play is about to lock down.
+  run bash -c "grep -A60 'name: Prove an authenticated SSH connection as the deploy user actually works' $ROLE | grep -m1 '^  block:'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A60 'name: Prove an authenticated SSH connection as the deploy user actually works' $ROLE | grep -m1 '^  always:'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A80 '^  always:' $ROLE | grep -c 'name: Remove the probe'"
+  [ "$output" -ge 2 ]
+}
+
+@test "GATE 2 refuses on the connection's own exit code, not on the append task's success" {
+  # The append (lineinfile) succeeding proves nothing about whether sshd
+  # will honour the result — that is exactly GATE 1's blind spot. The
+  # refusal must key off the SSH command's own rc.
+  run bash -c "grep -A5 'name: Refuse to proceed unless the probe connection actually authenticated' $ROLE | grep -F 'gate_connection.rc == 0'"
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 2's failure message distinguishes itself from GATE 1's — names mechanism causes, not just 'missing'" {
+  run bash -c "grep -A25 'name: Refuse to proceed unless the probe connection actually authenticated' $ROLE | grep -iF 'ownership'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A25 'name: Refuse to proceed unless the probe connection actually authenticated' $ROLE | grep -iF 'SELinux'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A25 'name: Refuse to proceed unless the probe connection actually authenticated' $ROLE | grep -iF 'StrictModes'"
+  [ "$status" -eq 0 ]
+}

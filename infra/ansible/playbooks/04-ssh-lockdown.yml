@@ -95,6 +95,111 @@
       (see 01-system-prep.yml's authorized_keys copy) and re-run.
     success_msg: "Verified: {{ deploy_user }} has a non-empty authorized_keys — safe to lock down SSH"
 
+# ---------------------------------------------------------------------------
+# GATE 2: a file existing is not proof sshd will accept it (h#787)
+# ---------------------------------------------------------------------------
+#
+# The stat/assert above only proves authorized_keys is a non-empty regular
+# file at the right path. It does NOT prove sshd will honour it: wrong
+# ownership or permissions on the file or its parent .ssh directory (sshd's
+# StrictModes refuses group/world-writable paths), an SELinux context
+# mismatch, or a PubkeyAuthentication/AuthorizedKeysFile setting that points
+# somewhere else, can each leave a correctly-copied, non-empty key file
+# completely unusable — exactly the case a file-existence check waves
+# through.
+#
+# There is no way to test with the REAL key: only its public half was ever
+# copied to this host (01-system-prep.yml), and the matching private key
+# lives with the human operator, never on the VPS. So this generates a
+# throwaway keypair ON THE HOST, appends its public half to the SAME file at
+# the SAME path with the SAME ownership/permissions/context the real key
+# already has, and attempts an actual authenticated connection with the
+# private half — over loopback, which is answered by real OpenSSH, not
+# Tailscale SSH (Tailscale SSH only intercepts traffic arriving on the
+# tailscale0 interface; see the header comment above for the `ssh -v`
+# evidence that a tailnet connection never reaches it). That proves the
+# ACCESS MECHANISM — permissions, ownership, SELinux, sshd config — works for
+# this exact file, without ever needing the real private key. It does not
+# re-prove the real key's own content is well-formed; the non-empty check
+# above already covers that a different way.
+#
+# block/rescue/always, not two independent tasks: the throwaway key MUST be
+# removed from authorized_keys and disk whether the probe connection
+# succeeds, fails, or the play is interrupted mid-block — leaving it behind
+# would be a second, self-inflicted unauthorized key on a host this play is
+# about to lock down.
+- name: Prove an authenticated SSH connection as the deploy user actually works
+  block:
+    - name: Generate a throwaway keypair to probe sshd's acceptance path
+      command: >
+        ssh-keygen -t ed25519 -N '' -q
+        -f /tmp/.hill90-ssh-gate-{{ ansible_date_time.epoch }}
+        -C hill90-ssh-lockdown-gate-probe
+      register: gate_keygen
+      changed_when: false
+
+    - name: Read the probe's public key
+      slurp:
+        src: "/tmp/.hill90-ssh-gate-{{ ansible_date_time.epoch }}.pub"
+      register: gate_pubkey_raw
+
+    - name: Append the probe's public key to the deploy user's authorized_keys
+      lineinfile:
+        path: "{{ deploy_home }}/.ssh/authorized_keys"
+        line: "{{ (gate_pubkey_raw.content | b64decode).strip() }}"
+        create: no
+
+    - name: Attempt an actual authenticated SSH connection as the deploy user, over loopback
+      command: >
+        ssh -i /tmp/.hill90-ssh-gate-{{ ansible_date_time.epoch }}
+        -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        -o ConnectTimeout=5 -o PreferredAuthentications=publickey
+        {{ deploy_user }}@127.0.0.1 true
+      register: gate_connection
+      changed_when: false
+      failed_when: false
+
+  always:
+    - name: Remove the probe's line from authorized_keys
+      lineinfile:
+        path: "{{ deploy_home }}/.ssh/authorized_keys"
+        line: "{{ (gate_pubkey_raw.content | b64decode).strip() }}"
+        state: absent
+      when: gate_pubkey_raw is defined and gate_pubkey_raw.content is defined
+
+    - name: Remove the probe keypair files
+      file:
+        path: "/tmp/.hill90-ssh-gate-{{ ansible_date_time.epoch }}{{ item }}"
+        state: absent
+      loop:
+        - ""
+        - ".pub"
+
+- name: Refuse to proceed unless the probe connection actually authenticated
+  assert:
+    that:
+      - gate_connection.rc == 0
+    fail_msg: |
+      A throwaway key was appended to {{ deploy_home }}/.ssh/authorized_keys
+      in exactly the same way the real key already there was, and sshd
+      refused to authenticate with it over loopback (exit
+      {{ gate_connection.rc | default('?') }}).
+
+      The file existing and being non-empty (verified above) is NOT the same
+      as sshd actually accepting a key from it. Likely causes: wrong
+      ownership or permissions on {{ deploy_home }}/.ssh or its
+      authorized_keys (sshd's StrictModes refuses group/world-writable
+      paths), an SELinux context mismatch, or PubkeyAuthentication /
+      AuthorizedKeysFile misconfigured in sshd_config.
+
+      This play is about to disable PasswordAuthentication and
+      PermitRootLogin. Refusing to continue with an access path that has not
+      been proven to work — a file being present was never sufficient proof.
+
+      stderr from the probe connection:
+      {{ gate_connection.stderr | default('(no output)') }}
+    success_msg: "Verified: an authenticated SSH connection as {{ deploy_user }} actually succeeds — safe to lock down SSH"
+
 - name: Lock SSH to Tailscale network only (100.64.0.0/10)
   firewalld:
     rich_rule: 'rule family="ipv4" source address="100.64.0.0/10" service name="ssh" accept'
