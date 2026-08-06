@@ -271,10 +271,31 @@ jobs:
             deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
             'cd /opt/hill90/app && export SOPS_AGE_KEY_FILE=/opt/hill90/secrets/keys/keys.txt && bash scripts/checks/grafana-role-login-test.sh testuser01 Viewer'
 
+      # Hill90#792. This step ran clean on every auth deploy and signalled
+      # nothing: `with:` carried only event-type, so `repository` defaulted
+      # to THIS repo (Hill90 has no listener — smoke-auth.yml lives in
+      # hill90-app), and `token` defaulted to GITHUB_TOKEN, whose dispatches
+      # do not trigger workflow runs at all (GitHub's own recursion guard).
+      # Either alone was fatal; both were true.
+      #
+      # HILL90_APP_DISPATCH_TOKEN must exist as a repository secret on THIS
+      # repo (Hill90 — the sender) before this can fire anything, and
+      # GITHUB_TOKEN cannot stand in for it regardless of permissions
+      # granted to this workflow, by the recursion guard above. It needs to
+      # be a token that can trigger a workflow run in jonhill90/hill90-app —
+      # a fine-grained PAT scoped to that repository with "Actions:
+      # read and write", or a classic PAT with the `repo` scope. Until that
+      # secret is created, this step will fail loudly (a missing secret
+      # renders empty, and repository-dispatch@v3 errors on an empty
+      # token) rather than silently doing nothing — a real regression from
+      # today's silent no-op only in the sense that a loud failure is the
+      # correct state for missing wiring, not a worse one.
       - name: Signal post-deploy hooks
         if: success() && inputs.service == 'auth'
         uses: peter-evans/repository-dispatch@v3
         with:
+          token: ${{ secrets.HILL90_APP_DISPATCH_TOKEN }}
+          repository: jonhill90/hill90-app
           event-type: deploy-auth-success
 
       - name: Notify deploy result
