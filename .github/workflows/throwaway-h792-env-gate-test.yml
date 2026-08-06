@@ -12,7 +12,11 @@ name: THROWAWAY h792 env-gate diagnostic (delete after Jon confirms)
 # independently. Do not delete the branch, the variable, or this run
 # until confirmed.
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - throwaway/h792-env-gate-test
 
 jobs:
   test:
