@@ -158,7 +158,18 @@ run_recreate() {
     [[ "$output" == *"tskey-auth-abc123fake"* ]]
 }
 
-@test "THE ASSERTION THAT MATTERS: three failure scenarios produce three DISTINCT messages, not the same one" {
+@test "THE ASSERTION THAT MATTERS: each failure scenario names its OWN cause, and only its own" {
+    # NOT a mere-inequality check. The pre-fix message was "Failed to
+    # generate auth key. Response: $response" for every scenario, and the
+    # three stub bodies already differ — so three DIFFERENT strings came
+    # free from echoing the body back, with no diagnosis in any of them.
+    # Inequality was never the missing property; it would pass whether or
+    # not the actual cause was named. What was actually absent, and what
+    # this asserts instead: that each message names ITS cause specifically
+    # — 401 names the HTTP status, the malformed body names a parse
+    # failure, the missing-key body names the missing field — and does not
+    # also claim either of the other two, which is what "distinct causes"
+    # has to mean for a human reading the log, not just "distinct bytes".
     run run_generate_key "scenario-401"
     local msg_401="$output"
     run run_generate_key "scenario-badjson"
@@ -166,9 +177,17 @@ run_recreate() {
     run run_generate_key "scenario-nokey"
     local msg_nokey="$output"
 
-    [ "$msg_401" != "$msg_badjson" ] || { echo "401 and badjson produced the SAME message: $msg_401"; return 1; }
-    [ "$msg_401" != "$msg_nokey" ] || { echo "401 and nokey produced the SAME message: $msg_401"; return 1; }
-    [ "$msg_badjson" != "$msg_nokey" ] || { echo "badjson and nokey produced the SAME message: $msg_badjson"; return 1; }
+    [[ "$msg_401" == *"HTTP 401"* ]] || { echo "401 case does not name HTTP 401: $msg_401"; return 1; }
+    [[ "$msg_401" != *"could not be parsed as JSON"* ]] || { echo "401 case also claims a parse failure: $msg_401"; return 1; }
+    [[ "$msg_401" != *"no 'key' field"* ]] || { echo "401 case also claims a missing key field: $msg_401"; return 1; }
+
+    [[ "$msg_badjson" == *"could not be parsed as JSON"* ]] || { echo "badjson case does not name a parse failure: $msg_badjson"; return 1; }
+    [[ "$msg_badjson" != *"HTTP 401"* ]] || { echo "badjson case also claims HTTP 401: $msg_badjson"; return 1; }
+    [[ "$msg_badjson" != *"no 'key' field"* ]] || { echo "badjson case also claims a missing key field: $msg_badjson"; return 1; }
+
+    [[ "$msg_nokey" == *"no 'key' field"* ]] || { echo "nokey case does not name the missing key field: $msg_nokey"; return 1; }
+    [[ "$msg_nokey" != *"HTTP 401"* ]] || { echo "nokey case also claims HTTP 401: $msg_nokey"; return 1; }
+    [[ "$msg_nokey" != *"could not be parsed as JSON"* ]] || { echo "nokey case also claims a parse failure: $msg_nokey"; return 1; }
 }
 
 @test "cmd_recreate surfaces the specific cause, not just a step-level generic message" {
