@@ -725,6 +725,11 @@ cmd_prune() {
     fi
 
     local pruned=0
+    # h#753. A directory whose name prune cannot parse a timestamp from
+    # used to `continue` silently — no warning, no count, indistinguishable
+    # from a directory that was correctly judged too new to prune. Tracked
+    # separately so the summary at the end of this function can say so.
+    local unparseable=0
     for svc_dir in "$BACKUP_ROOT"/*/; do
         [ -d "$svc_dir" ] || continue
         local svc
@@ -737,14 +742,41 @@ cmd_prune() {
 
             # Parse timestamp: YYYYMMDD_HHMMSS
             local backup_date="${ts%%_*}"
+            local bad=0
             if [ ${#backup_date} -ne 8 ]; then
-                continue
+                bad=1
             fi
 
             local cutoff_epoch
             cutoff_epoch="$(date -d "-${retention_days} days" +%s 2>/dev/null || date -v "-${retention_days}d" +%s 2>/dev/null)" || continue
-            local backup_epoch
-            backup_epoch="$(date -d "${backup_date:0:4}-${backup_date:4:2}-${backup_date:6:2}" +%s 2>/dev/null || date -j -f "%Y%m%d" "$backup_date" +%s 2>/dev/null)" || continue
+
+            local backup_epoch=""
+            if [ "$bad" -eq 0 ]; then
+                backup_epoch="$(date -d "${backup_date:0:4}-${backup_date:4:2}-${backup_date:6:2}" +%s 2>/dev/null || date -j -f "%Y%m%d" "$backup_date" +%s 2>/dev/null)" || bad=1
+            fi
+
+            # h#753's second half. BSD `date -j -f "%Y%m%d"` does not reject
+            # every invalid calendar date the way GNU `date -d` does — a day
+            # number that exists in SOME months but not this one (e.g. Feb
+            # 30) silently rolls over into the next month instead of
+            # failing, handing back a real-looking epoch computed from a
+            # date that was never valid. Round-tripping the parsed epoch
+            # back to YYYYMMDD and comparing against the original name is
+            # what catches that: a genuine parse always round-trips exactly,
+            # a silent rollover never does. This is a no-op on GNU date,
+            # which already refuses these values outright — the round-trip
+            # only ever has something to catch on the platform that needed it.
+            if [ "$bad" -eq 0 ]; then
+                local round_trip
+                round_trip="$(date -d "@${backup_epoch}" +%Y%m%d 2>/dev/null || date -j -f "%s" "$backup_epoch" +%Y%m%d 2>/dev/null)"
+                [ "$round_trip" = "$backup_date" ] || bad=1
+            fi
+
+            if [ "$bad" -eq 1 ]; then
+                warn "Could not parse a timestamp from ${svc}/${ts} — retaining it rather than guessing whether it is old enough to prune. This should not occur from this script's own backups (they are always named via 'date +%Y%m%d_%H%M%S'); investigate and remove or rename it by hand."
+                unparseable=$((unparseable + 1))
+                continue
+            fi
 
             if [ "$backup_epoch" -lt "$cutoff_epoch" ]; then
                 echo "  Removing: ${svc}/${ts}"
@@ -759,6 +791,9 @@ cmd_prune() {
 
     echo ""
     echo "✓ Pruned ${pruned} backup(s)"
+    if [ "$unparseable" -gt 0 ]; then
+        warn "${unparseable} backup dir(s) had an unparseable timestamp and were retained rather than pruned — see warnings above"
+    fi
 }
 
 # ---------------------------------------------------------------------------
