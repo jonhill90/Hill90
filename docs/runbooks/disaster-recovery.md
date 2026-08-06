@@ -32,6 +32,23 @@ You can restore `openbao-data.tar.gz` perfectly and still have nothing, because 
 is ciphertext and the unseal key that opens it is itself inside a SOPS file you cannot
 decrypt.
 
+> **This chain illustrates a hazard — it is not an instruction to restore
+> `openbao-data.tar.gz`.** (h#806) The numbered [Recovery Steps](#recovery-steps) below
+> never do a volume-tar restore of vault; [Step 4](#step-4)
+> mints a brand-new unseal key and root token with a fresh `vault.sh init` against an
+> empty volume, which is what this runbook actually recommends and is unaffected by the
+> problem this chain describes.
+>
+> **If you are instead considering restoring `openbao-data.tar.gz` from a volume
+> backup** — do not, for any backup taken after 2026-08-02, using the
+> `OPENBAO_UNSEAL_KEY` currently in `main`'s SOPS store. **Hill90#799** established that
+> `main`'s copy predates the 2026-08-02 vault reinitialize, which minted a new unseal
+> key that was pushed to an unmerged branch and never landed on `main`. A tar taken
+> after that reinitialize is sealed with the key on that branch, not the one you would
+> read from `main` today. #799 is Jon's open decision, not resolved by this note — this
+> paragraph exists so that fact is not silently discovered mid-recovery by an operator
+> who chose the tar-restore path instead of Step 4's fresh init.
+
 **Where the key is, and is not.** `Verified 2026-07-31 08:12 UTC.`
 
 | Location | Present? | Survives total VPS loss? |
@@ -186,6 +203,7 @@ Deploy Traefik (reverse proxy) and Portainer.
 bash scripts/deploy.sh infra prod
 ```
 
+<a id="step-4"></a>
 ### 4. Deploy and Initialize Vault
 
 Deploy the OpenBao container:
@@ -194,28 +212,47 @@ Deploy the OpenBao container:
 bash scripts/deploy.sh vault prod
 ```
 
-Initialize vault (generates new unseal key and root token):
+Initialize vault (generates a new unseal key and root token):
 
 ```bash
 bash scripts/vault.sh init
 ```
 
-Save the unseal key and root token as instructed by the output.
+> (h#805) **There is nothing to "save from the output."** `cmd_init` never prints the
+> unseal key or root token — deliberately: an SSH session, a CI job, or any terminal
+> with scrollback would otherwise be a durable copy of complete control of the vault.
+> It writes both to disk itself, already correctly owned (`deploy:deploy`, mode
+> `0600`, since it runs as the user invoking it):
+>
+> ```
+> ✓ Unseal key written to /opt/hill90/secrets/openbao-unseal.key (0600, deploy:deploy)
+> ✓ Root token written to /opt/hill90/secrets/openbao-root.token (0600)
+> ```
+>
+> **Do not run a manual `sudo tee` / `chown` / `chmod` sequence against
+> `openbao-unseal.key`.** A prior version of this step said to, and that shape is what
+> produced the exact regression `cmd_init`'s own comments now name explicitly: a
+> root-owned key file the auto-unseal systemd unit (`User=deploy`) cannot read, which
+> is a vault that never comes back after a reboot. That bug is fixed in the script;
+> reintroducing the same manual step here would reintroduce the bug.
 
-Store the unseal key on the host:
+Update SOPS with the new unseal key, so it survives loss of this host too — `make
+secrets-update` edits the local checkout's SOPS file, so this runs on your
+**workstation**, not the VPS; the host checkout is reset on every deploy, so a SOPS
+edit made there is discarded (see [`vault-unseal.md`](vault-unseal.md)). Since the key
+is no longer printed anywhere (that is the fix in #805 — see above), get it off the VPS
+without ever displaying it in a scrollback, e.g. `scp` the file down and read it locally:
 
 ```bash
-# On VPS:
-echo "<unseal-key>" | sudo tee /opt/hill90/secrets/openbao-unseal.key
-sudo chown deploy:deploy /opt/hill90/secrets/openbao-unseal.key
-sudo chmod 0600 /opt/hill90/secrets/openbao-unseal.key
+# On your workstation:
+scp -i ~/.ssh/remote.hill90.com deploy@<tailscale-ip>:/opt/hill90/secrets/openbao-unseal.key /tmp/openbao-unseal.key
+make secrets-update KEY=OPENBAO_UNSEAL_KEY VALUE="$(cat /tmp/openbao-unseal.key)"
+rm -f /tmp/openbao-unseal.key
 ```
 
-Update SOPS with the new unseal key:
-
-```bash
-make secrets-update KEY=OPENBAO_UNSEAL_KEY VALUE="<unseal-key>"
-```
+**This exact sequence has not been run end-to-end** — it follows from `cmd_init`'s own
+documented behavior and `make secrets-update`'s existing usage elsewhere in this
+runbook, but is stated here, not asserted as proven.
 
 ### 5. Unseal Vault
 
@@ -356,11 +393,32 @@ bash scripts/backup.sh restore db /path/to/backup
 > is a convenience, not a step. Full evidence in
 > [`backup-consistency-options.md`](../decisions/backup-consistency-options.md).
 
-### 11. Deploy All Services
+### 11. Deploy Remaining Services
+
+`deploy.sh` has no `all` command (h#804) — `Verified 2026-08-06` by reading its
+dispatcher directly (`scripts/deploy.sh`, `main()`'s `case "$cmd" in` block): it
+recognizes `infra`, `db`, `auth`, `minio`, `vault`, `observability`, `teardown`,
+`verify`, `backup`, and `help`, each deployed with its own invocation — nothing in
+this script loops over stacks. Running `deploy.sh all prod` as previously written
+here prints `Unknown command: all` and exits 1 without deploying anything.
+
+By this point in the runbook, `infra` (Step 3), `vault` (Steps 4-9) and `db` (Step 10)
+are already deployed. What remains is `auth`, `minio` and `observability` — each its
+own call, in this order, matching the dependency chain
+`.github/workflows/deploy.yml` enforces for a normal production deploy (h#781:
+`db -> auth -> minio -> vault -> observability`, minus the two stacks this runbook
+has already deployed earlier by other means):
 
 ```bash
-bash scripts/deploy.sh all prod
+bash scripts/deploy.sh auth prod
+bash scripts/deploy.sh minio prod
+bash scripts/deploy.sh observability prod
 ```
+
+**Not verified end-to-end against a real rebuild** — whether each of these three
+succeeds individually against a freshly-bootstrapped host, in this order, is not
+exercised here. What would settle it: running each by hand against a real rebuild and
+recording the result per stack.
 
 ### 12. Verify Health
 
@@ -402,8 +460,8 @@ bash scripts/vault.sh sync-to-sops
 
 ```
 VPS recreate -> VPS config -> infra -> vault (deploy+init+unseal+setup+seed)
-  -> OIDC config -> AppRole creds -> db (+ restore) -> all services -> health check
-  -> revoke root token -> sync vault to SOPS
+  -> OIDC config -> AppRole creds -> db (+ restore) -> auth -> minio -> observability
+  -> health check -> revoke root token -> sync vault to SOPS
 ```
 
 ## Notes
