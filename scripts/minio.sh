@@ -236,18 +236,33 @@ cmd_apply() {
     # so a run that removed the old ones and then failed cannot leave MinIO with
     # neither. `mc admin policy rm` is a no-op-with-error on an absent policy, so
     # absence is reported rather than treated as a failure.
+    #
+    # h#750: a deletion failure used to be downgraded to `warn` and the run
+    # still printed the unqualified "Policies provisioned." success line —
+    # with no signal that a retired policy might still be attached. Per this
+    # file's own header comment, MinIO grants the UNION of every claim value
+    # that names a policy, so a leftover retired policy costs nothing today
+    # and becomes a real, unrequested grant the moment anyone is later given
+    # the matching realm role. `legacy_failed` makes that outcome visible in
+    # both the message and the exit code instead of only in a `warn` line
+    # that a caller reading the final banner would never see.
+    local legacy_failed=0
     for policy in $LEGACY_POLICIES; do
         if echo "$existing" | grep -qx "$policy"; then
             mc admin policy rm local "$policy" >/dev/null 2>&1 \
                 && echo "  - ${policy} deleted (retired)" \
-                || warn "  ! ${policy} could not be deleted — check nothing is attached to it"
+                || { warn "  ! ${policy} could not be deleted — check nothing is attached to it"; legacy_failed=$((legacy_failed + 1)); }
         else
             echo "  . ${policy} already absent"
         fi
     done
 
     echo ""
-    success "Policies provisioned."
+    if [ "$legacy_failed" -gt 0 ]; then
+        warn "Policies provisioned, but ${legacy_failed} legacy polic(ies) could not be removed — see the warning(s) above. A leftover retired policy becomes a real grant the moment its name matches a realm role."
+    else
+        success "Policies provisioned."
+    fi
     echo ""
     echo "  A Keycloak user with realm role 'platform-admin' now receives the"
     echo "  MinIO 'platform-admin' policy when exchanging a token via"
@@ -256,6 +271,10 @@ cmd_apply() {
     echo ""
     echo "  This is the S3/STS path only. MinIO's console has no SSO login in"
     echo "  the AGPL build — see docs/runbooks/object-store.md."
+
+    # The message alone is not enough — a caller checking only the exit code
+    # (CI, another script) must also be able to tell this run was incomplete.
+    [ "$legacy_failed" -eq 0 ] || return 1
 }
 
 cmd_status() {
