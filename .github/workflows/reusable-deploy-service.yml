@@ -290,13 +290,40 @@ jobs:
       # token) rather than silently doing nothing — a real regression from
       # today's silent no-op only in the sense that a loud failure is the
       # correct state for missing wiring, not a worse one.
+      # GATED ON THE SECRET, not hard-failing without it — and the reason is
+      # a change made the same day, not caution for its own sake. The deploy
+      # jobs are now SERIALISED (h#781): db -> auth -> minio -> vault ->
+      # observability, each downstream job carrying `!failure()`. A step that
+      # failed here would turn deploy-auth red on a run where auth itself
+      # deployed fine, and skip minio, vault and observability behind it — a
+      # missing secret would take out the remainder of every multi-service
+      # deploy.
+      #
+      # This matches the `Notify deploy result` step below, which solves the
+      # identical problem (an optional outbound integration that must not
+      # fail the deploy when unconfigured) with the same env-gated `if:`.
+      # `env`, not `secrets`, because the secrets context is not reliably
+      # available in a step-level conditional.
+      #
+      # A SKIPPED step is not the defect this PR removes. The original sin
+      # was a step that RAN, exited 0, and reported success while signalling
+      # nothing. Skipped-with-a-warning is visibly different from that.
       - name: Signal post-deploy hooks
-        if: success() && inputs.service == 'auth'
+        if: success() && inputs.service == 'auth' && env.DISPATCH_TOKEN != ''
+        env:
+          DISPATCH_TOKEN: ${{ secrets.HILL90_APP_DISPATCH_TOKEN }}
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.HILL90_APP_DISPATCH_TOKEN }}
           repository: jonhill90/hill90-app
           event-type: deploy-auth-success
+
+      - name: Warn that the post-deploy signal is unwired
+        if: success() && inputs.service == 'auth' && env.DISPATCH_TOKEN == ''
+        env:
+          DISPATCH_TOKEN: ${{ secrets.HILL90_APP_DISPATCH_TOKEN }}
+        run: |
+          echo "::warning::HILL90_APP_DISPATCH_TOKEN is not set on this repository — hill90-app's smoke-auth.yml was NOT triggered. Production auth is unverified by this deploy. See Hill90#792."
 
       - name: Notify deploy result
         if: always() && env.DEPLOY_WEBHOOK_URL != ''
