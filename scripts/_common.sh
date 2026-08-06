@@ -433,3 +433,61 @@ vault_load_secrets() {
     rm -f "$temp_file"
     trap - RETURN
 }
+
+# ---------------------------------------------------------------------------
+# Disk: builder cache
+# ---------------------------------------------------------------------------
+
+# h#811: the build cache grew 9.3GB -> 41.9GB in six days (4.5x), then to
+# 49.7GB within another ~10 hours, and node_exporter's own 7-day history
+# shows the growth ACCELERATING — the last 3 of those 7 days alone consumed
+# 32 of the 39 GiB the whole week lost, roughly 10.7 GiB/day against a 5.4
+# GiB/day six-day average. docs/decisions/disk-capacity.md's "note it, don't
+# act" rested on the OLD number (9.3GB) and a naive extrapolation of the
+# THEN-current rate to "a year of plausible growth" — at the rate actually
+# observed since, 149 GiB of headroom is on the order of two weeks, not a
+# year.
+#
+# `docker builder prune` only, never `docker system prune` — this repo's own
+# check_destructive_commands.sh bans the latter for good reason (it also
+# reaps images and volumes; builder cache is the one store here that is pure
+# rebuild convenience with no data of its own). `--keep-storage`, not an
+# age filter: the growth this issue is about is RATE-driven (more builds,
+# more cache, regardless of any single entry's age), so a size ceiling
+# bounds the worst case on every call; an age-based filter (the disk-capacity
+# doc's own original suggestion, `--filter until=168h`) would let cache keep
+# growing for up to a week before the oldest entries qualify for removal,
+# which is exactly the shape that let this reach 49.7GB unnoticed.
+#
+# 15GB target: "active" (non-reclaimable) cache measured at ~2.6GB when this
+# was written (49.7GB total, 47.12GB reclaimable) — 15GB leaves roughly 5-6x
+# that as working room for cross-build cache hits across every image this
+# host builds, while still bounding worst-case growth to a fraction of what
+# reaching 41.9GB uncontrolled took.
+#
+# NEVER FATAL. A prune that blocks or fails a deploy over housekeeping would
+# be a worse trade than the disk problem itself — this warns and continues,
+# always, whatever `docker builder prune` does.
+#
+# CALLED FROM THE BUILD PATHS THEMSELVES (cmd_service in deploy.sh, and the
+# agentbox image build workflow in hill90-app), not from a new schedule.
+# Growth here is proportional to build activity, not to time — the same
+# proportionality disk-capacity.md's own growth section already established
+# for a different store (deploy-triggered backups) — so hooking the exact
+# events that create cache is a tighter, simpler feedback loop than a
+# schedule decoupled from what actually causes the growth, and needs no new
+# GH Actions/Tailscale/watchdog plumbing to add.
+prune_builder_cache() {
+    local keep="${1:-15GB}"
+    local before after
+    before=$(docker system df --format '{{.Type}}: {{.Size}} ({{.Reclaimable}} reclaimable)' 2>/dev/null | grep '^Build Cache' || echo "Build Cache: unknown")
+    info "builder cache before prune: ${before}"
+
+    if ! docker builder prune --keep-storage "$keep" --force >/dev/null 2>&1; then
+        warn "docker builder prune failed — continuing, this is housekeeping, not the deploy"
+        return 0
+    fi
+
+    after=$(docker system df --format '{{.Type}}: {{.Size}} ({{.Reclaimable}} reclaimable)' 2>/dev/null | grep '^Build Cache' || echo "Build Cache: unknown")
+    info "builder cache after prune (kept up to ${keep}): ${after}"
+}

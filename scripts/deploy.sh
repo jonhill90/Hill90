@@ -700,6 +700,14 @@ cmd_service() {
     # a service that did not actually come up healthy.
     cmd_verify "$service" "$env"
 
+    # h#811: every call into cmd_service just ran at least one `docker
+    # compose ... build`, which is exactly what grows the builder cache — see
+    # prune_builder_cache's own comment in _common.sh for why this runs HERE
+    # rather than on a schedule. Deliberately AFTER cmd_verify, not before:
+    # housekeeping must never be positioned where its own failure could look
+    # like the deploy failed.
+    prune_builder_cache
+
     echo ""
     echo "================================"
     echo "${banner} Complete!"
