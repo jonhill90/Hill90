@@ -109,6 +109,32 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "h#807: vps-rebuild.md states the bootstrap-approles credential entanglement with h#832" {
+  run grep -F 'Hill90#832' "$VPS"
+  [ "$status" -eq 0 ]
+  run grep -F 'policy-oidc-admin' "$VPS"
+  [ "$status" -eq 0 ]
+}
+
+@test "h#807: vps-rebuild.md says the generate-root fallback is dead, not merely conditional" {
+  run grep -F 'currently dead, unconditionally' "$VPS"
+  [ "$status" -eq 0 ]
+}
+
+@test "h#807 corroborated against the script: cmd_bootstrap_approles's own die message names the same 403-regardless-of-config limit" {
+  run grep -F 'returns 403 on 2.6.1' "$ROOT/scripts/vault.sh"
+  [ "$status" -eq 0 ]
+  run grep -F 'whatever the' "$ROOT/scripts/vault.sh"
+  [ "$status" -eq 0 ]
+}
+
+@test "h#807: disaster-recovery.md's Step 9 carries the same corrected description and h#832 entanglement" {
+  run grep -F 'currently dead, not just conditional' "$DR"
+  [ "$status" -eq 0 ]
+  run grep -F 'Hill90#832' "$DR"
+  [ "$status" -eq 0 ]
+}
+
 # ---------------------------------------------------------------------------
 # h#808 (docs half) — observability undercounted by 2
 # ---------------------------------------------------------------------------

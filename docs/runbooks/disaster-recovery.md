@@ -312,10 +312,26 @@ bash scripts/vault.sh bootstrap-approles
 ```
 
 This generates role_id + secret_id for the services in `VAULT_SERVICES` and stores
-them in SOPS. It temporarily generates a root token (via unseal key), runs setup,
-creates credentials, then revokes the root token — through the same
-`assert_safe_to_revoke` guard as Step 13, so it also depends on Step 8 above having
-run first.
+them in SOPS. It reuses `BAO_TOKEN` if one is already exported and valid — the same
+root token Step 4's `vault.sh init` wrote to disk, still in hand at this point in the
+sequence — runs setup, creates credentials, then revokes the root token through the
+same `assert_safe_to_revoke` guard as Step 13, so it also depends on Step 8 above
+having run first.
+
+> **The "generate a temporary root token" fallback this used to describe is
+> currently dead, not just conditional.** `Verified 2026-08-06` by reading
+> `cmd_bootstrap_approles` directly: if no valid `BAO_TOKEN` is already exported, it
+> falls back to `bao operator generate-root`, and that CLI command's own `die`
+> message in the script says it "targets a LEGACY endpoint and returns 403 on 2.6.1
+> **whatever the configuration** — it cannot mint one here." **Followed in order from
+> Step 4, this step works** — it never reaches that fallback, because Step 4's root
+> token is still exported and valid. But it means this step has no working fallback
+> of its own if the sequence is broken and re-entered after root has already been
+> revoked. **Entangled with Hill90#832** (found 2026-08-06): outside a fresh-init
+> window like this one, there is currently no automation credential able to write to
+> vault at all — the only path #832 identifies is a human logging into
+> `vault.hill90.com` via Keycloak SSO (`platform-admin` → `policy-oidc-admin`), and
+> #832 itself says that path has not recently been exercised for an actual write.
 
 > **There are FIVE, not nine.** `Verified 2026-08-05` against `scripts/vault.sh:31`,
 > which is the source of truth:
