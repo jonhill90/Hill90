@@ -27,7 +27,29 @@ A selector that is legitimately absent — a counter created only when the
 condition first occurs, or a metric whose emitter is not built yet — is declared
 in scripts/checks/alert-series-allowlist.txt, with a reason.
 
-Exit 0 if every selector matches, or is declared absent. Exit 1 otherwise.
+Exit 0 if every selector matches, or is declared absent. Exit 1 otherwise —
+including when an allowlist entry has gone STALE (see below).
+
+WHY THE ALLOWLIST ITSELF IS CHECKED, NOT JUST THE RULES (h#841). An entry
+declaring a selector "legitimately absent" is a claim about the present, and
+claims about the present go stale. h#839 added one for
+shared-secret-agreement's heartbeat metric, correct when written — that
+workflow had never run. Dispatching it once made the entry wrong within the
+hour: the metric existed, the allowlist still said it wouldn't. Nothing
+caught that automatically; it was found by a human re-running this script by
+hand and noticing the entry no longer applied.
+
+The fix is not a per-entry expiry date. A date only bounds how long a wrong
+entry can survive on an arbitrary calendar schedule that has nothing to do
+with when the underlying condition actually changed — it would not have
+caught the shared-secret-agreement case any faster than the human did, and
+every entry would need one hand-picked and then maintained. This script
+already queries EVERY selector against live Prometheus unconditionally,
+allowlisted or not (see the loop below) — the data needed to know an entry
+is stale already exists on every single run, for free. So: if a selector
+that is ALSO in the allowlist comes back with real series, that is now a
+hard failure, not a silently-ignored `ok`. Zero lag, no new bookkeeping, no
+date to remember to update.
 """
 import json
 import re
@@ -140,7 +162,7 @@ def main():
         print("A check that cannot run must not report success. Exiting 1.")
         return 1
 
-    missing, checked = [], 0
+    missing, stale_allowlist, checked = [], [], 0
     for group in doc.get("groups", []):
         for rule in group.get("rules", []):
             name = rule.get("alert")
@@ -149,6 +171,7 @@ def main():
             print(f"{name}")
             for sel in selectors_in(rule["expr"]):
                 base = sel.split("{")[0]
+                is_allowlisted = base in allowed or sel in allowed
                 res, err = prometheus_query(sel)
                 checked += 1
                 if err:
@@ -159,7 +182,20 @@ def main():
                                      if k != "__name__"})
                     print(f"    ok {sel}   {len(res)} series   "
                           f"[{', '.join(labels)}]")
-                elif base in allowed or sel in allowed:
+                    if is_allowlisted:
+                        # h#841: the entry claimed this could legitimately be
+                        # absent, and it is not — the claim is now false, not
+                        # merely unneeded. Reported here rather than silently
+                        # taking the `ok` branch, because a stale allowlist
+                        # entry sitting unused is exactly how one goes
+                        # unnoticed for longer than an hour next time.
+                        print(f"    !  STALE ALLOWLIST ENTRY: {sel} is listed "
+                              f"in {ALLOWLIST.name} as legitimately absent, "
+                              f"but {len(res)} series exist right now. Remove "
+                              f"the line — the reason it was added no longer "
+                              f"applies.")
+                        stale_allowlist.append((name, sel))
+                elif is_allowlisted:
                     why = allowed.get(sel) or allowed.get(base)
                     print(f"    -  {sel}   0 series — declared absent: {why}")
                 else:
@@ -176,6 +212,15 @@ def main():
         print("\nA rule matching no series never fires and looks exactly like")
         print("health. Either correct the selector, delete the rule, or add it")
         print(f"to {ALLOWLIST.name} with a reason.")
+        return 1
+    if stale_allowlist:
+        print(f"\n{len(stale_allowlist)} STALE ALLOWLIST ENTRY(IES):\n")
+        for rule, sel in stale_allowlist:
+            print(f"  {rule}: {sel}")
+        print(f"\nEach of these matches real series now — the reason it was")
+        print(f"declared absent in {ALLOWLIST.name} no longer holds. Delete")
+        print("those lines; do not leave a claim standing that the data")
+        print("itself already contradicts.")
         return 1
     # Deliberately not "every selector matches". Some are declared absent, and a
     # summary line that hides that is the same kind of small lie this whole check
