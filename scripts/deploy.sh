@@ -157,11 +157,18 @@ cmd_infra() {
     # Vault-first, SOPS-fallback for infra secrets
     local vault_ok=false
     if vault_available; then
-        if (vault_login "infra" "$secrets_file") >/dev/null 2>&1; then
+        # h#815: capture ONLY vault_login's stderr — its stdout is a bare
+        # credential token on success, which must never reach a log. `2>&1
+        # >/dev/null` (in that order) swaps the streams for the duration of
+        # the substitution: stderr goes to the pipe captured into
+        # $login_reason, stdout goes to /dev/null. See vault_login's own
+        # header in _common.sh for why the reason it prints is safe to log.
+        local login_reason
+        if login_reason=$(vault_login "infra" "$secrets_file" 2>&1 >/dev/null); then
             vault_ok=true
             info "OpenBao authenticated for infra"
         else
-            warn "OpenBao available but login failed for infra, falling back to SOPS"
+            warn "OpenBao login failed for infra: ${login_reason:-no reason given} — falling back to SOPS"
         fi
     else
         warn "OpenBao not available, using SOPS fallback for infra"
@@ -481,11 +488,15 @@ cmd_service() {
     # Vault-first, SOPS-fallback for service secrets
     local vault_ok=false
     if vault_available; then
-        if (vault_login "$service" "$secrets_file") >/dev/null 2>&1; then
+        # h#815: see the identical capture on the infra path above for why the
+        # stream order matters here — stdout (a bare token on success) must
+        # never reach a log; only vault_login's stderr reason is captured.
+        local login_reason
+        if login_reason=$(vault_login "$service" "$secrets_file" 2>&1 >/dev/null); then
             vault_ok=true
             info "OpenBao authenticated for ${service}"
         else
-            warn "OpenBao available but login failed for ${service}, falling back to SOPS"
+            warn "OpenBao login failed for ${service}: ${login_reason:-no reason given} — falling back to SOPS"
         fi
     else
         warn "OpenBao not available, using SOPS fallback"
