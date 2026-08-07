@@ -7,14 +7,60 @@ Complete automated rebuild of the Hill90 VPS from catastrophic failure.
 The host-level rebuild (VPS OS, Ansible bootstrap, Traefik/Portainer, observability)
 is fully automated. **Vault is not** — initializing, configuring, seeding and
 generating AppRole credentials for a freshly-deployed OpenBao are manual steps this
-runbook does not itself walk through (see Step 3b, h#807). The process takes
-~8-13 minutes for the automated portion and consists of 4 steps, plus vault setup:
+runbook does not itself walk through (see Step 7, h#807). The process takes
+~8-13 minutes for the automated portion and consists of 6 automated steps,
+plus manual vault setup and a final health check:
 
 1. **Recreate VPS** (~3-5 minutes) - OS rebuild via Hostinger API
 2. **Config VPS** (~3-5 minutes) - Infrastructure bootstrap via Ansible
 3. **Deploy Infra** (~1-2 minutes) - Infrastructure service deployment (Traefik, Portainer)
-3b. **Deploy AND configure Vault** (manual — not on the automated clock) - see Step 3b
-4. **Deploy All** (~2-3 minutes) - Application service deployment
+4. **Deploy Database** (~1 minute) - PostgreSQL (h#831 — previously missing from this runbook entirely)
+5. **Deploy Auth** (~1 minute) - Keycloak, after database (h#831 — previously missing)
+6. **Deploy MinIO** (~1 minute) - Object storage, after auth (h#831 — previously missing)
+7. **Deploy AND configure Vault** (manual — not on the automated clock) - see Step 7
+8. **Deploy Observability** (~1 minute) - Monitoring stack
+9. **Health Verification** - confirm every service, not just the ones deployed last
+
+**h#831, stated plainly rather than softened: following this runbook's PRIOR
+version end to end rebuilt a VPS with no database, no Keycloak and no object
+storage.** `db` and `minio` were absent from the document entirely — not one
+mention. `auth` was harder to catch: the word appears six times in prose
+(`auth.hill90.com`, `HILL90_UI_CLIENT_SECRET`, `hill90-ui`), which is enough
+for a reader skimming for coverage to see it mentioned and move on, but there
+was no `make deploy-auth` or equivalent anywhere. Steps 4-6 below close all
+three. **The Makefile itself had no targets for any of them either** — a
+bigger gap than the runbook's prose, since a runbook author reaching for this
+file's own `make deploy-X` convention had nothing to reach for; `deploy-db`,
+`deploy-auth` and `deploy-minio` are added to the Makefile in the same change
+as this runbook fix, not papered over with a raw `deploy.sh` invocation that
+breaks the pattern every other step in this document follows.
+
+**The order below is not a guess.** It is read directly from
+[`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml), the
+real, already-running production deploy pipeline — its jobs declare
+`needs: [db]` for auth, `needs: [auth]` for minio, `needs: [minio]` for vault,
+each with its own reasoning in that file's comments: Keycloak stores realms in
+Postgres, so `deploy-auth` waits for `deploy-db`; MinIO validates OIDC tokens
+against Keycloak, so `deploy-minio` is ordered after `deploy-auth` (ordering
+by convention, not a hard runtime requirement — the workflow's own comment
+says MinIO starts fine with Keycloak absent, only federated S3 login needs
+it); `deploy-vault` and `deploy-observability` are serialized after that for
+operational reasons (#778 — parallel deploy jobs raced on the same VPS
+checkout and on service restarts), not a data dependency. This runbook is
+brought into agreement with that pipeline, not inventing a second, competing
+order.
+
+**This sequence has NOT been executed end to end.** It is derived from
+`deploy.yml`'s dependency graph and `scripts/deploy.sh`'s own code-enforced
+guard (`cmd_service`'s auth step queries Postgres directly and `die`s with
+"Deploy it first: bash scripts/deploy.sh db" if it cannot — the one
+dependency enforced in code, not just in the pipeline's job graph), not
+proven by running a real rebuild — the VPS cannot be rebuilt to test a
+documentation change. What would prove it: running Steps 1-8 against a real
+rebuild (or, short of that, standing up db/auth/minio/vault/observability in
+this exact order against a disposable host or the standalone local stack) and
+confirming each step succeeds before the next begins, the same standard
+h#807's vault section already holds itself to ("Not verified here...").
 
 ## Prerequisites
 
@@ -147,7 +193,82 @@ make deploy-infra
 
 ---
 
-### Step 3b: Deploy AND Configure Vault
+### Step 4: Deploy Database (~1 minute)
+
+**h#831 — previously absent from this runbook entirely.** Deploy PostgreSQL,
+the platform database:
+
+```bash
+make deploy-db
+```
+
+**Why this has to happen before Step 5:** Keycloak (Step 5) stores every realm
+in this Postgres instance and will not start against an unreachable one —
+`scripts/deploy.sh`'s own `cmd_service` queries Postgres directly before
+deploying `auth` and `die`s with "Deploy it first: bash scripts/deploy.sh db"
+if it cannot. This is a code-enforced dependency, not a documentation
+convention — deploying `auth` before this step fails, it does not degrade.
+
+**Result:**
+- ✅ PostgreSQL running, reachable on the internal network
+
+---
+
+### Step 5: Deploy Auth (~1 minute)
+
+**h#831 — previously absent from this runbook entirely.** Deploy Keycloak,
+the platform identity provider:
+
+```bash
+make deploy-auth
+```
+
+**Requires Step 4 (Database) to have completed** — see above.
+
+**Read the Prerequisites section above before this step, not after.**
+`HILL90_UI_CLIENT_SECRET` must already be set in the secrets store. This is
+the ONE step in the whole rebuild where `start --import-realm` actually
+imports (a fresh Keycloak has no existing realm), and an unset value here
+installs a public, unsubstituted placeholder as the client secret fronting
+`hill90.com` — see the Prerequisites section for the full mechanism (h#809,
+h#835) and the automated check that now catches it
+(`verify_realm_secrets_substituted` in `scripts/keycloak.sh`, wired into
+`keycloak.sh apply`, which `deploy.sh auth` calls automatically).
+
+**Result:**
+- ✅ Keycloak running, realm `platform` imported
+- ✅ `auth.hill90.com` serving
+
+---
+
+### Step 6: Deploy MinIO (~1 minute)
+
+**h#831 — previously absent from this runbook entirely.** Deploy MinIO,
+platform object storage:
+
+```bash
+make deploy-minio
+```
+
+**Ordered after Step 5 (Auth), matching `deploy.yml`'s own convention — but
+this is NOT a hard runtime dependency, stated so nobody assumes it is.**
+MinIO validates OIDC tokens against Keycloak for federated S3 login, but the
+container itself starts fine with Keycloak absent, and root-credential access
+is unaffected. The pipeline orders it after `auth` anyway (`deploy.yml`:
+`deploy-minio` `needs: [deploy-auth]`) because that is the order this estate
+has already committed to elsewhere, not because MinIO would fail otherwise —
+this runbook follows the same convention rather than inventing a
+looser-but-different one.
+
+**Result:**
+- ✅ MinIO running, `storage.hill90.com` serving
+- ⚠️ Federated (Keycloak SSO) login to MinIO's console will not work until
+  Step 7 (Vault) has run `setup-oidc` and the realm role → MinIO policy
+  mapping is in place. Root credentials work immediately.
+
+---
+
+### Step 7: Deploy AND Configure Vault
 
 ```bash
 make deploy-vault
@@ -172,7 +293,19 @@ one).
 [Step 4](disaster-recovery.md#step-4) through Step 9, not repeated here to avoid the
 two runbooks drifting out of sync with each other the way this gap itself happened:
 
-1. [Initialize](disaster-recovery.md#step-4) — `bash scripts/vault.sh init`
+1. [Initialize](disaster-recovery.md#step-4) — `bash scripts/vault.sh init`, **AND** push the
+   new unseal key into SOPS before doing anything else. `vault.sh init` mints a
+   **brand-new** unseal key and root token (`bao operator init`, run fresh against an
+   empty volume) — it does **not** reuse or need `main`'s existing `OPENBAO_UNSEAL_KEY`,
+   and a reader who assumes it does will look for the wrong value. `cmd_init` writes
+   the new key to disk on the VPS (`/opt/hill90/secrets/openbao-unseal.key`,
+   deliberately never printed — h#805) and nowhere else; [Step 4](disaster-recovery.md#step-4)'s
+   own `scp` + `make secrets-update KEY=OPENBAO_UNSEAL_KEY` sequence is what gets it
+   into SOPS, from your **workstation**, not the VPS. Skipping that half of the linked
+   step leaves this rebuild's vault working right now but with no durable copy of its
+   own unseal key anywhere but the host that could fail next — the same class of
+   single point of failure #799 already found in the OTHER direction (a stale key in
+   SOPS that no longer matches the live vault).
 2. Unseal — `bash scripts/vault.sh unseal`
 3. Setup (KV v2, AppRole auth, audit logging, policies, service roles) — `bash scripts/vault.sh setup`
 4. Seed from SOPS — `bash scripts/vault.sh seed`
@@ -227,7 +360,7 @@ does when there is nothing to unseal.
 
 ---
 
-### Step 4: Deploy Observability (~1 minute)
+### Step 8: Deploy Observability (~1 minute)
 
 ```bash
 make deploy-observability   # or: bash scripts/deploy.sh observability prod
@@ -243,18 +376,23 @@ make deploy-observability   # or: bash scripts/deploy.sh observability prod
 4. Waits for containers to become healthy
 
 **Result:**
-- ✅ Nine observability containers running (infra 2 + vault 1 + observability 9 = 12
-  platform containers total, not ten — h#808)
+- ✅ Nine observability containers running. **h#831 recount**, against every
+  compose file listed in this runbook directly, not carried over from the prior
+  figure: infra 2 (traefik, portainer) + db 2 (postgres, postgres-exporter) +
+  auth 1 (keycloak) + minio 1 + vault 1 (openbao) + observability 9 = **16
+  platform containers total, not 12.** The prior "12" figure (h#808) predates
+  Steps 4-6 existing in this runbook at all — it was never wrong for what it
+  counted, it counted a rebuild that was missing three stacks.
 - ✅ Grafana at https://grafana.hill90.com (Tailscale-only)
 - ✅ Prometheus scrape targets healthy
 
-**Not verified against the live host** — this correction is against the compose file
-and `scripts/ops.sh` (see the code-side fix, h#808), not a container count taken from
-a running rebuild.
+**Not verified against the live host** — this correction is against the compose files
+directly (see the code-side fix, h#808, for the observability figure specifically),
+not a container count taken from a running rebuild.
 
 ---
 
-### Step 5: Health Verification
+### Step 9: Health Verification
 
 **A container reporting `unhealthy` partway through a rebuild is usually not a
 failure.** A rebuilt host starts every service against empty volumes, and
@@ -275,7 +413,8 @@ make health
 ```
 
 **Checks performed:**
-- ✅ All twelve Docker containers running (infra 2 + vault 1 + observability 9 — h#808)
+- ✅ All sixteen Docker containers running (infra 2 + db 2 + auth 1 + minio 1 +
+  vault 1 + observability 9 — h#831 recount, see Step 8)
 - ✅ Traefik dashboard accessible (https://traefik.hill90.com via Tailscale)
 - ✅ Portainer accessible (https://portainer.hill90.com via Tailscale)
 - ✅ Grafana accessible (https://grafana.hill90.com via Tailscale)
@@ -423,12 +562,16 @@ ssh deploy@<vps-ip> "cd /opt/hill90/app && docker compose logs"
 2. Recreate VPS: `make recreate-vps`
 3. Bootstrap infrastructure: `make config-vps VPS_IP=<ip>`
 4. Deploy infrastructure: `make deploy-infra`
-5. Deploy vault: `make deploy-vault`
-6. Initialize, unseal, configure, seed and generate AppRole credentials for vault —
-   see [Step 3b](#step-3b-deploy-and-configure-vault) above; **not automated**, and
+5. Deploy database: `make deploy-db` (h#831)
+6. Deploy auth: `make deploy-auth` — requires Step 5 (h#831)
+7. Deploy MinIO: `make deploy-minio` (h#831)
+8. Deploy vault: `make deploy-vault`
+9. Initialize, unseal, configure, seed and generate AppRole credentials for vault,
+   including pushing the freshly-minted unseal key into SOPS — see
+   [Step 7](#step-7-deploy-and-configure-vault) above; **not automated**, and
    not optional (h#807)
-7. Deploy observability: `make deploy-observability`
-8. Verify health: `make health`
+10. Deploy observability: `make deploy-observability`
+11. Verify health: `make health`
 
 **Fully automated (no intervention):**
 - ✅ Tailscale auth key generation and rotation
