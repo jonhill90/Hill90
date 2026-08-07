@@ -268,14 +268,42 @@ false a few hours later.
 
 `Verified 2026-08-05 01:05 UTC`, read from the live database:
 
-- **`agents` — 1 row.** `platform-guide` / "Platform Guide", `status=stopped`,
-  on the `default` model policy and the `standard` container profile, owned by
-  `jon`. Seeded for QA, **not created through `POST /agents`** — direct access
-  grants are off on every client in the realm and I was not going to enable
-  password grant on the client fronting hill90.com to insert a demo row. The
-  INSERT mirrors the route's own statement column for column, so the row is
-  shaped like a real one; the **create path itself remains unexercised**, and a
-  human clicking "Create Agent" is what would prove it.
+- **`agents` — 2 rows, and the "shaped like a real one" claim was wrong.**
+  `platform-guide` / "Platform Guide", `status=stopped`, on the `default` model
+  policy and the `standard` container profile, owned by `jon`. Seeded for QA,
+  **not created through `POST /agents`** — direct access grants are off on every
+  client in the realm and I was not going to enable password grant on the client
+  fronting hill90.com to insert a demo row.
+
+  This entry used to say *"The INSERT mirrors the route's own statement column
+  for column, so the row is shaped like a real one"*. **That is false for
+  `tools_config`, measured rather than argued.** `Verified 2026-08-07` by
+  reading the live `hill90_api`:
+
+      platform-guide       {"shell": {"enabled": false},
+                            "health": {"enabled": true},
+                            "filesystem": {"enabled": false}}
+
+  The route's own `DEFAULT_TOOLS_CONFIG` always writes the full shape —
+  `allowed_binaries`, `denied_patterns`, `max_timeout` under `shell`;
+  `read_only`, `allowed_paths`, `denied_paths` under `filesystem`. The seed has
+  **none** of those sub-keys. Every other column checked (`agent_id`, `name`,
+  `description`, `soul_md`, `rules_md`, `cpus`, `mem_limit`, `pids_limit`,
+  `autonomy_level`, `status`, `model_policy_id`) does match. So the row is
+  mostly faithful and wrong in exactly the place that decides what an agent may
+  execute — which is the worst place for it to be wrong, because anything
+  reasoning about tool permissions from this row is reasoning about a shape the
+  route would never produce.
+
+  Corroborated independently: **`chat-path-proof-502`** was created on
+  2026-08-07 through a real path, and its `tools_config` carries the full
+  `DEFAULT_TOOLS_CONFIG` shape. Two rows, one seeded and one real, disagreeing
+  is what surfaced this.
+
+  The create path is **no longer unexercised**: hill90-app#607 drives a real
+  `POST /agents` against a real Postgres and asserts the written row column by
+  column. What remains unproven is the *browser* path — a human clicking
+  "Create Agent" — which is a different claim and still worth making.
 - **`provider_connections` — 1 row.** "Platform OpenAI", `created_by IS NULL`
   so it is platform-wide rather than anyone's BYOK. It holds the OpenAI key the
   estate already gives LiteLLM, encrypted with the api's own
