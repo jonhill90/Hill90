@@ -1,0 +1,95 @@
+name: Harden SSH (Firewall + sshd only)
+
+# h#681 / h#786: a narrow re-apply of infra/ansible/playbooks/02-firewall.yml
+# and 04-ssh-lockdown.yml ONLY, against the already-known TAILSCALE_IP.
+#
+# Deliberately NOT config-vps.yml / bootstrap.yml (01-08, 11-12): per h#681's
+# own blast-radius accounting, 03-tailscale reconfigures the only access path
+# this estate has and 05-docker bounces every container on the host for the
+# length of a restart. Neither is wanted to re-apply a firewall rule and an
+# sshd drop-in that have been correct in this repo since #545 and have simply
+# never been run — Config VPS last executed 2026-02-02, months before #545
+# existed.
+#
+# `check` defaults to true: a dry run (`ansible-playbook --check --diff`)
+# reports what would change, including the CURRENT effective `sshd -T` /
+# `firewall-cmd --list-services` output, without changing anything. Applying
+# requires an explicit `check: false` — this is a hard-to-reverse change to
+# sshd on the only production host, over SSH, and should not be one click
+# away from the default.
+on:
+  workflow_dispatch:
+    inputs:
+      check:
+        description: 'Dry run only (--check --diff, changes nothing). Set to false to actually apply.'
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  harden-ssh:
+    name: Re-apply firewall + SSH hardening
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:github-actions
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/remote.hill90.com
+          chmod 600 ~/.ssh/remote.hill90.com
+
+      - name: Setup SOPS/age for secrets
+        run: |
+          curl -L -o /tmp/sops https://github.com/getsops/sops/releases/download/v3.9.0/sops-v3.9.0.linux.amd64
+          chmod +x /tmp/sops
+          sudo mv /tmp/sops /usr/local/bin/sops
+
+          mkdir -p ~/.config/sops/age
+          echo "${{ secrets.SOPS_AGE_KEY }}" > ~/.config/sops/age/keys.txt
+          chmod 600 ~/.config/sops/age/keys.txt
+
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
+      - name: Re-apply firewall + SSH hardening (dry run)
+        if: ${{ inputs.check }}
+        env:
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
+        run: make harden-ssh-check
+
+      - name: Re-apply firewall + SSH hardening (APPLY — sshd will reload)
+        if: ${{ !inputs.check }}
+        env:
+          SOPS_AGE_KEY_FILE: /home/runner/.config/sops/age/keys.txt
+        run: |
+          echo "::warning::Applying — sshd will RELOAD if anything changed. This does not drop existing sessions, but verify access from a second run of this workflow (with check: true) before assuming the previous run's session-based access is unaffected."
+          make harden-ssh
+
+      - name: Summary
+        if: success()
+        run: |
+          if [ "${{ inputs.check }}" = "true" ]; then
+            echo "✅ Dry run complete — nothing was changed. Re-run with check: false to apply."
+          else
+            echo "✅ Firewall + SSH hardening re-applied and verified against sshd -T."
+            echo "Verify access from a fresh session before relying on this being done."
+          fi

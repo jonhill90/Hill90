@@ -177,6 +177,110 @@ jobs:
           esac
           exit $rc
 
+      # h#845 (split from hill90-app#598, which itself came from
+      # hill90-app#593). hill90-app#593's containerProfileCeilingViolations()
+      # only ever console.error()s a live violation on API startup — nothing
+      # reads that. #598 checked whether the api could just expose a
+      # Prometheus gauge instead: it does not today, and building a metrics
+      # pipeline sideways for one rare condition is a bigger decision than
+      # this warranted (see #598's own writeup, including that app-api and
+      # this repo's prometheus DO share a docker network, so it was never a
+      # capability question, only a scope one). This is the alternative Jon
+      # chose: piggyback on THIS scheduled workflow, which already reaches
+      # the VPS every four hours and already has a reader — no new
+      # workflow, no new watchdog wiring, no new metrics pipeline.
+      #
+      # WHERE THE CEILINGS COME FROM, NOT A HARDCODED COPY. MAX_AGENT_CPUS/
+      # MAX_AGENT_MEM_BYTES/MAX_AGENT_PIDS_LIMIT live in hill90-app's
+      # services/api/src/helpers/agent-resource-limits.ts (consolidated
+      # there by hill90-app#596's own review — before that they were
+      # scattered across two files in that repo, and typing a THIRD copy
+      # into THIS repo would be the identical twin-drift shape, one
+      # repository over. Sparse-checked-out below and grepped directly, so
+      # this always compares against whatever hill90-app's main branch
+      # currently says.
+      - name: Checkout hill90-app, for its own resource-ceiling constants
+        if: always() && inputs.deployed_sha_override == ''
+        uses: actions/checkout@v4
+        with:
+          repository: jonhill90/hill90-app
+          path: tenant
+          sparse-checkout: |
+            services/api/src/helpers/agent-resource-limits.ts
+          sparse-checkout-cone-mode: false
+
+      - name: Extract MAX_AGENT_* from hill90-app's own source
+        id: ceilings
+        if: always() && inputs.deployed_sha_override == ''
+        run: |
+          f=tenant/services/api/src/helpers/agent-resource-limits.ts
+          if [ ! -f "$f" ]; then
+            echo "::warning::hill90-app has not merged agent-resource-limits.ts yet (or moved it) — the ceiling check will report this as UNKNOWN."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cpus=$(grep -oE 'MAX_AGENT_CPUS = [0-9.]+' "$f" | grep -oE '[0-9.]+$' || true)
+          mem=$(grep -oE 'MAX_AGENT_MEM_BYTES = [0-9]+' "$f" | grep -oE '[0-9]+$' || true)
+          pids=$(grep -oE 'MAX_AGENT_PIDS_LIMIT = [0-9]+' "$f" | grep -oE '[0-9]+$' || true)
+          if [ -z "$cpus" ] || [ -z "$mem" ] || [ -z "$pids" ]; then
+            echo "::warning::Could not extract all three MAX_AGENT_* constants from $f (cpus='$cpus' mem='$mem' pids='$pids') — the ceiling check will report this as UNKNOWN."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+          echo "cpus=${cpus}" >> "$GITHUB_OUTPUT"
+          echo "mem=${mem}" >> "$GITHUB_OUTPUT"
+          echo "pids=${pids}" >> "$GITHUB_OUTPUT"
+
+      # Read-only. `-U hill90`, the platform admin role — NOT `postgres`,
+      # which does not exist on this Postgres, and not the tenant's own
+      # `hill90_app` role, to keep this on the same credential every other
+      # cross-cutting platform check in this repo already uses. The `ERROR`
+      # sentinel (rather than an empty string) is deliberate: an empty
+      # profiles-json argument and a failed-to-read one must be
+      # distinguishable to the Python script, which treats an empty LIST
+      # as its own, different finding (see its own docstring) — collapsing
+      # "could not ask" and "asked, got nothing" into the same string would
+      # blur exactly the distinction this issue is about.
+      - name: Read container_profiles from the live database
+        id: profiles
+        if: always() && inputs.deployed_sha_override == '' && steps.ceilings.outputs.ok == 'true'
+        run: |
+          json=$(ssh -i ~/.ssh/vps_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
+            deploy@${{ steps.get-ip.outputs.tailscale_ip }} \
+            "docker exec postgres psql -U hill90 -d hill90_api -tAc \"SELECT COALESCE(json_agg(row_to_json(t)), '[]') FROM (SELECT name, default_cpus, default_mem_limit, default_pids_limit FROM container_profiles) t;\"" \
+            2>/dev/null)
+          if [ -z "$json" ]; then
+            echo "::warning::Could not read container_profiles from the host (unreachable, or the query failed) — the ceiling check will report this as CANNOT DETERMINE."
+            json="ERROR"
+          fi
+          # Multi-line-safe GITHUB_OUTPUT write — the JSON is one line from
+          # psql -t, but this avoids re-learning that the hard way later.
+          echo "json<<CEILINGS_EOF" >> "$GITHUB_OUTPUT"
+          echo "$json" >> "$GITHUB_OUTPUT"
+          echo "CEILINGS_EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Assert every container_profiles row fits under hill90-app's own ceilings
+        if: always() && inputs.deployed_sha_override == ''
+        run: |
+          if [ "${{ steps.ceilings.outputs.ok }}" != "true" ]; then
+            echo "::error::CANNOT DETERMINE: hill90-app's MAX_AGENT_* constants were not readable this run. Not a pass — see the extraction step above."
+            exit 2
+          fi
+          rc=0
+          python3 scripts/checks/check_container_profile_ceilings.py \
+            --max-cpus "${{ steps.ceilings.outputs.cpus }}" \
+            --max-mem-bytes "${{ steps.ceilings.outputs.mem }}" \
+            --max-pids-limit "${{ steps.ceilings.outputs.pids }}" \
+            --profiles-json '${{ steps.profiles.outputs.json }}' || rc=$?
+          case "$rc" in
+            0) echo "::notice::Every container_profiles row fits under hill90-app's MAX_AGENT_* ceilings." ;;
+            1) echo "Fix the named profile row, or raise the ceiling in hill90-app's agent-resource-limits.ts with a deliberate reason." ;;
+            2) echo "Could not determine — treat as unverified, not as fine." ;;
+            *) echo "::error::Unrecognised exit code $rc from check_container_profile_ceilings.py." ;;
+          esac
+          exit $rc
+
       # h#712 (narrowed): a dead-man's-switch for the SCHEDULE itself. Same
       # reasoning as the equivalent step in audit-hill90-ui-client.yml —
       # `if: always()` so a REAL drift finding (already emailed immediately

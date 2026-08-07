@@ -20,6 +20,9 @@ Usage: vps.sh <command> [args]
 Commands:
   recreate              Rebuild VPS via API (DESTRUCTIVE, auto-rotates Tailscale key)
   config   <vps_ip>     Configure VPS OS via Ansible (no containers)
+  harden-ssh [--check]  Re-apply firewall + SSH hardening only (02+04), against
+                         the already-known TAILSCALE_IP — see h#681/h#786.
+                         --check reports what would change without changing it.
   help                  Show this help message
 EOF
 }
@@ -327,6 +330,93 @@ cmd_config() {
 }
 
 # ---------------------------------------------------------------------------
+# Narrow re-apply of firewall + SSH hardening only — h#681 / h#786
+# ---------------------------------------------------------------------------
+
+# Re-applies infra/ansible/playbooks/ssh-harden.yml (02-firewall + 04-ssh-lockdown
+# ONLY — see that file's own header for why bootstrap.yml is the wrong tool for
+# this). Unlike cmd_config, this takes NO vps_ip argument: it targets an
+# ALREADY-BOOTSTRAPPED host by its known TAILSCALE_IP, which is the only address
+# that still answers once 04 has taken effect — a bare host with no Tailscale IP
+# recorded yet has nothing for this command to re-harden.
+#
+# Connects as deploy_user, not root: root login is refused by design once 04 has
+# taken effect even once, and the whole reason this command exists is hosts where
+# it may already have partially taken effect. Verified live before this was
+# written, not assumed: `deploy` has key-based access and passwordless sudo on
+# the current production host.
+cmd_harden_ssh() {
+    local mode="apply"
+    case "${1:-}" in
+        --check|--dry-run) mode="check" ;;
+        "") : ;;
+        *) die "Unknown option '$1'. Usage: vps.sh harden-ssh [--check]" ;;
+    esac
+
+    local ansible_flags=()
+    if [ "$mode" = "check" ]; then
+        ansible_flags=(--check --diff)
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}  DRY RUN — Firewall + SSH Hardening (02 + 04 only), no changes  ${NC}"
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+        echo -e "${YELLOW}--check --diff: reports what would change without changing it.${NC}"
+        echo -e "${YELLOW}Read-only diagnostics (sshd -t, sshd -T, firewall-cmd --list-services)${NC}"
+        echo -e "${YELLOW}still run for real, so this reports the CURRENT effective state too.${NC}"
+    else
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}       Re-apply Firewall + SSH Hardening (02 + 04 only)         ${NC}"
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
+    fi
+    echo ""
+
+    if [[ -z "${TAILSCALE_AUTH_KEY:-}" ]]; then
+        load_secrets
+    fi
+
+    local tailscale_ip
+    tailscale_ip=$(cd "$PROJECT_ROOT" && sops -d --extract '["TAILSCALE_IP"]' infra/secrets/prod.enc.env 2>/dev/null || echo "")
+    [ -n "$tailscale_ip" ] \
+        || die "No TAILSCALE_IP recorded in the store. This command re-hardens an already-bootstrapped host; a host that has never completed 'make config-vps' has nothing here to re-apply — run that first."
+
+    echo -e "${BLUE}Target (Tailscale IP):${NC} $tailscale_ip"
+    echo -e "${BLUE}Connecting as:${NC} deploy (root login is refused once hardening has taken effect)"
+    if [ "$mode" = "apply" ]; then
+        echo -e "${YELLOW}This RELOADS sshd if anything changed. Keep this session open and verify${NC}"
+        echo -e "${YELLOW}access from a SECOND, fresh session before disconnecting this one.${NC}"
+    fi
+    echo ""
+
+    cd "$PROJECT_ROOT/infra/ansible"
+    if ansible-playbook -i "inventory/hosts.yml" \
+                     "${ansible_flags[@]}" \
+                     -e "ansible_host=$tailscale_ip" \
+                     -e "ansible_user=deploy" \
+                     -e "ansible_become=yes" \
+                     -e "ansible_ssh_private_key_file=~/.ssh/remote.hill90.com" \
+                     -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'" \
+                     playbooks/ssh-harden.yml; then
+        echo ""
+        if [ "$mode" = "check" ]; then
+            success "   ✓ Dry run complete — nothing was changed. Re-run without --check to apply."
+        else
+            success "   ✓ Firewall + SSH hardening re-applied and verified against sshd -T"
+        fi
+    else
+        echo ""
+        if [ "$mode" = "check" ]; then
+            echo -e "${YELLOW}   Dry run reported a failure — see ansible output above. Nothing was changed.${NC}"
+            echo -e "${YELLOW}   A failed assert here can just mean the host is currently in the broken${NC}"
+            echo -e "${YELLOW}   state this fix addresses — that is what a dry run against a broken host${NC}"
+            echo -e "${YELLOW}   is expected to show.${NC}"
+        else
+            echo -e "${RED}   ✗ Re-apply failed — see ansible output above${NC}"
+            echo -e "${YELLOW}   Re-run is safe: both imported task files are idempotent.${NC}"
+        fi
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Main dispatcher
 # ---------------------------------------------------------------------------
 
@@ -342,6 +432,7 @@ main() {
     case "$cmd" in
         recreate)       cmd_recreate "$@" ;;
         config)         cmd_config "$@" ;;
+        harden-ssh)     cmd_harden_ssh "$@" ;;
         help|--help|-h) usage ;;
         *)
             echo "Unknown command: $cmd"
