@@ -31,6 +31,11 @@ nothing. It is a **platform**: it hosts tenants but is not the application.
   what this platform offers a tenant;
   [`tenant-checkout-hazard.md`](docs/decisions/tenant-checkout-hazard.md) records
   why the tenant needs its own checkout guard and why its risk is the smaller one.
+- [`docs/product/`](docs/product/) — [`PRD.md`](docs/product/PRD.md) and
+  [`SPEC.md`](docs/product/SPEC.md), the requirements and inventory for the
+  2026-07-26 app/infra strip. Both are historical records of a decision that
+  was carried out, not a description of Hill90 today — read the banner at the
+  top of each before citing anything below it.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — conventions and the deploy rules.
 - Published pages: [docs.hill90.com](https://docs.hill90.com).
 
@@ -44,7 +49,7 @@ platform/observability/ Prometheus, Alertmanager, blackbox, Loki, Tempo, Grafana
 infra/secrets/          SOPS-encrypted stores; age private keys are gitignored
 scripts/                deploy.sh, backup.sh, _common.sh, checks/
 ansible/                VPS bootstrap
-docs/                   runbooks, reference, architecture, decisions
+docs/                   runbooks, reference, architecture, decisions, product
 ```
 
 ## Invariants — do not break these without an explicit decision
