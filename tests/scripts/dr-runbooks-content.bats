@@ -149,7 +149,55 @@ setup() {
 @test "h#808 docs: vps-rebuild.md no longer claims ten total platform containers" {
   run grep -F 'All ten Docker containers' "$VPS"
   [ "$status" -ne 0 ]
+}
+
+# h#831: the "twelve" figure h#808 established was correct for what it counted
+# (infra + vault + observability) — it predates db/auth/minio existing in this
+# runbook at all. Adding those three stacks' containers makes it stale in the
+# same direction as the "ten" figure it replaced, not a new defect.
+@test "h#831 docs: vps-rebuild.md no longer claims twelve total platform containers, now sixteen" {
   run grep -F 'All twelve Docker containers' "$VPS"
+  [ "$status" -ne 0 ]
+  run grep -F 'All sixteen Docker containers' "$VPS"
+  [ "$status" -eq 0 ]
+}
+
+@test "h#831: vps-rebuild.md now has deploy steps for db, auth and minio, in that order" {
+  run grep -F 'make deploy-db' "$VPS"
+  [ "$status" -eq 0 ]
+  run grep -F 'make deploy-auth' "$VPS"
+  [ "$status" -eq 0 ]
+  run grep -F 'make deploy-minio' "$VPS"
+  [ "$status" -eq 0 ]
+  # Order, not just presence: db's heading line number must precede auth's,
+  # which must precede minio's.
+  db_line=$(grep -n '^### Step .*Deploy Database' "$VPS" | head -1 | cut -d: -f1)
+  auth_line=$(grep -n '^### Step .*Deploy Auth' "$VPS" | head -1 | cut -d: -f1)
+  minio_line=$(grep -n '^### Step .*Deploy MinIO' "$VPS" | head -1 | cut -d: -f1)
+  [ -n "$db_line" ] && [ -n "$auth_line" ] && [ -n "$minio_line" ]
+  [ "$db_line" -lt "$auth_line" ]
+  [ "$auth_line" -lt "$minio_line" ]
+}
+
+@test "h#831: the Makefile actually has deploy-db, deploy-auth and deploy-minio targets" {
+  # -F is fixed-string matching, so `^` is a literal caret in that mode, not
+  # an anchor — plain grep (basic regex) is required for these to mean
+  # "target definition line", not just "the substring appears somewhere".
+  run grep -n '^deploy-db:' "$ROOT/Makefile"
+  [ "$status" -eq 0 ]
+  run grep -n '^deploy-auth:' "$ROOT/Makefile"
+  [ "$status" -eq 0 ]
+  run grep -n '^deploy-minio:' "$ROOT/Makefile"
+  [ "$status" -eq 0 ]
+}
+
+@test "h#831: vps-rebuild.md's vault step now states the unseal key is newly minted, not reused from main" {
+  run grep -iF 'brand-new' "$VPS"
+  [ "$status" -eq 0 ]
+  # The actual sentence wraps "not" in markdown bold (**not**), so the
+  # fixed-string match has to skip over the asterisks the same way a
+  # rendered reader would.
+  run grep -F 'it does **not** reuse or need' "$VPS"
   [ "$status" -eq 0 ]
 }
 

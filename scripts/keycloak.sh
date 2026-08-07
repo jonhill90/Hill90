@@ -548,6 +548,156 @@ print(json.dumps({
     ensure_realm_roles_mapper "$uuid" "$claim"
 }
 
+# h#835: platform-realm.json declares hill90-vault's and hill90-ui's secrets
+# as ${VAULT_OIDC_CLIENT_SECRET} / ${HILL90_UI_CLIENT_SECRET}, substituted by
+# `start --import-realm` from the container's environment. VAULT_OIDC_CLIENT_SECRET
+# is guarded at the compose level (${VAR:?...}); HILL90_UI_CLIENT_SECRET
+# deliberately is NOT (fad9fefa) — it is legitimately unset on every routine
+# `auth` deploy after the first import, so a compose-level guard would refuse
+# every one of those. An import that runs with it unset (a VPS rebuild) succeeds
+# silently, and hill90-ui's client secret becomes the literal, unsubstituted
+# string "${HILL90_UI_CLIENT_SECRET}" — readable in this PUBLIC repo's own
+# platform-realm.json, no guessing required.
+#
+# This asks the LIVE realm, not the committed file: platform-realm.json always
+# contains the literal ${...} placeholder, correctly. The defect only exists in
+# what Keycloak actually installed at import time.
+#
+# Reuses the kc() session kc_login already established — no separate
+# credentials, matching kc_login's own reason for keeping the real admin
+# password out of argv/a second auth path entirely.
+#
+# "Could not check" must never read as "no placeholder found": an empty or
+# unparseable client list is its own failure, not a pass — the same class of
+# trap check_container_profile_ceilings.py (Hill90#845) and
+# check_realm_secret_not_literal.sh's own CANNOT-DETERMINE arms exist to catch.
+#
+# Deliberately narrow: this checks exactly one shape — a ${...}-looking literal
+# landing as a CLIENT SECRET after an import — not a general realm validator.
+verify_realm_secrets_substituted() {
+    # h#849 review of h#835: the original version queried each confidential
+    # client's secret via the /client-secret sub-endpoint with
+    # `--format csv --noquotes` and treated ANY empty result as "no secret,
+    # skip" — `[ -n "$secret_raw" ] || continue`, discarding the query's own
+    # exit status via `2>/dev/null`. Verified live against a real disposable
+    # Keycloak: HILL90_UI_CLIENT_SECRET="" (set but EMPTY, not unset)
+    # produces exit 0 with EMPTY stdout from that endpoint — byte-identical
+    # to a client that genuinely has no secret credential at all (broker,
+    # hill90-api, realm-management, verified the same way). The check ran
+    # against that exact case and returned PASS. An empty secret is a broken
+    # auth state — this function's own warning text already claimed to cover
+    # "unset OR EMPTY"; the code could not reach the EMPTY half at all.
+    #
+    # Fixed by querying the client LIST once, in JSON (not CSV, not the
+    # per-client /client-secret sub-endpoint), and using PRESENCE of the
+    # `secret` key — not its value — as the discriminator. Verified live:
+    # clients Keycloak never assigned a secret to (broker, hill90-api,
+    # realm-management) have NO `secret` key in their JSON at all; clients
+    # platform-realm.json explicitly gives a `secret` field to (hill90-ui,
+    # hill90-vault) always have the key, whether its value is a real secret,
+    # an empty string, or a literal ${...} placeholder. Key-presence
+    # distinguishes "nothing to check" from "something to check that turned
+    # out empty" — value-emptiness cannot, because both look identical.
+    #
+    # This also fixes the query-failure question the CSV form could not
+    # answer either: `kc get clients` is now a single call whose own exit
+    # status is checked directly (`if !`), not discarded — a failed query
+    # (bad realm, auth session dropped, network fault) is CANNOT DETERMINE,
+    # never silently zero clients checked.
+    local clients_json
+    if ! clients_json=$(kc get clients -r "$KC_REALM" 2>/dev/null); then
+        warn "  ! Could not verify client secrets are substituted — the client list query for realm '${KC_REALM}' failed. Not proven clean; treating as a failure, not a pass."
+        return 1
+    fi
+
+    local classification py_status
+    # CLIENTS_JSON via the environment, not a pipe: `python3 <<'PYEOF'` uses
+    # the heredoc as the SCRIPT source (python3 with no filename argument
+    # reads its program from stdin), so stdin isn't free to also carry the
+    # data — piping `clients_json` in would silently starve sys.stdin.read()
+    # instead of feeding it. Caught by testing this against real output
+    # before trusting it, not by inspection.
+    #
+    # `if classification=$(...); then` — NOT a bare `classification=$(...)`
+    # assignment — for the same reason h#746's fix uses `if ! X=$(...); then`
+    # elsewhere in this file: this function's whole POINT is to observe a
+    # non-zero exit (1 = found a problem, 3 = cannot determine) without
+    # aborting. A bare assignment's exit status is the substitution's own,
+    # and under this file's `set -e` that non-zero status kills the script
+    # right there, before py_status=$? is ever reached — caught by actually
+    # running this against the EMPTY-secret case, not by inspection; the
+    # first version of this fix died silently at exactly this line.
+    if classification=$(CLIENTS_JSON="$clients_json" python3 <<'PYEOF'
+import sys, json, os, re
+
+PLACEHOLDER_RE = re.compile(r'^\$\{[A-Za-z0-9_]+\}$')
+
+try:
+    clients = json.loads(os.environ["CLIENTS_JSON"])
+except Exception:
+    print("CANNOT_DETERMINE unparseable JSON")
+    sys.exit(3)
+
+if not isinstance(clients, list):
+    print("CANNOT_DETERMINE not a JSON array")
+    sys.exit(3)
+
+checked = 0
+failures = []
+for c in clients:
+    if c.get("publicClient") is True:
+        continue
+    if "secret" not in c:
+        continue
+    checked += 1
+    value = c.get("secret")
+    client_id = c.get("clientId")
+    if not value:
+        failures.append(f"EMPTY {client_id}")
+    elif PLACEHOLDER_RE.match(value):
+        failures.append(f"PLACEHOLDER {client_id} {value}")
+
+if checked == 0:
+    print("CANNOT_DETERMINE no confidential client has a secret key at all")
+    sys.exit(3)
+
+if failures:
+    for line in failures:
+        print(line)
+    sys.exit(1)
+
+print(f"PASS {checked}")
+sys.exit(0)
+PYEOF
+    ); then
+        py_status=0
+    else
+        py_status=$?
+    fi
+
+    if [ "$py_status" -eq 3 ]; then
+        warn "  ! Could not verify client secrets are substituted — ${classification#CANNOT_DETERMINE }. Not proven clean; treating as a failure, not a pass."
+        return 1
+    fi
+
+    if [ "$py_status" -eq 1 ]; then
+        local kind client_id detail
+        while IFS=' ' read -r kind client_id detail; do
+            [ -n "$kind" ] || continue
+            if [ "$kind" = "EMPTY" ]; then
+                warn "  ! client '${client_id}' secret is EMPTY — the import ran with the backing variable set but empty. A confidential client with an empty secret is a broken auth state, not a substitution success."
+            else
+                warn "  ! client '${client_id}' secret is the literal unsubstituted string '${detail}' — the import ran with the backing variable unset. This is now a public template value, readable in this repo's own platform-realm.json."
+            fi
+        done <<< "$classification"
+        return 1
+    fi
+
+    local checked_count="${classification#PASS }"
+    echo "  = checked ${checked_count} confidential client secret(s) — none empty, none an unsubstituted \${...} literal"
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -555,6 +705,20 @@ print(json.dumps({
 cmd_apply() {
     require_running
     kc_login
+
+    # h#749: individual warn() calls inside remove_realm_roles and
+    # ensure_platform_admins used to be logged and then forgotten — this
+    # function ended with an unconditional "Realm configured." regardless of
+    # how many of them fired, e.g. one of five per-user role grants failing
+    # partway through. `apply_failed` aggregates both, matching the
+    # accumulator shape local.sh's cmd_health already uses for its own
+    # per-check loop. Declared before the h#835 check below so that check
+    # folds into the same accumulator rather than inventing a second one.
+    local apply_failed=0
+
+    echo ""
+    echo "Verifying realm-import substitution..."
+    verify_realm_secrets_substituted || apply_failed=1
 
     echo "================================"
     echo "Keycloak SSO — realm '${KC_REALM}'"
@@ -574,15 +738,6 @@ cmd_apply() {
     local minio_secret
     minio_secret=$(secret_for MINIO_OIDC_CLIENT_SECRET) \
         || die "Cannot resolve MINIO_OIDC_CLIENT_SECRET — refusing to reconfigure any client"
-
-    # h#749: individual warn() calls inside remove_realm_roles and
-    # ensure_platform_admins used to be logged and then forgotten — this
-    # function ended with an unconditional "Realm configured." regardless of
-    # how many of them fired, e.g. one of five per-user role grants failing
-    # partway through. `apply_failed` aggregates both, matching the
-    # accumulator shape local.sh's cmd_health already uses for its own
-    # per-check loop.
-    local apply_failed=0
 
     ensure_realm_roles
     # AFTER creating the replacements, never before: a run that deleted the old

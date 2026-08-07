@@ -1,4 +1,4 @@
-.PHONY: help build deploy-infra deploy-infra-production deploy-vault deploy-observability test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
+.PHONY: help build deploy-infra deploy-infra-production deploy-db deploy-auth deploy-minio deploy-vault deploy-observability test logs health ssh secrets-edit secrets-init secrets-view secrets-update ps snapshot recreate-vps config-vps validate docs-dev backup backup-list backup-prune backup-restore rollback rollback-classify down dns-view dns-sync dns-verify vault-init vault-unseal vault-auto-unseal vault-status vault-setup vault-seed vault-sync-to-sops vault-setup-sync-token vault-bootstrap-approles check-secrets-schema
 
 # Environment
 ENV ?= prod
@@ -143,6 +143,27 @@ deploy-infra-production: ## Deploy infrastructure, refusing to proceed unless th
 	@echo "Refuses to deploy if the configured CA is Let's Encrypt staging."
 	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ]
 	ACME_REQUIRE_PRODUCTION=1 bash scripts/deploy.sh infra $(ENV)
+
+# h#831: deploy.sh has supported db/auth/minio as first-class targets since
+# before this Makefile existed (its own usage text lists them) — nothing here
+# ever exposed them as `make` targets, which is how vps-rebuild.md ended up
+# with no step for any of the three: a runbook author reaching for the
+# established `make deploy-X` convention here had nothing to reach for.
+deploy-db: ## Deploy PostgreSQL (platform database)
+	@echo "$(COLOR_YELLOW)Deploying PostgreSQL...$(COLOR_RESET)"
+	bash scripts/deploy.sh db $(ENV)
+
+# auth (Keycloak) stores realms in Postgres and refuses to deploy if it
+# cannot query it (scripts/deploy.sh's own guard: "Cannot deploy auth: cannot
+# query postgres... Deploy it first: bash scripts/deploy.sh db"). db must be
+# deployed before this target, not just before it in a runbook's prose.
+deploy-auth: ## Deploy Keycloak (platform identity provider) — requires deploy-db first
+	@echo "$(COLOR_YELLOW)Deploying Keycloak...$(COLOR_RESET)"
+	bash scripts/deploy.sh auth $(ENV)
+
+deploy-minio: ## Deploy MinIO object store (platform storage)
+	@echo "$(COLOR_YELLOW)Deploying MinIO...$(COLOR_RESET)"
+	bash scripts/deploy.sh minio $(ENV)
 
 deploy-vault: ## Deploy OpenBao secrets management
 	@echo "$(COLOR_YELLOW)Deploying OpenBao vault...$(COLOR_RESET)"
