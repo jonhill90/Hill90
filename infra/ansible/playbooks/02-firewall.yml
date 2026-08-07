@@ -62,6 +62,7 @@
   command: firewall-cmd --zone=public --list-services
   register: fw_public
   changed_when: false
+  check_mode: no
 
 # The assertion that would have caught this. A firewall rule nobody reads is the
 # same class as a config file nobody reads: 04-ssh-lockdown.yml exists precisely
