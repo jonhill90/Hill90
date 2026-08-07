@@ -323,12 +323,49 @@ remove_realm_roles() {
             failed=1
             continue
         fi
-        parents=$(printf '%s' "$roles_raw" | while read -r other; do
+        # h#746 (residual): the outer roles_raw read above was fixed to
+        # refuse on failure, but the INNER per-candidate composites lookup,
+        # one `kc get` per role in this loop, was not — the exact same
+        # `... | grep -qx ... && echo` shape, just one level deeper.
+        # Verified live (a real local Keycloak, never production): a role
+        # that genuinely WAS a composite parent moments earlier, whose
+        # per-role lookup then fails (its own removal between the outer
+        # list and this loop reaching it — a real TOCTOU, not contrived —
+        # or equally a network blip), silently contributed nothing to
+        # `parents`, exactly like the outer reads used to.
+        #
+        # The loop body runs in a subshell (it is the left side of a pipe
+        # into `grep -c .`), so a failing inner `kc get` cannot set a
+        # variable the outer scope can see directly — a marker file is the
+        # established way past that boundary, checked once the loop ends.
+        #
+        # `|| [ -n "$other" ]` matters and is not defensive boilerplate:
+        # $(...) command substitution always strips the trailing newline
+        # from $roles_raw, so without this, `read` hits EOF on the LAST
+        # role in the list, returns non-zero despite having populated
+        # $other, and the while loop exits before running the body for
+        # it — silently skipping the last candidate's composites check
+        # every single time, found empirically (bats stub test, the
+        # candidate list's last entry was exactly the one whose read was
+        # made to fail, and the failure went undetected).
+        local parents_fail_marker; parents_fail_marker=$(mktemp)
+        parents=$(printf '%s' "$roles_raw" | while read -r other || [ -n "$other" ]; do
             [ -n "$other" ] || continue
             [ "$other" = "$role" ] && continue
-            kc get "roles/${other}/composites" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null \
-                | tr -d '\r' | grep -qx "$role" && echo "$other"
+            local composites_raw
+            if ! composites_raw=$(kc get "roles/${other}/composites" -r "$KC_REALM" --fields name --format csv --noquotes 2>/dev/null | tr -d '\r'); then
+                echo "1" >> "$parents_fail_marker"
+                continue
+            fi
+            printf '%s' "$composites_raw" | grep -qx "$role" && echo "$other"
         done | grep -c . || true)
+        if [ -s "$parents_fail_marker" ]; then
+            rm -f "$parents_fail_marker"
+            warn "  ! ${role} NOT deleted — could not read composites for at least one candidate parent role (the query failed). A failed read is not the same as zero holders; retirement is blocked until it succeeds."
+            failed=1
+            continue
+        fi
+        rm -f "$parents_fail_marker"
 
         if [ "$users" -ne 0 ] || [ "$groups" -ne 0 ] || [ "$parents" -ne 0 ]; then
             warn "  ! ${role} NOT deleted — holders found (users=${users} groups=${groups} composite-parents=${parents}). Retirement is blocked until it has none; do not force it."

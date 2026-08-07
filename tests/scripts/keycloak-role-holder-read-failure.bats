@@ -20,7 +20,8 @@ setup() {
   PATH="$STUB:$PATH"
 }
 
-# $1 = "users-fail" | "groups-fail" | "roles-fail" | "has-holders" | "clean"
+# $1 = "users-fail" | "groups-fail" | "roles-fail" | "inner-composite-fail" |
+#      "has-holders" | "clean"
 make_docker_stub() {
   local mode="$1"
   local counter="$BATS_TEST_TMPDIR/roles-call-count"
@@ -40,13 +41,18 @@ case "\$sub \$target" in
     # check the role still exists, once per role inside the composite-
     # parents check. roles-fail must let the FIRST through (so the loop is
     # reached at all) and fail the SECOND — the one this fix actually
-    # guards.
+    # guards. inner-composite-fail needs a SECOND role name in both calls
+    # so the composite-parents loop below has a candidate other than
+    # "admin" itself to iterate over.
     n=\$(cat "\$COUNTER"); n=\$((n + 1)); echo "\$n" > "\$COUNTER"
     if [ "\$MODE" = "roles-fail" ] && [ "\$n" -ge 2 ]; then
       echo "kcadm: connection refused" >&2
       exit 1
     fi
     echo "admin"
+    if [ "\$MODE" = "inner-composite-fail" ]; then
+      echo "other-role"
+    fi
     exit 0
     ;;
   "get roles/admin/users")
@@ -67,6 +73,21 @@ case "\$sub \$target" in
     exit 0
     ;;
   "get roles/admin/composites")
+    exit 0
+    ;;
+  "get roles/other-role/composites")
+    # The residual gap this fix closes: the OUTER "kc get roles" list read
+    # (and users/groups) already refused on failure before this fix. This
+    # is one level deeper — the PER-CANDIDATE composites lookup inside the
+    # loop that builds that same outer list's answer. A real TOCTOU (the
+    # candidate role is removed between the outer snapshot and this lookup
+    # reaching it) produces exactly this: the outer "get roles" call that
+    # named "other-role" already succeeded, but asking for ITS composites
+    # now fails.
+    if [ "\$MODE" = "inner-composite-fail" ]; then
+      echo "kcadm: connection refused" >&2
+      exit 1
+    fi
     exit 0
     ;;
   "delete roles/admin")
@@ -120,4 +141,19 @@ run_remove() {
   run run_remove
   [[ "$output" != *"deleted (0 users, 0 groups, 0 composite parents)"* ]]
   [[ "$output" == *"could not read the realm's role list"* ]]
+}
+
+@test "THE RESIDUAL GAP: a failed per-candidate composites read (one level inside the loop) refuses the delete" {
+  # This is the case the outer roles-fail test above does NOT cover: the
+  # outer "kc get roles" list read succeeds and names "other-role" as a
+  # candidate, but asking for THAT role's own composites then fails — a
+  # realistic TOCTOU (the candidate is removed between the outer snapshot
+  # and this loop reaching it) or a plain network blip on one call among
+  # many. Before this fix, a failure here silently contributed nothing to
+  # the parents count, exactly like the already-fixed outer reads used to.
+  make_docker_stub "inner-composite-fail"
+  run run_remove
+  [[ "$output" != *"deleted (0 users, 0 groups, 0 composite parents)"* ]]
+  [[ "$output" == *"could not read composites for at least one candidate parent role"* ]]
+  [[ "$output" != *"NOT deleted — holders found"* ]]
 }
