@@ -224,6 +224,33 @@ vault_login() {
     }
 }
 
+# h#850: does NOT attempt a login — it only answers whether ${service}'s
+# AppRole credentials have non-empty values in the store, the same question
+# vault_login's own missing-credentials branch already asks. Used by
+# deploy.sh's vault-skip branch to make that skip's silence conditional on
+# the premise it assumes ("no VAULT_VAULT_ROLE_ID/_SECRET_ID has ever
+# existed") rather than unconditional on $service — so the day that premise
+# stops being true, something says so instead of silently doing nothing
+# forever. A decrypt failure returns 1 (treated as "not present"), matching
+# the current, safe default rather than inventing a third outcome here.
+vault_approle_credentials_present() {
+    local service="$1"
+    local secrets_file="${2:-$PROJECT_ROOT/infra/secrets/prod.enc.env}"
+    local svc_upper
+    svc_upper=$(echo "$service" | tr '[:lower:]' '[:upper:]')
+    local role_id_var="VAULT_${svc_upper}_ROLE_ID"
+    local secret_id_var="VAULT_${svc_upper}_SECRET_ID"
+
+    local decrypted
+    decrypted=$(sops -d "$secrets_file" 2>/dev/null) || return 1
+
+    local role_id secret_id
+    role_id=$(printf '%s\n' "$decrypted" | grep "^${role_id_var}=" | cut -d= -f2-)
+    secret_id=$(printf '%s\n' "$decrypted" | grep "^${secret_id_var}=" | cut -d= -f2-)
+
+    [ -n "$role_id" ] && [ -n "$secret_id" ]
+}
+
 # Read one KV v2 path. NON-ZERO if the path cannot be read for ANY reason.
 #
 # THIS FUNCTION CAUSED A PRODUCTION OUTAGE ON 2026-08-03 by succeeding quietly.
