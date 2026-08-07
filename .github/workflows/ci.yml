@@ -20,6 +20,15 @@ jobs:
       - name: Validate markdown links
         run: python3 scripts/checks/check_md_links.py
 
+      # h#786/h#844: found by scanning merged PRs after two issues sat open
+      # for hours on nothing but "Closes h#NNN" — GitHub does not parse the
+      # h# prefix as a closing keyword. Reads the real PR body via env, never
+      # interpolated into the shell.
+      - name: Assert the PR body doesn't defeat auto-close with an h# prefix
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/checks/check_pr_body_h_prefix.py
+
       # h#758 (found by h#736's fix): wired only to its own bats control
       # since it was written. Genuinely hermetic — it counts rules in
       # platform/observability/prometheus/alerts.yml against the sentence in
