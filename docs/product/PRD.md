@@ -4,10 +4,10 @@
 > strip, not a description of Hill90 today.** The split it argues for happened, and
 > the tenant it produced now runs against this platform — so the *cost/benefit
 > argument* below is settled and the *architecture* it describes is superseded by
-> [docs/decisions/app-tenancy-on-the-vps.md](docs/decisions/app-tenancy-on-the-vps.md),
+> [docs/decisions/app-tenancy-on-the-vps.md](../decisions/app-tenancy-on-the-vps.md),
 > which defines the contract this platform actually offers a tenant. Its reasoning
 > about Keycloak and Postgres was wrong and is corrected in
-> [docs/decisions/platform-primitives.md](docs/decisions/platform-primitives.md).
+> [docs/decisions/platform-primitives.md](../decisions/platform-primitives.md).
 > Kept as the record of a decision that was carried out.
 
 **Status:** implemented 2026-07-26
