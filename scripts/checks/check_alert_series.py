@@ -50,6 +50,46 @@ is stale already exists on every single run, for free. So: if a selector
 that is ALSO in the allowlist comes back with real series, that is now a
 hard failure, not a silently-ignored `ok`. Zero lag, no new bookkeeping, no
 date to remember to update.
+
+h#855 REVIEW — TWO BLIND SPOTS THIS SCRIPT COULD NOT SEE, closed here.
+Both were proven with a synthetic rule against the live production
+Prometheus before either fix was written — see the PR body, not just this
+comment, for the actual output.
+
+1. A selector inside absent(...) was checked with the SAME "0 series = this
+   rule cannot fire" rule as everything else. That is backwards for this one
+   construct: 0 series is exactly what an absent()-wrapped selector is
+   DESIGNED to detect — it is the rule's own firing condition, not evidence
+   the rule is broken. The real alerts.yml has six such rules today
+   (LokiIngestionStalled/SignalMissing, BackupNotSucceeding*,
+   ScheduledWorkflow*) — four of the six currently pass only because the
+   underlying metric happens to have series RIGHT NOW; the moment any one of
+   them genuinely went absent (a real incident, or a workflow that has never
+   fired), the old code would have reported "this rule cannot fire" — false,
+   and exactly backwards during the one moment it would matter.
+   is_absent_wrapped() below detects the ONE shape this file's own rules
+   actually use — `absent(` or `absent_over_time(` directly preceding the
+   selector — not a general PromQL parse. A 0-series result for such a
+   selector is no longer added to `missing`; it is reported as its own
+   category and does not fail the check, because the wrapper is itself the
+   author's declaration that absence is a real, meaningful state — the same
+   role an allowlist entry plays for every other selector, without needing
+   one written by hand for each of the six.
+
+2. A label referenced only via `by (label)` / `without (label)` /
+   `on (label)` / `ignoring (label)` / `group_left(label)` /
+   `group_right(label)`, or only inside a `{{ $labels.label }}` annotation
+   template, was invisible to selector extraction: STRIP deletes the
+   by/without/on/ignoring/group_left/group_right clause's contents before
+   metric names are ever looked for, and annotations are never read at all.
+   So a rule could group or annotate by a label that not one live series of
+   its own metric actually carries, and this script would report the bare
+   metric as `ok` — exactly the HighMemoryUsage shape cited above, just
+   reached through aggregation instead of an explicit `{name="x"}` matcher.
+   Closed by extracting every such label per rule and, for each metric
+   selector already found in that same rule, checking `<metric>{<label>!=""}`
+   through the IDENTICAL query/allowlist/report pipeline every other
+   selector already goes through — not a second mechanism.
 """
 import json
 import re
@@ -91,6 +131,26 @@ STRIP = [
 
 SELECTOR = re.compile(r"(?<![\w:.])([a-zA-Z_:][\w:]*)\s*(\{[^}]*\})?")
 
+# h#855: the exact shape this file's own rules use — the selector is the
+# function's direct argument. Not a general PromQL parse (nested calls, a
+# nested rate()/sum() between absent( and the metric, would not match) —
+# proportionate to what actually exists in alerts.yml today, same spirit as
+# the rest of this script's regex-based extraction rather than a real parser.
+ABSENT_WRAPPER = re.compile(r"\babsent(?:_over_time)?\s*\(\s*$")
+
+# h#855: labels referenced for grouping or joining, which STRIP deletes
+# wholesale before selectors_in() ever runs. Captured separately, from the
+# UNSTRIPPED expression text.
+GROUPING_CLAUSE = re.compile(
+    r"\b(?:by|without|on|ignoring|group_left|group_right)\s*\(([^)]*)\)"
+)
+
+# h#855: {{ $labels.name }}-style references in annotation templates. Go
+# template whitespace trimming ({{- and -}}) is not special-cased — none of
+# this file's annotations use it, and the label name itself is unaffected
+# either way.
+ANNOTATION_LABEL = re.compile(r"\$labels\.(\w+)")
+
 
 def prometheus_query(expr):
     """Instant query via the container, so no published port is needed and no
@@ -112,16 +172,22 @@ def prometheus_query(expr):
 
 
 def selectors_in(expr):
-    """Every metric selector in a PromQL expression, label matchers included.
+    """Every metric selector in a PromQL expression, label matchers included,
+    tagged with whether it is the direct argument of absent()/absent_over_time().
 
     The label matchers are the reason this keeps the braces: a rule can name a
     real metric and still match nothing because of one wrong label.
+
+    Returns a list of (selector, is_absent_wrapped) tuples, in first-seen
+    order, deduplicated on the selector text alone (the same selector text
+    always carries the same wrapped-ness within one expression).
     """
     text = expr
     for pattern in STRIP:
         text = pattern.sub(" ", text)
 
     found = []
+    seen = set()
     for m in SELECTOR.finditer(text):
         name, labels = m.group(1), m.group(2) or ""
         # A '(' after the identifier makes it a function call. Skip whitespace
@@ -133,9 +199,26 @@ def selectors_in(expr):
         if name in KEYWORDS or name.isdigit():
             continue
         sel = name + labels
-        if sel not in found:
-            found.append(sel)
+        wrapped = bool(ABSENT_WRAPPER.search(text[:m.start()]))
+        if sel not in seen:
+            seen.add(sel)
+            found.append((sel, wrapped))
     return found
+
+
+def grouping_and_annotation_labels(rule):
+    """h#855: labels a rule groups/joins on, or names in an annotation
+    template, that selectors_in() cannot see because STRIP deletes the
+    grouping clause and annotations are a different YAML field entirely."""
+    labels = set()
+    for m in GROUPING_CLAUSE.finditer(rule.get("expr", "")):
+        for part in m.group(1).split(","):
+            part = part.strip()
+            if part:
+                labels.add(part)
+    annotations_blob = " ".join(str(v) for v in (rule.get("annotations") or {}).values())
+    labels.update(ANNOTATION_LABEL.findall(annotations_blob))
+    return labels
 
 
 def main():
@@ -162,14 +245,33 @@ def main():
         print("A check that cannot run must not report success. Exiting 1.")
         return 1
 
-    missing, stale_allowlist, checked = [], [], 0
+    missing, stale_allowlist, absent_ok, checked = [], [], [], 0
     for group in doc.get("groups", []):
         for rule in group.get("rules", []):
             name = rule.get("alert")
             if not name:
                 continue
             print(f"{name}")
-            for sel in selectors_in(rule["expr"]):
+
+            rule_selectors = selectors_in(rule["expr"])
+
+            # h#855: labels referenced only via grouping/join clauses or an
+            # annotation template. Checked against every plain-metric
+            # selector this same rule already names — `<metric>{<label>!=""}`
+            # — reusing the identical query/allowlist/report path below
+            # rather than a second mechanism. Base metric name only (no
+            # existing braces): the question is "does this metric EVER carry
+            # a non-empty value for this label", independent of whatever
+            # other matcher the rule's own selector already applies.
+            grouping_labels = grouping_and_annotation_labels(rule)
+            if grouping_labels:
+                base_metrics = {sel.split("{")[0] for sel, _wrapped in rule_selectors}
+                for label in sorted(grouping_labels):
+                    for metric in sorted(base_metrics):
+                        synthetic = f'{metric}{{{label}!=""}}'
+                        rule_selectors.append((synthetic, False))
+
+            for sel, is_absent in rule_selectors:
                 base = sel.split("{")[0]
                 is_allowlisted = base in allowed or sel in allowed
                 res, err = prometheus_query(sel)
@@ -195,6 +297,23 @@ def main():
                               f"the line — the reason it was added no longer "
                               f"applies.")
                         stale_allowlist.append((name, sel))
+                elif is_absent:
+                    # h#855: 0 series for the direct argument of absent()/
+                    # absent_over_time() is the rule's own firing condition,
+                    # not evidence it is broken — the exact inversion the
+                    # old code got wrong. Not a failure. Not silently "ok"
+                    # either: still worth a human noticing which selectors
+                    # are currently in this state, since it is also what a
+                    # genuinely dead selector looks like on every run, not
+                    # just the one where it matters.
+                    print(f"    ~  {sel}   0 series — inside absent()/"
+                          f"absent_over_time(): this IS the rule's firing "
+                          f"condition, not a broken selector. If this has "
+                          f"NEVER had series, that is still worth checking "
+                          f"by hand — this line only proves the shape is "
+                          f"correctly designed, not that the name is "
+                          f"correctly spelled.")
+                    absent_ok.append((name, sel))
                 elif is_allowlisted:
                     why = allowed.get(sel) or allowed.get(base)
                     print(f"    -  {sel}   0 series — declared absent: {why}")
@@ -205,6 +324,10 @@ def main():
 
     print("-" * 70)
     print(f"{checked} selectors checked")
+    if absent_ok:
+        print(f"({len(absent_ok)} of those are absent()-wrapped selectors "
+              f"with 0 series — expected, not counted as failures; see '~' "
+              f"lines above)")
     if missing:
         print(f"\n{len(missing)} SELECTOR(S) MATCH NOTHING:\n")
         for rule, sel, why in missing:
