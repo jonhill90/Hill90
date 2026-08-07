@@ -187,13 +187,46 @@ cannot be granted by accident.
 > a defect in the running system — but be exact about provenance: proofs 3 to 5 were
 > made **with `curl`, not from the page**.
 >
-> **Open defect: `sess.roles` returned `null`** on a second login while the token's
-> own claims were correct. Authorisation is enforced in the api from the token, so
-> nothing is unsafe, but a UI reading `session.roles` would render an
-> empty-permissions view. Possibly related: `app-ui` logs four
-> `[profile-proxy] Error: SyntaxError: Unexpected end of JSON input` failures —
-> `JSON.parse` on an empty body — `Verified 2026-07-30 02:07 UTC`. Not proven to be
-> the same fault; recorded as the leading candidate.
+> **`sess.roles = null`, formerly recorded here as an open defect, was a
+> misdiagnosis — resolved same day, in the same commit that fixed the real bug
+> this paragraph used to name as its leading candidate.** hill90-app **#59**
+> (`292a4bf`, 2026-07-30) established both, from a single investigation:
+>
+> - **`session.roles` (bare) was never a defect and was never going to hold
+>   anything.** Roles live at `session.user.roles` — `services/ui/src/auth.ts`
+>   assigns `session.user.roles = token.roles`, and
+>   `types/next-auth.d.ts` declares `roles` only under `Session.user`, never at
+>   `Session` top level, so `session.roles` does not even typecheck. The
+>   original `02:07 UTC` report compared two of the reporter's own scripts —
+>   one read `sess.roles ?? sess.user?.roles` (prints the real value), the
+>   other read only `sess.roles` (prints `undefined`, logged as `null`) — and
+>   read the difference between the scripts as a difference between logins.
+>   Reproduced against production, three consecutive fresh logins as
+>   `testuser01`, identically: `session.user.roles` correct
+>   (`["user"]`), `session.roles` absent. A permanent regression test,
+>   `services/ui/src/__tests__/session-roles-contract.test.ts`, pins both
+>   directions — roles present at `session.user.roles`, absent at
+>   `session.roles` — and is mutation-verified: adding `session.roles =
+>   token.roles` turns it red. **Re-verified against the CURRENT tree**,
+>   `Verified 2026-08-07`: `auth.ts:138`, the type declaration, and the test
+>   all still read exactly as the commit describes; the test still passes;
+>   `grep`ing `services/ui/src` for a bare `session.roles`/`sess.roles` read
+>   finds none.
+> - **The real bug this paragraph pointed at — `app-ui`'s four
+>   `[profile-proxy] Error: SyntaxError: Unexpected end of JSON input` failures
+>   — was genuinely real, and unrelated.** `JSON.parse` on an empty body,
+>   introduced when `GET /profile/avatar` started answering `204` (#32). Fixed
+>   the same day, later, in the same commit: both
+>   `services/ui/src/app/api/profile/route.ts` and
+>   `.../api/profile/[...path]/route.ts` now handle a bodiless response, a
+>   dedicated regression test (`profile-proxy-empty-body.test.ts`) pins it, and
+>   it has been deployed for a week (`hill90/ui` at `f538b1f096bb`, `Verified
+>   2026-08-06`).
+>
+> Net: **no open defect remains on either half.** `sess.roles = null` is not
+> live code returning null — it is a property that was never populated,
+> correctly, by design; nothing reads it. The `02:07 UTC` timestamp on the
+> original report is kept above for provenance, not as a still-open finding.
 
 **Postgres: `app-postgres` goes.** The app consumes the platform's Postgres. The
 complication is real and is not the Keycloak steps repeated: this platform's
