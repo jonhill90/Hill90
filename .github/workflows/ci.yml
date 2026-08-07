@@ -339,6 +339,17 @@ jobs:
       - name: Prove the platform realm actually serves the tenant
         run: bash scripts/checks/realm-tenant-serves-test.sh
 
+      # h#835: hill90-ui's client secret is deliberately NOT guarded at the
+      # compose level (fad9fefa — it is legitimately unset on every routine
+      # auth deploy after the first import), so a first import running with
+      # it unset succeeds silently and installs the literal, unsubstituted
+      # string "${HILL90_UI_CLIENT_SECRET}" as the client secret fronting
+      # hill90.com — readable in this PUBLIC repo's own platform-realm.json.
+      # Same shape as the step above: builds and destroys its own throwaway
+      # Keycloak containers, only Docker required, no live secret involved.
+      - name: Prove a realm-import substitution failure is caught, not silently installed
+        run: bash scripts/checks/realm-secret-substitution-test.sh
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
