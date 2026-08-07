@@ -83,3 +83,59 @@ def test_empty_body_passes():
     result = _run("")
     assert result.returncode == 0
     assert "passed" in result.stdout
+
+
+def test_quoted_defect_inside_inline_backticks_passes():
+    """CONTROL: discussing the bad pattern is not using it."""
+    result = _run("This check fails on `Closes h#123` in a PR body.")
+    assert result.returncode == 0
+    assert "passed" in result.stdout
+
+
+def test_quoted_defect_inside_a_fenced_block_passes():
+    """CONTROL: same as above, fenced instead of inline."""
+    body = (
+        "Positive control:\n\n"
+        "```\n"
+        "Closes h#123\n"
+        "```\n\n"
+        "That's the failing case."
+    )
+    result = _run(body)
+    assert result.returncode == 0
+    assert "passed" in result.stdout
+
+
+def test_bare_unquoted_defect_still_fails_even_with_code_stripping():
+    """THE ARM THAT KEEPS THE CHECK HONEST: code-stripping must not become
+    an escape hatch. A real, unquoted, un-fenced 'Closes h#NNN' still fails."""
+    result = _run("Closes h#844.\n\nSome unrelated body text.")
+    assert result.returncode == 1
+    assert "FAILED" in result.stdout
+    assert "'Closes h#844'" in result.stdout
+
+
+def test_self_referential_case_prose_explanation_plus_backtick_quote_passes():
+    """REGRESSION: this is h#864's own PR body shape — the exact false
+    positive CI caught on itself. A body that explains the h#-prefix trap in
+    prose AND quotes the bad pattern in backticks as evidence must pass."""
+    body = (
+        "GitHub does not parse 'h#NNN' as an issue reference — only '#NNN' "
+        "closes an issue.\n\n"
+        "## Positive control\n\n"
+        "```\n"
+        "=== FAILING: the actual live defect shape ===\n"
+        "PR body h#-prefix check FAILED.\n\n"
+        "  'Closes h#844' -> write 'Closes #844' instead\n"
+        "exit: 1\n\n"
+        "=== PASSING: correct syntax ===\n"
+        "PR body h#-prefix check passed: no closing keyword followed by "
+        "'h#NNN' found (12 chars scanned).\n"
+        "exit: 0\n"
+        "```\n\n"
+        "This repo prefixes issue references with 'h#' in prose "
+        "(e.g. \"h#844's fix\"), which reads fine and is fine."
+    )
+    result = _run(body)
+    assert result.returncode == 0
+    assert "passed" in result.stdout

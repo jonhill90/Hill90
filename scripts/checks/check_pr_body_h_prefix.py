@@ -28,6 +28,14 @@ line — only 'h#NNN' sitting directly after a GitHub closing keyword
 '#NNN'. A check that flagged every 'h#NNN' anywhere would be wrong on its
 own terms — it would make people stop writing 'h#NNN' in prose, where nothing
 is broken, to dodge a check that was never actually about prose.
+
+A PR body has to be able to DISCUSS the bad pattern without being accused of
+using it — this check's own introducing PR (h#864) quoted "Closes h#844" in
+backticks as its own positive-control evidence and failed its own CI on
+itself, a better positive control than anything either of us wrote by hand.
+So fenced code blocks (```...```) and inline code spans (`...`) are blanked
+out before matching — a quoted or fenced example of the defect is not the
+defect.
 """
 
 from __future__ import annotations
@@ -48,11 +56,30 @@ PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Fenced blocks first (so a stray single backtick inside one can't be misread
+# as the start of an inline span once the fence itself is blanked), then
+# inline spans. Blanked with same-length whitespace, not removed, so a
+# keyword right before a fence and 'h#NNN' right after it can never end up
+# adjacent to each other by the deletion itself.
+FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
+INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+
+
+def _blank(match: re.Match[str]) -> str:
+    return " " * len(match.group(0))
+
+
+def _strip_code(text: str) -> str:
+    text = FENCE_RE.sub(_blank, text)
+    text = INLINE_CODE_RE.sub(_blank, text)
+    return text
+
 
 def main() -> int:
     body = os.environ.get("PR_BODY", "")
+    scannable = _strip_code(body)
 
-    matches = list(PATTERN.finditer(body))
+    matches = list(PATTERN.finditer(scannable))
 
     if not matches:
         print(
