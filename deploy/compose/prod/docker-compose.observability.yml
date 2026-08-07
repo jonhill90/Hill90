@@ -246,8 +246,16 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - promtail-positions:/var/lib/promtail
     command: -config.file=/etc/promtail/promtail.yml
+    # h#777: was the short list form (`- loki`), which Compose resolves to
+    # service_started — waits for loki's container to start, not for loki to
+    # actually be answering. Not a data-loss bug: promtail's push client
+    # retries a failed batch with backoff and does not drop it (verified live
+    # — see the PR). This closes the gap between what was declared and what
+    # it actually waited for, and cuts the failed-connection retry noise
+    # every startup/restart otherwise logs.
     depends_on:
-      - loki
+      loki:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "promtail", "--version"]
       interval: 30s
