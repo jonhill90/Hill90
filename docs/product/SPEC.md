@@ -3,10 +3,10 @@
 > **Historical: this specifies the 2026-07-26 app/infra strip as planned, not the
 > estate as it stands.** The strip was executed; what the platform offers a tenant
 > now is defined in
-> [docs/decisions/app-tenancy-on-the-vps.md](docs/decisions/app-tenancy-on-the-vps.md).
+> [docs/decisions/app-tenancy-on-the-vps.md](../decisions/app-tenancy-on-the-vps.md).
 > Its classification of Keycloak and Postgres as application dependencies was
 > wrong — see
-> [docs/decisions/platform-primitives.md](docs/decisions/platform-primitives.md).
+> [docs/decisions/platform-primitives.md](../decisions/platform-primitives.md).
 > Kept because it records what was specified and therefore what was done.
 
 **Status:** implemented 2026-07-26
