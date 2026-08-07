@@ -199,6 +199,7 @@ appeared **six times in one day wearing six different coats**:
 | `amtool check-config`: **SUCCESS** | Every notification then failed at *render* time — `default` is not an Alertmanager template function. A **green verdict** from an instrument that could not see the failure. |
 | an exact-match sweep for `blackbox` → *"container missing"* | The container is named `blackbox-exporter`. It was running the whole time. |
 | decoding a token from `admin-cli`: no `sub`, no `realm_access` → *"the user has no roles"* | **`admin-cli` issues a LIGHTWEIGHT access token.** The token is valid — it returned `200` from every admin endpoint — because Keycloak resolves permissions server-side from the session, not from claims. Fine for probing permissions; blind for inspecting claims. Use an authorization-code flow through a real client. |
+| `/loki/api/v1/label/container/values` with no `start`/`end` → *"keycloak, minio, portainer and postgres-exporter have no logs at all, Promtail must be broken for them"* (h#859) | **That endpoint defaults to roughly the last hour when no range is given.** All four are low-volume loggers — a startup burst, then long silence — so whichever hour happened to be queried, they were quiet in it. An explicit 7-day range returned real, continuous history for all four, including the exact lines needed to diagnose two live incidents. Promtail was never broken; the query was never given a range wide enough to see what was already there. |
 
 Three more from the tenant the same week: `ls -l` hiding a dotfile read as *"the file is
 absent"*; a `grep` for a compose warning whose quotes were backslash-escaped read as
@@ -211,6 +212,9 @@ know, and confirm it produces a result, before believing it when it produces non
   already known to be unfireable. If it stops finding those, it has gone blind.
 - Before reporting "no objects in the bucket", put one there and see it.
 - Before reporting a container missing, list all of them and read the names.
+- Before reporting a container has no logs in Loki, query with an explicit wide range —
+  `label/.../values` with no range silently defaults to about an hour, and a quiet
+  container looks identical to a broken shipper in that window.
 - `promtool test` cannot prove a rule can fire — the test author supplies the labels. Only
   the live series check can. Neither is sufficient alone.
 
