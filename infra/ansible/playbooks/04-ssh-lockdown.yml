@@ -30,6 +30,21 @@
 #
 # Every change is then verified against `sshd -T`. An assertion nobody checks is
 # how the previous version survived a full rebuild.
+#
+# h#786 addendum: this fix was correct and has been in `main` since #545
+# (2026-07-26) — it was simply never RUN. `Config VPS` last executed
+# 2026-02-02, months before #545 existed, and nothing has invoked it since
+# (h#681). Confirmed live 2026-08-05/06: `00-hill90-hardening.conf` is absent
+# from `/etc/ssh/sshd_config.d/` on the running host, `sshd -T` still reports
+# `passwordauthentication yes`. Applying this (unchanged) fix is `make
+# harden-ssh` / `infra/ansible/playbooks/ssh-harden.yml` — a narrow re-run of
+# just this file and 02-firewall.yml, not the full bootstrap, because
+# bootstrap's other plays (03-tailscale, 05-docker) have a blast radius this
+# fix does not need. That review also asked whether sorting BEFORE cloud-init's
+# drop-in is a fix that works "by construction" or by luck of filename
+# ordering — see the task immediately below "SSH hardening, written where it
+# wins" for the answer: 50-cloud-init.conf's own PasswordAuthentication line is
+# now corrected directly, so this keyword no longer depends on ordering at all.
 
 # ---------------------------------------------------------------------------
 # GATE: refuse to lock the door until we have proven there is a key that
@@ -217,6 +232,25 @@
 # ---------------------------------------------------------------------------
 # SSH hardening, written where it wins
 # ---------------------------------------------------------------------------
+#
+# h#786 review: the 00- drop-in below wins by lexical sort order ahead of
+# cloud-init's 50-cloud-init.conf — correct, but a fix that works because
+# "00" sorts before "50" is a fix that works by luck of filename ordering,
+# not by construction. The task immediately below instead corrects
+# 50-cloud-init.conf's OWN content directly, so PasswordAuthentication is
+# right at its actual source and there is no ordering dependency left for
+# this specific keyword at all. The 00- drop-in stays — it is still the
+# only place PermitRootLogin, KbdInteractiveAuthentication and the rest are
+# set, none of which cloud-init's drop-in touches — this is a correction to
+# the one setting that actually conflicted, not a replacement for it.
+- name: Correct PasswordAuthentication directly in cloud-init's own drop-in, at its source
+  lineinfile:
+    path: /etc/ssh/sshd_config.d/50-cloud-init.conf
+    regexp: '^\s*PasswordAuthentication\s+'
+    line: 'PasswordAuthentication no'
+    create: no
+  failed_when: false   # the file may not exist on every image; absence is not an error, it just means there is nothing here to correct
+  register: cloud_init_dropin_corrected
 
 - name: Deploy SSH hardening drop-in (sorts before cloud-init's)
   copy:
@@ -245,14 +279,19 @@
 
 # `sshd -t` validates the FULL effective configuration, includes and all, which
 # is the only way to know the drop-in composes correctly with what is already
-# there. It runs BEFORE any restart, and a bad file is removed rather than left
-# in place — otherwise the next restart by anything at all would fail, and the
+# there. It runs BEFORE any reload, and a bad file is removed rather than left
+# in place — otherwise the next reload by anything at all would fail, and the
 # only route in is the tailnet.
+#
+# check_mode: no — this is a read-only validation of whatever is ALREADY on
+# disk. Under `--check` it still runs, so a dry-run reports the current,
+# real syntax state rather than being skipped as "would validate something".
 - name: Validate the effective sshd configuration
   command: /usr/sbin/sshd -t
   register: sshd_validate
   changed_when: false
   failed_when: false
+  check_mode: no
 
 - name: Remove the drop-in if it produced an invalid configuration
   file:
@@ -264,17 +303,30 @@
   fail:
     msg: |
       The SSH hardening drop-in produced an invalid sshd configuration and has
-      been removed. sshd was NOT restarted, so access is unaffected.
+      been removed. sshd was NOT reloaded, so access is unaffected.
 
       sshd -t said:
       {{ sshd_validate.stderr | default('(no output)') }}
   when: sshd_validate.rc != 0
 
-- name: Restart sshd to apply the drop-in
+# RELOAD, not restart. None of the keywords this play sets — PasswordAuthentication,
+# PermitRootLogin, PubkeyAuthentication, KbdInteractiveAuthentication,
+# PermitEmptyPasswords, MaxAuthTries, ClientAliveInterval/CountMax — require a
+# full restart; sshd re-reads its config on SIGHUP (systemd `reloaded`) without
+# dropping already-established sessions. A restart would drop the very
+# connection this playbook is running over if it happens to be a plain-sshd one
+# rather than Tailscale SSH.
+#
+# OPERATOR NOTE, belongs here and not just in a PR description: after this task
+# runs, keep your current session open and verify access from a SECOND, fresh
+# session before disconnecting the first. A reload that produced an effective
+# configuration nobody can authenticate against would otherwise be discovered
+# only by losing access.
+- name: Reload sshd to apply the drop-in and the corrected cloud-init file
   systemd:
     name: sshd
-    state: restarted
-  when: sshd_dropin.changed
+    state: reloaded
+  when: sshd_dropin.changed or cloud_init_dropin_corrected.changed | default(false)
 
 # Stop cloud-init reasserting PasswordAuthentication on rebuild. The 00- drop-in
 # already wins, but leaving cloud-init writing the opposite value means the host
@@ -304,6 +356,7 @@
   command: /usr/sbin/sshd -T
   register: sshd_effective
   changed_when: false
+  check_mode: no
 
 - name: Assert SSH hardening actually applied
   assert:
@@ -326,6 +379,109 @@
       Find the file that wins with:
         sudo grep -rniE '^\s*(PasswordAuthentication|PermitRootLogin)' /etc/ssh/
     success_msg: "SSH hardening verified against sshd -T (password auth off, root login off, key auth on)"
+
+# ---------------------------------------------------------------------------
+# GATE 3: sshd -T agreeing with intent is an assertion, not a connection
+# (h#852 review)
+# ---------------------------------------------------------------------------
+#
+# GATE 2, above, proves an authenticated connection works BEFORE this play
+# touches sshd — but nothing after the reload proves one still works AFTER.
+# The assert immediately above this compares `sshd -T`'s reported
+# configuration against what was intended; it never opens a socket. That is
+# a real gap specifically here, because this is the one change in this
+# playbook whose failure mode is losing the access needed to fix it — every
+# other assert in this file is checking a state that, if wrong, is at worst
+# inconvenient, not a lockout.
+#
+# Same method as GATE 2 and the same reason: there is no real private key on
+# this host to test with, so this generates a second throwaway keypair,
+# appends it to the SAME authorized_keys the reload just changed sshd's
+# handling of, and attempts a real authenticated connection over loopback —
+# proving the MECHANISM survives the reload, not just that the config text
+# reads as expected. A listening port is not this proof: `wait_for: port=22`
+# would pass whether or not authentication itself still works, which is
+# exactly the property this reload changes.
+#
+# block/rescue/always, identical reasoning to GATE 2: the throwaway key must
+# be removed whether the probe succeeds, fails, or the play is interrupted.
+- name: Prove an authenticated SSH connection still works AFTER the reload
+  block:
+    - name: Generate a second throwaway keypair to probe post-reload sshd
+      command: >
+        ssh-keygen -t ed25519 -N '' -q
+        -f /tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}
+        -C hill90-ssh-postreload-gate-probe
+      register: postreload_gate_keygen
+      changed_when: false
+
+    - name: Read the post-reload probe's public key
+      slurp:
+        src: "/tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}.pub"
+      register: postreload_gate_pubkey_raw
+
+    - name: Append the post-reload probe's public key to the deploy user's authorized_keys
+      lineinfile:
+        path: "{{ deploy_home }}/.ssh/authorized_keys"
+        line: "{{ (postreload_gate_pubkey_raw.content | b64decode).strip() }}"
+        create: no
+
+    - name: Attempt a FRESH authenticated SSH connection as the deploy user, over loopback, after the reload
+      command: >
+        ssh -i /tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}
+        -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        -o ConnectTimeout=5 -o PreferredAuthentications=publickey
+        {{ deploy_user }}@127.0.0.1 true
+      register: postreload_gate_connection
+      changed_when: false
+      failed_when: false
+
+  always:
+    - name: Remove the post-reload probe's line from authorized_keys
+      lineinfile:
+        path: "{{ deploy_home }}/.ssh/authorized_keys"
+        line: "{{ (postreload_gate_pubkey_raw.content | b64decode).strip() }}"
+        state: absent
+      when: postreload_gate_pubkey_raw is defined and postreload_gate_pubkey_raw.content is defined
+
+    - name: Remove the post-reload probe keypair files
+      file:
+        path: "/tmp/.hill90-ssh-postreload-gate-{{ ansible_date_time.epoch }}{{ item }}"
+        state: absent
+      loop:
+        - ""
+        - ".pub"
+
+- name: Fail the play if the post-reload connection did not actually authenticate
+  assert:
+    that:
+      - postreload_gate_connection.rc == 0
+    fail_msg: |
+      sshd -T reports the intended configuration (verified above), but a
+      FRESH authenticated connection as {{ deploy_user }} — using a new
+      throwaway key appended after the reload, over loopback — failed (exit
+      {{ postreload_gate_connection.rc | default('?') }}).
+
+      This is the failure this gate exists to catch before anyone
+      disconnects: the effective configuration reading correctly is not the
+      same claim as a new connection actually succeeding against it. Do NOT
+      close your current session. Investigate from THIS session — likely
+      causes: an interaction between the corrected cloud-init drop-in and
+      the 00- hardening drop-in that "sshd -t" validated as syntactically
+      fine but that behaves differently than intended, or a reload that did
+      not actually take effect despite systemd reporting success.
+
+      stderr from the post-reload probe connection:
+      {{ postreload_gate_connection.stderr | default('(no output)') }}
+    success_msg: "Verified: a FRESH authenticated SSH connection as {{ deploy_user }} succeeds AFTER the reload — the mechanism survived the change, not just the config text"
+
+# Human verification stays required alongside the machine gate above, not
+# instead of it — they are different assurances. The gate proves the
+# mechanism works for a key ansible controls, generated and destroyed within
+# this same play run; it cannot prove YOUR session, from YOUR terminal, with
+# YOUR actual key, still works. Keep this session open regardless of the
+# gate passing, and verify access from a second, fresh session before
+# disconnecting the first.
 
 # ---------------------------------------------------------------------------
 # NOTE ON fail2ban

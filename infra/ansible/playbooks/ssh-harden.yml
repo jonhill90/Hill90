@@ -1,0 +1,53 @@
+---
+# Narrow re-apply of firewall + SSH hardening, without the rest of bootstrap.
+#
+# h#681 / h#786: 04-ssh-lockdown.yml already writes the drop-in that beats
+# cloud-init's PasswordAuthentication override, validates it with `sshd -t`,
+# and asserts the result against `sshd -T` — the fix has been correct in this
+# repo since #545 (2026-07-26). It has never taken effect on the running host
+# because the only thing that invokes it is bootstrap.yml, and the only thing
+# that invokes bootstrap.yml is `make config-vps` / Config VPS — which nobody
+# has run since 2026-02-02, months before the fix existed. This is not a
+# config bug; it is a pipeline that was never re-triggered after the fix
+# landed.
+#
+# bootstrap.yml (01-08, 11-12) is the wrong tool for re-applying just this:
+# per h#681's own blast-radius accounting, 03-tailscale reconfigures the only
+# access path this estate has (557 interactive + 189 pipeline sessions in 24h,
+# 0 accepted plain sshd logins) and 05-docker bounces every container in the
+# estate, platform and tenant, for the length of a restart. Neither is wanted
+# to fix a firewall rule and an sshd drop-in.
+#
+# This playbook imports ONLY 02 (firewall) and 04 (ssh-lockdown), in that
+# order — 02 must run first because it is what turns public ssh ON (matching
+# the base image's default), and 04 is what turns it back off and restricts
+# to the tailnet; running 04 without 02 having run at least once would still
+# leave firewalld in whatever state it was already in for the ssh service,
+# which 04's own "Remove public SSH access" task handles regardless, but the
+# ORDER in the two files assumes 02 ran first and this preserves that.
+#
+# Connects as deploy_user, NOT root: `ansible_user: root` in inventory/hosts.yml
+# is correct only for a bare, unconfigured host. This host has already been
+# bootstrapped once — sshd -T already reports permitrootlogin no, verified live
+# — so a root connection is refused before any task here would even run.
+# deploy_user's key-based access and passwordless sudo were verified live
+# before this file was written, not assumed.
+#
+# Does NOT deploy containers, does NOT touch Tailscale, does NOT auto-trigger
+# deploy-infra. Re-run is safe: both imported task files are idempotent
+# (firewalld state, a copy: task, and an assert), matching bootstrap.yml's own
+# design.
+- name: Re-apply firewall and SSH hardening only
+  hosts: vps
+  become: yes
+  gather_facts: yes
+
+  vars_files:
+    - ../inventory/group_vars/all.yml
+
+  tasks:
+    - name: "02 - Firewall"
+      import_tasks: 02-firewall.yml
+
+    - name: "04 - SSH Lockdown"
+      import_tasks: 04-ssh-lockdown.yml

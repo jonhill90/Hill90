@@ -14,9 +14,28 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
   # A value written into sshd_config is read AFTER the Include and loses.
   run grep -F 'dest: /etc/ssh/sshd_config.d/00-hill90-hardening.conf' "$ROLE"
   [ "$status" -eq 0 ]
-  # No lineinfile against the main config file.
-  run bash -c "grep -A3 'lineinfile:' $ROLE | grep -F 'path: /etc/ssh/sshd_config'"
+  # No lineinfile against the MAIN config file specifically — anchored to
+  # end-of-line so this does not also match a legitimate lineinfile against
+  # a *drop-in* (sshd_config.d/50-cloud-init.conf), which h#786 deliberately
+  # added and is a different file entirely from the main config.
+  run bash -c "grep -A3 'lineinfile:' $ROLE | grep -E 'path: /etc/ssh/sshd_config\$'"
   [ "$status" -ne 0 ]
+}
+
+@test "h#786: cloud-init's own drop-in is corrected at its source, not just out-ranked by sort order" {
+  # The 00- drop-in winning by lexical order is real but was flagged in
+  # review as a fix that works by luck of filename ordering rather than by
+  # construction. This pins the stronger fix alongside it: a lineinfile task
+  # that corrects PasswordAuthentication directly inside
+  # /etc/ssh/sshd_config.d/50-cloud-init.conf, so this keyword no longer
+  # depends on which file sorts first at all.
+  run bash -c "grep -A6 'name: Correct PasswordAuthentication directly in cloud' $ROLE | grep -F 'path: /etc/ssh/sshd_config.d/50-cloud-init.conf'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A6 'name: Correct PasswordAuthentication directly in cloud' $ROLE | grep -F 'line: '\''PasswordAuthentication no'\'''"
+  [ "$status" -eq 0 ]
+  # Absence of the file must not be an error — not every image ships it.
+  run bash -c "grep -A8 'name: Correct PasswordAuthentication directly in cloud' $ROLE | grep -F 'failed_when: false'"
+  [ "$status" -eq 0 ]
 }
 
 @test "the drop-in name sorts before cloud-init's" {
@@ -47,13 +66,29 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
   [ "$status" -eq 0 ]
 }
 
-@test "the config is validated before sshd is restarted" {
-  # Writing a bad drop-in and restarting would break the only route in.
+@test "the config is validated before sshd is reloaded" {
+  # Writing a bad drop-in and reloading would break the only route in.
   run bash -c "
     v=\$(grep -n 'sshd -t' $ROLE | head -1 | cut -d: -f1)
-    r=\$(grep -n 'name: Restart sshd' $ROLE | head -1 | cut -d: -f1)
+    r=\$(grep -n 'name: Reload sshd' $ROLE | head -1 | cut -d: -f1)
     [ -n \"\$v\" ] && [ -n \"\$r\" ] && [ \"\$v\" -lt \"\$r\" ]
   "
+  [ "$status" -eq 0 ]
+}
+
+@test "h#786: sshd is reloaded, not restarted — none of these keywords need a full restart" {
+  # A restart would drop the very connection this playbook might be running
+  # over, if it happens to be a plain-sshd session rather than Tailscale SSH.
+  # Reload (SIGHUP) re-reads config without dropping established sessions,
+  # and every keyword this role sets supports it.
+  run grep -F 'name: Reload sshd to apply the drop-in' "$ROLE"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A3 'name: Reload sshd to apply the drop-in' $ROLE | grep -F 'state: reloaded'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A3 'name: Reload sshd to apply the drop-in' $ROLE | grep -F 'state: restarted'"
+  [ "$status" -ne 0 ]
+  # The operator note belongs in the file, not only in a PR description.
+  run grep -iF 'keep your current session open' "$ROLE"
   [ "$status" -eq 0 ]
 }
 
@@ -109,7 +144,7 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
     gate=\$(grep -n 'name: Refuse to proceed without a usable key' $ROLE | head -1 | cut -d: -f1)
     firewall=\$(grep -n 'name: Lock SSH to Tailscale network only' $ROLE | head -1 | cut -d: -f1)
     dropin=\$(grep -n 'name: Deploy SSH hardening drop-in' $ROLE | head -1 | cut -d: -f1)
-    restart=\$(grep -n 'name: Restart sshd to apply the drop-in' $ROLE | head -1 | cut -d: -f1)
+    restart=\$(grep -n 'name: Reload sshd to apply the drop-in' $ROLE | head -1 | cut -d: -f1)
     [ -n \"\$gate\" ] && [ -n \"\$firewall\" ] && [ -n \"\$dropin\" ] && [ -n \"\$restart\" ] \
       && [ \"\$gate\" -lt \"\$firewall\" ] && [ \"\$gate\" -lt \"\$dropin\" ] && [ \"\$gate\" -lt \"\$restart\" ]
   "
@@ -234,5 +269,81 @@ ROLE=infra/ansible/playbooks/04-ssh-lockdown.yml
   run bash -c "grep -A25 'name: Refuse to proceed unless the probe connection actually authenticated' $ROLE | grep -iF 'SELinux'"
   [ "$status" -eq 0 ]
   run bash -c "grep -A25 'name: Refuse to proceed unless the probe connection actually authenticated' $ROLE | grep -iF 'StrictModes'"
+  [ "$status" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# GATE 3 (h#852 review of h#786): sshd -T reading correctly is an assertion,
+# not a connection. GATE 2 proves an authenticated connection works BEFORE
+# the reload; nothing previously proved one still worked AFTER it.
+# ---------------------------------------------------------------------------
+
+@test "GATE 3 exists and runs AFTER both the reload and the sshd -T assert" {
+  run bash -c "
+    reload=\$(grep -n 'name: Reload sshd to apply the drop-in' $ROLE | head -1 | cut -d: -f1)
+    effective_assert=\$(grep -n 'name: Assert SSH hardening actually applied' $ROLE | head -1 | cut -d: -f1)
+    gate3=\$(grep -n 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | head -1 | cut -d: -f1)
+    refuse3=\$(grep -n 'name: Fail the play if the post-reload connection did not actually authenticate' $ROLE | head -1 | cut -d: -f1)
+    [ -n \"\$reload\" ] && [ -n \"\$effective_assert\" ] && [ -n \"\$gate3\" ] && [ -n \"\$refuse3\" ] \
+      && [ \"\$reload\" -lt \"\$gate3\" ] && [ \"\$effective_assert\" -lt \"\$gate3\" ] && [ \"\$gate3\" -lt \"\$refuse3\" ]
+  "
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 3 attempts a REAL fresh ssh connection, not a port check" {
+  run bash -c "grep -A45 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | grep -E '^\s+ssh -i '"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A45 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | grep -F 'BatchMode=yes'"
+  [ "$status" -eq 0 ]
+  # A listening-port check would prove nothing about whether auth still
+  # works — the exact property the reload changes. Must not be the method.
+  run bash -c "grep -A45 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | grep -iF 'wait_for'"
+  [ "$status" -ne 0 ]
+}
+
+@test "GATE 3 targets loopback, over a SECOND throwaway key distinct from GATE 2's" {
+  run bash -c "grep -A45 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | grep -F '127.0.0.1'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A10 'name: Generate a second throwaway keypair to probe post-reload sshd' $ROLE | grep -F 'ssh-keygen -t ed25519'"
+  [ "$status" -eq 0 ]
+  # Distinct temp filename from GATE 2's probe, so a re-run cannot collide
+  # with or accidentally reuse GATE 2's already-cleaned-up files.
+  run grep -F 'hill90-ssh-postreload-gate' "$ROLE"
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 3 cleans up its probe key unconditionally, via block/always" {
+  run bash -c "grep -A60 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | grep -m1 '^  block:'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A60 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | grep -m1 '^  always:'"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -A70 'name: Prove an authenticated SSH connection still works AFTER the reload' $ROLE | grep -c 'name: Remove the post-reload probe'"
+  [ "$output" -ge 2 ]
+}
+
+@test "GATE 3 refuses on the fresh connection's own exit code" {
+  run bash -c "grep -A5 'name: Fail the play if the post-reload connection did not actually authenticate' $ROLE | grep -F 'postreload_gate_connection.rc == 0'"
+  [ "$status" -eq 0 ]
+}
+
+@test "GATE 3's failure message tells the operator not to close the current session" {
+  # The sentence wraps across two lines in the YAML block scalar, same trap
+  # noted elsewhere in this file (see the CLAUDE.md rules — a fixed-string
+  # match against a wrapped sentence silently matches nothing), so this
+  # joins lines with tr before grepping rather than matching the whole
+  # sentence as one grep line.
+  run bash -c "grep -A25 'name: Fail the play if the post-reload connection did not actually authenticate' $ROLE | tr '\n' ' ' | tr -s ' ' | grep -iF 'Do NOT close your current session'"
+  [ "$status" -eq 0 ]
+}
+
+@test "the human second-session instruction is kept alongside GATE 3, not replaced by it" {
+  run bash -c "grep -A25 'name: Fail the play if the post-reload connection did not actually authenticate' $ROLE | grep -iF 'different assurances'"
+  [ "$status" -eq 0 ]
+  # The ORIGINAL h#786 operator note, pre-dating this gate, must survive
+  # unedited — this gate is additive, not a replacement for the human check.
+  run grep -iF 'keep your current session open' "$ROLE"
+  [ "$status" -eq 0 ]
+  # And GATE 3's own reinforcement of the same instruction is present too.
+  run grep -iF 'keep this session open' "$ROLE"
   [ "$status" -eq 0 ]
 }
