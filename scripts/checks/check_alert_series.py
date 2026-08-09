@@ -224,6 +224,12 @@ def grouping_and_annotation_labels(rule):
 def main():
     raw = RULES.read_text()
     doc = yaml.safe_load(raw)
+    alert_rule_count = sum(
+        1
+        for group in doc.get("groups", [])
+        for rule in group.get("rules", [])
+        if rule.get("alert")
+    )
 
     allowed = {}
     if ALLOWLIST.exists():
@@ -238,6 +244,12 @@ def main():
     if allowed:
         print(f"declared absent ({ALLOWLIST.name}): {len(allowed)} selector(s)")
     print()
+
+    if not alert_rule_count:
+        print("rules file contains no alert rules; refusing vacuous success")
+        print("Recording rules are valid Prometheus input, but this check only")
+        print("verifies alert rules can match live series. Exiting 1.")
+        return 1
 
     probe, err = prometheus_query("up")
     if err:
