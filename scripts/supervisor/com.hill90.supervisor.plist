@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hill90.supervisor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/jon/.local/lib/hill90-supervisor/hill90-supervisor</string>
+    <string>--state-dir</string>
+    <string>/Users/jon/.local/state/hill90-supervisor</string>
+    <string>--tmux-bin</string>
+    <string>/opt/homebrew/bin/tmux</string>
+    <string>tick</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>300</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/jon/.local/state/hill90-supervisor/launchd.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/jon/.local/state/hill90-supervisor/launchd.stderr.log</string>
+</dict>
+</plist>
