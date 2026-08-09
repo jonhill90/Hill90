@@ -39,7 +39,8 @@ The retired set is read from keycloak.sh REALM_ROLES_REMOVED rather than restate
 here, so this cannot cover fewer roles than the removal actually deletes.
 
 GRANT SITES CHECKED (static):
-  * MinIO policy names           — the union rule makes a policy name a grant
+  * MinIO policy names           — the union rule makes a policy name a grant;
+                                    automatic realm-role names grant every user
   * Grafana role_attribute_path  — names a role to hand out an org role
   * OpenBao admin-sso            — bound_claims name a role to hand out a policy
   * keycloak.sh REALM_ROLES      — a retired role must not also be created
@@ -83,8 +84,19 @@ def shell_list(path: Path, var: str) -> list[str]:
     return m.group(1).split() if m else []
 
 
+def shell_default(path: Path, var: str) -> str | None:
+    m = re.search(rf'^{var}="\$\{{{var}:-([^}}]+)\}}"', path.read_text(), re.M)
+    return m.group(1) if m else None
+
+
 def static_checks(retired: set[str]) -> list[str]:
     problems: list[str] = []
+    realm = shell_default(KEYCLOAK, "KC_REALM")
+    if not realm:
+        problems.append("could not determine KC_REALM's default; cannot check automatic realm-role grants")
+        automatic: set[str] = set()
+    else:
+        automatic = {"offline_access", "uma_authorization", f"default-roles-{realm}"}
 
     created = set(shell_list(KEYCLOAK, "REALM_ROLES"))
     both = sorted(retired & created)
@@ -98,26 +110,37 @@ def static_checks(retired: set[str]) -> list[str]:
         if "LEGACY" in m.group(1):
             continue
         created_pol |= {p for p in m.group(1).split() if not p.startswith("$")}
-    bad = sorted(retired & created_pol)
-    print(f"  {'MISS' if bad else 'ok  '}  MinIO policies created: {', '.join(sorted(created_pol))}")
-    for r in bad:
+    bad_retired = sorted(retired & created_pol)
+    print(f"  {'MISS' if bad_retired else 'ok  '}  MinIO policies created: {', '.join(sorted(created_pol))}")
+    for r in bad_retired:
         problems.append(f"minio.sh still creates a policy named {r}; MinIO grants the union of claim values that name a policy, so that is a grant")
+
+    bad_automatic = sorted(automatic & created_pol)
+    print(f"  {'MISS' if bad_automatic else 'ok  '}  MinIO automatic realm-role policies: {', '.join(bad_automatic) or 'none'}")
+    for role in bad_automatic:
+        problems.append(f"minio.sh creates policy {role}, an automatic realm role held by every realm member")
 
     gtxt = GRAFANA.read_text()
     arms = set(re.findall(r"realm_access\.roles\[\*\],\s*'([^']+)'", gtxt))
     bad = sorted(retired & arms)
-    print(f"  {'MISS' if bad else 'ok  '}  Grafana role_attribute_path: {', '.join(sorted(arms))}")
+    bad_automatic = sorted(automatic & arms)
+    print(f"  {'MISS' if bad or bad_automatic else 'ok  '}  Grafana role_attribute_path: {', '.join(sorted(arms))}")
     for r in bad:
         problems.append(f"Grafana's role_attribute_path grants an org role to {r}")
+    for role in bad_automatic:
+        problems.append(f"Grafana's role_attribute_path grants an org role to automatic role {role}, held by every realm member")
 
     vtxt = VAULT.read_text()
     claims: set[str] = set()
     for m in re.finditer(r'"realm_roles":\s*\[([^\]]*)\]', vtxt):
         claims |= {c.strip().strip('"\'') for c in m.group(1).split(",") if c.strip()}
     bad = sorted(retired & claims)
-    print(f"  {'MISS' if bad else 'ok  '}  OpenBao bound_claims: {', '.join(sorted(claims))}")
+    bad_automatic = sorted(automatic & claims)
+    print(f"  {'MISS' if bad or bad_automatic else 'ok  '}  OpenBao bound_claims: {', '.join(sorted(claims))}")
     for r in bad:
         problems.append(f"OpenBao's admin-sso role grants a vault policy to {r}")
+    for role in bad_automatic:
+        problems.append(f"OpenBao's admin-sso role grants a vault policy to automatic role {role}, held by every realm member")
 
     return problems
 
