@@ -64,6 +64,27 @@ setup() {
   [[ "$output" == *"every realm member"* ]]
 }
 
+@test "valid MinIO loop whitespace still detects an automatic realm-role policy" {
+  sed -i.bak 's/for policy in platform-admin platform-viewer; do/for policy in platform-admin platform-viewer offline_access;  do/' \
+    "$CTL/scripts/minio.sh"
+  rm -f "$CTL/scripts/minio.sh.bak"
+
+  run bash -n "$CTL/scripts/minio.sh"
+  [ "$status" -eq 0 ]
+
+  run python3 "$CHECK"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"offline_access"* ]]
+}
+
+@test "a harmless MinIO comment is not treated as an automatic realm-role policy" {
+  printf '\n# for policy in offline_access; do\n' >> "$CTL/scripts/minio.sh"
+
+  run python3 "$CHECK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
 @test "pointing Grafana back at a retired role turns it red" {
   sed -i.bak "s/'platform-editor'/'editor'/" \
     "$CTL/deploy/compose/prod/docker-compose.observability.yml"
@@ -84,6 +105,15 @@ setup() {
   [[ "$output" == *"Grafana's role_attribute_path grants an org role to automatic role offline_access"* ]]
 }
 
+@test "a harmless Grafana comment is not treated as an automatic realm-role grant" {
+  printf "\n# contains(realm_access.roles[*], 'offline_access')\n" >> \
+    "$CTL/deploy/compose/prod/docker-compose.observability.yml"
+
+  run python3 "$CHECK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
 @test "pointing OpenBao's bound claim back at a retired role turns it red" {
   sed -i.bak 's/"realm_roles": \["platform-admin"\]/"realm_roles": ["admin"]/' "$CTL/scripts/vault.sh"
   rm -f "$CTL/scripts/vault.sh.bak"
@@ -100,6 +130,14 @@ setup() {
   run python3 "$CHECK"
   [ "$status" -eq 1 ]
   [[ "$output" == *"OpenBao's admin-sso role grants a vault policy to automatic role uma_authorization"* ]]
+}
+
+@test "a harmless OpenBao comment is not treated as an automatic realm-role grant" {
+  printf '\n# "realm_roles": ["uma_authorization"]\n' >> "$CTL/scripts/vault.sh"
+
+  run python3 "$CHECK"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
 }
 
 @test "listing a retired role in REALM_ROLES as well turns it red" {

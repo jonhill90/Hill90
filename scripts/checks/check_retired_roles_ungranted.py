@@ -89,6 +89,32 @@ def shell_default(path: Path, var: str) -> str | None:
     return m.group(1) if m else None
 
 
+def source_without_comments(text: str) -> str:
+    """Remove comments while preserving # characters inside quoted strings."""
+    lines: list[str] = []
+    for line in text.splitlines():
+        quote: str | None = None
+        escaped = False
+        for index, char in enumerate(line):
+            if escaped:
+                escaped = False
+                continue
+            if char == "\\" and quote != "'":
+                escaped = True
+                continue
+            if quote:
+                if char == quote:
+                    quote = None
+                continue
+            if char in "'\"":
+                quote = char
+            elif char == "#":
+                line = line[:index]
+                break
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def static_checks(retired: set[str]) -> list[str]:
     problems: list[str] = []
     realm = shell_default(KEYCLOAK, "KC_REALM")
@@ -104,9 +130,9 @@ def static_checks(retired: set[str]) -> list[str]:
     for r in both:
         problems.append(f"keycloak.sh lists {r} in REALM_ROLES and in REALM_ROLES_REMOVED — it would be created and deleted every run")
 
-    minio_txt = MINIO.read_text()
+    minio_txt = source_without_comments(MINIO.read_text())
     created_pol = set()
-    for m in re.finditer(r"for policy in ([^;]+); do", minio_txt):
+    for m in re.finditer(r"for\s+policy\s+in\s+([^;\n]+)\s*;\s*do\b", minio_txt):
         if "LEGACY" in m.group(1):
             continue
         created_pol |= {p for p in m.group(1).split() if not p.startswith("$")}
@@ -120,7 +146,7 @@ def static_checks(retired: set[str]) -> list[str]:
     for role in bad_automatic:
         problems.append(f"minio.sh creates policy {role}, an automatic realm role held by every realm member")
 
-    gtxt = GRAFANA.read_text()
+    gtxt = source_without_comments(GRAFANA.read_text())
     arms = set(re.findall(r"realm_access\.roles\[\*\],\s*'([^']+)'", gtxt))
     bad = sorted(retired & arms)
     bad_automatic = sorted(automatic & arms)
@@ -130,7 +156,7 @@ def static_checks(retired: set[str]) -> list[str]:
     for role in bad_automatic:
         problems.append(f"Grafana's role_attribute_path grants an org role to automatic role {role}, held by every realm member")
 
-    vtxt = VAULT.read_text()
+    vtxt = source_without_comments(VAULT.read_text())
     claims: set[str] = set()
     for m in re.finditer(r'"realm_roles":\s*\[([^\]]*)\]', vtxt):
         claims |= {c.strip().strip('"\'') for c in m.group(1).split(",") if c.strip()}
