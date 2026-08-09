@@ -11,6 +11,7 @@ import contextlib
 import difflib
 import fcntl
 import hashlib
+import json
 import os
 import re
 import sqlite3
@@ -129,6 +130,22 @@ class Ledger:
                     ON tasks(lane)
                     WHERE status NOT IN ('complete', 'failed', 'cancelled');
 
+                CREATE TABLE IF NOT EXISTS source_tasks (
+                    id TEXT PRIMARY KEY,
+                    source_kind TEXT NOT NULL CHECK (source_kind IN ('issue', 'pull')),
+                    source_url TEXT NOT NULL UNIQUE,
+                    source_ref TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    source_state TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK (
+                        status IN ('created', 'delivered', 'accepted', 'running',
+                                   'complete', 'failed', 'cancelled')
+                    ),
+                    evidence_json TEXT NOT NULL,
+                    status_marker TEXT,
+                    updated_at INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS events (
                     key TEXT PRIMARY KEY,
                     type TEXT NOT NULL,
@@ -218,6 +235,93 @@ class Ledger:
         with contextlib.closing(self._connect()) as connection:
             rows = connection.execute("SELECT * FROM tasks ORDER BY created_at, id").fetchall()
         return [self._dict(row) for row in rows]
+
+    @staticmethod
+    def _source_task_dict(row):
+        if row is None:
+            return None
+        value = dict(row)
+        value["task_id"] = value.pop("id")
+        value["evidence"] = json.loads(value.pop("evidence_json"))
+        value.pop("updated_at")
+        return value
+
+    def get_source_task(self, task_id):
+        with contextlib.closing(self._connect()) as connection:
+            row = connection.execute("SELECT * FROM source_tasks WHERE id = ?", (task_id,)).fetchone()
+        return self._source_task_dict(row)
+
+    def list_source_tasks(self):
+        with contextlib.closing(self._connect()) as connection:
+            rows = connection.execute("SELECT * FROM source_tasks ORDER BY id").fetchall()
+        return [self._source_task_dict(row) for row in rows]
+
+    def reconstruct_task(
+        self,
+        *,
+        task_id,
+        source_kind,
+        source_url,
+        source_ref,
+        summary,
+        source_state,
+        status,
+        evidence,
+        status_marker,
+    ):
+        """Replace one local source spool record with facts read from GitHub.
+
+        This intentionally has no lane or pane dependency: reconstruction must
+        work after the entire supervisor state directory has been recreated.
+        """
+        self._require_task_id(task_id)
+        if source_kind not in ("issue", "pull"):
+            raise ValueError("unsupported GitHub source kind")
+        if status not in ("created", "delivered", "accepted", "running", "complete", "failed", "cancelled"):
+            raise ValueError("unsupported source task status")
+        if not all(isinstance(value, str) and value for value in (source_url, source_ref, summary, source_state)):
+            raise ValueError("source task fields must be non-empty")
+        if not isinstance(evidence, list) or not all(isinstance(value, str) and value for value in evidence):
+            raise ValueError("source task evidence must be non-empty strings")
+        if status in TERMINAL_STATUSES and not evidence:
+            raise ValueError("terminal source task requires evidence")
+        if status_marker is not None and not isinstance(status_marker, str):
+            raise ValueError("source task status marker must be text")
+        now = int(self.clock())
+        encoded_evidence = json.dumps(evidence, sort_keys=True, separators=(",", ":"))
+        with self._locked(), self._transaction() as connection:
+            connection.execute(
+                """
+                INSERT INTO source_tasks(
+                    id, source_kind, source_url, source_ref, summary, source_state,
+                    status, evidence_json, status_marker, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    source_kind=excluded.source_kind,
+                    source_url=excluded.source_url,
+                    source_ref=excluded.source_ref,
+                    summary=excluded.summary,
+                    source_state=excluded.source_state,
+                    status=excluded.status,
+                    evidence_json=excluded.evidence_json,
+                    status_marker=excluded.status_marker,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    task_id,
+                    source_kind,
+                    source_url,
+                    source_ref,
+                    summary,
+                    source_state,
+                    status,
+                    encoded_evidence,
+                    status_marker,
+                    now,
+                ),
+            )
+            row = connection.execute("SELECT * FROM source_tasks WHERE id = ?", (task_id,)).fetchone()
+        return self._source_task_dict(row)
 
     def assign(self, *, task_id, lane, pane_nonce, summary):
         self._require_task_id(task_id)

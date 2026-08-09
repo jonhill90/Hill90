@@ -10,6 +10,7 @@ from pathlib import Path
 
 from adapter import TmuxAdapter
 from core import Ledger
+from github_source import GithubTaskSource
 from sensor import StateSensor
 from transport import TmuxTransport
 
@@ -67,6 +68,10 @@ def parser():
     ack = sub.add_parser("ack")
     ack.add_argument("--event", action="append", required=True)
     ack.add_argument("--architecture-lane", default="architecture")
+
+    reconstruct = sub.add_parser("reconstruct")
+    reconstruct.add_argument("--source-url", required=True)
+    reconstruct.add_argument("--source-ref", required=True)
 
     sub.add_parser("status")
     return root
@@ -169,8 +174,17 @@ def main(argv=None):
         _verify_caller(adapter, ledger, args.architecture_lane)
         ledger.ack(args.event)
         value = {"acked": args.event}
+    elif args.command == "reconstruct":
+        value = GithubTaskSource().reconstruct(
+            ledger, source_url=args.source_url, source_ref=args.source_ref
+        )
     elif args.command == "status":
-        value = {"lanes": ledger.list_lanes(), "tasks": ledger.list_tasks(), "events": ledger.list_events()}
+        value = {
+            "lanes": ledger.list_lanes(),
+            "source_tasks": ledger.list_source_tasks(),
+            "tasks": ledger.list_tasks(),
+            "events": ledger.list_events(),
+        }
     else:
         raise AssertionError(args.command)
     _print(value)

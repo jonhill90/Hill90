@@ -6,8 +6,10 @@ task database or normal result transport.
 
 ## Contract
 
-- SQLite provides one transactional task/event ledger under
-  `~/.local/state/hill90-supervisor` (mode `0700`).
+- GitHub Issues and pull requests are the canonical task ID, source, status,
+  and evidence records. SQLite under `~/.local/state/hill90-supervisor` is a
+  reconstructable delivery spool (mode `0700`), never the only completion
+  record.
 - A logical lane is bound to a physical tmux pane incarnation with a random
   nonce, tmux server/session identity, harness, command, and repository path.
 - A lane has at most one nonterminal task. The prompt contains the stable task
@@ -40,8 +42,12 @@ hill90-supervisor register --lane architecture --target %19 \
 hill90-supervisor register --lane infra-claude --target %8 \
   --harness claude --repo /Users/jon/source/repos/Personal/Hill90
 
-hill90-supervisor assign --lane infra-worker --task h-123-review \
-  --summary 'Review PR 123 at its exact head; do not edit or merge.'
+hill90-supervisor reconstruct \
+  --source-url https://github.com/jonhill90/Hill90/issues/42 \
+  --source-ref 0123456789abcdef0123456789abcdef01234567
+
+hill90-supervisor assign --lane infra-worker --task gh.jonhill90.Hill90.issue.42 \
+  --summary 'Review Issue 42 at its reconstructed immutable source ref.'
 
 hill90-supervisor tick
 hill90-supervisor status
@@ -50,6 +56,25 @@ hill90-supervisor status
 Workers run the task-bound `accept` and `complete` commands included in their
 brief. Architecture acknowledges accepted events explicitly. The periodic tick
 only observes registered lanes and delivers due ledger events.
+
+## GitHub task records
+
+An Issue or PR body declares exactly one source-bound task marker. It uses the
+canonical filesystem-safe ID `gh.<owner>.<repo>.issue.<number>` or
+`gh.<owner>.<repo>.pull.<number>`. Both the command and marker require the
+canonical GitHub URL and a full immutable commit SHA; pull requests must still
+point at that exact head SHA when read. Status changes are append-only GitHub
+comments with a deterministic marker; terminal statuses require at least one
+evidence value. The marker is compact, sorted JSON inside an HTML comment:
+
+```text
+<!-- hill90-supervisor:v1 {"kind":"task","source_ref":"<sha>","source_url":"<url>","task_id":"gh.owner.repo.issue.42"} -->
+<!-- hill90-supervisor:v1 {"evidence":["<evidence-url>"],"kind":"status","source_ref":"<sha>","source_url":"<url>","status":"complete","task_id":"gh.owner.repo.issue.42"} -->
+```
+
+`reconstruct` reads these records through `gh` and idempotently restores the
+local `source_tasks` spool, even into an empty state directory. It does not
+invent a tmux pane or dispatch work.
 
 ## Verification
 
