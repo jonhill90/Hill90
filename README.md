@@ -245,9 +245,10 @@ Internal Docker networks are `internal: true` and unreachable from outside.
 hostnames, DNS-01 for Tailscale-only ones. Security headers are enforced at
 Traefik, and the Traefik dashboard password hash comes from encrypted secrets.
 
-**Vault** — administrative access is token-based and services use AppRole. OpenBao
-has no OIDC auth method enabled; the platform Keycloak remains live and serves other
-platform and tenant clients. See
+**Vault** — administrative access is through Keycloak OIDC single sign-on or a token,
+and services use AppRole. `Verified 2026-08-03` by a completed authorization-code login:
+`jon` authenticates through realm `platform` and receives `policy-oidc-admin`. Reproduce
+with `bash scripts/checks/vault-oidc-login-test.sh`. See
 [Secrets architecture](docs/architecture/secrets-model.md).
 
 ## Troubleshooting
