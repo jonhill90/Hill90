@@ -205,6 +205,11 @@ class Ledger:
             rows = connection.execute("SELECT * FROM lanes ORDER BY lane").fetchall()
         return [self._dict(row) for row in rows]
 
+    def get_component(self, name):
+        with contextlib.closing(self._connect()) as connection:
+            row = connection.execute("SELECT * FROM components WHERE name = ?", (name,)).fetchone()
+        return self._dict(row)
+
     def get_task(self, task_id):
         with contextlib.closing(self._connect()) as connection:
             return self._dict(connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone())

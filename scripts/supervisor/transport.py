@@ -6,9 +6,13 @@ import subprocess
 import time
 
 
+TMUX_TIMEOUT_SECONDS = 10
+
+
 class TmuxTransport:
-    def __init__(self, tmux_bin="tmux"):
+    def __init__(self, tmux_bin="tmux", *, timeout=TMUX_TIMEOUT_SECONDS):
         self.tmux_bin = tmux_bin
+        self.timeout = timeout
 
     def _run(self, *args, check=True):
         return subprocess.run(
@@ -16,6 +20,7 @@ class TmuxTransport:
             check=check,
             capture_output=True,
             text=True,
+            timeout=self.timeout,
         )
 
     def metadata(self, target):

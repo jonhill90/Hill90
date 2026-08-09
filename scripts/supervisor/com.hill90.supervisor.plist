@@ -13,6 +13,12 @@
     <string>/opt/homebrew/bin/tmux</string>
     <string>tick</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd does not inherit an interactive Homebrew PATH. -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>StartInterval</key>

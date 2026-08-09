@@ -88,6 +88,14 @@ jobs:
       - name: Run bats tests
         run: bats tests/scripts/
 
+      # The supervisor owns task delivery and state-change notification; its
+      # unit tests are hermetic (fake tmux/GitHub subprocesses and temporary
+      # SQLite state) and must run in CI rather than only during local review.
+      - name: Run supervisor ledger tests
+        run: |
+          python3 -m unittest discover -s scripts/supervisor/tests -v
+          python3 -m py_compile scripts/supervisor/*.py
+
       - name: Validate compose files
         # Credentials that must never fall back to a default use ${VAR:?...},
         # so `config` refuses to render without them. That guard is deliberate:

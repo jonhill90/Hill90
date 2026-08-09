@@ -18,7 +18,8 @@ class FakeRunner:
         self.pr_state = "PENDING"
         self.fail_github = False
 
-    def __call__(self, command):
+    def __call__(self, command, *, timeout=None):
+        self.timeout = timeout
         if command[0] == "git":
             if "rev-parse" in command:
                 return self.head + "\n"
@@ -62,6 +63,37 @@ class SensorTest(unittest.TestCase):
         self.assertEqual([{"component": "github-Hill90", "error": "github unavailable"}], failed["errors"])
         component = self.ledger.record_component("github-Hill90", healthy=False, error="still unavailable")
         self.assertEqual(baseline["snapshot_sha256"], component["snapshot_sha256"])
+
+    def test_github_recovery_is_reported_without_losing_the_pre_failure_baseline(self):
+        self.sensor.collect_all()
+        self.runner.fail_github = True
+        failed = self.sensor.collect_all()
+        self.assertEqual([{"component": "github-Hill90", "error": "github unavailable"}], failed["errors"])
+
+        self.runner.head = "head-b"
+        self.runner.fail_github = False
+        recovered = self.sensor.collect_all()
+        self.assertEqual(
+            [{"component": "github-Hill90", "error": "github unavailable"}],
+            recovered["recoveries"],
+        )
+        self.assertEqual(2, len(recovered["events"]))
+        self.assertTrue(any(key.startswith("sensor:github-Hill90:") for key in recovered["events"]))
+        self.assertEqual(30, self.runner.timeout)
+
+    def test_github_recovery_is_visible_even_when_the_snapshot_is_unchanged(self):
+        self.sensor.collect_all()
+        self.runner.fail_github = True
+        self.sensor.collect_all()
+        self.runner.fail_github = False
+
+        recovered = self.sensor.collect_all()
+
+        self.assertEqual(
+            [{"component": "github-Hill90", "error": "github unavailable"}],
+            recovered["recoveries"],
+        )
+        self.assertEqual([], recovered["events"])
 
 
 if __name__ == "__main__":

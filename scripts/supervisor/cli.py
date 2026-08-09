@@ -57,6 +57,7 @@ def parser():
     tick.add_argument("--architecture-lane", default="architecture")
     tick.add_argument("--retry-after", type=int, default=900)
     tick.add_argument("--no-sensors", action="store_true")
+    tick.add_argument("--sensor-timeout", type=int, default=30)
 
     sub.add_parser("sensor")
 
@@ -118,31 +119,44 @@ def main(argv=None):
         value = {"notified": adapter.notify_architecture(lane=args.architecture_lane, retry_after=args.retry_after)}
     elif args.command == "tick":
         with ledger.operation_lock():
-            sensor_result = {"events": [], "errors": []}
+            sensor_result = {"events": [], "errors": [], "recoveries": []}
             if not args.no_sensors:
-                sensor_result = StateSensor(ledger, repositories=DEFAULT_REPOSITORIES).collect_all()
+                sensor_result = StateSensor(
+                    ledger, repositories=DEFAULT_REPOSITORIES, timeout=args.sensor_timeout
+                ).collect_all()
+            sensor_blockers = sorted(
+                error["component"] for error in sensor_result["errors"] if error["component"].startswith("github-")
+            )
+            if args.no_sensors:
+                sensor_blockers.append("github-sensor-disabled")
+            gated = bool(sensor_blockers)
             observations = []
             errors = []
-            for lane in ledger.list_lanes():
-                if lane["lane"] == args.architecture_lane:
-                    continue
+            notified = False
+            if not gated:
+                for lane in ledger.list_lanes():
+                    if lane["lane"] == args.architecture_lane:
+                        continue
+                    try:
+                        event = adapter.observe_lane(lane["lane"])
+                        if event is not None:
+                            observations.append(event["key"])
+                        ledger.record_component(f"lane:{lane['lane']}", snapshot=b"reachable", healthy=True)
+                    except Exception as error:  # a bad worker lane must not blind the others
+                        ledger.record_component(f"lane:{lane['lane']}", healthy=False, error=str(error))
+                        errors.append({"lane": lane["lane"], "error": str(error)})
                 try:
-                    event = adapter.observe_lane(lane["lane"])
-                    if event is not None:
-                        observations.append(event["key"])
-                    ledger.record_component(f"lane:{lane['lane']}", snapshot=b"reachable", healthy=True)
-                except Exception as error:  # a bad worker lane must not blind the others
-                    ledger.record_component(f"lane:{lane['lane']}", healthy=False, error=str(error))
-                    errors.append({"lane": lane["lane"], "error": str(error)})
-            try:
-                notified = adapter.notify_architecture(lane=args.architecture_lane, retry_after=args.retry_after)
-                ledger.record_component("architecture", snapshot=b"reachable", healthy=True)
-            except Exception as error:
-                ledger.record_component("architecture", healthy=False, error=str(error))
-                errors.append({"lane": args.architecture_lane, "error": str(error)})
-                notified = False
+                    notified = adapter.notify_architecture(lane=args.architecture_lane, retry_after=args.retry_after)
+                    ledger.record_component("architecture", snapshot=b"reachable", healthy=True)
+                except Exception as error:
+                    ledger.record_component("architecture", healthy=False, error=str(error))
+                    errors.append({"lane": args.architecture_lane, "error": str(error)})
+                    notified = False
         value = {
             "sensor_events": sensor_result["events"],
+            "sensor_recoveries": sensor_result["recoveries"],
+            "sensor_blockers": sensor_blockers,
+            "gated": gated,
             "observations": observations,
             "notified": notified,
             "errors": sensor_result["errors"] + errors,
