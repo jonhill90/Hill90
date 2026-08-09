@@ -459,6 +459,16 @@ cmd_service() {
         if ! docker exec postgres psql -U "$guard_user" -tAc 'SELECT 1' >/dev/null 2>&1; then
             die "Cannot deploy auth: cannot query postgres as '${guard_user}'. Deploy it first: bash scripts/deploy.sh db ${env}"
         fi
+
+        # `start --import-realm` only imports on a fresh Keycloak database.
+        # HILL90_UI_CLIENT_SECRET is deliberately optional on routine auth
+        # deploys, but it must be real before that first import. Run this while
+        # the database still describes the pre-deploy state, before the later
+        # compose down/up can start Keycloak and consume the realm template.
+        if ! sops exec-env "$secrets_file" \
+            "bash '$SCRIPT_DIR/checks/preflight-first-realm-import-secret.sh' '$guard_user' keycloak platform"; then
+            die "Cannot deploy auth: first-realm-import secret preflight failed."
+        fi
     fi
 
     # One-time migration: remove old-project containers that would collide

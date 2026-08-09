@@ -229,11 +229,13 @@ make deploy-auth
 `HILL90_UI_CLIENT_SECRET` must already be set in the secrets store. This is
 the ONE step in the whole rebuild where `start --import-realm` actually
 imports (a fresh Keycloak has no existing realm), and an unset value here
-installs a public, unsubstituted placeholder as the client secret fronting
-`hill90.com` — see the Prerequisites section for the full mechanism (h#809,
-h#835) and the automated check that now catches it
-(`verify_realm_secrets_substituted` in `scripts/keycloak.sh`, wired into
-`keycloak.sh apply`, which `deploy.sh auth` calls automatically).
+would install a public, unsubstituted placeholder as the client secret fronting
+`hill90.com`. `deploy.sh auth` now queries Postgres **before** it stops or
+starts Keycloak: if the `platform` realm is absent, its first-import preflight
+refuses an absent or literal-placeholder value; if the realm already exists,
+the check passes without this value so routine auth deploys remain valid. The
+existing `verify_realm_secrets_substituted` check in `scripts/keycloak.sh`
+remains the post-import defence-in-depth verification (h#809, h#835).
 
 **Result:**
 - ✅ Keycloak running, realm `platform` imported
