@@ -71,6 +71,10 @@ def _make_docker_stub(stub_dir: Path):
     script = f"""#!/usr/bin/env bash
 url="${{*: -1}}"
 case "$url" in
+  # The checker first probes `up` to establish that this represents live
+  # Prometheus data. Every selector-specific assertion below assumes that
+  # precondition, so this fixture must provide it explicitly.
+  *query=up*) echo '{fixture_body}' ;;
   *totally_fake_metric_h855*) echo '{EMPTY}' ;;
   *phantom*) echo '{EMPTY}' ;;
   *fixture_metric_h855*) echo '{fixture_body}' ;;

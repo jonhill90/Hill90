@@ -256,6 +256,11 @@ def main():
         print(f"CANNOT REACH PROMETHEUS: {err}")
         print("A check that cannot run must not report success. Exiting 1.")
         return 1
+    if not probe:
+        print("Prometheus up query returned no live series; refusing vacuous success")
+        print("A reachable endpoint without an up series cannot prove the")
+        print("subsequent selector results came from a live Prometheus. Exiting 1.")
+        return 1
 
     missing, stale_allowlist, absent_ok, checked = [], [], [], 0
     for group in doc.get("groups", []):
