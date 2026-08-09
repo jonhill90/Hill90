@@ -3,29 +3,37 @@
 Homelab infrastructure for a single Hostinger VPS: provisioning, edge routing,
 observability, and secrets — automated end to end.
 
-Hill90 is not an application host. It is the automation that takes a bare VPS to
-a running, TLS-terminated, observable, Tailscale-secured Docker host, and keeps
-it there. The [`hill90-app`](https://github.com/jonhill90/hill90-app) AI
-application runs on it as a **tenant**, consuming this platform's identity,
+Hill90 is not an application repository. It is the platform automation that takes
+a bare VPS to a running, TLS-terminated, observable, Tailscale-secured Docker
+host and keeps it there. The [`hill90-app`](https://github.com/jonhill90/hill90-app)
+AI application runs on that host as a **tenant**, consuming this platform's identity,
 database and object storage. What the platform offers a tenant, and what it does
 not, is in [App tenancy on the VPS](docs/decisions/app-tenancy-on-the-vps.md).
 
 ## What runs
 
-Nine containers across three stacks.
+Sixteen long-running platform containers across six independently deployable units,
+plus a one-shot `openbao-init` container that exits after initialization. Verified on
+the production host `2026-08-09 03:53:04 UTC`: all 16 platform containers and all 7
+tenant containers were running, and none of the 23 was unhealthy.
 
-| Stack | Containers | Deploy |
+| Deploy unit | Containers | Deploy |
 |---|---|---|
 | Edge | traefik, portainer | `deploy.sh infra prod` |
-| Observability | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor | `deploy.sh observability prod` |
+| Database | postgres, postgres-exporter | `deploy.sh db prod` |
+| Identity | keycloak | `deploy.sh auth prod` |
+| Object storage | minio | `deploy.sh minio prod` |
 | Secrets | openbao | `deploy.sh vault prod` |
+| Observability | prometheus, grafana, loki, tempo, promtail, node-exporter, cadvisor, alertmanager, blackbox-exporter | `deploy.sh observability prod` |
 
 | Service | URL | Access |
 |---|---|---|
 | Traefik | https://traefik.hill90.com | Tailscale only |
 | Portainer | https://portainer.hill90.com | Tailscale only |
 | Grafana | https://grafana.hill90.com | Tailscale only |
+| MinIO | https://storage.hill90.com | Tailscale only |
 | OpenBao | https://vault.hill90.com | Tailscale only |
+| Keycloak | https://auth.hill90.com | Public sign-in surface |
 
 Everything with a dashboard is Tailscale-only (`100.64.0.0/10`), enforced by a
 Traefik IP-allowlist middleware. Only ports 80 and 443 are open publicly.
@@ -39,8 +47,12 @@ Traefik IP-allowlist middleware. Only ports 80 and 443 are open publicly.
   - **DNS-01** via lego's built-in Cloudflare provider for Tailscale-only
     hostnames, whose A records point into the Tailscale range and so cannot be
     reached by an HTTP-01 validator
-- **Observability**: Prometheus, Grafana, Loki, Tempo, plus Promtail,
-  node-exporter and cAdvisor
+- **Identity**: one Keycloak, one live `platform` realm
+- **Data**: platform Postgres, including the tenant's three databases under a
+  dedicated non-superuser role
+- **Object storage**: platform MinIO, consumed by the tenant
+- **Observability**: Prometheus, Grafana, Loki, Tempo, Alertmanager and
+  blackbox-exporter, plus Promtail, node-exporter and cAdvisor
 - **Secrets**: OpenBao at runtime, SOPS/age for bootstrap and disaster recovery
 - **Admin access**: Tailscale VPN, SSH key only
 - **Provisioning**: Ansible playbooks, Hostinger API, Tailscale API
@@ -71,7 +83,9 @@ cd Hill90
 bash scripts/local.sh up
 ```
 
-Ten containers, roughly a minute, no secrets and no VPS. Then open
+The compose configuration defines the same 16 long-running platform services and
+the one-shot `openbao-init` service, with local overrides and throwaway credentials;
+it never touches the VPS. Then open
 http://grafana.localtest.me:8080/ (admin / admin).
 
 It runs the **same compose files production uses** — differences live in
@@ -102,9 +116,16 @@ Then, on the VPS:
 
 ```bash
 bash scripts/deploy.sh infra prod
+bash scripts/deploy.sh db prod
+bash scripts/deploy.sh auth prod
+bash scripts/deploy.sh minio prod
 bash scripts/deploy.sh vault prod
 bash scripts/deploy.sh observability prod
 bash scripts/deploy.sh verify infra
+bash scripts/deploy.sh verify db
+bash scripts/deploy.sh verify auth
+bash scripts/deploy.sh verify minio
+bash scripts/deploy.sh verify vault
 bash scripts/deploy.sh verify observability
 ```
 
@@ -124,8 +145,11 @@ script form directly. The full mapping is in [CONTRIBUTING.md](CONTRIBUTING.md).
 bash scripts/local.sh up    # the whole stack, locally
 
 make deploy-infra           # Traefik, Portainer
+make deploy-db              # PostgreSQL, postgres-exporter
+make deploy-auth            # Keycloak (after database)
+make deploy-minio           # Platform object storage
 make deploy-vault           # OpenBao
-make deploy-observability   # Prometheus, Grafana, Loki, Tempo + collectors
+make deploy-observability   # LGTM, alerting, probes + collectors
 
 make health                 # health check
 make ps                     # running containers
@@ -138,8 +162,11 @@ make dns-verify             # verify DNS propagation
 
 ## Secrets
 
-OpenBao is the runtime source of truth; SOPS/age is the bootstrap and
-disaster-recovery backup. Deploy is vault-first with SOPS fallback.
+The deploy code is vault-first with SOPS fallback. SOPS/age also provides the
+bootstrap and disaster-recovery store; OpenBao is the runtime secret service.
+Do not infer which source served a deploy from that design alone — the evidence
+and current credential gap are recorded in
+[Secrets architecture](docs/architecture/secrets-model.md).
 
 ```bash
 make secrets-view KEY=VPS_IP
@@ -170,7 +197,7 @@ Details: [Secrets architecture](docs/architecture/secrets-model.md) ·
 |---|---|---|
 | `ci.yml` | pull request | bats, pytest, shellcheck, compose validation, link and schema checks |
 | `deploy.yml` | push to `main` | path-filtered deploy of changed stacks |
-| `deploy-{infra,vault,observability}.yml` | manual | single-stack deploy |
+| `deploy-{infra,db,auth,minio,vault,observability}.yml` | manual | single-unit deploy |
 | `recreate-vps.yml`, `config-vps.yml` | manual | VPS lifecycle |
 | `vault-sync-to-sops.yml` | weekly + manual | sync vault back to the SOPS backup |
 | `tailscale.yml` | `policy.hujson` change | sync Tailscale ACLs |
@@ -192,7 +219,7 @@ Grafana at https://grafana.hill90.com carries dashboards for Traefik, cAdvisor,
 node-exporter and Loki logs.
 
 Alertmanager delivers alerts by **email**, to the address in `ACME_EMAIL`, through the
-SMTP account this estate already had. Eight rules; the two that matter most are
+SMTP account this estate already had. There are 29 rules in 10 groups; two central rules are
 `PublicSiteDown` (hill90.com not answering) and `VaultSealedOrUnreachable`. Every
 notification names the service, the host, and what to do first.
 
@@ -206,8 +233,10 @@ Runbook: [Observability](docs/runbooks/observability.md).
 
 ## Security
 
-**SSH** — root login disabled, password authentication disabled, key-based only,
-fail2ban enabled, reachable only over Tailscale.
+**SSH** — the repository intends root login disabled, password authentication
+disabled, key-based access, fail2ban, and reachability only over Tailscale. Do not
+read intended configuration as proof of live state: [#786](https://github.com/jonhill90/Hill90/issues/786)
+tracks measured drift in production's effective `PasswordAuthentication` setting.
 
 **Network** — firewall allows 80/443 publicly and SSH from Tailscale only.
 Internal Docker networks are `internal: true` and unreachable from outside.
@@ -216,8 +245,9 @@ Internal Docker networks are `internal: true` and unreachable from outside.
 hostnames, DNS-01 for Tailscale-only ones. Security headers are enforced at
 Traefik, and the Traefik dashboard password hash comes from encrypted secrets.
 
-**Vault** — access is token-based. There is no SSO; OIDC through Keycloak was
-removed with the Keycloak stack. See
+**Vault** — administrative access is token-based and services use AppRole. OpenBao
+has no OIDC auth method enabled; the platform Keycloak remains live and serves other
+platform and tenant clients. See
 [Secrets architecture](docs/architecture/secrets-model.md).
 
 ## Troubleshooting
