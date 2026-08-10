@@ -114,8 +114,8 @@ class Ledger:
                     pane_nonce TEXT NOT NULL,
                     summary TEXT NOT NULL,
                     status TEXT NOT NULL CHECK (
-                        status IN ('created', 'delivered', 'accepted', 'running',
-                                   'complete', 'failed', 'cancelled')
+                        status IN ('created', 'delivery_pending', 'delivered', 'accepted',
+                                   'running', 'complete', 'failed', 'cancelled')
                     ),
                     result_path TEXT,
                     result_sha256 TEXT,
@@ -370,8 +370,33 @@ class Ledger:
             row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         return self._dict(row)
 
+    def mark_delivery_pending(self, task_id, *, pane_nonce):
+        """Persist an ambiguous, non-resendable state before the physical send.
+
+        A task in this state has had delivery attempted but not confirmed. It
+        is deliberately not "delivered": nothing here trusts that the send
+        reached the pane, only that an attempt is now on record and cannot be
+        silently repeated.
+        """
+        return self._transition(task_id, pane_nonce, ("created",), "delivery_pending", "delivered_at")
+
     def mark_delivered(self, task_id, *, pane_nonce):
-        return self._transition(task_id, pane_nonce, ("created",), "delivered", "delivered_at")
+        return self._transition(task_id, pane_nonce, ("delivery_pending",), "delivered", "delivered_at")
+
+    def reconcile_delivery(self, task_id, *, pane_nonce, outcome):
+        """Resolve an ambiguous delivery by explicit human decision.
+
+        This is the only path out of `delivery_pending` other than the
+        adapter's own post-send confirmation. It exists for the case where
+        that confirmation itself failed or the operator inspected the pane
+        directly and reached a conclusion the ledger cannot infer on its own
+        from echoed terminal text.
+        """
+        if outcome == "delivered":
+            return self._transition(task_id, pane_nonce, ("delivery_pending",), "delivered", "delivered_at")
+        if outcome == "failed":
+            return self._transition(task_id, pane_nonce, ("delivery_pending",), "failed", "completed_at")
+        raise ValueError("reconciliation outcome must be 'delivered' or 'failed'")
 
     def accept(self, task_id, *, pane_nonce):
         return self._transition(task_id, pane_nonce, ("delivered",), "accepted", "accepted_at")

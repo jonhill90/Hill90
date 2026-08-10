@@ -94,6 +94,12 @@ class TmuxAdapter:
     def assign_task(self, *, lane, task_id, summary):
         with self.ledger.operation_lock():
             record = self._verified_lane(lane)
+            existing = self.ledger.get_task(task_id)
+            if existing is not None and existing["status"] == "delivery_pending":
+                raise RuntimeError(
+                    f"delivery already attempted for task {task_id} and is unconfirmed; "
+                    "reconcile the task before it can be assigned again"
+                )
             state = classify_capture(record["harness"], self.transport.capture(record["pane_id"], lines=25))
             if state != "idle":
                 raise RuntimeError(f"lane is {state}; assignment not sent")
@@ -114,11 +120,15 @@ class TmuxAdapter:
                 f"At completion write {result_file} and run: "
                 f"hill90-supervisor complete --task {task_id} --result-file {result_file}"
             )
+            # Persist the ambiguous, non-resendable state before the physical
+            # send. If send_literal raises, or the ledger write below fails,
+            # the task is left here rather than silently eligible for retry -
+            # see assign_task's guard above and mark_delivered's own allowed
+            # source state. Nothing after this point trusts echoed pane text
+            # to decide whether the send actually reached the harness.
+            self.ledger.mark_delivery_pending(task_id, pane_nonce=record["nonce"])
             self.transport.send_literal(record["pane_id"], prompt)
-            post_state = classify_capture(record["harness"], self.transport.capture(record["pane_id"], lines=25))
-            if post_state == "active":
-                return self.ledger.mark_delivered(task_id, pane_nonce=record["nonce"])
-            raise RuntimeError(f"task prompt was not accepted; lane is {post_state}")
+            return self.ledger.mark_delivered(task_id, pane_nonce=record["nonce"])
 
     def observe_lane(self, lane):
         record = self._verified_lane(lane)

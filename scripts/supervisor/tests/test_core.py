@@ -51,11 +51,44 @@ class LedgerTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outstanding task"):
             self.assign("review-871")
 
+        self.ledger.mark_delivery_pending("review-870", pane_nonce="nonce-22-a")
         self.ledger.mark_delivered("review-870", pane_nonce="nonce-22-a")
         accepted = self.ledger.accept("review-870", pane_nonce="nonce-22-a")
         self.assertEqual("accepted", accepted["status"])
         with self.assertRaisesRegex(ValueError, "pane incarnation"):
             self.ledger.accept("review-870", pane_nonce="reused-pane")
+
+    def test_delivery_pending_persists_before_send_and_blocks_direct_delivered(self):
+        self.assign()
+        with self.assertRaisesRegex(ValueError, "cannot transition"):
+            self.ledger.mark_delivered("review-870", pane_nonce="nonce-22-a")
+
+        pending = self.ledger.mark_delivery_pending("review-870", pane_nonce="nonce-22-a")
+        self.assertEqual("delivery_pending", pending["status"])
+        # Once ambiguous, it stays ambiguous until a transition names an outcome;
+        # a second delivery attempt cannot be represented as a fresh "created" task.
+        with self.assertRaisesRegex(ValueError, "outstanding task"):
+            self.assign("review-871")
+
+        delivered = self.ledger.mark_delivered("review-870", pane_nonce="nonce-22-a")
+        self.assertEqual("delivered", delivered["status"])
+
+    def test_reconcile_delivery_confirms_or_retires_an_ambiguous_task(self):
+        self.assign()
+        self.ledger.mark_delivery_pending("review-870", pane_nonce="nonce-22-a")
+        with self.assertRaisesRegex(ValueError, "outcome"):
+            self.ledger.reconcile_delivery("review-870", pane_nonce="nonce-22-a", outcome="bogus")
+
+        confirmed = self.ledger.reconcile_delivery("review-870", pane_nonce="nonce-22-a", outcome="delivered")
+        self.assertEqual("delivered", confirmed["status"])
+
+        self.ledger.cancel_open_task("app-review")
+        self.assign("review-871")
+        self.ledger.mark_delivery_pending("review-871", pane_nonce="nonce-22-a")
+        retired = self.ledger.reconcile_delivery("review-871", pane_nonce="nonce-22-a", outcome="failed")
+        self.assertEqual("failed", retired["status"])
+        # A retired ambiguous task frees the lane for a genuinely new assignment.
+        self.assign("review-872")
 
     def test_completion_is_immutable_idempotent_and_event_is_exactly_once(self):
         self.assign()
@@ -88,6 +121,7 @@ class LedgerTest(unittest.TestCase):
 
     def test_idle_attention_is_level_triggered_until_task_disposition(self):
         self.assign()
+        self.ledger.mark_delivery_pending("review-870", pane_nonce="nonce-22-a")
         self.ledger.mark_delivered("review-870", pane_nonce="nonce-22-a")
         self.ledger.accept("review-870", pane_nonce="nonce-22-a")
         event = self.ledger.observe_idle("app-review", pane_nonce="nonce-22-a")
