@@ -120,6 +120,38 @@ class AdapterTest(unittest.TestCase):
             self.adapter.assign_task(lane="architecture", task_id="wrong-pane", summary="Must not send")
         self.assertEqual([], self.transport.sends)
 
+    def test_ambiguous_send_persists_delivery_pending_and_blocks_automatic_resend(self):
+        def failing_send(target, payload):
+            self.transport.sends.append((target, payload))
+            raise RuntimeError("tmux send-keys timed out")
+
+        self.transport.send_literal = failing_send
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            self.adapter.assign_task(lane="architecture", task_id="flaky-task", summary="Ambiguous delivery")
+
+        task = self.ledger.get_task("flaky-task")
+        self.assertEqual("delivery_pending", task["status"])
+        self.assertEqual(1, len(self.transport.sends))
+
+        # A never-attempted task simply has no ledger row at all.
+        self.assertIsNone(self.ledger.get_task("never-attempted"))
+
+        # The same task id cannot be silently resent while unconfirmed.
+        with self.assertRaisesRegex(RuntimeError, "reconcile"):
+            self.adapter.assign_task(lane="architecture", task_id="flaky-task", summary="Ambiguous delivery")
+        self.assertEqual(1, len(self.transport.sends))
+
+        # A human, not echoed pane text, resolves the ambiguity.
+        reconciled = self.ledger.reconcile_delivery("flaky-task", pane_nonce="nonce-19", outcome="failed")
+        self.assertEqual("failed", reconciled["status"])
+
+    def test_successful_send_does_not_infer_delivery_from_echoed_prompt_text(self):
+        # Even though the pane echoes the sent prompt back into its own capture,
+        # assign_task must not use that capture to decide the task was delivered.
+        self.transport.panes["%19"]["after_send"] = "flaky terminal chrome, no active/idle marker\n"
+        task = self.adapter.assign_task(lane="architecture", task_id="quiet-task", summary="No echo needed")
+        self.assertEqual("delivered", task["status"])
+
     def test_one_hundred_unchanged_observations_send_nothing(self):
         for _ in range(100):
             self.assertIsNone(self.adapter.observe_lane("architecture"))

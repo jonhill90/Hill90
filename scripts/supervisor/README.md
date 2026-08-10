@@ -14,6 +14,15 @@ task database or normal result transport.
   nonce, tmux server/session identity, harness, command, and repository path.
 - A lane has at most one nonterminal task. The prompt contains the stable task
   ID and the commands that accept and complete that task.
+- Delivery is ambiguous the instant a send is attempted, not just when it
+  fails: `assign` persists `delivery_pending` before the physical tmux send,
+  and that task id cannot be automatically resent while it stays in that
+  state, whether the send raised or the ledger's own post-send write failed.
+  Nothing infers delivery from echoed pane text. A human resolves the
+  ambiguity with `hill90-supervisor reconcile --task <id> --outcome
+  {delivered,failed}` after inspecting the pane directly; `reconcile` is
+  deliberately not caller-verified because the pane it is reconciling may be
+  the very thing that is stuck.
 - Completion results are immutable, limited to 64 KiB, hashed, and published
   with a deterministic `completion:<task-id>` event in the same database
   transaction as the terminal task transition.
@@ -51,6 +60,9 @@ hill90-supervisor assign --lane infra-worker --task gh.jonhill90.Hill90.issue.42
 
 hill90-supervisor tick
 hill90-supervisor status
+
+# Only after inspecting a task stuck in delivery_pending directly:
+hill90-supervisor reconcile --task gh.jonhill90.Hill90.issue.42 --outcome delivered
 ```
 
 Workers run the task-bound `accept` and `complete` commands included in their

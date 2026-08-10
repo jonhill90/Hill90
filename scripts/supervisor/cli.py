@@ -47,6 +47,10 @@ def parser():
         if name == "complete":
             command.add_argument("--result-file", type=Path, required=True)
 
+    reconcile = sub.add_parser("reconcile")
+    reconcile.add_argument("--task", required=True)
+    reconcile.add_argument("--outcome", choices=("delivered", "failed"), required=True)
+
     observe = sub.add_parser("observe")
     observe.add_argument("--lane", action="append")
 
@@ -117,6 +121,18 @@ def main(argv=None):
             raise ValueError("unknown task")
         _verify_caller(adapter, ledger, task["lane"])
         value = ledger.complete(args.task, args.result_file.read_bytes())
+    elif args.command == "reconcile":
+        # Deliberately not caller-verified and deliberately not the lane's
+        # *current* nonce: this is the human-operator path for an ambiguous
+        # delivery, run from outside the (possibly stuck, dead, or since
+        # re-registered) pane after inspecting it directly. Authentication
+        # uses the task's own recorded pane_nonce from send time - see
+        # Ledger._reconcile_transition. It never infers its answer from tmux
+        # capture.
+        task = ledger.get_task(args.task)
+        if task is None:
+            raise ValueError("unknown task")
+        value = ledger.reconcile_delivery(args.task, pane_nonce=task["pane_nonce"], outcome=args.outcome)
     elif args.command == "observe":
         lanes = args.lane or [item["lane"] for item in ledger.list_lanes() if item["lane"] != "architecture"]
         value = [event for lane in lanes if (event := adapter.observe_lane(lane)) is not None]

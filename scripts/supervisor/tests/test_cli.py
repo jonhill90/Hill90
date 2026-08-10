@@ -60,6 +60,58 @@ class CliTest(unittest.TestCase):
             self.assertEqual([], adapter.observed)
             self.assertFalse(adapter.notified)
 
+    def test_reconcile_resolves_an_ambiguous_delivery_without_pane_capture(self):
+        with tempfile.TemporaryDirectory() as root:
+            ledger = Ledger(Path(root))
+            ledger.register_lane(
+                lane="architecture", pane_id="%19", nonce="nonce-19", harness="codex", repo="/repo",
+                server_id="server", session_id="$1", command="codex",
+            )
+            ledger.assign(task_id="flaky-task", lane="architecture", pane_nonce="nonce-19", summary="Ambiguous")
+            ledger.mark_delivery_pending("flaky-task", pane_nonce="nonce-19")
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(
+                    0,
+                    cli.main(
+                        ["--state-dir", root, "reconcile", "--task", "flaky-task", "--outcome", "delivered"]
+                    ),
+                )
+            value = json.loads(output.getvalue())
+            self.assertEqual("delivered", value["status"])
+            self.assertEqual("delivered", ledger.get_task("flaky-task")["status"])
+
+    def test_reconcile_survives_lane_re_registration_after_a_dead_pane(self):
+        with tempfile.TemporaryDirectory() as root:
+            ledger = Ledger(Path(root))
+            ledger.register_lane(
+                lane="architecture", pane_id="%19", nonce="nonce-dead", harness="codex", repo="/repo",
+                server_id="server", session_id="$1", command="codex",
+            )
+            ledger.assign(task_id="flaky-task", lane="architecture", pane_nonce="nonce-dead", summary="Ambiguous")
+            ledger.mark_delivery_pending("flaky-task", pane_nonce="nonce-dead")
+
+            # The pane died and was re-registered under a new tmux pane and nonce
+            # before a human got to reconcile the stuck delivery.
+            ledger.register_lane(
+                lane="architecture", pane_id="%25", nonce="nonce-reborn", harness="codex", repo="/repo",
+                server_id="server", session_id="$1", command="codex",
+            )
+            self.assertEqual("nonce-reborn", ledger.get_lane("architecture")["nonce"])
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(
+                    0,
+                    cli.main(
+                        ["--state-dir", root, "reconcile", "--task", "flaky-task", "--outcome", "delivered"]
+                    ),
+                )
+            value = json.loads(output.getvalue())
+            self.assertEqual("delivered", value["status"])
+            self.assertEqual("delivered", ledger.get_task("flaky-task")["status"])
+
     def test_tick_without_the_canonical_sensor_is_also_gated(self):
         with tempfile.TemporaryDirectory() as root:
             ledger = Ledger(Path(root))
