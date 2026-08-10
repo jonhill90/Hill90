@@ -27,7 +27,7 @@ MAX_RESULT_BYTES = 64 * 1024
 
 
 class Ledger:
-    def __init__(self, root: Path | str, *, clock=None):
+    def __init__(self, root: Path | str, *, clock=None, _migration_failpoint=None):
         self.root = Path(root)
         self.clock = clock or (lambda: int(time.time()))
         self.results_dir = self.root / "results"
@@ -47,11 +47,12 @@ class Ledger:
         os.chmod(self.lock_path, 0o600)
         self._lock_depth = 0
         self._initialize()
+        self._migrate_tasks_table(failpoint=_migration_failpoint)
 
-    def _connect(self):
+    def _connect(self, *, foreign_keys=True):
         connection = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(f"PRAGMA foreign_keys = {'ON' if foreign_keys else 'OFF'}")
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = FULL")
         return connection
@@ -121,6 +122,7 @@ class Ledger:
                     result_sha256 TEXT,
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
+                    delivery_attempted_at INTEGER,
                     delivered_at INTEGER,
                     accepted_at INTEGER,
                     completed_at INTEGER
@@ -168,6 +170,99 @@ class Ledger:
                 """
             )
         os.chmod(self.db_path, 0o600)
+
+    _TASKS_SCHEMA_MARKERS = ("delivery_pending", "delivery_attempted_at")
+
+    def _migrate_tasks_table(self, *, failpoint=None):
+        """Widen an existing `tasks` table to the current schema in place.
+
+        `CREATE TABLE IF NOT EXISTS` in `_initialize` never touches a table
+        that already exists, so a ledger created before `delivery_pending`
+        and `delivery_attempted_at` existed keeps its old CHECK constraint
+        and column set forever unless this runs. SQLite has no
+        `ALTER TABLE ... ALTER COLUMN` / `DROP CONSTRAINT`, so the only way
+        to widen a CHECK constraint is to rebuild the table.
+
+        Every row and the `one_open_task_per_lane` index are preserved. The
+        rebuild is one transaction: any failure mid-migration rolls back to
+        the original table, unmodified. Foreign key enforcement is turned
+        off only around this rebuild (it cannot be toggled mid-transaction)
+        because `events.task_id REFERENCES tasks(id)` would otherwise block
+        dropping the original table while rows still reference it; the
+        table this rebuild produces is named `tasks` again by the time this
+        returns, so that reference is satisfied exactly as before.
+        """
+        with self._locked():
+            with contextlib.closing(self._connect()) as probe:
+                existing = probe.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
+                ).fetchone()
+                if existing is None:
+                    return
+                if all(marker in existing["sql"] for marker in self._TASKS_SCHEMA_MARKERS):
+                    return
+                columns = {info["name"] for info in probe.execute("PRAGMA table_info(tasks)").fetchall()}
+            attempted_column = "delivery_attempted_at" if "delivery_attempted_at" in columns else "NULL"
+
+            connection = self._connect(foreign_keys=False)
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                try:
+                    connection.execute(
+                        """
+                        CREATE TABLE tasks_migrated (
+                            id TEXT PRIMARY KEY,
+                            lane TEXT NOT NULL REFERENCES lanes(lane),
+                            pane_nonce TEXT NOT NULL,
+                            summary TEXT NOT NULL,
+                            status TEXT NOT NULL CHECK (
+                                status IN ('created', 'delivery_pending', 'delivered', 'accepted',
+                                           'running', 'complete', 'failed', 'cancelled')
+                            ),
+                            result_path TEXT,
+                            result_sha256 TEXT,
+                            created_at INTEGER NOT NULL,
+                            updated_at INTEGER NOT NULL,
+                            delivery_attempted_at INTEGER,
+                            delivered_at INTEGER,
+                            accepted_at INTEGER,
+                            completed_at INTEGER
+                        )
+                        """
+                    )
+                    self._fail(failpoint, "after_create")
+                    connection.execute(
+                        f"""
+                        INSERT INTO tasks_migrated (
+                            id, lane, pane_nonce, summary, status, result_path, result_sha256,
+                            created_at, updated_at, delivery_attempted_at, delivered_at,
+                            accepted_at, completed_at
+                        )
+                        SELECT id, lane, pane_nonce, summary, status, result_path, result_sha256,
+                               created_at, updated_at, {attempted_column}, delivered_at,
+                               accepted_at, completed_at
+                        FROM tasks
+                        """
+                    )
+                    self._fail(failpoint, "after_copy")
+                    connection.execute("DROP TABLE tasks")
+                    self._fail(failpoint, "after_drop")
+                    connection.execute("ALTER TABLE tasks_migrated RENAME TO tasks")
+                    self._fail(failpoint, "after_rename")
+                    connection.execute(
+                        """
+                        CREATE UNIQUE INDEX IF NOT EXISTS one_open_task_per_lane
+                            ON tasks(lane)
+                            WHERE status NOT IN ('complete', 'failed', 'cancelled')
+                        """
+                    )
+                except BaseException:
+                    connection.rollback()
+                    raise
+                else:
+                    connection.commit()
+            finally:
+                connection.close()
 
     @staticmethod
     def _dict(row):
@@ -375,13 +470,45 @@ class Ledger:
 
         A task in this state has had delivery attempted but not confirmed. It
         is deliberately not "delivered": nothing here trusts that the send
-        reached the pane, only that an attempt is now on record and cannot be
-        silently repeated.
+        reached the pane, only that an attempt is now on record (in
+        `delivery_attempted_at`, not `delivered_at`) and cannot be silently
+        repeated. `delivered_at` stays null until delivery is genuinely
+        confirmed.
         """
-        return self._transition(task_id, pane_nonce, ("created",), "delivery_pending", "delivered_at")
+        return self._transition(task_id, pane_nonce, ("created",), "delivery_pending", "delivery_attempted_at")
 
     def mark_delivered(self, task_id, *, pane_nonce):
         return self._transition(task_id, pane_nonce, ("delivery_pending",), "delivered", "delivered_at")
+
+    def _reconcile_transition(self, task_id, pane_nonce, target, timestamp_column):
+        """Resolve a `delivery_pending` task without requiring the current lane.
+
+        Unlike `_transition`, this does not check the *lane's* current
+        nonce. Reconciliation exists precisely for the case where the pane
+        that received the ambiguous send is gone and its lane has since
+        been re-registered with a new nonce - requiring the current
+        incarnation here would make every stuck delivery permanently
+        unreconcilable. Authentication instead comes from the task's own
+        `pane_nonce`, recorded at send time: a caller who does not know it
+        cannot reconcile the wrong task by guessing.
+        """
+        now = int(self.clock())
+        with self._locked(), self._transaction() as connection:
+            row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if row is None:
+                raise ValueError("unknown task")
+            if row["pane_nonce"] != pane_nonce:
+                raise ValueError("pane incarnation does not match task")
+            if row["status"] == target:
+                return self._dict(row)
+            if row["status"] != "delivery_pending":
+                raise ValueError(f"cannot reconcile a {row['status']} task")
+            connection.execute(
+                f"UPDATE tasks SET status = ?, updated_at = ?, {timestamp_column} = ? WHERE id = ?",
+                (target, now, now, task_id),
+            )
+            row = connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        return self._dict(row)
 
     def reconcile_delivery(self, task_id, *, pane_nonce, outcome):
         """Resolve an ambiguous delivery by explicit human decision.
@@ -390,12 +517,14 @@ class Ledger:
         adapter's own post-send confirmation. It exists for the case where
         that confirmation itself failed or the operator inspected the pane
         directly and reached a conclusion the ledger cannot infer on its own
-        from echoed terminal text.
+        from echoed terminal text. It authenticates against the task's own
+        recorded pane_nonce, not the lane's current one - see
+        `_reconcile_transition`.
         """
         if outcome == "delivered":
-            return self._transition(task_id, pane_nonce, ("delivery_pending",), "delivered", "delivered_at")
+            return self._reconcile_transition(task_id, pane_nonce, "delivered", "delivered_at")
         if outcome == "failed":
-            return self._transition(task_id, pane_nonce, ("delivery_pending",), "failed", "completed_at")
+            return self._reconcile_transition(task_id, pane_nonce, "failed", "completed_at")
         raise ValueError("reconciliation outcome must be 'delivered' or 'failed'")
 
     def accept(self, task_id, *, pane_nonce):
