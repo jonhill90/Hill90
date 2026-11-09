@@ -57,7 +57,6 @@ MANAGED_RECORDS=(
     "vps:tailscale"
     "portainer:tailscale"
     "traefik:tailscale"
-    "grafana:tailscale"
     "vault:tailscale"
 )
 

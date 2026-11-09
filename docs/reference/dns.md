@@ -48,7 +48,7 @@ the SOPS-encrypted secrets file.
 
 ## What is managed, and what is not
 
-`scripts/cloudflare.sh` maintains exactly seven A records — the ones whose value
+`scripts/cloudflare.sh` maintains exactly six A records — the ones whose value
 changes when the VPS is rebuilt:
 
 | Record | Points at |
@@ -58,8 +58,11 @@ changes when the VPS is rebuilt:
 | `vps.hill90.com` | `TAILSCALE_IP` |
 | `portainer.hill90.com` | `TAILSCALE_IP` |
 | `traefik.hill90.com` | `TAILSCALE_IP` |
-| `grafana.hill90.com` | `TAILSCALE_IP` |
 | `vault.hill90.com` | `TAILSCALE_IP` |
+
+`grafana.hill90.com` left this set on 2026-11-09: the VPS is retired, and the name now
+belongs to the home lab's Grafana, which the lab answers through its own DNS. Its old
+Cloudflare record is deleted by hand, once; this script never deletes.
 
 `remote.hill90.com` matters more than the rest: public SSH is locked down, so
 that record on the Tailscale IP is the only way back into the box.

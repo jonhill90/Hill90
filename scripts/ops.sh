@@ -162,7 +162,7 @@ cmd_health() {
             echo ""
             echo "Expected Tailscale IP: $tailscale_ip"
             echo ""
-            local tailscale_domains=("portainer.hill90.com" "traefik.hill90.com" "grafana.hill90.com" "vault.hill90.com")
+            local tailscale_domains=("portainer.hill90.com" "traefik.hill90.com" "vault.hill90.com")
             for domain in "${tailscale_domains[@]}"; do
                 echo -n "Checking DNS for $domain... "
                 local resolved_ip

@@ -111,7 +111,7 @@
 @test "MANAGED_RECORDS covers the records a VPS rebuild changes" {
   # These are the names the old hostinger.sh dns_sync maintained. Dropping one
   # silently means that host stops resolving after a rebuild.
-  for name in "@" "remote" "vps" "portainer" "traefik" "grafana" "vault"; do
+  for name in "@" "remote" "vps" "portainer" "traefik" "vault"; do
     run bash -c "sed -n '/^MANAGED_RECORDS=(/,/^)\$/p' scripts/cloudflare.sh | grep -F '\"${name}:'"
     [ "$status" -eq 0 ]
   done
@@ -127,7 +127,7 @@
 @test "apex maps to the public IP and admin hosts map to Tailscale" {
   run bash -c "sed -n '/^MANAGED_RECORDS=(/,/^)\$/p' scripts/cloudflare.sh | grep -F '\"@:vps\"'"
   [ "$status" -eq 0 ]
-  for name in portainer traefik grafana vault; do
+  for name in portainer traefik vault; do
     run bash -c "sed -n '/^MANAGED_RECORDS=(/,/^)\$/p' scripts/cloudflare.sh | grep -F '\"${name}:tailscale\"'"
     [ "$status" -eq 0 ]
   done
@@ -206,7 +206,9 @@
 @test "MANAGED_RECORDS excludes app-era hostnames" {
   # These services are decommissioned or were never DNS-01 managed. A stale name
   # here would have the rebuild write records for hosts that no longer exist.
-  for name in api ai auth storage litellm openclaw admin; do
+  # grafana: the VPS is retired (owner, 2026-11-09) and grafana.hill90.com now
+  # belongs to the home lab's Grafana, answered by its own lab DNS.
+  for name in api ai auth storage litellm openclaw admin grafana; do
     run bash -c "sed -n '/^MANAGED_RECORDS=(/,/^)\$/p' scripts/cloudflare.sh | grep -F '\"${name}:'"
     [ "$status" -ne 0 ]
   done
